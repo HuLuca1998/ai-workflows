@@ -185,6 +185,7 @@ def suite_dry_run(api, report, workdir):
                                       "workdir": str(workdir)})
     labels = {c["label"]: c for c in result["checks"]}
     report.check("检查通过", result["ok"], json.dumps(result, ensure_ascii=False))
+    report.check("回传了实际会用的工作目录", bool(result.get("workdir")), str(result.get("workdir")))
     report.check("检查了图结构", "图结构" in labels)
     report.check("检查了工作目录", "工作目录" in labels)
     report.check("检查了脚本用到的解释器", "解释器 bash" in labels)
@@ -225,7 +226,7 @@ def suite_run_lifecycle(api, report, workdir):
     report.check("运行成功", status == "succeeded", f"实际 {status}")
 
     events = api.call("run_events", {"runId": run_id, "fromSeq": 0, "limit": 200})["events"]
-    kinds = [e["kind"] for e in events]
+    kinds = [e["type"] for e in events]
     report.check("seq 从 1 起连续无缺口",
                  [e["seq"] for e in events] == list(range(1, len(events) + 1)))
     for expected in ["run.created", "run.preflight_passed", "run.queued",
@@ -233,8 +234,8 @@ def suite_run_lifecycle(api, report, workdir):
         report.check(f"事件流含 {expected}", expected in kinds, str(kinds))
     for node in ["entry", "gen", "use", "done"]:
         report.check(f"{node} 有 started/succeeded 配对",
-                     any(e["kind"] == "node.started" and e.get("nodeId") == node for e in events)
-                     and any(e["kind"] == "node.succeeded" and e.get("nodeId") == node
+                     any(e["type"] == "node.started" and e.get("nodeId") == node for e in events)
+                     and any(e["type"] == "node.succeeded" and e.get("nodeId") == node
                              for e in events))
 
     # 真实副作用：下游拿到了上游的输出
@@ -268,7 +269,7 @@ def suite_approval(api, report, workdir):
 
     events = api.call("run_events", {"runId": run_id, "fromSeq": 0, "limit": 200})["events"]
     report.check("写了 approval.requested 事件",
-                 any(e["kind"] == "approval.requested" for e in events))
+                 any(e["type"] == "approval.requested" for e in events))
 
     api.call("approval_decide", {"runId": run_id, "nodeId": "ap", "decision": "approved"})
     status = wait_for(api, run_id, {"succeeded", "failed"})
@@ -276,7 +277,7 @@ def suite_approval(api, report, workdir):
     report.check("批准后下游真的执行了", (run_dir / "approved.txt").exists())
 
     events = api.call("run_events", {"runId": run_id, "fromSeq": 0, "limit": 200})["events"]
-    decided = [e for e in events if e["kind"] == "approval.decided"]
+    decided = [e for e in events if e["type"] == "approval.decided"]
     report.check("审批决定记了是谁做的",
                  len(decided) == 1 and decided[0]["actor"] == "user",
                  str(decided))
@@ -357,7 +358,7 @@ def suite_failure(api, report, workdir):
                  not (run_dir / "should-not-exist.txt").exists())
 
     events = api.call("run_events", {"runId": run_id, "fromSeq": 0, "limit": 200})["events"]
-    failed = [e for e in events if e["kind"] == "node.failed"]
+    failed = [e for e in events if e["type"] == "node.failed"]
     report.check("记录了是哪个节点失败", len(failed) == 1 and failed[0]["nodeId"] == "boom",
                  str(failed))
     report.check("失败摘要里有退出码",
@@ -409,7 +410,7 @@ def suite_models(api, report):
     print("\n▸ 模型登记")
     before = len(api.call("model_list", {"enabledOnly": False}))
     model_id = api.call("model_create", {
-        "name": "E2E 模型", "runtime": "acp_claude_code", "modelId": "claude-opus-5",
+        "name": "E2E 模型", "runtime": "acp.claude", "modelId": "claude-opus-5",
         "effort": "high", "contextWindow": 200000,
         "capabilities": ["结构化输出"], "credentialRef": "keychain://e2e", "enabled": True,
     })
@@ -422,7 +423,7 @@ def suite_models(api, report):
 
     try:
         api.call("model_create", {
-            "name": "明文", "runtime": "acp_codex", "modelId": "x", "effort": "low",
+            "name": "明文", "runtime": "acp.codex", "modelId": "x", "effort": "low",
             "contextWindow": 1000, "capabilities": [],
             "credentialRef": "sk-ant-plaintext-key", "enabled": True})
         report.check("明文密钥被拒绝", False, "居然写进去了")

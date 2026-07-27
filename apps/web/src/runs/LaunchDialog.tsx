@@ -36,6 +36,8 @@ interface Check {
 }
 
 interface DryRunReport {
+  /** 实际会用的工作目录，由引擎决定 —— 前端猜不出应用数据目录在哪。 */
+  workdir: string;
   checks: Check[];
   passed: number;
   failed: number;
@@ -74,7 +76,7 @@ export function LaunchDialog({
   useEffect(() => {
     let cancelled = false;
     void coreClient
-      .call('run.dryRun', { workflowId, ...target, workdir: workdir || defaultWorkdir() })
+      .call('run.dryRun', { workflowId, ...target, ...(workdir ? { workdir } : {}) })
       .then((result) => {
         if (!cancelled) setReport(result as DryRunReport);
       })
@@ -101,7 +103,7 @@ export function LaunchDialog({
         workflowId,
         ...target,
         inputs: values,
-        workdir: workdir || defaultWorkdir(),
+        ...(workdir ? { workdir } : {}),
       })) as { runId: string };
       onStarted(result.runId);
     } catch (err) {
@@ -193,7 +195,7 @@ export function LaunchDialog({
               className="launch__path"
               type="text"
               value={workdir}
-              placeholder={defaultWorkdir()}
+              placeholder={report?.workdir ?? '正在读取默认目录…'}
               aria-label="工作目录"
               onChange={(event) => setWorkdir(event.target.value)}
             />
@@ -271,10 +273,6 @@ function fieldsFromEntry(graph: WorkflowGraph): Field[] {
     required: required.has(key),
     defaultValue: spec.default === undefined ? '' : String(spec.default),
   }));
-}
-
-function defaultWorkdir(): string {
-  return '~/Library/Application Support/AI Workflows/runs';
 }
 
 function describe(error: unknown): string {

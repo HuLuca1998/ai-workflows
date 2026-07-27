@@ -102,12 +102,13 @@ fn run_start(
     version_id: Option<String>,
     draft_rev: Option<i64>,
     inputs_json: String,
-    workdir: String,
+    workdir: Option<String>,
 ) -> IpcResult<String> {
     let store = lock(&state)?;
     api::run_start(
         &store,
         &state.supervisor,
+        &state.data_dir,
         workflow_id,
         version_id,
         draft_rev,
@@ -122,10 +123,17 @@ fn run_dry_run(
     workflow_id: String,
     version_id: Option<String>,
     draft_rev: Option<i64>,
-    workdir: String,
-) -> IpcResult<aiwf_engine::preflight::DryRunReport> {
+    workdir: Option<String>,
+) -> IpcResult<api::DryRunDto> {
     let store = lock(&state)?;
-    api::run_dry_run(&store, workflow_id, version_id, draft_rev, workdir)
+    api::run_dry_run(
+        &store,
+        &state.data_dir,
+        workflow_id,
+        version_id,
+        draft_rev,
+        workdir,
+    )
 }
 
 #[tauri::command]
@@ -249,6 +257,8 @@ fn workflow_delete(state: State<'_, AppState>, id: String) -> IpcResult<()> {
 pub struct AppState {
     store: Mutex<Store>,
     supervisor: Supervisor,
+    /// 应用数据目录。运行目录、产物都落在它下面。
+    data_dir: PathBuf,
 }
 
 /// 回滚：把某个已发布版本的图写成**新的**草稿修订。
@@ -351,9 +361,13 @@ pub fn run() {
         .setup(|app| {
             let path = data_file(app.handle())?;
             let store = Store::open(&path)?;
+            let data_dir = path
+                .parent()
+                .map_or_else(std::env::temp_dir, std::path::Path::to_path_buf);
             app.manage(AppState {
                 store: Mutex::new(store),
                 supervisor: Supervisor::new(path),
+                data_dir,
             });
             build_tray(app.handle())?;
             Ok(())

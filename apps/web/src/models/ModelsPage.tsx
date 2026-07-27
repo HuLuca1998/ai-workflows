@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { AGENT_RUNTIMES, type Model } from '@aiwf/contracts';
 import { coreClient } from '../data/workspace.js';
 
 /**
@@ -10,31 +11,30 @@ import { coreClient } from '../data/workspace.js';
  *    留一个「显示明文」按钮，等于把密钥搬到截图与录屏里
  */
 
-interface Model {
-  id: string;
-  name: string;
-  runtime: string;
-  modelId: string;
-  effort: string;
-  contextWindow: number;
-  capabilities: string[];
-  credentialRef?: string;
-  enabled: boolean;
-  lastLatencyMs?: number;
-}
+/** 界面上多带一个「最近一次测试的延迟」，契约里它是可选的。 */
+type ModelRow = Model & { lastLatencyMs?: number };
 
-/** 接入方式的显示名。图纸左栏按这个分组。 */
-const RUNTIME_LABELS: Record<string, string> = {
-  acp_claude_code: 'Claude Code（ACP）',
-  acp_codex: 'Codex（ACP）',
-  openai_compatible: 'OpenAI 兼容端点',
-  local: '本地模型',
+/**
+ * 接入方式的显示名。图纸左栏按这个分组。
+ *
+ * 键直接取自契约的 AGENT_RUNTIMES —— 自己另写一套字符串的话，
+ * 界面发出去的值会被 Zod 挡在 Core API 门口，而症状只是「保存没反应」。
+ * 这个坑踩过一次（端到端测试抓到的）。
+ */
+const RUNTIME_LABELS: Record<(typeof AGENT_RUNTIMES)[number], string> = {
+  'acp.claude': 'Claude Code（ACP）',
+  'acp.codex': 'Codex（ACP）',
+  'provider.api': 'API 提供商',
 };
 
 const EFFORTS = ['minimal', 'low', 'medium', 'high'] as const;
 
+function runtimeLabel(runtime: string): string {
+  return RUNTIME_LABELS[runtime as (typeof AGENT_RUNTIMES)[number]] ?? runtime;
+}
+
 export function ModelsPage() {
-  const [items, setItems] = useState<Model[] | null>(null);
+  const [items, setItems] = useState<ModelRow[] | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -43,7 +43,7 @@ export function ModelsPage() {
   const load = async () => {
     try {
       const result = (await coreClient.call('model.list', { enabledOnly: false })) as {
-        items: Model[];
+        items: ModelRow[];
       };
       setItems(result.items);
     } catch (err) {
@@ -102,7 +102,7 @@ export function ModelsPage() {
           {grouped.map(([runtime, models]) => (
             <div key={runtime}>
               <p className="models__group">
-                <span>{RUNTIME_LABELS[runtime] ?? runtime}</span>
+                <span>{runtimeLabel(runtime)}</span>
                 <span className="runs__grow" />
                 <span>{models.length}</span>
               </p>
@@ -163,9 +163,7 @@ export function ModelsPage() {
                     {selected.enabled ? '已启用' : '已停用'}
                   </span>
                 </div>
-                <p className="models__detail-sub">
-                  {RUNTIME_LABELS[selected.runtime] ?? selected.runtime}
-                </p>
+                <p className="models__detail-sub">{runtimeLabel(selected.runtime)}</p>
               </div>
               <span className="runs__grow" />
               <button type="button" className="runs__action" onClick={() => void onToggle()}>
@@ -270,7 +268,7 @@ function Field({ label, value, mono }: { label: string; value: string; mono?: bo
 
 function ModelForm({ onCancel, onSaved }: { onCancel: () => void; onSaved: () => void }) {
   const [name, setName] = useState('');
-  const [runtime, setRuntime] = useState('acp_claude_code');
+  const [runtime, setRuntime] = useState<string>(AGENT_RUNTIMES[0]);
   const [modelId, setModelId] = useState('');
   const [effort, setEffort] = useState('medium');
   const [contextWindow, setContextWindow] = useState('');
@@ -379,8 +377,8 @@ function ModelForm({ onCancel, onSaved }: { onCancel: () => void; onSaved: () =>
 }
 
 /** 按接入方式分组，组内保持后端给的顺序（已按 runtime + name 排过）。 */
-function groupByRuntime(models: readonly Model[]): [string, Model[]][] {
-  const groups = new Map<string, Model[]>();
+function groupByRuntime(models: readonly ModelRow[]): [string, ModelRow[]][] {
+  const groups = new Map<string, ModelRow[]>();
   for (const model of models) {
     const bucket = groups.get(model.runtime) ?? [];
     bucket.push(model);

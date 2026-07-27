@@ -21,16 +21,20 @@ export interface RunSummary {
   endedAt?: string;
 }
 
+/** 字段名跟着契约的 RunEventSchema 走，不另起一套。 */
 export interface RunEvent {
   id: string;
+  runId: string;
   seq: number;
   ts: string;
-  kind: string;
+  type: string;
   nodeId?: string;
   attempt?: number;
   actor: string;
   summary: string;
-  sensitivity?: string;
+  payloadRef?: string;
+  sensitivity: string;
+  schemaVer: number;
 }
 
 /** 图纸左栏的筛选 chips。 */
@@ -122,10 +126,19 @@ export const useRuns = create<RunsState>((set, get) => ({
       })) as { events: RunEvent[]; nextSeq: number };
 
       if (page.events.length === 0) return;
-      set((state) => ({
-        events: [...state.events, ...page.events],
-        nextSeq: page.nextSeq,
-      }));
+
+      // 按 seq 去重：select() 与轮询可能同时在拉，两者都读到同一个
+      // fromSeq 就会把同一批事件追加两次 —— 界面上一条事件出现两遍。
+      // seq 在存储层唯一，去重是天然正确的做法
+      set((state) => {
+        const known = new Set(state.events.map((event) => event.seq));
+        const fresh = page.events.filter((event) => !known.has(event.seq));
+        if (fresh.length === 0) return state;
+        return {
+          events: [...state.events, ...fresh].sort((a, b) => a.seq - b.seq),
+          nextSeq: Math.max(state.nextSeq, page.nextSeq),
+        };
+      });
     } catch (error) {
       set({ error: describe(error) });
     }
@@ -185,7 +198,7 @@ export const useRuns = create<RunsState>((set, get) => ({
 
     for (const event of events) {
       if (!event.nodeId) continue;
-      switch (event.kind) {
+      switch (event.type) {
         case 'node.started':
           current = event.nodeId;
           break;

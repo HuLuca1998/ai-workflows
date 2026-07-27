@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import type { RunEvent } from '../src/runs/runsStore.js';
 
 /**
  * 执行记录的数据层。
@@ -13,6 +14,20 @@ vi.mock('../src/data/workspace.js', () => ({
 }));
 
 const { useRuns } = await import('../src/runs/runsStore.js');
+
+/** 一条合法的 RunEvent —— 契约要求 runId / sensitivity / schemaVer 都在。 */
+function event(overrides: Partial<RunEvent> & { seq: number; type: string }): RunEvent {
+  return {
+    id: `ev_${overrides.seq}`,
+    runId: 'run_1',
+    ts: '2026-07-27T10:00:00Z',
+    actor: 'engine',
+    summary: overrides.type,
+    sensitivity: 'internal',
+    schemaVer: 1,
+    ...overrides,
+  };
+}
 
 const RUN = {
   id: 'run_1',
@@ -87,7 +102,7 @@ describe('事件流', () => {
   it('选中运行会拉它的事件', async () => {
     call.mockResolvedValueOnce({
       events: [
-        { id: 'ev_1', seq: 1, ts: 't', kind: 'run.created', actor: 'engine', summary: '已创建' },
+        { id: 'ev_1', seq: 1, ts: 't', type: 'run.created', actor: 'engine', summary: '已创建' },
       ],
       nextSeq: 1,
       hasMore: false,
@@ -102,11 +117,11 @@ describe('事件流', () => {
   it('增量拉取从 nextSeq 开始，不重复读已有的部分', async () => {
     useRuns.setState({
       selectedId: 'run_1',
-      events: [{ id: 'ev_1', seq: 1, ts: 't', kind: 'run.created', actor: 'engine', summary: 'x' }],
+      events: [event({ seq: 1, type: 'run.created' })],
       nextSeq: 1,
     });
     call.mockResolvedValueOnce({
-      events: [{ id: 'ev_2', seq: 2, ts: 't', kind: 'run.started', actor: 'engine', summary: 'y' }],
+      events: [event({ seq: 2, type: 'run.started' })],
       nextSeq: 2,
       hasMore: false,
     });
@@ -119,7 +134,7 @@ describe('事件流', () => {
   it('切换运行会清空上一个运行的事件', async () => {
     useRuns.setState({
       selectedId: 'run_1',
-      events: [{ id: 'ev_1', seq: 9, ts: 't', kind: 'run.created', actor: 'engine', summary: 'x' }],
+      events: [event({ seq: 9, type: 'run.created' })],
       nextSeq: 9,
     });
     call.mockResolvedValueOnce({ events: [], nextSeq: 0, hasMore: false });
@@ -137,7 +152,7 @@ describe('从事件推出进度', () => {
       id: `ev_${index}`,
       seq: index + 1,
       ts: '2026-07-27T10:00:00Z',
-      kind,
+      type: kind,
       ...(nodeId ? { nodeId } : {}),
       actor: 'engine',
       summary: kind,
@@ -217,5 +232,105 @@ describe('操作', () => {
   it('没选中运行时审批不发请求', async () => {
     await useRuns.getState().decide('ap', 'approved');
     expect(call).not.toHaveBeenCalled();
+  });
+});
+
+describe('事件拉取的并发安全', () => {
+  it('同一批事件被拉两次也只进一份', async () => {
+    // select() 与轮询可能同时在拉，两者读到同一个 fromSeq。
+    // 症状是界面上一条事件出现两遍（浏览器端到端抓到的）
+    useRuns.setState({ selectedId: 'run_1', events: [], nextSeq: 0 });
+    const page = {
+      events: [
+        {
+          id: 'ev_1',
+          runId: 'run_1',
+          seq: 1,
+          ts: 't',
+          type: 'run.created',
+          actor: 'engine',
+          summary: 'x',
+          sensitivity: 'internal',
+          schemaVer: 1,
+        },
+        {
+          id: 'ev_2',
+          runId: 'run_1',
+          seq: 2,
+          ts: 't',
+          type: 'run.started',
+          actor: 'engine',
+          summary: 'y',
+          sensitivity: 'internal',
+          schemaVer: 1,
+        },
+      ],
+      nextSeq: 2,
+      hasMore: false,
+    };
+    call.mockResolvedValue(page);
+
+    await Promise.all([useRuns.getState().pollEvents(), useRuns.getState().pollEvents()]);
+
+    expect(useRuns.getState().events.map((e) => e.seq)).toEqual([1, 2]);
+  });
+
+  it('事件按 seq 排序，乱序返回也能正确显示', async () => {
+    useRuns.setState({ selectedId: 'run_1', events: [], nextSeq: 0 });
+    call.mockResolvedValue({
+      events: [
+        {
+          id: 'ev_2',
+          runId: 'run_1',
+          seq: 2,
+          ts: 't',
+          type: 'run.started',
+          actor: 'engine',
+          summary: 'y',
+          sensitivity: 'internal',
+          schemaVer: 1,
+        },
+        {
+          id: 'ev_1',
+          runId: 'run_1',
+          seq: 1,
+          ts: 't',
+          type: 'run.created',
+          actor: 'engine',
+          summary: 'x',
+          sensitivity: 'internal',
+          schemaVer: 1,
+        },
+      ],
+      nextSeq: 2,
+      hasMore: false,
+    });
+
+    await useRuns.getState().pollEvents();
+    expect(useRuns.getState().events.map((e) => e.seq)).toEqual([1, 2]);
+  });
+
+  it('游标只前进不后退，晚到的响应不会把它拉回去', async () => {
+    useRuns.setState({ selectedId: 'run_1', events: [], nextSeq: 5 });
+    call.mockResolvedValue({
+      events: [
+        {
+          id: 'ev_1',
+          runId: 'run_1',
+          seq: 1,
+          ts: 't',
+          type: 'run.created',
+          actor: 'engine',
+          summary: 'x',
+          sensitivity: 'internal',
+          schemaVer: 1,
+        },
+      ],
+      nextSeq: 1,
+      hasMore: false,
+    });
+
+    await useRuns.getState().pollEvents();
+    expect(useRuns.getState().nextSeq).toBe(5);
   });
 });

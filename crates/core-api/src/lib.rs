@@ -3,11 +3,56 @@
 //! 桌面壳（Tauri IPC）与开发用 HTTP 服务都调用这里的函数。
 //! 之所以抽出来，是因为两端各写一份的话，改了一处忘了另一处，
 //! 症状是「桌面版好用、Web 版数据不对」——这种漂移很难查。
+//!
+//! 所有 DTO 的 `Option` 字段都带 `skip_serializing_if`：
+//! Rust 的 `None` 序列化成 JSON `null`，而契约里 `.optional()` 只接受
+//! **字段不存在**，不接受 `null` —— 校验直接失败，症状是整页显示
+//! 「返回值不合契约」。JSON 里表达「没有这个值」的方式是字段缺席。
+//! 这个坑是浏览器端到端测试抓到的。
 
 use aiwf_engine::runner::RunRequest;
 use aiwf_engine::supervisor::Supervisor;
 use aiwf_store::Store;
 use serde::Serialize;
+
+/// Dry Run 结果 + 实际会用的工作目录。
+///
+/// 目录要回传给界面：默认路径只有引擎侧知道（应用数据目录），
+/// 让前端自己拼一个字符串的话，它拼出来的会是个不存在的路径 ——
+/// 于是「打开启动表单什么都不改就无法运行」。这个坑是浏览器端到端抓到的。
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DryRunDto {
+    pub workdir: String,
+    #[serde(flatten)]
+    pub report: aiwf_engine::preflight::DryRunReport,
+}
+
+/// 解析工作目录：留空用应用的默认运行目录，`~` 要展开。
+///
+/// 不展开 `~` 的话，用户手输一个看起来完全正常的路径，
+/// 引擎会去找一个名叫 `~` 的目录，报「不存在」——
+/// 而错误信息里那个路径看着是对的，没人会想到是波浪号的问题。
+///
+/// 默认目录**由这里创建**：那是引擎自己的地盘，第一次跑必然不存在，
+/// 让 Dry Run 报「目录不存在」等于要求用户先手动 mkdir 一个
+/// 他根本不知道在哪的路径。用户显式指定的目录是另一回事 ——
+/// 那种不存在就该报错，因为多半是打错了。
+fn resolve_workdir(workdir: Option<&str>, data_dir: &std::path::Path) -> std::path::PathBuf {
+    let raw = workdir.map(str::trim).filter(|dir| !dir.is_empty());
+    let Some(raw) = raw else {
+        let default = data_dir.join("runs");
+        let _ = std::fs::create_dir_all(&default);
+        return default;
+    };
+
+    if let Some(rest) = raw.strip_prefix("~/")
+        && let Some(home) = std::env::var_os("HOME")
+    {
+        return std::path::PathBuf::from(home).join(rest);
+    }
+    std::path::PathBuf::from(raw)
+}
 
 /// 传给界面的错误。形状与 `@aiwf/contracts` 的统一错误对象一致。
 #[derive(Debug, Serialize)]
@@ -91,24 +136,39 @@ pub struct RunSummary {
     workflow_name: String,
     status: String,
     inputs_json: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
     current_node: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     workdir: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     started_at: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     ended_at: Option<String>,
 }
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
+/// 字段名与契约的 `RunEventSchema` 严格对应。
+///
+/// 少一个 `runId` 或把 `type` 写成 `kind`，Zod 就会整页拒收 ——
+/// 症状是「事件流一条都不显示」，而运行本身明明成功了。
 pub struct RunEventDto {
     id: String,
+    run_id: String,
     seq: i64,
     ts: String,
+    #[serde(rename = "type")]
     kind: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
     node_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     attempt: Option<i64>,
     actor: String,
     summary: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    payload_ref: Option<String>,
     sensitivity: String,
+    schema_ver: i64,
 }
 
 #[derive(Serialize)]
@@ -129,8 +189,10 @@ pub struct ModelDto {
     effort: String,
     context_window: i64,
     capabilities: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     credential_ref: Option<String>,
     enabled: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
     last_latency_ms: Option<i64>,
 }
 
@@ -156,6 +218,7 @@ pub struct ArtifactsDto {
 pub struct WorkflowSummary {
     id: String,
     name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
     folder: Option<String>,
     updated_at: String,
 }
@@ -173,6 +236,7 @@ pub struct VersionMetaDto {
 pub struct WorkflowDetail {
     id: String,
     name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
     folder: Option<String>,
     created_at: String,
     updated_at: String,
@@ -289,18 +353,20 @@ pub fn model_delete(store: &Store, id: String) -> ApiResult<()> {
     Ok(())
 }
 
-#[allow(clippy::too_many_arguments)]
 /// 启动运行。preflight 与建 Run 同步做完（调用方立刻拿到 runId
 /// 或立刻知道图有问题），执行本身在后台线程。
+#[allow(clippy::too_many_arguments)]
 pub fn run_start(
     store: &Store,
     supervisor: &Supervisor,
+    data_dir: &std::path::Path,
     workflow_id: String,
     version_id: Option<String>,
     draft_rev: Option<i64>,
     inputs_json: String,
-    workdir: String,
+    workdir: Option<String>,
 ) -> ApiResult<String> {
+    let workdir = resolve_workdir(workdir.as_deref(), data_dir);
     let run_id = supervisor.start(
         store,
         RunRequest {
@@ -308,7 +374,7 @@ pub fn run_start(
             version_id,
             draft_rev,
             inputs_json,
-            workdir,
+            workdir: workdir.display().to_string(),
         },
     )?;
     Ok(run_id)
@@ -317,11 +383,13 @@ pub fn run_start(
 /// Dry Run 依赖检查。只读，不建 Run —— 启动表单打开时就调。
 pub fn run_dry_run(
     store: &Store,
+    data_dir: &std::path::Path,
     workflow_id: String,
     version_id: Option<String>,
     draft_rev: Option<i64>,
-    workdir: String,
-) -> ApiResult<aiwf_engine::preflight::DryRunReport> {
+    workdir: Option<String>,
+) -> ApiResult<DryRunDto> {
+    let workdir = resolve_workdir(workdir.as_deref(), data_dir);
     let graph_json = match version_id {
         Some(id) => store.get_version(&id)?.map(|v| v.graph_json),
         None => store.get_draft(&workflow_id, draft_rev.unwrap_or(0))?,
@@ -339,10 +407,10 @@ pub fn run_dry_run(
             retriable: false,
         })?;
 
-    Ok(aiwf_engine::preflight::dry_run(
-        &graph,
-        std::path::Path::new(&workdir),
-    ))
+    Ok(DryRunDto {
+        report: aiwf_engine::preflight::dry_run(&graph, &workdir),
+        workdir: workdir.display().to_string(),
+    })
 }
 
 pub fn run_list(
@@ -380,6 +448,7 @@ pub fn run_events(
             .into_iter()
             .map(|row| RunEventDto {
                 id: row.id,
+                run_id: row.run_id,
                 seq: row.seq,
                 ts: row.ts,
                 kind: row.kind,
@@ -387,7 +456,10 @@ pub fn run_events(
                 attempt: row.attempt,
                 actor: row.actor,
                 summary: row.summary,
+                payload_ref: row.payload_ref,
                 sensitivity: row.sensitivity,
+                // 事件的 schema 版本目前只有 1；契约要求这个字段必填
+                schema_ver: 1,
             })
             .collect(),
         next_seq,

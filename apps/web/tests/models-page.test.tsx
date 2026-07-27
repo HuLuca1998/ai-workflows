@@ -10,17 +10,21 @@ import userEvent from '@testing-library/user-event';
  * 2. 凭据只显示 keychain:// 引用，界面上不存在查看明文的路径
  */
 
+// 走契约校验的替身：界面发出不合契约的 payload 时这里就会失败，
+// 而不是等到真实运行时被 Core API 挡下来
 const call = vi.fn();
 vi.mock('../src/data/workspace.js', () => ({
   coreClient: { call: (method: string, input: unknown) => call(method, input) },
 }));
+
+const { createContractCall } = await import('./_contractClient.js');
 
 const { ModelsPage } = await import('../src/models/ModelsPage.js');
 
 const MODEL = {
   id: 'model_1',
   name: 'Opus 5 · high',
-  runtime: 'acp_claude_code',
+  runtime: 'acp.claude',
   modelId: 'claude-opus-5',
   effort: 'high',
   contextWindow: 200000,
@@ -30,17 +34,30 @@ const MODEL = {
   lastLatencyMs: 342,
 };
 
+/** 按方法给返回值，入参一律先过契约。 */
+function respond(handlers: Record<string, (input: unknown) => unknown>) {
+  const checked = createContractCall(handlers);
+  call.mockImplementation((method: string, input: unknown) => checked(method, input));
+}
+
 beforeEach(() => {
   call.mockReset();
-  call.mockResolvedValue({ items: [MODEL] });
+  respond({
+    'model.list': () => ({ items: [MODEL] }),
+    'model.create': () => ({ id: 'model_new' }),
+    'model.update': () => ({ ok: true }),
+    'model.delete': () => ({ ok: true }),
+  });
 });
 
 const view = () => render(<ModelsPage />);
 
 describe('模型列表', () => {
   it('按接入方式分组显示', async () => {
-    call.mockResolvedValue({
-      items: [MODEL, { ...MODEL, id: 'model_2', name: 'Codex', runtime: 'acp_codex' }],
+    respond({
+      'model.list': () => ({
+        items: [MODEL, { ...MODEL, id: 'model_2', name: 'Codex', runtime: 'acp.codex' }],
+      }),
     });
     view();
     expect(await screen.findByText('Claude Code（ACP）')).toBeTruthy();
@@ -57,14 +74,14 @@ describe('模型列表', () => {
   });
 
   it('一个模型都没有时说明要先登记，并解释 ACP 为什么不自动发现', async () => {
-    call.mockResolvedValue({ items: [] });
+    respond({ 'model.list': () => ({ items: [] }) });
     view();
     expect(await screen.findByText(/还没有登记模型/u)).toBeTruthy();
     expect(screen.getByText(/ACP 握手不返回模型列表/u)).toBeTruthy();
   });
 
   it('停用的条目在列表里标出来', async () => {
-    call.mockResolvedValue({ items: [{ ...MODEL, enabled: false }] });
+    respond({ 'model.list': () => ({ items: [{ ...MODEL, enabled: false }] }) });
     view();
     const item = await screen.findByRole('button', { name: /Opus 5/u });
     expect(item.textContent).toContain('已停用');
@@ -99,7 +116,7 @@ describe('模型详情', () => {
   });
 
   it('从未测过时不显示假的延迟数字', async () => {
-    call.mockResolvedValue({ items: [{ ...MODEL, lastLatencyMs: undefined }] });
+    respond({ 'model.list': () => ({ items: [{ ...MODEL, lastLatencyMs: undefined }] }) });
     const user = userEvent.setup();
     view();
     await user.click(await screen.findByRole('button', { name: /Opus 5/u }));

@@ -115,3 +115,37 @@ fn 核心_api_方法清单包含写入口() {
         assert!(methods.contains(required), "契约缺少方法 {required}");
     }
 }
+
+#[test]
+fn 接入方式枚举与契约一致() {
+    // 契约（packages/contracts/src/domain.ts 的 AGENT_RUNTIMES）是单一真源。
+    // Rust 侧这份镜像脱离它的话，界面能存的值存储层会拒绝，反之亦然。
+    let contracts = std::fs::read_to_string(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|p| p.parent())
+            .expect("仓库根")
+            .join("packages/contracts/src/domain.ts"),
+    )
+    .expect("读不到契约源");
+
+    let line = contracts
+        .lines()
+        .find(|line| line.contains("export const AGENT_RUNTIMES"))
+        .expect("契约里找不到 AGENT_RUNTIMES");
+
+    for runtime in aiwf_store::AGENT_RUNTIMES {
+        assert!(
+            line.contains(&format!("'{runtime}'")),
+            "Rust 侧有 {runtime}，契约里没有：{line}"
+        );
+    }
+
+    let count = line.matches('\'').count() / 2;
+    assert_eq!(
+        count,
+        aiwf_store::AGENT_RUNTIMES.len(),
+        "两侧数量不一致：契约 {count} 个，Rust {} 个",
+        aiwf_store::AGENT_RUNTIMES.len()
+    );
+}

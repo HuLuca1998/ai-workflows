@@ -16,6 +16,7 @@ pub fn dispatch(
     input: &Value,
     store: &Mutex<Store>,
     supervisor: &Supervisor,
+    data_dir: &std::path::Path,
 ) -> ApiResult<Value> {
     let store = store.lock().map_err(|_| ApiError {
         code: "INTERNAL".to_string(),
@@ -52,18 +53,20 @@ pub fn dispatch(
         "run_start" => to_value(api::run_start(
             &store,
             supervisor,
+            data_dir,
             string(input, "workflowId")?,
             opt_string(input, "versionId"),
             opt_int(input, "draftRev"),
             string(input, "inputsJson")?,
-            string(input, "workdir")?,
+            opt_string(input, "workdir"),
         )?),
         "run_dry_run" => to_value(api::run_dry_run(
             &store,
+            data_dir,
             string(input, "workflowId")?,
             opt_string(input, "versionId"),
             opt_int(input, "draftRev"),
-            string(input, "workdir")?,
+            opt_string(input, "workdir"),
         )?),
         "run_list" => to_value(api::run_list(
             &store,

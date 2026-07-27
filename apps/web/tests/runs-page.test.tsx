@@ -114,7 +114,7 @@ describe('中栏 · 节点进度', () => {
           id: 'e1',
           seq: 1,
           ts: 't',
-          kind: 'node.succeeded',
+          type: 'node.succeeded',
           nodeId: 'a',
           actor: 'engine',
           summary: 'a',
@@ -123,7 +123,7 @@ describe('中栏 · 节点进度', () => {
           id: 'e2',
           seq: 2,
           ts: 't',
-          kind: 'node.started',
+          type: 'node.started',
           nodeId: 'b',
           actor: 'engine',
           summary: 'b',
@@ -168,7 +168,7 @@ describe('右栏 · 运行详情', () => {
           id: 'e1',
           seq: 1,
           ts: '2026-07-27T10:00:00Z',
-          kind: 'run.created',
+          type: 'run.created',
           actor: 'engine',
           summary: '运行已创建',
         },
@@ -176,7 +176,7 @@ describe('右栏 · 运行详情', () => {
           id: 'e2',
           seq: 2,
           ts: '2026-07-27T10:00:01Z',
-          kind: 'node.started',
+          type: 'node.started',
           nodeId: 'fix',
           actor: 'engine',
           summary: '修复 开始',
@@ -205,7 +205,7 @@ describe('右栏 · 运行详情', () => {
           id: 'e1',
           seq: 1,
           ts: 't',
-          kind: 'node.failed',
+          type: 'node.failed',
           nodeId: '解析日志',
           actor: 'engine',
           summary: 'exitCode 124',
@@ -254,7 +254,7 @@ describe('操作', () => {
           id: 'e1',
           seq: 1,
           ts: 't',
-          kind: 'approval.requested',
+          type: 'approval.requested',
           nodeId: 'ap',
           actor: 'engine',
           summary: '选择修复方案',
@@ -318,5 +318,71 @@ describe('产物 tab', () => {
 
     expect(await screen.findByText(/这次运行还没有产物/u)).toBeTruthy();
     expect(screen.getByText('/tmp/runs/run_1')).toBeTruthy();
+  });
+});
+
+describe('审批面板认得出待决定的节点', () => {
+  /** 挂载时的 load() 会拉列表；不给它正确的返回值，选中的运行会被清掉。 */
+  function keepWaitingRun() {
+    call.mockImplementation((method: string) => {
+      if (method === 'run.list')
+        return Promise.resolve({ items: [{ ...RUN, status: 'waiting_approval' }] });
+      return Promise.resolve({ events: [], nextSeq: 0, hasMore: false });
+    });
+  }
+
+  const approvalEvents = [
+    {
+      id: 'e1',
+      runId: 'run_1',
+      seq: 1,
+      ts: 't',
+      type: 'approval.requested',
+      nodeId: 'ap',
+      actor: 'engine',
+      summary: '选择修复方案',
+      sensitivity: 'internal',
+      schemaVer: 1,
+    },
+  ];
+
+  it('审批面板标题显示的是请求里的说明，不是空白', () => {
+    keepWaitingRun();
+    reset({
+      items: [{ ...RUN, status: 'waiting_approval' }] as never,
+      selectedId: 'run_1',
+      events: approvalEvents as never,
+    });
+    view();
+    // 事件流里也有这段文本，所以按面板标题的角色定位
+    const title = document.querySelector('.runs__approval-title');
+    expect(title?.textContent).toContain('选择修复方案');
+  });
+
+  it('已决定过的审批不再显示决定入口', () => {
+    keepWaitingRun();
+    reset({
+      items: [{ ...RUN, status: 'waiting_approval' }] as never,
+      selectedId: 'run_1',
+      events: [
+        ...approvalEvents,
+        {
+          id: 'e2',
+          runId: 'run_1',
+          seq: 2,
+          ts: 't',
+          type: 'approval.decided',
+          nodeId: 'ap',
+          actor: 'user',
+          summary: '决定：approved',
+          sensitivity: 'internal',
+          schemaVer: 1,
+        },
+      ] as never,
+    });
+    view();
+    // 面板还在（状态仍是 waiting_approval），但已经找不到未决定的节点
+    const title = document.querySelector('.runs__approval-title');
+    expect(title?.textContent).not.toContain('选择修复方案');
   });
 });

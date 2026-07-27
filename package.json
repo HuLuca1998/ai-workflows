@@ -26,7 +26,9 @@
     "rs:fmt:check": "PATH=\"$HOME/.cargo/bin:$PATH\" cargo fmt --all -- --check",
     "verify": "pnpm format:check && pnpm lint && pnpm typecheck && pnpm test && pnpm contracts:check && pnpm rs:fmt:check && pnpm rs:lint && pnpm rs:test",
     "dev:server": "cargo run -q -p aiwf-devserver --",
-    "dev:full": "VITE_AIWF_SERVER=http://127.0.0.1:5177 pnpm dev"
+    "dev:full": "VITE_AIWF_SERVER=http://127.0.0.1:5177 pnpm dev",
+    "test:e2e": "playwright test",
+    "test:e2e:api": "python3 tests/e2e/api_e2e.py"
   },
   "devDependencies": {
     "@playwright/test": "^1.62.0",

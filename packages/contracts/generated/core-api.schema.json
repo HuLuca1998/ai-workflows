@@ -1829,8 +1829,7 @@
           "additionalProperties": {}
         },
         "workdir": {
-          "type": "string",
-          "minLength": 1
+          "type": "string"
         },
         "dryRun": {
           "default": false,
@@ -1838,8 +1837,7 @@
         }
       },
       "required": [
-        "workflowId",
-        "workdir"
+        "workflowId"
       ]
     },
     "output": {
@@ -1879,19 +1877,20 @@
           "maximum": 9007199254740991
         },
         "workdir": {
-          "type": "string",
-          "minLength": 1
+          "type": "string"
         }
       },
       "required": [
-        "workflowId",
-        "workdir"
+        "workflowId"
       ]
     },
     "output": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "type": "object",
       "properties": {
+        "workdir": {
+          "type": "string"
+        },
         "checks": {
           "type": "array",
           "items": {
@@ -1933,6 +1932,7 @@
         }
       },
       "required": [
+        "workdir",
         "checks",
         "passed",
         "failed",

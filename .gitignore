@@ -40,3 +40,7 @@ scratch/
 
 # Tauri 生成物（权限 schema 由 build script 产出）
 apps/desktop/src-tauri/gen/
+
+# 端到端测试产物
+/test-results/
+/docs/testing/playwright-report/

@@ -81,3 +81,36 @@ fn 命令表覆盖四个领域() {
         );
     }
 }
+
+#[test]
+fn 每个_dto_的_option_字段都跳过_null_序列化() {
+    // Rust 的 None 会变成 JSON null，而契约里 .optional() 只接受字段缺席。
+    // 漏一个字段的症状是整页「返回值不合契约」——而这只在真实跑起来时才出现，
+    // 单元测试构造的 DTO 不经过 Zod。
+    let source = read("crates/core-api/src/lib.rs");
+
+    let mut in_struct = false;
+    let mut previous = "";
+    let mut offenders = Vec::new();
+
+    for line in source.lines() {
+        if line.starts_with("pub struct ") && line.ends_with('{') {
+            in_struct = true;
+        } else if in_struct && line == "}" {
+            in_struct = false;
+        } else if in_struct
+            && line.starts_with("    ")
+            && line.contains(": Option<")
+            && !previous.contains("skip_serializing_if")
+        {
+            offenders.push(line.trim().to_string());
+        }
+        previous = line;
+    }
+
+    assert!(
+        offenders.is_empty(),
+        "这些 Option 字段缺少 #[serde(skip_serializing_if = \"Option::is_none\")]：\n{}",
+        offenders.join("\n")
+    );
+}

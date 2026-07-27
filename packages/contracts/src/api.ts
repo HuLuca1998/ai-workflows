@@ -190,7 +190,8 @@ const SPECS = {
         versionId: z.string().min(1).optional(),
         draftRev: z.number().int().min(0).optional(),
         inputs: z.record(z.string(), z.unknown()).default({}),
-        workdir: z.string().min(1),
+        /** 留空表示用应用的默认运行目录 —— 那个路径只有引擎侧知道。 */
+        workdir: z.string().optional(),
         dryRun: z.boolean().default(false),
       })
       // 必须说清跑的是哪一份定义：已发布版本或草稿修订，二选一
@@ -211,12 +212,14 @@ const SPECS = {
         workflowId: z.string().min(1),
         versionId: z.string().min(1).optional(),
         draftRev: z.number().int().min(0).optional(),
-        workdir: z.string().min(1),
+        workdir: z.string().optional(),
       })
       .refine((v) => (v.versionId === undefined) !== (v.draftRev === undefined), {
         message: 'versionId 与 draftRev 必须且只能提供一个',
       }),
     output: z.object({
+      /** 实际会用的工作目录。留空时由引擎决定，界面据此显示。 */
+      workdir: z.string(),
       checks: z.array(
         z.object({
           label: z.string(),

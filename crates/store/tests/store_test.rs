@@ -508,7 +508,7 @@ fn 读不存在的运行返回_none_而不是报错() {
 fn model(name: &str) -> NewModel {
     NewModel {
         name: name.to_string(),
-        runtime: "acp_claude_code".to_string(),
+        runtime: "acp.claude".to_string(),
         model_id: "claude-opus-5".to_string(),
         effort: "high".to_string(),
         context_window: 200_000,
@@ -625,7 +625,7 @@ fn 模型按接入方式分组_列表顺序稳定() {
     // 图纸左栏按 runtime 分组显示，顺序跳来跳去会让人找不到刚建的那条
     let store = Store::open_in_memory().unwrap();
     let mut codex = model("Codex 条目");
-    codex.runtime = "acp_codex".to_string();
+    codex.runtime = "acp.codex".to_string();
     store.create_model(&codex).unwrap();
     store.create_model(&model("Claude 条目")).unwrap();
 
@@ -636,7 +636,7 @@ fn 模型按接入方式分组_列表顺序稳定() {
         second.iter().map(|m| &m.id).collect::<Vec<_>>()
     );
     // 同一 runtime 的排在一起
-    assert_eq!(first[0].runtime, "acp_claude_code");
+    assert_eq!(first[0].runtime, "acp.claude");
 }
 
 #[test]
@@ -753,4 +753,31 @@ fn 显式设置状态能把失败的运行改回运行中_恢复要用() {
     store.set_run_status(&run, "failed", None).unwrap();
     store.set_run_status(&run, "running", None).unwrap();
     assert_eq!(store.run_status(&run).unwrap().as_deref(), Some("running"));
+}
+
+#[test]
+fn 不认识的接入方式被拒绝() {
+    // 契约里 runtime 是枚举。存储层也要拦一道：
+    // 绕过界面直接调 Core API 的路径（MCP、脚本）同样不该写进脏数据。
+    // 这个坑踩过一次 —— 界面用了自造的 runtime 字符串，
+    // 前端组件测试因为 mock 掉了校验而全绿，端到端才抓到。
+    let store = Store::open_in_memory().unwrap();
+    let mut bad = model("野路子");
+    bad.runtime = "acp_claude_code".to_string();
+
+    let error = store.create_model(&bad).unwrap_err().to_string();
+    assert!(error.contains("acp.claude"), "错误信息实际：{error}");
+}
+
+#[test]
+fn 契约里的每一种接入方式都能登记() {
+    let store = Store::open_in_memory().unwrap();
+    for runtime in ["acp.claude", "acp.codex", "provider.api"] {
+        let mut entry = model(runtime);
+        entry.runtime = runtime.to_string();
+        store
+            .create_model(&entry)
+            .unwrap_or_else(|e| panic!("{runtime} 应当可以登记：{e}"));
+    }
+    assert_eq!(store.list_models(false).unwrap().len(), 3);
 }

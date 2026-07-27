@@ -325,12 +325,12 @@ function EventList({ events }: { events: readonly RunEvent[] }) {
       {events.length === 0 ? <p className="runs__empty">这次运行还没有事件。</p> : null}
       <ul className="runs__events">
         {events.map((event) => (
-          <li key={event.id} className="runs__event" data-kind={category(event.kind)}>
+          <li key={event.id} className="runs__event" data-kind={category(event.type)}>
             <span className="runs__event-rail" aria-hidden="true" />
             <span className="runs__event-head">
               <span className="runs__event-time">{formatClock(event.ts)}</span>
-              <span className="runs__event-cat">{category(event.kind)}</span>
-              <span className="runs__event-type">{event.kind}</span>
+              <span className="runs__event-cat">{category(event.type)}</span>
+              <span className="runs__event-type">{event.type}</span>
               {event.nodeId ? <span className="runs__event-node">{event.nodeId}</span> : null}
             </span>
             <span className="runs__event-title">{event.summary}</span>
@@ -480,7 +480,7 @@ function nodeRows(events: readonly RunEvent[]): NodeRow[] {
   const rows = new Map<string, NodeRow>();
   for (const event of events) {
     if (!event.nodeId) continue;
-    const state = stateOf(event.kind);
+    const state = stateOf(event.type);
     if (!state) continue;
     rows.set(event.nodeId, { nodeId: event.nodeId, state, summary: event.summary });
   }
@@ -506,11 +506,11 @@ function stateOf(kind: string): NodeState | null {
 function pendingApprovalNode(events: readonly RunEvent[]): string | null {
   // 从后往前找：最近一次请求还没被决定的那个
   const decided = new Set(
-    events.filter((e) => e.kind === 'approval.decided').map((e) => e.nodeId ?? ''),
+    events.filter((e) => e.type === 'approval.decided').map((e) => e.nodeId ?? ''),
   );
   for (let index = events.length - 1; index >= 0; index -= 1) {
     const event = events[index];
-    if (event?.kind === 'approval.requested' && event.nodeId && !decided.has(event.nodeId)) {
+    if (event?.type === 'approval.requested' && event.nodeId && !decided.has(event.nodeId)) {
       return event.nodeId;
     }
   }
@@ -522,14 +522,14 @@ function pendingApprovalSummary(events: readonly RunEvent[]): string {
   if (!node) return '';
   const request = [...events]
     .reverse()
-    .find((e) => e.kind === 'approval.requested' && e.nodeId === node);
+    .find((e) => e.type === 'approval.requested' && e.nodeId === node);
   return request?.summary ?? node;
 }
 
 function failureDetail(events: readonly RunEvent[], nodeId: string): string {
   const failure = [...events]
     .reverse()
-    .find((e) => e.kind === 'node.failed' && e.nodeId === nodeId);
+    .find((e) => e.type === 'node.failed' && e.nodeId === nodeId);
   return failure?.summary ?? '';
 }
 

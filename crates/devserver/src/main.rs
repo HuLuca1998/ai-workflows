@@ -39,6 +39,10 @@ fn main() {
             std::process::exit(1);
         }
     };
+    // 默认运行目录跟着数据库走：一个测试库对应一份运行数据，互不干扰
+    let data_dir = path
+        .parent()
+        .map_or_else(std::env::temp_dir, std::path::Path::to_path_buf);
     let supervisor = Supervisor::new(path);
 
     let address = format!("127.0.0.1:{port}");
@@ -56,11 +60,16 @@ fn main() {
     println!("  命令：{} 个", api::COMMANDS.len());
 
     for request in server.incoming_requests() {
-        handle(request, &store, &supervisor);
+        handle(request, &store, &supervisor, &data_dir);
     }
 }
 
-fn handle(mut request: tiny_http::Request, store: &Mutex<Store>, supervisor: &Supervisor) {
+fn handle(
+    mut request: tiny_http::Request,
+    store: &Mutex<Store>,
+    supervisor: &Supervisor,
+    data_dir: &std::path::Path,
+) {
     // 浏览器从 5173 打过来，开发期放行跨域
     let cors: Vec<tiny_http::Header> = [
         header("Access-Control-Allow-Origin", "*"),
@@ -88,7 +97,8 @@ fn handle(mut request: tiny_http::Request, store: &Mutex<Store>, supervisor: &Su
     let _ = std::io::Read::read_to_string(request.as_reader(), &mut body);
     let input: Value = serde_json::from_str(&body).unwrap_or_else(|_| json!({}));
 
-    let (status, payload) = match dispatch::dispatch(&command, &input, store, supervisor) {
+    let (status, payload) = match dispatch::dispatch(&command, &input, store, supervisor, data_dir)
+    {
         Ok(value) => (200, value),
         Err(error) => (
             400,
