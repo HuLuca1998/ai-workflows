@@ -102,6 +102,7 @@
     "run.cancel",
     "run.retryNode",
     "approval.decide",
+    "supervisor.ask",
     "memory.list",
     "memory.create",
     "memory.update",

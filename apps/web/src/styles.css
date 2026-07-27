@@ -312,66 +312,6 @@
   margin-top: var(--space-6);
 }
 
-/* ── 主管 AI 抽屉 ───────────────────────────────────────────────────────── */
-.supervisor {
-  width: var(--layout-drawer-w);
-  flex: none;
-  border-left: 1px solid var(--color-divider);
-  background: var(--color-surface);
-  display: grid;
-  grid-template-rows: auto 1fr auto;
-  min-height: 0;
-}
-
-.supervisor__head {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: var(--space-4);
-  padding: var(--space-4) var(--space-6);
-  border-bottom: 1px solid var(--color-divider);
-}
-
-.supervisor__head h2 {
-  font-size: 14px;
-  margin: 0;
-}
-
-.supervisor__sub,
-.supervisor__hint {
-  margin: var(--space-1) 0 0;
-  font-size: 11.5px;
-  color: var(--color-text-muted);
-}
-
-.supervisor__body {
-  padding: var(--space-6);
-  overflow: auto;
-}
-
-.supervisor__scopes {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--space-2);
-  padding: var(--space-3) var(--space-6);
-  border-top: 1px solid var(--color-divider);
-  font-size: 11px;
-  color: var(--color-text-muted);
-}
-
-.supervisor__scopes code {
-  padding: 1px var(--space-2);
-  border-radius: var(--radius-sm);
-  background: color-mix(in srgb, var(--color-accent) 16%, transparent);
-  color: var(--color-accent-300);
-}
-
-.supervisor__scopes em {
-  font-style: normal;
-  color: var(--color-status-waiting);
-}
-
 /* ── 更新卡片 ───────────────────────────────────────────────────────────── */
 .update-card {
   background: var(--color-surface);
@@ -3719,4 +3659,235 @@
   margin: 14px 0 0;
   font-size: 11.5px;
   color: var(--color-neutral-600);
+}
+
+/* ── 主管 AI 抽屉（图纸：468px 从右侧滑入）────────────────────────────── */
+.supervisor__backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(9, 10, 16, 0.5);
+  display: flex;
+  justify-content: flex-end;
+  z-index: 20;
+}
+
+.supervisor {
+  width: 468px;
+  height: 100%;
+  flex: none;
+  background: color-mix(in srgb, var(--color-surface) 92%, var(--color-bg));
+  border-left: 1px solid var(--color-neutral-700);
+  box-shadow: -24px 0 60px rgba(0, 0, 0, 0.55);
+  display: flex;
+  flex-direction: column;
+}
+
+.supervisor__head {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--color-divider);
+}
+
+.supervisor__avatar {
+  width: 28px;
+  height: 28px;
+  flex: none;
+  border-radius: 9px;
+  background: rgba(145, 132, 217, 0.16);
+  display: grid;
+  place-items: center;
+}
+
+.supervisor__avatar i {
+  font-size: 15px;
+  color: var(--color-accent);
+}
+
+.supervisor__title {
+  flex: 1;
+  min-width: 0;
+}
+
+.supervisor__name {
+  margin: 0;
+  font-size: 13.5px;
+}
+
+.supervisor__sub {
+  margin: 0;
+  font-size: 11px;
+  color: var(--color-neutral-600);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.supervisor__model {
+  height: 26px;
+  max-width: 130px;
+  padding: 0 8px;
+  border-radius: 7px;
+  border: 1px solid var(--color-divider);
+  background: none;
+  color: var(--color-neutral-300);
+  font-size: 11.5px;
+  outline: none;
+}
+
+.supervisor__close {
+  border: 0;
+  background: none;
+  color: var(--color-neutral-500);
+  font-size: 15px;
+  cursor: pointer;
+  padding: 0;
+}
+
+/* 上下文 chips：这排就是「这次对话它能看到什么」 */
+.supervisor__context {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  padding: 12px 16px 0;
+}
+
+.supervisor__context-label {
+  font-size: 11px;
+  color: var(--color-neutral-600);
+  margin-right: 2px;
+}
+
+.supervisor__chip {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 8px;
+  border-radius: 6px;
+  background: rgba(233, 233, 237, 0.07);
+  font-size: 11px;
+  color: var(--color-neutral-300);
+}
+
+.supervisor__chip i {
+  font-size: 11px;
+}
+
+.supervisor__body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 12px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.supervisor__empty {
+  font-size: 12px;
+  line-height: 1.8;
+  color: var(--color-neutral-500);
+  margin: 0;
+}
+
+.supervisor__message {
+  display: flex;
+  gap: 10px;
+}
+
+.supervisor__message[data-role='user'] {
+  justify-content: flex-end;
+}
+
+.supervisor__message-avatar {
+  width: 20px;
+  height: 20px;
+  flex: none;
+  border-radius: 6px;
+  background: rgba(145, 132, 217, 0.2);
+  display: grid;
+  place-items: center;
+}
+
+.supervisor__message-avatar i {
+  font-size: 11px;
+  color: var(--color-accent-300);
+}
+
+.supervisor__bubble {
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--color-surface) 62%, var(--color-bg));
+  border: 1px solid var(--color-divider);
+  font-size: 12.5px;
+  line-height: 1.7;
+  white-space: pre-wrap;
+  max-width: 340px;
+}
+
+.supervisor__message[data-role='user'] .supervisor__bubble {
+  background: rgba(145, 132, 217, 0.12);
+  border-color: var(--color-accent-700);
+}
+
+.supervisor__thinking {
+  color: var(--color-neutral-600);
+}
+
+/* Scope 常驻：「AI 建议 ≠ 执行」在界面上的兜底 */
+.supervisor__scopes {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  padding: 8px 16px;
+  border-top: 1px solid var(--color-divider);
+  font-size: 11px;
+  color: var(--color-neutral-600);
+}
+
+.supervisor__scopes code {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  padding: 1px 6px;
+  border-radius: 5px;
+  background: rgba(233, 233, 237, 0.07);
+  color: var(--color-neutral-400);
+}
+
+.supervisor__scopes em {
+  font-style: normal;
+  color: #e0685c;
+}
+
+.supervisor__foot {
+  flex: none;
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  padding: 10px 16px 14px;
+  border-top: 1px solid var(--color-divider);
+}
+
+.supervisor__input {
+  flex: 1;
+  padding: 9px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--color-divider);
+  background: color-mix(in srgb, var(--color-bg) 82%, #000);
+  color: var(--color-neutral-200);
+  font-family: inherit;
+  font-size: 12.5px;
+  line-height: 1.6;
+  resize: none;
+  outline: none;
+}
+
+.supervisor__input:focus {
+  border-color: var(--color-accent-700);
 }

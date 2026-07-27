@@ -330,6 +330,32 @@ const SPECS = {
   },
 
   // ── Memory ──────────────────────────────────────────────────────────────
+  'supervisor.ask': {
+    // 主管 AI 与工作流里的 AI 节点是两回事：节点在**运行中**做一件具体的事，
+    // 主管在**编辑时**帮你操作这个应用本身。
+    //
+    // context 是显式的 —— 不列出来的话，用户无法判断它的回答基于什么
+    input: z.object({
+      question: z.string().min(1),
+      modelRef: z.string().min(1).optional(),
+      context: z
+        .object({
+          draftRev: z.number().int().min(0).optional(),
+          runId: z.string().min(1).optional(),
+          workflowId: z.string().min(1).optional(),
+        })
+        .default({}),
+    }),
+    output: z.object({
+      text: z.string(),
+      /** 这次回答用掉的工具调用次数，界面显示「工具活动 · N 次」。 */
+      toolCalls: z.number().int().min(0).default(0),
+    }),
+    mutates: false,
+    audited: true,
+    scope: 'workflow:read',
+    summary: '问主管 AI；它的改动一律先出 Diff 再落草稿',
+  },
   'memory.list': {
     input: z.object({
       scope: z.string().optional(),

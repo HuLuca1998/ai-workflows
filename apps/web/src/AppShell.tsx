@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { Route, Routes } from 'react-router';
 
 import { SideNav } from './layout/SideNav.js';
-import { SupervisorDrawer } from './layout/SupervisorDrawer.js';
+import { SupervisorDrawer } from './supervisor/SupervisorDrawer.js';
 import { TitleBar } from './layout/TitleBar.js';
 import { NotFoundPage } from './pages/NotFoundPage.js';
 import { PAGES } from './pages/index.js';
@@ -44,7 +44,9 @@ export function AppShell() {
             <Route path="*" element={<NotFoundPage />} />
           </Routes>
         </main>
-        {drawerOpen ? <SupervisorDrawer onClose={() => setDrawerOpen(false)} /> : null}
+        {/* 上下文由各屏提供；现在只有全局的部分，编辑器与执行记录的
+            草稿 rev、选中节点、当前运行随后接上 */}
+        <SupervisorDrawer open={drawerOpen} context={{}} onClose={() => setDrawerOpen(false)} />
       </div>
     </div>
   );

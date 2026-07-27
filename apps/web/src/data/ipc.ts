@@ -35,6 +35,7 @@ const COMMANDS: Partial<Record<CoreApiMethod, string>> = {
   'run.cancel': 'run_cancel',
   'run.resume': 'run_resume',
   'approval.decide': 'approval_decide',
+  'supervisor.ask': 'supervisor_ask',
   'memory.list': 'memory_list',
   'memory.create': 'memory_create',
   'memory.update': 'memory_update',
@@ -117,6 +118,16 @@ export function toIpcInput(method: CoreApiMethod, input: unknown): Record<string
       ...(record.name ? { name: record.name } : {}),
       ...(record.sections ? { sectionsJson: JSON.stringify(record.sections) } : {}),
       ...(record.vars ? { varsJson: JSON.stringify(record.vars) } : {}),
+    };
+  }
+
+  if (method === 'supervisor.ask') {
+    // 上下文转成 JSON 字符串：Rust 侧只是把它拼进提示词，
+    // 不需要为每个字段建一个参数
+    return {
+      question: record.question,
+      ...(record.modelRef ? { modelRef: record.modelRef } : {}),
+      contextJson: JSON.stringify(record.context ?? {}),
     };
   }
 
@@ -301,6 +312,9 @@ export function fromIpcResult(method: CoreApiMethod, raw: unknown): unknown {
     case 'run.cancel':
     case 'run.resume':
       return { ok: true };
+
+    case 'supervisor.ask':
+      return raw;
 
     case 'memory.list':
     case 'prompt.list':

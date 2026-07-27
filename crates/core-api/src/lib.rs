@@ -111,6 +111,7 @@ impl From<aiwf_engine::supervisor::SupervisorError> for ApiError {
 
 /// 已接通的方法名清单。HTTP 侧按它分派，测试按它守住两端一致。
 pub const COMMANDS: &[&str] = &[
+    "supervisor_ask",
     "memory_list",
     "memory_create",
     "memory_update",
@@ -965,4 +966,100 @@ pub fn memory_toggle(store: &Store, id: String, enabled: bool) -> ApiResult<()> 
 pub fn memory_delete(store: &Store, id: String) -> ApiResult<()> {
     store.delete_memory(&id)?;
     Ok(())
+}
+
+// ── 主管 AI ────────────────────────────────────────────────────────────────
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SupervisorAnswer {
+    pub text: String,
+    pub tool_calls: u32,
+}
+
+/// 问主管 AI。走与 AI 节点同一套 ACP 客户端。
+///
+/// 上下文由调用方显式给：把「当前草稿 rev、正在看的运行」这些
+/// 拼进提示词，而不是让模型自己去猜或去查 —— 猜错的话它的回答
+/// 会基于一个不存在的状态，而用户看不出来。
+pub fn supervisor_ask(
+    store: &Store,
+    data_dir: &std::path::Path,
+    question: String,
+    context_json: Option<String>,
+) -> ApiResult<SupervisorAnswer> {
+    use aiwf_engine::acp::{AcpClient, SessionUpdate, adapter_installed, env_to_remove};
+
+    let runtime = "acp.claude";
+    let Some(command) = adapter_installed(runtime) else {
+        return Err(ApiError {
+            code: "VALIDATION".to_string(),
+            message: format!(
+                "{runtime} 的 adapter 没有安装。主管 AI 需要它才能工作 ——\
+                 在「设置与环境」里能看到怎么装"
+            ),
+            retriable: false,
+        });
+    };
+
+    // 把上下文与可注入的记忆拼进提示词。
+    // 记忆只取启用且未过期的（memories_for_injection 保证这一点）
+    let memories = store
+        .memories_for_injection("workspace", None)
+        .unwrap_or_default();
+    let mut prompt = String::new();
+
+    if !memories.is_empty() {
+        prompt.push_str("已知的长期上下文：\n");
+        for memory in memories.iter().take(20) {
+            prompt.push_str(&format!("- {}：{}\n", memory.key, memory.value));
+        }
+        prompt.push('\n');
+    }
+
+    if let Some(context) = context_json
+        .as_deref()
+        .filter(|c| *c != "{}" && !c.is_empty())
+    {
+        prompt.push_str(&format!("当前界面状态：{context}\n\n"));
+    }
+
+    prompt.push_str(&question);
+
+    let mut client = AcpClient::connect(
+        &command,
+        &[],
+        &env_to_remove(runtime),
+        std::time::Duration::from_secs(180),
+    )
+    .map_err(|error| ApiError {
+        code: "EXTERNAL".to_string(),
+        message: format!("连不上 adapter：{error}"),
+        retriable: true,
+    })?;
+
+    let session = client
+        .new_session(&data_dir.display().to_string())
+        .map_err(|error| ApiError {
+            code: "EXTERNAL".to_string(),
+            message: format!("建会话失败：{error}"),
+            retriable: true,
+        })?;
+
+    let mut text = String::new();
+    let mut tool_calls = 0_u32;
+
+    client
+        .prompt(&session.id, &prompt, |update| match update {
+            SessionUpdate::AgentText { text: chunk } => text.push_str(chunk),
+            SessionUpdate::ToolCall { .. } => tool_calls += 1,
+            _ => {}
+        })
+        .map_err(|error| ApiError {
+            code: "EXTERNAL".to_string(),
+            message: format!("主管 AI 失败：{error}"),
+            retriable: true,
+        })?;
+
+    Ok(SupervisorAnswer { text, tool_calls })
 }

@@ -25,6 +25,12 @@ pub fn dispatch(
     })?;
 
     match command {
+        "supervisor_ask" => to_value(api::supervisor_ask(
+            &store,
+            data_dir,
+            string(input, "question")?,
+            input.get("context").map(ToString::to_string),
+        )?),
         "memory_list" => to_value(api::memory_list(
             &store,
             opt_string(input, "scope"),

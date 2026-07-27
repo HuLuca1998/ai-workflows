@@ -28,6 +28,16 @@ pub mod tray;
 type IpcResult<T> = Result<T, ApiError>;
 
 #[tauri::command]
+fn supervisor_ask(
+    state: State<'_, AppState>,
+    question: String,
+    context_json: Option<String>,
+) -> IpcResult<api::SupervisorAnswer> {
+    let store = lock(&state)?;
+    api::supervisor_ask(&store, &state.data_dir, question, context_json)
+}
+
+#[tauri::command]
 fn memory_list(
     state: State<'_, AppState>,
     scope: Option<String>,
@@ -565,6 +575,7 @@ pub fn run() {
             run_cancel,
             run_resume,
             approval_decide,
+            supervisor_ask,
             memory_list,
             memory_create,
             memory_update,
