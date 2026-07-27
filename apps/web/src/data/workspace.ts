@@ -5,9 +5,14 @@ import {
   type Workflow,
   type WorkflowGraph,
 } from '@aiwf/contracts';
-import { CoreApiClient, MemoryTransport, type Transport } from '@aiwf/client-core';
+import {
+  CoreApiClient,
+  MemoryTransport,
+  createTauriTransport,
+  type Transport,
+} from '@aiwf/client-core';
 import { isDesktopRuntime } from '../updater/useAppVersion.js';
-import { createTauriTransport } from './ipc.js';
+
 import { createHttpTransport } from './httpTransport.js';
 
 /**

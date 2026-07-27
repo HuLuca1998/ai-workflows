@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { getMethodSpec } from '@aiwf/contracts';
-import { fromIpcResult, ipcCommandFor, toIpcInput } from '../src/data/ipc.js';
+import { fromIpcResult, ipcCommandFor, toIpcInput } from '@aiwf/client-core';
 
 /**
  * IPC 转换层。

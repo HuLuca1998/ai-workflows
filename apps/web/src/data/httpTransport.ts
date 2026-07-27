@@ -1,5 +1,11 @@
-import { CoreApiError, type CoreApiMethod, type Transport } from './ipc-deps.js';
-import { fromIpcResult, ipcCommandFor, normalizeIpcError, toIpcInput } from './ipc.js';
+import { CoreApiError, type CoreApiMethod } from '@aiwf/contracts';
+import {
+  fromIpcResult,
+  ipcCommandFor,
+  normalizeIpcError,
+  toIpcInput,
+  type Transport,
+} from '@aiwf/client-core';
 
 /**
  * 开发用 HTTP 传输：让浏览器里的 Web 形态连上真实引擎（aiwf-devserver）。

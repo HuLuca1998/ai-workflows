@@ -11,3 +11,5 @@ export {
   type McpToolName,
   type McpToolRegistryOptions,
 } from './tools.js';
+
+export { handleMessage, serve, type McpSession } from './stdio.js';

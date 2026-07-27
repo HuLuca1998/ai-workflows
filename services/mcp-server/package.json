@@ -5,7 +5,8 @@
   "type": "module",
   "description": "对外 MCP 工具层：只调用 Core API，不碰数据库",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./stdio": "./src/stdio.ts"
   },
   "scripts": {
     "typecheck": "tsc -p tsconfig.json --noEmit",
@@ -20,5 +21,8 @@
     "@types/node": "^24.13.3",
     "typescript": "^5.9.3",
     "vitest": "^4.1.10"
+  },
+  "bin": {
+    "aiwf-mcp-server": "./src/bin.ts"
   }
 }

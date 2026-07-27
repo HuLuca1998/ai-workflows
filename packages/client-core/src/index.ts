@@ -28,3 +28,12 @@ export {
   type UpdateStatus,
   type UpdaterBackend,
 } from './updater.js';
+
+export {
+  createTauriTransport,
+  fromIpcResult,
+  ipcCommandFor,
+  normalizeIpcError,
+  toIpcInput,
+  type InvokeFn,
+} from './ipc-mapping.js';

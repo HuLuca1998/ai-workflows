@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { describe, expect, it, vi } from 'vitest';
 import { CoreApiError } from '@aiwf/contracts';
-import { ipcCommandFor, toIpcInput, fromIpcResult, normalizeIpcError } from '../src/data/ipc.js';
+import { ipcCommandFor, toIpcInput, fromIpcResult, normalizeIpcError } from '@aiwf/client-core';
 
 /**
  * Core API 方法 ↔ Tauri IPC 命令的映射。
@@ -132,7 +132,7 @@ describe('错误规范化', () => {
 
 describe('未接通的方法', () => {
   it('调用未实现的方法时给出明确原因与去处，而不是静默返回空', async () => {
-    const { createTauriTransport } = await import('../src/data/ipc.js');
+    const { createTauriTransport } = await import('@aiwf/client-core');
     const invoke = vi.fn();
     const transport = createTauriTransport(async (cmd, args) => invoke(cmd, args));
     await expect(transport.call('env.health', {})).rejects.toThrow(/尚未接通|ROADMAP/u);

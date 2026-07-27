@@ -1,17 +1,17 @@
-import {
-  CoreApiError,
-  ERROR_CODES,
-  type CoreApiMethod,
-  type ErrorCode,
-  type Transport,
-} from './ipc-deps.js';
+import { CoreApiError, ERROR_CODES, type CoreApiMethod, type ErrorCode } from '@aiwf/contracts';
+import type { Transport } from './transport.js';
 
 /**
- * Core API 方法 ↔ Tauri IPC 命令的转换层。
+ * Core API 方法 ↔ 引擎侧命令的转换层。
  *
  * 契约用点号方法名与 camelCase，Rust 侧用 snake_case，两边形状不同。
  * 转换逻辑单独放在这里而不是散在调用点，是因为字段名写错的症状是
  * 「数据莫名为空」而不是报错——必须能单测。
+ *
+ * 它在 client-core 而不是某个界面里，是因为**不止一个消费者**：
+ * 桌面壳走 Tauri IPC、Web 走 HTTP 桥接、MCP Server 也走同一个桥接。
+ * 各写一份的话，第二个消费者接上时才会发现「返回值不合契约」——
+ * 而那正是 MCP 接进来时踩到的。
  */
 
 /** 已接通引擎的方法。没列在这里的方法调用时会明确报未实现。 */
