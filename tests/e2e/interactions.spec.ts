@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
+import { api } from './_api.js';
 
 /**
  * 画布交互与导入导出。
@@ -6,21 +7,6 @@ import { expect, test, type Page } from '@playwright/test';
  * 图纸底部那行提示就是这一组的清单：
  * 「双击编辑 · 右键菜单 · 端口拖出连线 · 点连线可删 · Shift 框选 · ⌘A 全选」
  */
-
-async function api(page: Page, command: string, body: unknown) {
-  return page.evaluate(
-    async ([cmd, payload]) => {
-      const response = await fetch(`http://127.0.0.1:5177/ipc/${cmd}`, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: payload as string,
-      });
-      if (!response.ok) throw new Error(await response.text());
-      return response.json();
-    },
-    [command, JSON.stringify(body)] as const,
-  );
-}
 
 const TWO_NODES = {
   nodes: [

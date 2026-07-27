@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
+import { api } from './_api.js';
 
 /**
  * 其余各屏的浏览器端到端。
@@ -7,21 +8,6 @@ import { expect, test, type Page } from '@playwright/test';
  * 而不是白屏或者放演示内容。「宁可页面留空，也不要做假的」
  * 这条要求同样需要被验证。
  */
-
-async function api(page: Page, command: string, body: unknown) {
-  return page.evaluate(
-    async ([cmd, payload]) => {
-      const response = await fetch(`http://127.0.0.1:5177/ipc/${cmd}`, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: payload as string,
-      });
-      if (!response.ok) throw new Error(await response.text());
-      return response.json();
-    },
-    [command, JSON.stringify(body)] as const,
-  );
-}
 
 test.describe('设置与环境', () => {
   test('页面加载并显示权限档与环境状态', async ({ page }) => {

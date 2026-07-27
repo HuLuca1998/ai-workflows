@@ -1,9 +1,11 @@
 name: CI
 
+# 只手动触发。
+#
+# 门禁改在本地跑：提交前一条 `pnpm verify` + 端到端，比等 CI 反馈快得多，
+# 而且失败时能直接看到浏览器现场。CI 留着，需要时手动跑一次
+# （比如换机器、或怀疑本地环境有偏差 —— Linux 与 macOS 的差异确实咬过一次）。
 on:
-  push:
-    branches: [main]
-  pull_request:
   workflow_dispatch:
 
 concurrency:
@@ -133,6 +135,11 @@ jobs:
           # 而 CI 的 localhost 会解析到 ::1，用 IP 等会一直超时
           npx wait-on http://localhost:5173 -t 90000
           curl -sf -X POST http://127.0.0.1:5177/ipc/workflow_list -d '{}' > /dev/null
+
+      - name: 铺基线数据
+        # 很多界面元素只在「有数据」时才渲染（运行详情、模型详情、事件卡）。
+        # 空库跑尺寸对照，一半选择器找不到元素，测的是空气
+        run: node scripts/seed-test-data.mjs --api http://127.0.0.1:5177
 
       - name: API 层端到端
         run: |

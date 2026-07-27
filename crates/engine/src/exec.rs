@@ -7,11 +7,17 @@ use std::io::Read;
 use std::os::unix::process::CommandExt;
 use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
-use std::sync::mpsc;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 /// 单个流的输出上限。超过就截断并标记 —— 一个跑飞的 Agent 刷几百 MB 日志是真会发生的。
 const MAX_OUTPUT_BYTES: usize = 1_000_000;
+
+/// 进程收尾后，最多再等这么久把管道读完。
+///
+/// 正常情况下进程一退管道立刻 EOF，这个等待是 0。它存在只为一种情况：
+/// 脚本留下的后代进程还攥着写端，而杀进程组那一刀没砍中。
+const DRAIN_GRACE: Duration = Duration::from_millis(300);
 
 #[derive(Debug, thiserror::Error)]
 pub enum ExecError {
@@ -100,8 +106,8 @@ pub fn run_script(request: ScriptRequest) -> Result<ExecOutcome> {
             "无法获取子进程的输出管道",
         )));
     };
-    let (out_rx, out_handle) = drain(out_pipe);
-    let (err_rx, err_handle) = drain(err_pipe);
+    let out_buf = drain(out_pipe);
+    let err_buf = drain(err_pipe);
 
     let status = wait_with_timeout(&mut child, request.timeout);
 
@@ -109,10 +115,14 @@ pub fn run_script(request: ScriptRequest) -> Result<ExecOutcome> {
     // 脚本自己秒退但留了个后台进程时，不收这一刀就会在下面 recv 上等到天荒地老
     kill_process_group(&child);
 
-    let (stdout, out_truncated) = out_rx.recv().unwrap_or_default();
-    let (stderr, err_truncated) = err_rx.recv().unwrap_or_default();
-    let _ = out_handle.join();
-    let _ = err_handle.join();
+    // 给读线程一点时间把剩下的读完，然后**直接取走已读到的部分**。
+    //
+    // 这里刻意不等 EOF：脚本留下的后代进程会攥着写端不放，
+    // 而 kill 那一刀的语法在 BSD 与 GNU 之间有出入，未必砍得中。
+    // 已经读到手的输出照样有用，比整个引擎卡住强。
+    std::thread::sleep(DRAIN_GRACE);
+    let (stdout, out_truncated) = take(&out_buf);
+    let (stderr, err_truncated) = take(&err_buf);
 
     let Some(status) = status else {
         return Ok(ExecOutcome::TimedOut {
@@ -160,55 +170,80 @@ fn wait_with_timeout(child: &mut Child, timeout: Duration) -> Option<std::proces
 /// 杀掉脚本所在的整个进程组。
 ///
 /// 子进程用 `process_group(0)` 自成一组，组 id 等于它的 pid，
-/// 所以给 kill 传负的 pid 就是「杀这个组」。
+/// 所以「杀这个组」就是给 kill 传负的 pid。
 ///
-/// 借 `kill` 命令而不是 libc::killpg，是因为 workspace 级 forbid unsafe。
-/// 多起一个短命进程换掉一处 unsafe，这笔账划算 ——
-/// 而且这条路径只在进程收尾时走一次。
+/// 借外部命令而不是 libc::killpg，是因为 workspace 级 forbid unsafe。
+/// 两种写法都试：BSD 的 kill 认 `-KILL -123`，GNU 的要 `-s KILL -- -123`，
+/// 而这两种系统我们都要跑（开发在 macOS，CI 在 Linux）。
 ///
-/// 幂等：组里已经没进程了 kill 会返回非零，无所谓。
+/// 幂等：组里已经没进程了 kill 返回非零，无所谓。
 fn kill_process_group(child: &Child) {
     let pid = child.id();
     if pid == 0 {
         return;
     }
-    let _ = Command::new("kill")
-        .arg("-KILL")
-        .arg(format!("-{pid}"))
+    let group = format!("-{pid}");
+
+    let posix = Command::new("kill")
+        .args(["-s", "KILL", "--", &group])
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .status();
+
+    if !posix.is_ok_and(|status| status.success()) {
+        let _ = Command::new("kill")
+            .args(["-KILL", &group])
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status();
+    }
 }
 
-/// 后台线程把一个管道读干净，带上限。
-fn drain<R: Read + Send + 'static>(
-    mut reader: R,
-) -> (mpsc::Receiver<(String, bool)>, std::thread::JoinHandle<()>) {
-    let (tx, rx) = mpsc::channel();
-    let handle = std::thread::spawn(move || {
-        let mut collected: Vec<u8> = Vec::new();
-        let mut truncated = false;
+/// 读线程收集到的东西。用共享缓冲区而不是 channel：
+/// channel 只在 EOF 后发一次，而我们需要「随时取走目前读到的部分」——
+/// 被后代进程攥住的管道永远不会 EOF。
+type Collected = Arc<Mutex<(Vec<u8>, bool)>>;
+
+/// 起一个线程把管道读干净，边读边往共享缓冲区里追加。
+fn drain<R: Read + Send + 'static>(mut reader: R) -> Collected {
+    let collected: Collected = Arc::new(Mutex::new((Vec::new(), false)));
+    let sink = collected.clone();
+
+    std::thread::spawn(move || {
         let mut buffer = [0u8; 8192];
         loop {
             match reader.read(&mut buffer) {
                 Ok(0) | Err(_) => break,
                 Ok(n) => {
-                    if collected.len() < MAX_OUTPUT_BYTES {
-                        let room = MAX_OUTPUT_BYTES - collected.len();
-                        collected.extend_from_slice(&buffer[..n.min(room)]);
+                    let Ok(mut slot) = sink.lock() else { break };
+                    let (bytes, truncated) = &mut *slot;
+                    if bytes.len() < MAX_OUTPUT_BYTES {
+                        let room = MAX_OUTPUT_BYTES - bytes.len();
+                        bytes.extend_from_slice(&buffer[..n.min(room)]);
                         if n > room {
-                            truncated = true;
+                            *truncated = true;
                         }
                     } else {
                         // 已经满了，但仍要继续读干净，否则子进程会阻塞在写上
-                        truncated = true;
+                        *truncated = true;
                     }
                 }
             }
         }
-        let _ = tx.send((String::from_utf8_lossy(&collected).into_owned(), truncated));
     });
-    (rx, handle)
+
+    collected
+}
+
+/// 取走目前读到的内容。读线程可能还在跑，那不影响 —— 它只会往后追加。
+fn take(collected: &Collected) -> (String, bool) {
+    collected.lock().map_or_else(
+        |_| (String::new(), true),
+        |slot| {
+            let (bytes, truncated) = &*slot;
+            (String::from_utf8_lossy(bytes).into_owned(), *truncated)
+        },
+    )
 }
 
 fn parse_output(mode: &str, stdout: &str) -> (Option<serde_json::Value>, Option<String>) {

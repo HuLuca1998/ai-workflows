@@ -1,25 +1,11 @@
 import { expect, test, type Page } from '@playwright/test';
+import { seedWorkflow as seedGraph } from './_api.js';
 
 /**
  * 编辑器与工作流管理的浏览器端到端。
  *
  * 重点是「改动真的落库了」——刷新后还在，而不是只改了内存里的图。
  */
-
-async function api(page: Page, command: string, body: unknown) {
-  return page.evaluate(
-    async ([cmd, payload]) => {
-      const response = await fetch(`http://127.0.0.1:5177/ipc/${cmd}`, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: payload as string,
-      });
-      if (!response.ok) throw new Error(await response.text());
-      return response.json();
-    },
-    [command, JSON.stringify(body)] as const,
-  );
-}
 
 const MINIMAL_GRAPH = {
   nodes: [
@@ -48,13 +34,8 @@ async function dragNodeToCanvas(page: Page, label: string) {
   await source.dragTo(canvas, { targetPosition: { x: 420, y: 300 } });
 }
 
-async function seedWorkflow(page: Page, name: string) {
-  const id = (await api(page, 'workflow_create', { name })) as string;
-  await api(page, 'workflow_save_draft', {
-    id,
-    baseRev: 0,
-    graphJson: JSON.stringify(MINIMAL_GRAPH),
-  });
+async function seedWorkflow(page: Page, name: string): Promise<string> {
+  const { id } = await seedGraph(page, name, MINIMAL_GRAPH);
   return id;
 }
 

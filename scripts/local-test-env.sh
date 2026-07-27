@@ -11,11 +11,22 @@ WEB_PORT="${AIWF_WEB_PORT:-5173}"
 
 mkdir -p "$ROOT"/{data,runs,repos,reports}
 
+# 探活用 HTTP 而不是端口占用：端口在 TIME_WAIT 里也会被 lsof 看到，
+# 于是脚本以为服务还在，实际早被杀了 —— 测试跑起来才发现连不上。
+devserver_alive() {
+  curl -sf -o /dev/null -X POST "http://127.0.0.1:$PORT/ipc/workflow_list" -d '{}' 2>/dev/null
+}
+
+web_alive() {
+  curl -sf -o /dev/null "http://localhost:$WEB_PORT/" 2>/dev/null
+}
+
 case "${1:-start}" in
   start)
-    if lsof -ti:$PORT > /dev/null 2>&1; then
+    if devserver_alive; then
       echo "devserver 已在 $PORT 上跑着"
     else
+      lsof -ti:$PORT 2>/dev/null | xargs kill 2>/dev/null || true
       cargo build -q -p aiwf-devserver
       nohup ./target/debug/aiwf-devserver --port "$PORT" --db "$ROOT/data/aiwf.sqlite" \
         > "$ROOT/devserver.log" 2>&1 &
@@ -23,15 +34,21 @@ case "${1:-start}" in
       echo "devserver → http://127.0.0.1:$PORT（库：$ROOT/data/aiwf.sqlite）"
     fi
 
-    if lsof -ti:$WEB_PORT > /dev/null 2>&1; then
+    if web_alive; then
       echo "web 已在 $WEB_PORT 上跑着"
     else
+      lsof -ti:$WEB_PORT 2>/dev/null | xargs kill 2>/dev/null || true
       VITE_AIWF_SERVER="http://127.0.0.1:$PORT" nohup pnpm dev > "$ROOT/web.log" 2>&1 &
-      for _ in $(seq 1 30); do
-        curl -sf -o /dev/null "http://localhost:$WEB_PORT/" && break
+      for _ in $(seq 1 40); do
+        web_alive && break
         sleep 1
       done
-      echo "web       → http://localhost:$WEB_PORT"
+      if web_alive; then
+        echo "web       → http://localhost:$WEB_PORT"
+      else
+        echo "web 起不来，看 $ROOT/web.log" >&2
+        exit 1
+      fi
     fi
     ;;
 
@@ -53,8 +70,8 @@ case "${1:-start}" in
     else
       echo "  （还没有数据）"
     fi
-    lsof -ti:$PORT > /dev/null 2>&1 && echo "  devserver 运行中" || echo "  devserver 未运行"
-    lsof -ti:$WEB_PORT > /dev/null 2>&1 && echo "  web 运行中" || echo "  web 未运行"
+    devserver_alive && echo "  devserver 可用" || echo "  devserver 不可用"
+    web_alive && echo "  web 可用" || echo "  web 不可用"
     ;;
 
   *)

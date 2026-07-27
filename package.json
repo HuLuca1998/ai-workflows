@@ -28,7 +28,8 @@
     "dev:server": "cargo run -q -p aiwf-devserver --",
     "dev:full": "VITE_AIWF_SERVER=http://127.0.0.1:5177 pnpm dev",
     "test:e2e": "playwright test",
-    "test:e2e:api": "python3 tests/e2e/api_e2e.py"
+    "test:e2e:api": "python3 tests/e2e/api_e2e.py",
+    "check": "bash scripts/precommit-check.sh"
   },
   "devDependencies": {
     "@playwright/test": "^1.62.0",

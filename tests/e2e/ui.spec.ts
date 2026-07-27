@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
+import { seedWorkflow } from './_api.js';
 
 /**
  * 浏览器端到端：真实点击 → 真实引擎。
@@ -9,23 +10,9 @@ import { expect, test, type Page } from '@playwright/test';
  */
 
 /** 建一个带真实脚本节点的工作流，返回它的 id。 */
-async function createWorkflow(page: Page, name: string, graph: unknown) {
-  return page.evaluate(
-    async ([wfName, graphJson]) => {
-      const post = async (command: string, body: unknown) => {
-        const response = await fetch(`http://127.0.0.1:5177/ipc/${command}`, {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify(body),
-        });
-        return response.json();
-      };
-      const id = await post('workflow_create', { name: wfName });
-      await post('workflow_save_draft', { id, baseRev: 0, graphJson });
-      return id as string;
-    },
-    [name, JSON.stringify(graph)] as const,
-  );
+async function createWorkflow(page: Page, name: string, graph: unknown): Promise<string> {
+  const { id } = await seedWorkflow(page, name, graph);
+  return id;
 }
 
 const SCRIPT_GRAPH = {

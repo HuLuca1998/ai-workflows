@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
+import { api } from './_api.js';
 
 /**
  * 边界与压力。
@@ -6,21 +7,6 @@ import { expect, test, type Page } from '@playwright/test';
  * 这一组测的是「量大了会不会垮」——正常路径已经被前面几组覆盖，
  * 这里专门找那些只在规模上来后才出现的问题。
  */
-
-async function api(page: Page, command: string, body: unknown) {
-  return page.evaluate(
-    async ([cmd, payload]) => {
-      const response = await fetch(`http://127.0.0.1:5177/ipc/${cmd}`, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: payload as string,
-      });
-      if (!response.ok) throw new Error(await response.text());
-      return response.json();
-    },
-    [command, JSON.stringify(body)] as const,
-  );
-}
 
 /** 一条 N 节点的链，用来看画布与执行在规模上的表现。 */
 function chain(count: number) {
