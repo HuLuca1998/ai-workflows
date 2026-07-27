@@ -177,6 +177,47 @@ fn workflow_publish(state: State<'_, AppState>, id: String, rev: i64) -> IpcResu
     })
 }
 
+/// 读某个已发布版本的完整图。回滚为草稿与版本对比都要用。
+#[tauri::command]
+fn workflow_version_graph(state: State<'_, AppState>, version_id: String) -> IpcResult<String> {
+    let store = lock(&state)?;
+    let version = store
+        .get_version(&version_id)?
+        .ok_or(aiwf_store::StoreError::NotFound {
+            kind: "版本",
+            id: version_id,
+        })?;
+    Ok(version.graph_json)
+}
+
+/// 回滚：把某个已发布版本的图写成**新的**草稿修订。
+///
+/// 刻意不是「覆盖」——原草稿仍留在修订历史里，用户随时能再回来。
+/// 也刻意不复用 save_draft：这一步没有结构化操作可记，
+/// 用假的 Patch 去凑会往审计里写一条不存在的节点操作。
+#[tauri::command]
+fn workflow_rollback(
+    state: State<'_, AppState>,
+    id: String,
+    version_id: String,
+) -> IpcResult<i64> {
+    let store = lock(&state)?;
+    let version = store
+        .get_version(&version_id)?
+        .ok_or(aiwf_store::StoreError::NotFound {
+            kind: "版本",
+            id: version_id,
+        })?;
+    if version.workflow_id != id {
+        return Err(IpcError {
+            code: "VALIDATION".into(),
+            message: "这个版本不属于该工作流".into(),
+            retriable: false,
+        });
+    }
+    Ok(store.save_draft(&id, &version.graph_json)?)
+}
+
 #[tauri::command]
 fn workflow_delete(state: State<'_, AppState>, id: String) -> IpcResult<()> {
     let store = lock(&state)?;
@@ -308,6 +349,8 @@ pub fn run() {
             workflow_get,
             workflow_save_draft,
             workflow_publish,
+            workflow_version_graph,
+            workflow_rollback,
             workflow_delete
         ])
         .build(tauri::generate_context!())

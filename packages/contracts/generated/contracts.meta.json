@@ -88,6 +88,8 @@
     "workflow.patch",
     "workflow.validate",
     "workflow.diff",
+    "workflow.versionGraph",
+    "workflow.rollback",
     "workflow.publish",
     "workflow.delete",
     "run.start",

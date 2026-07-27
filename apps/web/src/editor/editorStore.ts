@@ -47,6 +47,10 @@ interface EditorState {
   apply: (operations: PatchOperation[]) => void;
   save: () => Promise<void>;
   publish: () => Promise<number | null>;
+  /** 读某个已发布版本的图（版本抽屉对比与回滚用）。 */
+  loadVersionGraph: (versionId: string) => Promise<WorkflowGraph>;
+  /** 把某个版本回填成新的草稿修订。原草稿仍在历史里，不会丢。 */
+  rollbackTo: (versionId: string) => Promise<void>;
   setSelection: (ids: string[]) => void;
   clear: () => void;
 }
@@ -156,6 +160,28 @@ export const useEditor = create<EditorState>((set, get) => ({
     } catch (error) {
       set({ saving: false, error: describe(error) });
       return null;
+    }
+  },
+
+  loadVersionGraph: async (versionId: string) => {
+    const result = (await coreClient.call('workflow.versionGraph', { versionId })) as {
+      graph: WorkflowGraph;
+    };
+    return result.graph;
+  },
+
+  rollbackTo: async (versionId: string) => {
+    const { workflowId } = get();
+    if (!workflowId) return;
+    set({ saving: true, error: null });
+    try {
+      // 回滚不是「撤销」：旧图作为一个**新的**草稿修订写进去，
+      // 原草稿仍留在修订历史里，随时能再回来
+      await coreClient.call('workflow.rollback', { id: workflowId, versionId });
+      await get().load(workflowId);
+      set({ saving: false });
+    } catch (error) {
+      set({ saving: false, error: describe(error) });
     }
   },
 

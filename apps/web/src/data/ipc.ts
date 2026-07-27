@@ -22,6 +22,8 @@ const COMMANDS: Partial<Record<CoreApiMethod, string>> = {
   // patch 的结构化操作在客户端应用并生成 Diff（contracts 的 applyPatch），
   // 落库写整份图 + baseRevision 守卫，见 crates/store 的 save_draft_guarded
   'workflow.patch': 'workflow_save_draft',
+  'workflow.versionGraph': 'workflow_version_graph',
+  'workflow.rollback': 'workflow_rollback',
   'workflow.publish': 'workflow_publish',
   'workflow.delete': 'workflow_delete',
 };
@@ -32,6 +34,10 @@ export function ipcCommandFor(method: CoreApiMethod): string | null {
 
 export function toIpcInput(method: CoreApiMethod, input: unknown): Record<string, unknown> {
   const record = (input ?? {}) as Record<string, unknown>;
+
+  if (method === 'workflow.rollback') {
+    return { id: record.id, versionId: record.versionId };
+  }
 
   if (method === 'workflow.patch') {
     const graphJson = record.graphJson;
@@ -135,6 +141,20 @@ export function fromIpcResult(method: CoreApiMethod, raw: unknown): unknown {
       const dto = raw as { version_id: string; version: number; config_hash: string };
       return { versionId: dto.version_id, version: dto.version, configHash: dto.config_hash };
     }
+
+    case 'workflow.versionGraph': {
+      try {
+        return { graph: JSON.parse(raw as string) };
+      } catch (error) {
+        throw new CoreApiError({
+          code: 'INTERNAL',
+          message: `版本的图数据无法解析：${String(error)}`,
+        });
+      }
+    }
+
+    case 'workflow.rollback':
+      return { rev: raw as number };
 
     case 'workflow.delete':
       return { ok: true };

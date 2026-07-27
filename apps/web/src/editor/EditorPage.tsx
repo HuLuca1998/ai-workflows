@@ -19,12 +19,27 @@ import { EditorToolbar } from './EditorToolbar.jsx';
 import { CanvasContextMenu } from './ContextMenu.jsx';
 import { NodeConfigDialog } from './NodeConfigDialog.jsx';
 import { NodeLibrary } from './NodeLibrary.jsx';
+import { VersionDrawer } from './VersionDrawer.jsx';
 import { WorkflowNode } from './WorkflowNode.jsx';
 import { defaultSourcePort, defaultTargetPort, toFlowEdges, toFlowNodes } from './graphAdapter.js';
 import { NODE_HEIGHT, NODE_WIDTH } from './nodeVisuals.js';
 import { minimalConfigFor, titleFor } from './nodeDefaults.js';
 
 const NODE_TYPES: NodeTypes = { workflow: WorkflowNode };
+
+/**
+ * 导出为 JSON 文件。图纸的版本抽屉有「导出此版本」，
+ * 导出物就是图本身——它能被原样导入（M1 的导入导出要求）。
+ */
+function downloadGraph(graph: unknown, filename: string): void {
+  const blob = new Blob([JSON.stringify(graph, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = `${filename}.json`;
+  link.click();
+  URL.revokeObjectURL(url);
+}
 
 /** 缩放范围取自图纸：35%–220%。 */
 const MIN_ZOOM = 0.35;
@@ -52,6 +67,8 @@ function EditorCanvas() {
     error,
     selection,
     load,
+    loadVersionGraph,
+    rollbackTo,
     apply,
     save,
     publish,
@@ -68,6 +85,7 @@ function EditorCanvas() {
   const [menu, setMenu] = useState<{ target: MenuTarget; at: { x: number; y: number } } | null>(
     null,
   );
+  const [versionsOpen, setVersionsOpen] = useState(false);
 
   useEffect(() => {
     if (workflowId) void load(workflowId);
@@ -182,13 +200,33 @@ function EditorCanvas() {
         edgeCount={graph.edges.length}
         onSave={() => void save()}
         onPublish={() => void publish()}
-        onToggleVersions={() => {}}
+        onToggleVersions={() => setVersionsOpen((open) => !open)}
       />
 
       {error ? (
         <p className="editor-error" role="alert">
           {error}
         </p>
+      ) : null}
+
+      {versionsOpen ? (
+        <VersionDrawer
+          rev={rev}
+          dirty={dirty}
+          graph={graph}
+          versions={versions}
+          loadVersionGraph={loadVersionGraph}
+          onClose={() => setVersionsOpen(false)}
+          onPublish={() => {
+            void publish().then((version) => {
+              if (version) setVersionsOpen(false);
+            });
+          }}
+          onRollback={(versionId) => {
+            void rollbackTo(versionId).then(() => setVersionsOpen(false));
+          }}
+          onExport={(exported, label) => downloadGraph(exported, `${name}-${label}`)}
+        />
       ) : null}
 
       <div className="editor__body">

@@ -74,23 +74,23 @@ describe('节点转换', () => {
       target: { nodeId: 'end', port: 'input' },
     });
     const nodes = toFlowNodes(g);
-    expect((nodes[0]?.data as { joinBadge: string }).joinBadge).toBe('⋔2');
-    expect((nodes[2]?.data as { joinBadge: string }).joinBadge).toBe('⋀2');
+    expect(nodes[0]?.data).toMatchObject({ joinBadge: '⋔2' });
+    expect(nodes[2]?.data).toMatchObject({ joinBadge: '⋀2' });
   });
 
   it('校验有 error 的节点被标出来，供画布定位', () => {
     const nodes = toFlowNodes(graph(), {
       issues: [{ level: 'error', code: 'INVALID_CONFIG', message: 'x', nodeId: 'lint' }],
     });
-    expect((nodes[1]?.data as { hasIssue?: boolean }).hasIssue).toBe(true);
-    expect((nodes[0]?.data as { hasIssue?: boolean }).hasIssue).toBeUndefined();
+    expect(nodes[1]?.data).toMatchObject({ hasIssue: true });
+    expect(nodes[0]?.data).not.toHaveProperty('hasIssue');
   });
 
   it('warning 不标问题——不阻塞发布的东西不该在画布上报警', () => {
     const nodes = toFlowNodes(graph(), {
       issues: [{ level: 'warning', code: 'ORPHAN_NODE', message: 'x', nodeId: 'lint' }],
     });
-    expect((nodes[1]?.data as { hasIssue?: boolean }).hasIssue).toBeUndefined();
+    expect(nodes[1]?.data).not.toHaveProperty('hasIssue');
   });
 });
 

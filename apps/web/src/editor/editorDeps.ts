@@ -5,6 +5,7 @@
 export {
   CoreApiError,
   NODE_LIBRARY,
+  diffGraphs,
   fieldDescriptors,
   getNodeDefinition,
   resolveNodeOutputs,
@@ -15,6 +16,7 @@ export {
   type GraphNode,
   type NodeType,
   type ValidationResult,
+  type WorkflowDiff,
   type WorkflowGraph,
 } from '@aiwf/contracts';
 export { DraftStore } from '@aiwf/client-core';

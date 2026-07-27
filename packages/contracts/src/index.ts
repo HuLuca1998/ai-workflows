@@ -7,6 +7,7 @@
 
 export * from './api.js';
 export * from './capabilities.js';
+export * from './diff.js';
 export * from './domain.js';
 export * from './errors.js';
 export * from './events.js';

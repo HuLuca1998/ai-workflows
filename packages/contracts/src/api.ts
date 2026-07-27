@@ -136,6 +136,22 @@ const SPECS = {
     scope: 'workflow:read',
     summary: '对比两个版本或草稿',
   },
+  'workflow.versionGraph': {
+    input: z.object({ versionId: z.string().min(1) }),
+    output: z.object({ graph: WorkflowGraphSchema }),
+    mutates: false,
+    audited: false,
+    scope: 'workflow:read',
+    summary: '读取某个已发布版本的图（回滚与版本对比用）',
+  },
+  'workflow.rollback': {
+    input: z.object({ id: z.string().min(1), versionId: z.string().min(1) }),
+    output: z.object({ rev: z.number().int().min(0) }),
+    mutates: true,
+    audited: true,
+    scope: 'workflow:write-draft',
+    summary: '把某个已发布版本回填为新的草稿修订（原草稿保留在历史里）',
+  },
   'workflow.publish': {
     input: z.object({
       id: z.string().min(1),
