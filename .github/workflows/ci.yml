@@ -77,11 +77,82 @@ jobs:
       - name: 格式检查
         run: cargo fmt --all -- --check
 
+      # 桌面壳要系统 GUI 依赖，Linux runner 上不编；其余 crate 全查
       - name: Clippy（warnings 视为错误）
-        run: cargo clippy -p aiwf-engine -p aiwf-store --all-targets -- -D warnings
+        run: cargo clippy -p aiwf-engine -p aiwf-store -p aiwf-core-api -p aiwf-devserver --all-targets -- -D warnings
 
       - name: 测试
-        run: cargo test -p aiwf-engine -p aiwf-store
+        run: cargo test -p aiwf-engine -p aiwf-store -p aiwf-core-api
+
+  # 端到端：浏览器真实点击 → HTTP 桥接 → 真实引擎。
+  #
+  # 单元测试证明不了「装好的应用能干活」——这一层抓到过六个缺陷，
+  # 当时单元测试全绿（见 docs/testing/README.md）。
+  e2e:
+    name: 端到端（浏览器 + API）
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: 安装 Rust 工具链
+        run: rustup toolchain install stable --profile minimal
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: linux-x64
+          cache-all-crates: true
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: 安装依赖
+        run: pnpm install --frozen-lockfile
+
+      - name: 安装 Chromium
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: 构建开发服务
+        run: cargo build -p aiwf-devserver
+
+      - name: 起开发服务与 Web
+        run: |
+          mkdir -p /tmp/aiwf-ci
+          ./target/debug/aiwf-devserver --port 5177 --db /tmp/aiwf-ci/aiwf.sqlite &
+          VITE_AIWF_SERVER=http://127.0.0.1:5177 pnpm dev &
+          # 两个服务都起来了才往下走，否则第一条用例会因为连不上而失败
+          npx wait-on http://127.0.0.1:5173 -t 60000
+          curl -sf -X POST http://127.0.0.1:5177/ipc/workflow_list -d '{}' > /dev/null
+
+      - name: API 层端到端
+        run: |
+          # worktree 那组需要一个真实仓库，现建一个
+          git init -q -b main /tmp/aiwf-ci/repo
+          cd /tmp/aiwf-ci/repo
+          git config user.email ci@aiwf.test && git config user.name CI
+          echo base > README.md && git add -A && git commit -qm init
+          cd -
+          python3 tests/e2e/api_e2e.py --workdir /tmp/aiwf-ci/runs --repo /tmp/aiwf-ci/repo
+
+      - name: 浏览器端到端
+        run: pnpm exec playwright test
+
+      - name: 失败时留下现场
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-失败现场
+          path: |
+            test-results/
+            docs/testing/playwright-report/
+          retention-days: 7
 
   # 安全回归：导出物、事件、预览中不得出现 Secret（质量门禁 §14）
   secrets:
