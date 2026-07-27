@@ -188,9 +188,10 @@ impl Runner {
                     "没有可继续的节点"
                 },
             )?;
-            store.set_run_status(run_id, status, None)?;
+            store.advance_run_status(run_id, status, None)?;
+            // 状态可能已被取消抢先写成终态，回读一次而不是想当然
             return Ok(StepResult::Finished {
-                status: status.to_string(),
+                status: self.status(store, run_id)?,
             });
         };
 
@@ -198,7 +199,7 @@ impl Runner {
             .node(&node_id)
             .ok_or_else(|| RunError::GraphInvalid(format!("计划里的节点 {node_id} 不在图中")))?;
 
-        store.set_run_status(run_id, "running", Some(&node_id))?;
+        store.advance_run_status(run_id, "running", Some(&node_id))?;
         self.emit_node(
             store,
             run_id,
@@ -240,9 +241,10 @@ impl Runner {
                     "engine",
                     &format!("节点 {node_id} 失败"),
                 )?;
-                store.set_run_status(run_id, "failed", Some(&node_id))?;
+                store.advance_run_status(run_id, "failed", Some(&node_id))?;
                 Ok(StepResult::Finished {
-                    status: "failed".to_string(),
+                    // 可能已被取消抢先写成终态，回读而不是想当然
+                    status: self.status(store, run_id)?,
                 })
             }
 
@@ -266,7 +268,7 @@ impl Runner {
 
                 // 检查点必须在挂起时落下：杀掉应用后靠它回到同一位置
                 self.checkpoint(store, run_id, scope, Some(&node_id))?;
-                store.set_run_status(run_id, "waiting_approval", Some(&node_id))?;
+                store.advance_run_status(run_id, "waiting_approval", Some(&node_id))?;
 
                 Ok(StepResult::WaitingApproval { node_id })
             }
@@ -334,7 +336,7 @@ impl Runner {
                 "engine",
                 "审批通过",
             )?;
-            store.set_run_status(run_id, "running", Some(node_id))?;
+            store.advance_run_status(run_id, "running", Some(node_id))?;
         } else {
             self.emit_node(
                 store,
@@ -345,7 +347,7 @@ impl Runner {
                 &format!("审批未通过：{decision}"),
             )?;
             self.emit(store, run_id, "run.failed", None, "engine", "审批未通过")?;
-            store.set_run_status(run_id, "failed", Some(node_id))?;
+            store.advance_run_status(run_id, "failed", Some(node_id))?;
         }
         Ok(())
     }

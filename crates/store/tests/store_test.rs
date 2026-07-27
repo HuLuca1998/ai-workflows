@@ -646,3 +646,111 @@ fn 上下文窗口必须为正数() {
     zero.context_window = 0;
     assert!(store.create_model(&zero).is_err());
 }
+
+#[test]
+fn 多个连接并发写同一个运行的事件_seq_不冲突() {
+    // 端到端测试抓到的：取消运行时主线程写 run.cancelled，
+    // 后台执行线程同时写 node.succeeded，两条 SELECT MAX(seq)+1 拿到同一个值，
+    // 第二条 INSERT 撞上 UNIQUE 约束。症状是「取消偶尔报数据库错误」。
+    let dir = std::env::temp_dir().join("aiwf_seq_race");
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("aiwf.sqlite");
+
+    let store = Store::open(&path).unwrap();
+    let workflow = store.create_workflow("并发", None).unwrap();
+    let run = store.create_run(&workflow, None, Some(0), "{}").unwrap();
+    drop(store);
+
+    const THREADS: usize = 4;
+    const PER_THREAD: usize = 25;
+
+    let handles: Vec<_> = (0..THREADS)
+        .map(|thread| {
+            let path = path.clone();
+            let run = run.clone();
+            std::thread::spawn(move || {
+                let store = Store::open(&path).unwrap();
+                for index in 0..PER_THREAD {
+                    store
+                        .append_event(&NewRunEvent {
+                            run_id: run.clone(),
+                            kind: "node.started".to_string(),
+                            node_id: Some(format!("n{thread}")),
+                            attempt: Some(1),
+                            actor: "engine".to_string(),
+                            status: None,
+                            summary: format!("线程 {thread} 第 {index} 条"),
+                            payload_ref: None,
+                            artifact_refs: vec![],
+                            parent_event_id: None,
+                            sensitivity: "internal".to_string(),
+                            schema_ver: 1,
+                        })
+                        .expect("并发写事件不该失败");
+                }
+            })
+        })
+        .collect();
+
+    for handle in handles {
+        handle.join().expect("写事件的线程崩了");
+    }
+
+    let store = Store::open(&path).unwrap();
+    let events = store.events(&run, 0, 1000).unwrap();
+    assert_eq!(events.len(), THREADS * PER_THREAD, "有事件丢了");
+
+    // seq 必须连续无缺口：事件流可回放依赖这一点
+    let seqs: Vec<i64> = events.iter().map(|e| e.seq).collect();
+    assert_eq!(
+        seqs,
+        (1..=(THREADS * PER_THREAD) as i64).collect::<Vec<_>>(),
+        "seq 出现缺口或重复"
+    );
+}
+
+#[test]
+fn 终态不会被推进覆盖回运行中() {
+    // 端到端抓到的：取消运行时，执行线程正好在节点开始前读到 running，
+    // 主线程随即写入 cancelled，执行线程接着把状态覆盖回 running ——
+    // 运行就再也停不下来了。终态一旦写下，普通推进不得改动它。
+    let store = Store::open_in_memory().unwrap();
+    let workflow = store.create_workflow("终态", None).unwrap();
+    let run = store.create_run(&workflow, None, Some(0), "{}").unwrap();
+
+    store.set_run_status(&run, "cancelled", None).unwrap();
+    store
+        .advance_run_status(&run, "running", Some("node_a"))
+        .unwrap();
+
+    assert_eq!(
+        store.run_status(&run).unwrap().as_deref(),
+        Some("cancelled")
+    );
+}
+
+#[test]
+fn 非终态可以正常推进() {
+    let store = Store::open_in_memory().unwrap();
+    let workflow = store.create_workflow("推进", None).unwrap();
+    let run = store.create_run(&workflow, None, Some(0), "{}").unwrap();
+
+    store
+        .advance_run_status(&run, "running", Some("node_a"))
+        .unwrap();
+    assert_eq!(store.run_status(&run).unwrap().as_deref(), Some("running"));
+}
+
+#[test]
+fn 显式设置状态能把失败的运行改回运行中_恢复要用() {
+    // 「从检查点恢复」需要 failed → running，这条路要留着，
+    // 但它是显式操作，不是节点推进的副作用
+    let store = Store::open_in_memory().unwrap();
+    let workflow = store.create_workflow("恢复", None).unwrap();
+    let run = store.create_run(&workflow, None, Some(0), "{}").unwrap();
+
+    store.set_run_status(&run, "failed", None).unwrap();
+    store.set_run_status(&run, "running", None).unwrap();
+    assert_eq!(store.run_status(&run).unwrap().as_deref(), Some("running"));
+}

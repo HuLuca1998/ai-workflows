@@ -3,6 +3,7 @@ import { applyPatch, type PatchOperation, type WorkflowGraph } from '@aiwf/contr
 import { CoreApiClient, MemoryTransport, type Transport } from '@aiwf/client-core';
 import { isDesktopRuntime } from '../updater/useAppVersion.js';
 import { createTauriTransport } from './ipc.js';
+import { createHttpTransport } from './httpTransport.js';
 
 /**
  * 工作区数据。
@@ -26,7 +27,14 @@ function createTransport(): Transport {
       return invoke(command, args);
     });
   }
-  // Web 形态在 M6 接远程引擎之前只有空数据：空库就显示空态，不塞演示内容
+
+  // 开发时把 VITE_AIWF_SERVER 指向 aiwf-devserver，浏览器就连上真实引擎。
+  // 这条路径存在的理由是测试：桌面壳的 WKWebView 没法用浏览器工具驱动，
+  // 而「点下去引擎真的动了」必须能被自动化验证
+  const server = import.meta.env.VITE_AIWF_SERVER as string | undefined;
+  if (server) return createHttpTransport(server);
+
+  // 没配服务端时只有空数据：空库就显示空态，不塞演示内容
   return new MemoryTransport({
     'workflow.list': () => ({ items: [] }),
     'workflow.create': () => ({ id: 'wf_web_demo', rev: 0 }),

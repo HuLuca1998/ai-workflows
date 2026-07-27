@@ -270,3 +270,41 @@ fn 没有输出的脚本不留空产物文件() {
 
     assert_eq!(executor.artifacts().list("run_art2").unwrap().len(), 0);
 }
+
+#[test]
+fn 失败的脚本也要留下日志产物() {
+    // 端到端测试抓到的：失败分支提前 return，产物没保存 ——
+    // 而脚本失败时恰恰是最需要看 stderr 的时候
+    let dir = std::env::temp_dir().join("aiwf_exec_fail_art");
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+
+    let executor = NodeExecutor::new(dir).with_run_id("run_fail");
+    let outcome = executor
+        .execute(
+            &node(
+                "boom",
+                "script.shell",
+                serde_json::json!({
+                    "interpreter": "bash",
+                    "script": "echo 诊断信息 >&2; exit 3",
+                    "timeoutMs": 5000
+                }),
+            ),
+            &mut Scope::new("run_fail"),
+        )
+        .unwrap();
+
+    assert!(matches!(outcome, NodeOutcome::Failed { .. }));
+
+    let artifacts = executor.artifacts().list("run_fail").unwrap();
+    let stderr = artifacts
+        .iter()
+        .find(|a| a.name == "stderr.log")
+        .expect("失败的脚本必须留下 stderr.log");
+    assert!(
+        std::fs::read_to_string(&stderr.path)
+            .unwrap()
+            .contains("诊断信息")
+    );
+}

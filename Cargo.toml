@@ -1,6 +1,12 @@
 [workspace]
 resolver = "3"
-members = ["crates/engine", "crates/store", "apps/desktop/src-tauri"]
+members = [
+  "crates/core-api",
+  "crates/devserver",
+  "crates/engine",
+  "crates/store",
+  "apps/desktop/src-tauri",
+]
 
 [workspace.package]
 version = "0.0.0"

@@ -1,0 +1,15 @@
+[package]
+name = "aiwf-core-api"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[lints]
+workspace = true
+
+[dependencies]
+aiwf-engine = { path = "../engine" }
+aiwf-store = { path = "../store" }
+serde = { workspace = true }
+serde_json = { workspace = true }

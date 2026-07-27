@@ -137,6 +137,11 @@ impl NodeExecutor {
                 truncated,
                 ..
             } => {
+                // 落产物必须在判断成败**之前**：脚本失败时最需要看日志，
+                // 而失败分支提前 return 的话，恰恰是这时候没有日志可看
+                self.save_output(&node.id, "stdout.log", &stdout);
+                self.save_output(&node.id, "stderr.log", &stderr);
+
                 if code != 0 {
                     return Ok(NodeOutcome::Failed {
                         message: format!(
@@ -145,10 +150,6 @@ impl NodeExecutor {
                         ),
                     });
                 }
-
-                // 输出落产物：事件表里只留摘要，几百 KB 的日志放文件
-                self.save_output(&node.id, "stdout.log", &stdout);
-                self.save_output(&node.id, "stderr.log", &stderr);
 
                 // 输出进 scope，下游节点才能引用 ${节点.success.stdout}
                 scope.set_node_output(

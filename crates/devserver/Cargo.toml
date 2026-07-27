@@ -1,0 +1,21 @@
+[package]
+name = "aiwf-devserver"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[lints]
+workspace = true
+
+[[bin]]
+name = "aiwf-devserver"
+path = "src/main.rs"
+
+[dependencies]
+aiwf-core-api = { path = "../core-api" }
+aiwf-engine = { path = "../engine" }
+aiwf-store = { path = "../store" }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tiny_http = "0.12"

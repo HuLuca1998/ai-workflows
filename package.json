@@ -24,9 +24,12 @@
     "rs:lint": "PATH=\"$HOME/.cargo/bin:$PATH\" cargo clippy --workspace --all-targets -- -D warnings",
     "rs:fmt": "PATH=\"$HOME/.cargo/bin:$PATH\" cargo fmt --all",
     "rs:fmt:check": "PATH=\"$HOME/.cargo/bin:$PATH\" cargo fmt --all -- --check",
-    "verify": "pnpm format:check && pnpm lint && pnpm typecheck && pnpm test && pnpm contracts:check && pnpm rs:fmt:check && pnpm rs:lint && pnpm rs:test"
+    "verify": "pnpm format:check && pnpm lint && pnpm typecheck && pnpm test && pnpm contracts:check && pnpm rs:fmt:check && pnpm rs:lint && pnpm rs:test",
+    "dev:server": "cargo run -q -p aiwf-devserver --",
+    "dev:full": "VITE_AIWF_SERVER=http://127.0.0.1:5177 pnpm dev"
   },
   "devDependencies": {
+    "@playwright/test": "^1.62.0",
     "@types/node": "^24.10.1",
     "@vitest/coverage-v8": "^4.1.10",
     "oxlint": "^1.75.0",

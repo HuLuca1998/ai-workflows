@@ -768,6 +768,26 @@ impl Store {
         Ok(dir)
     }
 
+    /// 节点推进带来的状态变化。**不会覆盖终态**。
+    ///
+    /// 与 [`Store::set_run_status`] 的区别在于意图：那个是「用户或调度器
+    /// 明确要求把状态改成这个」（取消、恢复），这个是「执行到这一步了」。
+    /// 后者必须让位于前者 —— 否则取消运行时，执行线程会把 cancelled
+    /// 覆盖回 running，运行就再也停不下来。
+    pub fn advance_run_status(
+        &self,
+        run_id: &str,
+        status: &str,
+        current_node: Option<&str>,
+    ) -> Result<()> {
+        self.conn.execute(
+            "UPDATE run SET status = ?2, current_node = ?3
+             WHERE id = ?1 AND status NOT IN ('succeeded', 'failed', 'cancelled')",
+            params![run_id, status, current_node],
+        )?;
+        Ok(())
+    }
+
     /// Run 引用的图：优先用已发布版本，其次用草稿修订。
     pub fn run_graph(&self, run_id: &str) -> Result<Option<String>> {
         let row: Option<(Option<String>, Option<i64>, String)> = self
@@ -804,23 +824,26 @@ impl Store {
             )));
         }
 
-        let next_seq: i64 = self.conn.query_row(
-            "SELECT COALESCE(MAX(seq), 0) + 1 FROM run_event WHERE run_id = ?1",
-            params![event.run_id],
-            |row| row.get(0),
-        )?;
-
         let id = new_id("ev");
         let refs = serde_json::to_string(&event.artifact_refs).unwrap_or_else(|_| "[]".to_string());
-        self.conn.execute(
+
+        // seq 在 INSERT 语句内部算。
+        //
+        // 分成「SELECT MAX(seq)+1」+「INSERT」两步的话，两个连接会在这中间
+        // 拿到同一个值，第二条撞 UNIQUE 约束——症状是「取消运行时偶尔报数据库错误」，
+        // 因为那正是主线程与执行线程同时写事件的时刻。
+        // 单条语句由 SQLite 的写锁串行化，是原子的。
+        let next_seq: i64 = self.conn.query_row(
             "INSERT INTO run_event(id, run_id, seq, ts, type, node_id, attempt, actor, status,
                                    summary, payload_ref, artifact_refs, parent_event_id,
                                    sensitivity, schema_ver)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
+             VALUES (?1, ?2,
+                     (SELECT COALESCE(MAX(seq), 0) + 1 FROM run_event WHERE run_id = ?2),
+                     ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)
+             RETURNING seq",
             params![
                 id,
                 event.run_id,
-                next_seq,
                 now_iso(),
                 event.kind,
                 event.node_id,
@@ -834,6 +857,7 @@ impl Store {
                 event.sensitivity,
                 event.schema_ver,
             ],
+            |row| row.get(0),
         )?;
         self.index_text("run_event", &id, &event.summary)?;
 
