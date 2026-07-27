@@ -15,6 +15,7 @@ import '@xyflow/react/dist/style.css';
 import type { NodeType } from '@aiwf/contracts';
 import { useEditor } from './editorStore.js';
 import { EditorToolbar } from './EditorToolbar.jsx';
+import { NodeConfigDialog } from './NodeConfigDialog.jsx';
 import { NodeLibrary } from './NodeLibrary.jsx';
 import { WorkflowNode } from './WorkflowNode.jsx';
 import { defaultSourcePort, defaultTargetPort, toFlowEdges, toFlowNodes } from './graphAdapter.js';
@@ -58,6 +59,8 @@ function EditorCanvas() {
   const wrapper = useRef<HTMLDivElement>(null);
   const [zoom, setZoom] = useState(1);
   const [selectedCount, setSelectedCount] = useState(0);
+  /** 双击打开的节点（图纸：双击节点打开配置弹层）。 */
+  const [configNodeId, setConfigNodeId] = useState<string | null>(null);
 
   useEffect(() => {
     if (workflowId) void load(workflowId);
@@ -69,6 +72,10 @@ function EditorCanvas() {
     [graph, validation],
   );
   const edges = useMemo(() => toFlowEdges(graph), [graph]);
+  const configNode = useMemo(
+    () => (configNodeId ? graph.nodes.find((n) => n.id === configNodeId) : undefined),
+    [configNodeId, graph],
+  );
 
   /** 拖动结束才写入草稿：拖动过程中每帧都提交会产生几十个无意义的修订。 */
   const onNodesChange = useCallback(
@@ -188,6 +195,7 @@ function EditorCanvas() {
             onNodesChange={onNodesChange}
             onConnect={onConnect}
             onSelectionChange={onSelectionChange}
+            onNodeDoubleClick={(_, node) => setConfigNodeId(node.id)}
             onDrop={onDrop}
             onDragOver={(event) => {
               event.preventDefault();
@@ -229,6 +237,25 @@ function EditorCanvas() {
               {Math.round(zoom * 100)}%
             </button>
           </div>
+
+          {configNode ? (
+            <NodeConfigDialog
+              node={configNode}
+              graph={graph}
+              onClose={() => setConfigNodeId(null)}
+              onSave={(config, title) => {
+                const ops: Parameters<typeof apply>[0] = [
+                  { op: 'setConfig', nodeId: configNode.id, config },
+                ];
+                // 标题没改就不产生多余的 Diff 项
+                if (title !== configNode.title) {
+                  ops.push({ op: 'renameNode', nodeId: configNode.id, title });
+                }
+                apply(ops);
+                setConfigNodeId(null);
+              }}
+            />
+          ) : null}
 
           <div className="editor__status">
             <span>双击编辑 · 右键菜单</span>

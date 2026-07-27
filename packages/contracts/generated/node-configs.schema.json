@@ -5,17 +5,21 @@
     "properties": {
       "agentProfileId": {
         "type": "string",
-        "minLength": 1
+        "minLength": 1,
+        "description": "Agent 角色\n节点引用角色而不是复制 Prompt；角色升级后引用它的节点一并生效"
       },
       "instruction": {
         "type": "string",
-        "minLength": 1
+        "minLength": 1,
+        "description": "任务指令"
       },
       "promptId": {
+        "description": "提示词\n留空则用该节点类型的内建提示词",
         "type": "string",
         "minLength": 1
       },
       "modelPolicy": {
+        "description": "模型策略\n只能选「模型」页里已启用的条目；降级会写入 RunEvent，不静默替换",
         "anyOf": [
           {
             "type": "string",
@@ -41,15 +45,18 @@
       },
       "turnLimit": {
         "default": 12,
+        "description": "Turn 上限",
         "type": "integer",
         "exclusiveMinimum": 0,
         "maximum": 9007199254740991
       },
       "outputContract": {
+        "description": "输出契约",
         "type": "object",
         "properties": {
           "documents": {
             "default": "multi",
+            "description": "产出文档数量",
             "type": "string",
             "enum": [
               "single",
@@ -57,6 +64,7 @@
             ]
           },
           "summarySchema": {
+            "description": "结构化摘要 Schema\n要求 JSON 输出的节点只能选带「结构化输出」能力的模型",
             "type": "object",
             "propertyNames": {
               "type": "string"
@@ -67,7 +75,8 @@
       },
       "target": {
         "type": "string",
-        "minLength": 1
+        "minLength": 1,
+        "description": "分析对象"
       }
     },
     "required": [
@@ -82,17 +91,21 @@
     "properties": {
       "agentProfileId": {
         "type": "string",
-        "minLength": 1
+        "minLength": 1,
+        "description": "Agent 角色\n节点引用角色而不是复制 Prompt；角色升级后引用它的节点一并生效"
       },
       "instruction": {
         "type": "string",
-        "minLength": 1
+        "minLength": 1,
+        "description": "任务指令"
       },
       "promptId": {
+        "description": "提示词\n留空则用该节点类型的内建提示词",
         "type": "string",
         "minLength": 1
       },
       "modelPolicy": {
+        "description": "模型策略\n只能选「模型」页里已启用的条目；降级会写入 RunEvent，不静默替换",
         "anyOf": [
           {
             "type": "string",
@@ -118,15 +131,18 @@
       },
       "turnLimit": {
         "default": 12,
+        "description": "Turn 上限",
         "type": "integer",
         "exclusiveMinimum": 0,
         "maximum": 9007199254740991
       },
       "outputContract": {
+        "description": "输出契约",
         "type": "object",
         "properties": {
           "documents": {
             "default": "multi",
+            "description": "产出文档数量",
             "type": "string",
             "enum": [
               "single",
@@ -134,6 +150,7 @@
             ]
           },
           "summarySchema": {
+            "description": "结构化摘要 Schema\n要求 JSON 输出的节点只能选带「结构化输出」能力的模型",
             "type": "object",
             "propertyNames": {
               "type": "string"
@@ -144,10 +161,12 @@
       },
       "target": {
         "type": "string",
-        "minLength": 1
+        "minLength": 1,
+        "description": "审查对象"
       },
       "checklist": {
         "default": [],
+        "description": "审查清单",
         "type": "array",
         "items": {
           "type": "string",
@@ -160,6 +179,7 @@
           "major",
           "minor"
         ],
+        "description": "严重度分级",
         "type": "array",
         "items": {
           "type": "string",
@@ -183,17 +203,21 @@
     "properties": {
       "agentProfileId": {
         "type": "string",
-        "minLength": 1
+        "minLength": 1,
+        "description": "Agent 角色\n节点引用角色而不是复制 Prompt；角色升级后引用它的节点一并生效"
       },
       "instruction": {
         "type": "string",
-        "minLength": 1
+        "minLength": 1,
+        "description": "任务指令"
       },
       "promptId": {
+        "description": "提示词\n留空则用该节点类型的内建提示词",
         "type": "string",
         "minLength": 1
       },
       "modelPolicy": {
+        "description": "模型策略\n只能选「模型」页里已启用的条目；降级会写入 RunEvent，不静默替换",
         "anyOf": [
           {
             "type": "string",
@@ -219,15 +243,18 @@
       },
       "turnLimit": {
         "default": 12,
+        "description": "Turn 上限",
         "type": "integer",
         "exclusiveMinimum": 0,
         "maximum": 9007199254740991
       },
       "outputContract": {
+        "description": "输出契约",
         "type": "object",
         "properties": {
           "documents": {
             "default": "multi",
+            "description": "产出文档数量",
             "type": "string",
             "enum": [
               "single",
@@ -235,6 +262,7 @@
             ]
           },
           "summarySchema": {
+            "description": "结构化摘要 Schema\n要求 JSON 输出的节点只能选带「结构化输出」能力的模型",
             "type": "object",
             "propertyNames": {
               "type": "string"
@@ -245,6 +273,7 @@
       },
       "rules": {
         "default": [],
+        "description": "分级规则",
         "type": "array",
         "items": {
           "type": "object",
@@ -275,6 +304,7 @@
       },
       "autoDecideUpTo": {
         "default": "L2",
+        "description": "可自动决策层级\n默认 L1–L2 自动决策，L3 通知用户转人工",
         "type": "string",
         "enum": [
           "L1",
@@ -284,6 +314,7 @@
       },
       "onTimeout": {
         "default": "escalate",
+        "description": "超时未决处理",
         "type": "string",
         "enum": [
           "escalate",
@@ -291,6 +322,7 @@
         ]
       },
       "decisionSchema": {
+        "description": "决策输出 Schema",
         "type": "object",
         "propertyNames": {
           "type": "string"
@@ -309,17 +341,21 @@
     "properties": {
       "agentProfileId": {
         "type": "string",
-        "minLength": 1
+        "minLength": 1,
+        "description": "Agent 角色\n节点引用角色而不是复制 Prompt；角色升级后引用它的节点一并生效"
       },
       "instruction": {
         "type": "string",
-        "minLength": 1
+        "minLength": 1,
+        "description": "任务指令"
       },
       "promptId": {
+        "description": "提示词\n留空则用该节点类型的内建提示词",
         "type": "string",
         "minLength": 1
       },
       "modelPolicy": {
+        "description": "模型策略\n只能选「模型」页里已启用的条目；降级会写入 RunEvent，不静默替换",
         "anyOf": [
           {
             "type": "string",
@@ -345,15 +381,18 @@
       },
       "turnLimit": {
         "default": 12,
+        "description": "Turn 上限",
         "type": "integer",
         "exclusiveMinimum": 0,
         "maximum": 9007199254740991
       },
       "outputContract": {
+        "description": "输出契约",
         "type": "object",
         "properties": {
           "documents": {
             "default": "multi",
+            "description": "产出文档数量",
             "type": "string",
             "enum": [
               "single",
@@ -361,6 +400,7 @@
             ]
           },
           "summarySchema": {
+            "description": "结构化摘要 Schema\n要求 JSON 输出的节点只能选带「结构化输出」能力的模型",
             "type": "object",
             "propertyNames": {
               "type": "string"
@@ -371,6 +411,7 @@
       },
       "workdirSource": {
         "default": "worktree",
+        "description": "工作目录来源\n由引擎强制，Prompt 不能改变安全边界",
         "type": "string",
         "enum": [
           "inherit",
@@ -380,6 +421,7 @@
       },
       "verifyCommands": {
         "default": [],
+        "description": "验证命令",
         "type": "array",
         "items": {
           "type": "string",
@@ -398,6 +440,7 @@
     "properties": {
       "trigger": {
         "default": "manual",
+        "description": "触发方式",
         "type": "string",
         "enum": [
           "manual",
@@ -409,6 +452,7 @@
       },
       "workdirSource": {
         "default": "prompt",
+        "description": "工作目录来源",
         "type": "string",
         "enum": [
           "prompt",
@@ -417,6 +461,7 @@
         ]
       },
       "workdir": {
+        "description": "固定工作目录\n仅当来源选 fixed 时生效",
         "type": "string"
       },
       "inputSchema": {
@@ -424,10 +469,12 @@
         "propertyNames": {
           "type": "string"
         },
-        "additionalProperties": {}
+        "additionalProperties": {},
+        "description": "输入参数 Schema\n启动表单按它自动生成"
       },
       "injectedFields": {
         "default": [],
+        "description": "系统注入字段",
         "type": "array",
         "items": {
           "type": "string",
@@ -445,14 +492,17 @@
     "properties": {
       "workflowId": {
         "type": "string",
-        "minLength": 1
+        "minLength": 1,
+        "description": "目标工作流"
       },
       "versionRef": {
         "type": "string",
-        "minLength": 1
+        "minLength": 1,
+        "description": "运行版本\nlatest 或具体版本号"
       },
       "mode": {
         "default": "sync",
+        "description": "调用方式",
         "type": "string",
         "enum": [
           "sync",
@@ -461,6 +511,7 @@
       },
       "inputMapping": {
         "default": {},
+        "description": "输入映射",
         "type": "object",
         "propertyNames": {
           "type": "string"
@@ -471,6 +522,7 @@
       },
       "outputMapping": {
         "default": {},
+        "description": "输出映射",
         "type": "object",
         "propertyNames": {
           "type": "string"
@@ -481,12 +533,14 @@
       },
       "concurrencyLimit": {
         "default": 1,
+        "description": "并发上限",
         "type": "integer",
         "exclusiveMinimum": 0,
         "maximum": 9007199254740991
       },
       "onFailure": {
         "default": "fail_parent",
+        "description": "失败策略",
         "type": "string",
         "enum": [
           "fail_parent",
@@ -496,6 +550,7 @@
       },
       "approvalInheritance": {
         "default": "inherit",
+        "description": "审批继承\ninherit 时子运行的审批冒泡到父运行",
         "type": "string",
         "enum": [
           "inherit",
@@ -531,10 +586,12 @@
             "port",
             "when"
           ]
-        }
+        },
+        "description": "分支条件\n每条对应一个输出端口"
       },
       "defaultPort": {
         "default": "default",
+        "description": "兜底端口",
         "type": "string",
         "minLength": 1
       }
@@ -566,9 +623,11 @@
             "from",
             "to"
           ]
-        }
+        },
+        "description": "字段映射\nfrom 用 JSONPath 取值"
       },
       "outputSchema": {
+        "description": "输出 Schema",
         "type": "object",
         "propertyNames": {
           "type": "string"
@@ -589,10 +648,12 @@
         "enum": [
           "success",
           "failure"
-        ]
+        ],
+        "description": "运行结果"
       },
       "artifacts": {
         "default": [],
+        "description": "最终产物",
         "type": "array",
         "items": {
           "type": "string",
@@ -610,10 +671,12 @@
     "properties": {
       "title": {
         "type": "string",
-        "minLength": 1
+        "minLength": 1,
+        "description": "审批标题"
       },
       "bodyMarkdown": {
         "default": "",
+        "description": "审批内容\n支持 Markdown",
         "type": "string"
       },
       "interaction": {
@@ -623,10 +686,12 @@
           "multi",
           "confirm",
           "supplement"
-        ]
+        ],
+        "description": "交互类型"
       },
       "options": {
         "default": [],
+        "description": "可选项",
         "type": "array",
         "items": {
           "type": "object",
@@ -652,6 +717,7 @@
       },
       "waitStrategy": {
         "default": "forever",
+        "description": "等待策略",
         "type": "string",
         "enum": [
           "forever",
@@ -659,11 +725,13 @@
         ]
       },
       "timeoutMs": {
+        "description": "等待超时（毫秒）",
         "type": "integer",
         "exclusiveMinimum": 0,
         "maximum": 9007199254740991
       },
       "reminderAfterMs": {
+        "description": "提醒间隔（毫秒）",
         "type": "integer",
         "exclusiveMinimum": 0,
         "maximum": 9007199254740991
@@ -680,14 +748,17 @@
     "properties": {
       "title": {
         "type": "string",
-        "minLength": 1
+        "minLength": 1,
+        "description": "通知标题"
       },
       "subtitle": {
+        "description": "副标题",
         "type": "string"
       },
       "body": {
         "type": "string",
-        "minLength": 1
+        "minLength": 1,
+        "description": "通知正文"
       },
       "on": {
         "default": [
@@ -695,6 +766,7 @@
           "failed",
           "waiting_approval"
         ],
+        "description": "触发条件",
         "type": "array",
         "items": {
           "type": "string",
@@ -708,6 +780,7 @@
       },
       "clickAction": {
         "default": "open_run",
+        "description": "点击动作",
         "type": "string",
         "enum": [
           "open_run",
@@ -717,6 +790,7 @@
       },
       "onFailure": {
         "default": "ignore",
+        "description": "失败处理",
         "type": "string",
         "enum": [
           "ignore",
@@ -740,17 +814,21 @@
           "zsh",
           "bash",
           "sh"
-        ]
+        ],
+        "description": "解释器\n白名单：任意可执行文件会绕过命令能力声明"
       },
       "script": {
         "type": "string",
-        "minLength": 1
+        "minLength": 1,
+        "description": "脚本内容"
       },
       "workdir": {
+        "description": "工作目录",
         "type": "string"
       },
       "env": {
         "default": {},
+        "description": "环境变量",
         "type": "object",
         "propertyNames": {
           "type": "string"
@@ -761,6 +839,7 @@
       },
       "secretEnv": {
         "default": {},
+        "description": "凭据环境变量\n用 keychain:// 引用，明文永不入库",
         "type": "object",
         "propertyNames": {
           "type": "string"
@@ -771,6 +850,7 @@
       },
       "outputParse": {
         "default": "none",
+        "description": "输出解析",
         "type": "string",
         "enum": [
           "none",
@@ -782,6 +862,7 @@
         "default": [
           0
         ],
+        "description": "成功退出码",
         "type": "array",
         "items": {
           "type": "integer",
@@ -791,12 +872,14 @@
       },
       "outputLimitBytes": {
         "default": 1048576,
+        "description": "输出上限（字节）",
         "type": "integer",
         "exclusiveMinimum": 0,
         "maximum": 9007199254740991
       },
       "timeoutMs": {
         "default": 900000,
+        "description": "超时（毫秒）",
         "type": "integer",
         "exclusiveMinimum": 0,
         "maximum": 9007199254740991
@@ -816,17 +899,21 @@
         "enum": [
           "python3",
           "uv"
-        ]
+        ],
+        "description": "解释器\n用 App 管理的独立运行时，不依赖系统 Python"
       },
       "script": {
         "type": "string",
-        "minLength": 1
+        "minLength": 1,
+        "description": "脚本内容"
       },
       "workdir": {
+        "description": "工作目录",
         "type": "string"
       },
       "env": {
         "default": {},
+        "description": "环境变量",
         "type": "object",
         "propertyNames": {
           "type": "string"
@@ -837,6 +924,7 @@
       },
       "secretEnv": {
         "default": {},
+        "description": "凭据环境变量\n用 keychain:// 引用，明文永不入库",
         "type": "object",
         "propertyNames": {
           "type": "string"
@@ -847,6 +935,7 @@
       },
       "outputParse": {
         "default": "none",
+        "description": "输出解析",
         "type": "string",
         "enum": [
           "none",
@@ -858,6 +947,7 @@
         "default": [
           0
         ],
+        "description": "成功退出码",
         "type": "array",
         "items": {
           "type": "integer",
@@ -867,12 +957,14 @@
       },
       "outputLimitBytes": {
         "default": 1048576,
+        "description": "输出上限（字节）",
         "type": "integer",
         "exclusiveMinimum": 0,
         "maximum": 9007199254740991
       },
       "timeoutMs": {
         "default": 900000,
+        "description": "超时（毫秒）",
         "type": "integer",
         "exclusiveMinimum": 0,
         "maximum": 9007199254740991
@@ -889,28 +981,34 @@
     "properties": {
       "repoRoot": {
         "type": "string",
-        "minLength": 1
+        "minLength": 1,
+        "description": "仓库根目录"
       },
       "baseBranch": {
         "type": "string",
-        "minLength": 1
+        "minLength": 1,
+        "description": "基础分支"
       },
       "branchTemplate": {
         "default": "aiwf/${run.id}",
+        "description": "分支命名模板",
         "type": "string",
         "minLength": 1
       },
       "parentDir": {
         "default": "~/worktrees",
+        "description": "父目录",
         "type": "string",
         "minLength": 1
       },
       "fetch": {
         "default": true,
+        "description": "创建前 fetch",
         "type": "boolean"
       },
       "conflictPolicy": {
         "default": "suffix",
+        "description": "冲突策略",
         "type": "string",
         "enum": [
           "fail",
@@ -920,6 +1018,7 @@
       },
       "cleanupPolicy": {
         "default": "on_success",
+        "description": "清理策略",
         "type": "string",
         "enum": [
           "keep",
@@ -974,10 +1073,12 @@
             "op",
             "key"
           ]
-        }
+        },
+        "description": "变量操作"
       },
       "exportDotenv": {
         "default": false,
+        "description": "导出 .env",
         "type": "boolean"
       }
     },
@@ -991,7 +1092,8 @@
     "properties": {
       "serverId": {
         "type": "string",
-        "minLength": 1
+        "minLength": 1,
+        "description": "MCP Server"
       },
       "toolAllowlist": {
         "minItems": 1,
@@ -999,10 +1101,12 @@
         "items": {
           "type": "string",
           "minLength": 1
-        }
+        },
+        "description": "工具白名单"
       },
       "args": {
         "default": {},
+        "description": "调用参数",
         "type": "object",
         "propertyNames": {
           "type": "string"
@@ -1011,6 +1115,7 @@
       },
       "scopes": {
         "default": [],
+        "description": "权限 Scope",
         "type": "array",
         "items": {
           "type": "string",

@@ -4,9 +4,15 @@
  */
 export {
   CoreApiError,
+  fieldDescriptors,
+  getNodeDefinition,
+  resolveNodeOutputs,
   validateGraph,
   type PatchOperation,
   type ValidationIssue,
+  type FieldDescriptor,
+  type GraphNode,
+  type NodeType,
   type ValidationResult,
   type WorkflowGraph,
 } from '@aiwf/contracts';
