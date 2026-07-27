@@ -133,9 +133,14 @@ pub fn interpolate(template: &str, scope: &Scope) -> Result<String> {
 ///
 /// 加引号会让 `cd ${input.repo}` 变成 `cd "/path"` —— 在 shell 里碰巧能跑，
 /// 但拼进 URL 或文件名时就错了。
+///
+/// **尾部换行去掉**，与 shell 的 `$(...)` 一致。
+/// 不去掉的话，`echo ${a.success.stdout} > out.txt` 会被那个换行拆成两行，
+/// 第二行只剩一个重定向，结果是一个空文件 —— 而且不报任何错。
+/// 中间的换行保留：多行输出本身可能就是要的东西。
 fn stringify(value: &Value) -> String {
     match value {
-        Value::String(s) => s.clone(),
+        Value::String(s) => s.trim_end_matches(['\n', '\r']).to_string(),
         other => other.to_string(),
     }
 }

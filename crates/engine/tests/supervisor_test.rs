@@ -323,3 +323,169 @@ fn 审批通过后能继续跑到结束() {
     );
     assert!(dir.join("resumed.txt").exists(), "审批后的节点没有执行");
 }
+
+#[test]
+fn 杀掉进程后重新打开数据库_能回到同一审批点并跑完() {
+    // M2 出口标准。这里刻意 drop 掉所有内存对象再重新打开：
+    // 只要有一点状态只存在于内存里，这个测试就会失败。
+    let path = db("restart");
+    let dir = path.parent().unwrap().to_path_buf();
+
+    let graph = serde_json::json!({
+        "nodes": [
+            {"id": "entry", "type": "entry", "title": "入口", "config": {}},
+            {"id": "prep", "type": "script.shell", "title": "准备",
+             "config": {"interpreter": "bash", "script": "echo 上游产出", "timeoutMs": 8000}},
+            {"id": "ap", "type": "approval", "title": "审批", "config": {"title": "确认"}},
+            {"id": "use", "type": "script.shell", "title": "用上游的输出",
+             "config": {"interpreter": "bash",
+                        "script": "echo ${prep.success.stdout} > after-restart.txt",
+                        "timeoutMs": 8000}}
+        ],
+        "edges": [
+            {"id": "e1", "source": {"nodeId": "entry", "port": "success"}, "target": {"nodeId": "prep", "port": "input"}},
+            {"id": "e2", "source": {"nodeId": "prep", "port": "success"}, "target": {"nodeId": "ap", "port": "input"}},
+            {"id": "e3", "source": {"nodeId": "ap", "port": "approved"}, "target": {"nodeId": "use", "port": "input"}}
+        ],
+        "groups": []
+    })
+    .to_string();
+
+    // ── 第一次「启动应用」──────────────────────────────────────────────
+    let run_id = {
+        let store = Store::open(&path).unwrap();
+        let workflow = store
+            .create_workflow_with_graph("重启", None, &graph)
+            .unwrap();
+        let supervisor = Supervisor::new(path.clone());
+        let run_id = supervisor
+            .start(
+                &store,
+                RunRequest {
+                    workflow_id: workflow,
+                    version_id: None,
+                    draft_rev: Some(0),
+                    inputs_json: "{}".to_string(),
+                    workdir: dir.display().to_string(),
+                },
+            )
+            .unwrap();
+
+        assert!(
+            wait_until(
+                || store.run_status(&run_id).unwrap().as_deref() == Some("waiting_approval"),
+                Duration::from_secs(15)
+            ),
+            "第一次运行没有停在审批点：{:?}",
+            store.run_status(&run_id).unwrap()
+        );
+        run_id
+        // store 与 supervisor 在这里全部析构 —— 相当于杀掉应用
+    };
+
+    // ── 第二次「启动应用」──────────────────────────────────────────────
+    let store = Store::open(&path).unwrap();
+    let supervisor = Supervisor::new(path.clone());
+
+    // 重启后仍然知道卡在哪个审批上
+    assert_eq!(
+        store.run_status(&run_id).unwrap().as_deref(),
+        Some("waiting_approval")
+    );
+
+    supervisor
+        .decide_approval(&store, &run_id, "ap", "approved")
+        .unwrap();
+
+    assert!(
+        wait_until(
+            || store.run_status(&run_id).unwrap().as_deref() == Some("succeeded"),
+            Duration::from_secs(15)
+        ),
+        "重启后没跑完：{:?}",
+        store.run_status(&run_id).unwrap()
+    );
+
+    // 上游节点的输出跨重启存活了：文件内容来自重启前那次执行
+    let content = std::fs::read_to_string(dir.join("after-restart.txt")).unwrap();
+    assert_eq!(content.trim(), "上游产出", "上游输出没能跨重启传下来");
+}
+
+#[test]
+fn 事件流可完整回放_从第一条到最后一条连续无缺口() {
+    // M2 出口标准第三条
+    let path = db("replay");
+    let dir = path.parent().unwrap().to_path_buf();
+    let store = Store::open(&path).unwrap();
+
+    let graph = serde_json::json!({
+        "nodes": [
+            {"id": "entry", "type": "entry", "title": "入口", "config": {}},
+            {"id": "a", "type": "script.shell", "title": "A",
+             "config": {"interpreter": "bash", "script": "echo a", "timeoutMs": 8000}},
+            {"id": "b", "type": "script.shell", "title": "B",
+             "config": {"interpreter": "bash", "script": "echo b", "timeoutMs": 8000}}
+        ],
+        "edges": [
+            {"id": "e1", "source": {"nodeId": "entry", "port": "success"}, "target": {"nodeId": "a", "port": "input"}},
+            {"id": "e2", "source": {"nodeId": "a", "port": "success"}, "target": {"nodeId": "b", "port": "input"}}
+        ],
+        "groups": []
+    })
+    .to_string();
+    let workflow = store
+        .create_workflow_with_graph("回放", None, &graph)
+        .unwrap();
+
+    let supervisor = Supervisor::new(path.clone());
+    let run_id = supervisor
+        .start(
+            &store,
+            RunRequest {
+                workflow_id: workflow,
+                version_id: None,
+                draft_rev: Some(0),
+                inputs_json: "{}".to_string(),
+                workdir: dir.display().to_string(),
+            },
+        )
+        .unwrap();
+
+    assert!(wait_until(
+        || store.run_status(&run_id).unwrap().as_deref() == Some("succeeded"),
+        Duration::from_secs(20)
+    ));
+
+    let events = store.events(&run_id, 0, 1000).unwrap();
+    // seq 从 1 起，逐条连续：缺一条就说明有状态变化没被记下来
+    for (index, event) in events.iter().enumerate() {
+        assert_eq!(event.seq, index as i64 + 1, "seq 在第 {index} 条出现缺口");
+    }
+
+    // 整条生命周期都在
+    let kinds: Vec<&str> = events.iter().map(|e| e.kind.as_str()).collect();
+    for expected in [
+        "run.created",
+        "run.preflight_passed",
+        "run.queued",
+        "run.started",
+        "run.succeeded",
+    ] {
+        assert!(kinds.contains(&expected), "缺少 {expected}：{kinds:?}");
+    }
+    // 每个节点都有开始与结束
+    for node in ["entry", "a", "b"] {
+        assert!(
+            events
+                .iter()
+                .any(|e| e.kind == "node.started" && e.node_id.as_deref() == Some(node)),
+            "{node} 缺少 node.started"
+        );
+        assert!(
+            events
+                .iter()
+                .any(|e| e.kind == "node.succeeded" && e.node_id.as_deref() == Some(node)),
+            "{node} 缺少 node.succeeded"
+        );
+    }
+}

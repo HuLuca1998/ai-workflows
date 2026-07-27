@@ -105,3 +105,25 @@ fn 插值环境变量表把输入摊平成_aiwf_前缀() {
     let run_id = env.iter().find(|(k, _)| k == "AIWF_RUN_ID");
     assert_eq!(run_id.map(|(_, v)| v.as_str()), Some("run_123"));
 }
+
+#[test]
+fn 尾部换行被去掉_与_shell_的命令替换一致() {
+    // 不去掉的话 `echo ${a.success.stdout} > out.txt` 会被换行拆成两行，
+    // 第二行只剩一个重定向，写出一个空文件且不报错
+    let mut scope = scope();
+    scope.set_node_output("a", "success", serde_json::json!({"stdout": "hello\n"}));
+    assert_eq!(
+        interpolate("echo ${a.success.stdout} > out.txt", &scope).unwrap(),
+        "echo hello > out.txt"
+    );
+}
+
+#[test]
+fn 中间的换行保留_多行输出本身可能就是要的东西() {
+    let mut scope = scope();
+    scope.set_node_output("a", "success", serde_json::json!({"stdout": "一\n二\n"}));
+    assert_eq!(
+        interpolate("${a.success.stdout}", &scope).unwrap(),
+        "一\n二"
+    );
+}
