@@ -196,11 +196,7 @@ fn workflow_version_graph(state: State<'_, AppState>, version_id: String) -> Ipc
 /// 也刻意不复用 save_draft：这一步没有结构化操作可记，
 /// 用假的 Patch 去凑会往审计里写一条不存在的节点操作。
 #[tauri::command]
-fn workflow_rollback(
-    state: State<'_, AppState>,
-    id: String,
-    version_id: String,
-) -> IpcResult<i64> {
+fn workflow_rollback(state: State<'_, AppState>, id: String, version_id: String) -> IpcResult<i64> {
     let store = lock(&state)?;
     let version = store
         .get_version(&version_id)?
