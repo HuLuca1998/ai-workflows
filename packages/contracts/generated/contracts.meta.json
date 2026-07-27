@@ -93,6 +93,7 @@
     "workflow.publish",
     "workflow.delete",
     "run.start",
+    "run.dryRun",
     "run.list",
     "run.get",
     "run.events",

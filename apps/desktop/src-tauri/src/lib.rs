@@ -155,6 +155,40 @@ fn run_start(
     Ok(run_id)
 }
 
+/// Dry Run 依赖检查。只读，不建 Run —— 启动表单打开时就调。
+#[tauri::command]
+fn run_dry_run(
+    state: State<'_, AppState>,
+    workflow_id: String,
+    version_id: Option<String>,
+    draft_rev: Option<i64>,
+    workdir: String,
+) -> IpcResult<aiwf_engine::preflight::DryRunReport> {
+    let store = lock(&state)?;
+
+    let graph_json = match version_id {
+        Some(id) => store.get_version(&id)?.map(|v| v.graph_json),
+        None => store.get_draft(&workflow_id, draft_rev.unwrap_or(0))?,
+    }
+    .ok_or_else(|| IpcError {
+        code: "VALIDATION".to_string(),
+        message: "找不到要检查的工作流定义".to_string(),
+        retriable: false,
+    })?;
+
+    let graph: aiwf_engine::graph::WorkflowGraph =
+        serde_json::from_str(&graph_json).map_err(|error| IpcError {
+            code: "INTERNAL".to_string(),
+            message: format!("图数据无法解析：{error}"),
+            retriable: false,
+        })?;
+
+    Ok(aiwf_engine::preflight::dry_run(
+        &graph,
+        std::path::Path::new(&workdir),
+    ))
+}
+
 #[tauri::command]
 fn run_list(
     state: State<'_, AppState>,
@@ -546,6 +580,7 @@ pub fn run() {
             workflow_rollback,
             workflow_delete,
             run_start,
+            run_dry_run,
             run_list,
             run_get,
             run_events,

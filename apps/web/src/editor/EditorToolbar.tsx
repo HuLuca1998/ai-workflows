@@ -15,6 +15,7 @@ export interface EditorToolbarProps {
   onSave: () => void;
   onPublish: () => void;
   onToggleVersions: () => void;
+  onRun: () => void;
 }
 
 /**
@@ -36,6 +37,7 @@ export function EditorToolbar({
   onSave,
   onPublish,
   onToggleVersions,
+  onRun,
 }: EditorToolbarProps) {
   const navigate = useNavigate();
   const errorCount = validation.issues.filter((i) => i.level === 'error').length;
@@ -89,8 +91,19 @@ export function EditorToolbar({
       <Button onClick={onPublish} disabled={saving || errorCount > 0}>
         发布版本
       </Button>
-      {/* 运行要等 M2 的引擎，禁用并说明原因，不做点了没反应的按钮 */}
-      <Button variant="primary" disabled title="运行需要执行引擎，M2 阶段接入">
+      {/* 有未保存改动时先存：运行的是已落库的修订，本地改动不在其中 */}
+      <Button
+        variant="primary"
+        disabled={dirty || errorCount > 0}
+        title={
+          dirty
+            ? '有未保存的改动。先保存草稿再运行'
+            : errorCount > 0
+              ? '图有错误，先修好再运行'
+              : undefined
+        }
+        onClick={onRun}
+      >
         <i className="ph ph-play" aria-hidden="true" />
         运行
       </Button>

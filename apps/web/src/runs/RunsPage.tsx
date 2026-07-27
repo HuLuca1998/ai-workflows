@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useSearchParams } from 'react-router';
 import { type RunStatusName, StatusBadge } from '@aiwf/ui';
 import { type RunEvent, type RunFilter, type RunSummary, useRuns } from './runsStore.js';
 
@@ -32,16 +33,22 @@ const POLL_MS = 1200;
 
 export function RunsPage() {
   const runs = useRuns();
+  const [params] = useSearchParams();
   const [tab, setTab] = useState<DetailTab>('events');
   const { active, past } = runs.grouped();
   const selected = runs.selected();
   const progress = runs.progress();
 
+  // 从编辑器点「运行」过来时带着 ?run=，直接展开那一次运行
+  const requested = params.get('run');
   useEffect(() => {
-    void runs.load();
-    // 只在挂载时拉一次；后续靠轮询与操作后的显式刷新
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+    void useRuns
+      .getState()
+      .load()
+      .then(() => {
+        if (requested) void useRuns.getState().select(requested);
+      });
+  }, [requested]);
 
   const live = selected !== null && isActive(selected.status);
   useEffect(() => {

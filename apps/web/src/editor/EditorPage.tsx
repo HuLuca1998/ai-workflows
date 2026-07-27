@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Link, useParams } from 'react-router';
+import { Link, useNavigate, useParams } from 'react-router';
 import {
   Background,
   BackgroundVariant,
@@ -22,6 +22,7 @@ import { GroupLayer, groupBoxes } from './GroupFrame.jsx';
 import { NodeConfigDialog } from './NodeConfigDialog.jsx';
 import { NodeLibrary } from './NodeLibrary.jsx';
 import { VersionDrawer } from './VersionDrawer.jsx';
+import { LaunchDialog } from '../runs/LaunchDialog.js';
 import { WorkflowNode } from './WorkflowNode.jsx';
 import { defaultSourcePort, defaultTargetPort, toFlowEdges, toFlowNodes } from './graphAdapter.js';
 import { NODE_HEIGHT, NODE_WIDTH } from './nodeVisuals.js';
@@ -57,6 +58,7 @@ export function EditorPage() {
 
 function EditorCanvas() {
   const { workflowId } = useParams();
+  const navigate = useNavigate();
   const {
     name,
     rev,
@@ -88,6 +90,7 @@ function EditorCanvas() {
     null,
   );
   const [versionsOpen, setVersionsOpen] = useState(false);
+  const [launchOpen, setLaunchOpen] = useState(false);
 
   useEffect(() => {
     if (workflowId) void load(workflowId);
@@ -204,7 +207,24 @@ function EditorCanvas() {
         onSave={() => void save()}
         onPublish={() => void publish()}
         onToggleVersions={() => setVersionsOpen((open) => !open)}
+        onRun={() => setLaunchOpen(true)}
       />
+
+      {launchOpen && workflowId ? (
+        <LaunchDialog
+          workflowId={workflowId}
+          workflowName={name}
+          graph={graph}
+          rev={rev}
+          versions={versions}
+          onClose={() => setLaunchOpen(false)}
+          onStarted={(runId) => {
+            setLaunchOpen(false);
+            // 直接去执行记录看这次运行：启动的意图就是要看它跑
+            navigate(`/runs?run=${runId}`);
+          }}
+        />
+      ) : null}
 
       {error ? (
         <p className="editor-error" role="alert">

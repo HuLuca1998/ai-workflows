@@ -27,6 +27,7 @@ const COMMANDS: Partial<Record<CoreApiMethod, string>> = {
   'workflow.publish': 'workflow_publish',
   'workflow.delete': 'workflow_delete',
   'run.start': 'run_start',
+  'run.dryRun': 'run_dry_run',
   'run.list': 'run_list',
   'run.get': 'run_get',
   'run.events': 'run_events',
@@ -257,6 +258,7 @@ export function fromIpcResult(method: CoreApiMethod, raw: unknown): unknown {
       return { run: raw ? toRun(raw as RunRowDto) : null };
 
     case 'run.events':
+    case 'run.dryRun':
       return raw;
 
     case 'run.cancel':

@@ -1,4 +1,4 @@
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { act, render, screen, waitFor, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { MemoryRouter, Route, Routes } from 'react-router';
 import { EditorPage } from '../src/editor/EditorPage.js';
@@ -121,11 +121,20 @@ describe('工具栏', () => {
     expect(screen.getByRole('button', { name: '保存草稿' })).toBeEnabled();
   });
 
-  it('运行按钮禁用并说明要等引擎——不做点了没反应的按钮', () => {
+  it('有未保存改动时运行按钮禁用并说明原因——运行的是已落库的修订', () => {
     renderEditor();
     const run = screen.getByRole('button', { name: /运行/u });
+    // 测试夹具的草稿是干净的，这里改脏后再断言
+    act(() => {
+      useEditor.setState({ dirty: true });
+    });
     expect(run).toBeDisabled();
-    expect(run).toHaveAttribute('title', expect.stringContaining('M2'));
+    expect(run).toHaveAttribute('title', expect.stringContaining('先保存草稿'));
+  });
+
+  it('草稿干净且校验通过时可以运行', () => {
+    renderEditor();
+    expect(screen.getByRole('button', { name: /运行/u })).toBeEnabled();
   });
 
   it('撤销重做保持禁用（快捷键表里标为待实现）', () => {

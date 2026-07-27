@@ -11,6 +11,7 @@ pub mod graph;
 pub mod interp;
 pub mod path_guard;
 pub mod plan;
+pub mod preflight;
 pub mod redactor;
 pub mod runner;
 pub mod status;

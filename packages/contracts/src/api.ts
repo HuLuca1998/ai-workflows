@@ -203,6 +203,36 @@ const SPECS = {
     scope: 'workflow:run',
     summary: '启动运行（先做 preflight）',
   },
+  'run.dryRun': {
+    // 图纸的启动表单在**打开时**就显示依赖检查结果，不是点了开始才查，
+    // 所以这是一个独立于 run.start 的只读方法
+    input: z
+      .object({
+        workflowId: z.string().min(1),
+        versionId: z.string().min(1).optional(),
+        draftRev: z.number().int().min(0).optional(),
+        workdir: z.string().min(1),
+      })
+      .refine((v) => (v.versionId === undefined) !== (v.draftRev === undefined), {
+        message: 'versionId 与 draftRev 必须且只能提供一个',
+      }),
+    output: z.object({
+      checks: z.array(
+        z.object({
+          label: z.string(),
+          status: z.enum(['passed', 'failed']),
+          detail: z.string(),
+        }),
+      ),
+      passed: z.number().int().min(0),
+      failed: z.number().int().min(0),
+      ok: z.boolean(),
+    }),
+    mutates: false,
+    audited: false,
+    scope: 'workflow:read',
+    summary: 'Dry Run 依赖检查：只报真的查过的项',
+  },
   'run.list': {
     input: z.object({
       workflowId: z.string().optional(),
