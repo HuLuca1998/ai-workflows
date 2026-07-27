@@ -84,7 +84,8 @@ gh secret set TAURI_SIGNING_PRIVATE_KEY --body "$(cat ~/.aiwf-updater/updater.ke
 
 当前**未启用**——没有 Apple 开发者证书。后果：用户首次打开要右键 → 打开。
 
-拿到证书后不需要改 workflow，只要设置这几个 Secret，流水线会自动启用：
+流水线里有两个互斥的构建步骤，按 `APPLE_CERTIFICATE` 是否存在自动选择——
+**不需要改 workflow**，设置下面这几个 Secret 即可启用签名与公证：
 
 ```
 APPLE_CERTIFICATE           # base64 的 .p12
@@ -101,3 +102,4 @@ APPLE_ID / APPLE_PASSWORD / APPLE_TEAM_ID   # 公证用
 | 下载后安装失败                 | 签名是否匹配：`tauri.conf.json` 的公钥与 CI 用的私钥必须是同一对               |
 | CI 发布成功但 latest.json 缺失 | `includeUpdaterJson: true` 与 bundle targets 里的 `updater` 都要在             |
 | nightly 把稳定版用户带跑了     | 检查 release 的 prerelease 标记——它必须为 true                                 |
+| bundle 阶段报 `failed to import keychain certificate` | 说明空的 `APPLE_CERTIFICATE` 被传进了构建步骤。GitHub Actions 无法条件性地不设置 env，所以必须走两个互斥步骤，而不是靠 tauri-action 自己判空 |
