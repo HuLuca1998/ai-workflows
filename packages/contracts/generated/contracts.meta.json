@@ -91,6 +91,7 @@
     "workflow.versionGraph",
     "workflow.rollback",
     "workflow.publish",
+    "workflow.rename",
     "workflow.delete",
     "run.start",
     "run.dryRun",

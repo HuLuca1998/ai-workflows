@@ -25,6 +25,7 @@ const COMMANDS: Partial<Record<CoreApiMethod, string>> = {
   'workflow.versionGraph': 'workflow_version_graph',
   'workflow.rollback': 'workflow_rollback',
   'workflow.publish': 'workflow_publish',
+  'workflow.rename': 'workflow_rename',
   'workflow.delete': 'workflow_delete',
   'run.start': 'run_start',
   'run.dryRun': 'run_dry_run',
@@ -292,6 +293,7 @@ export function fromIpcResult(method: CoreApiMethod, raw: unknown): unknown {
     case 'workflow.rollback':
       return { rev: raw as number };
 
+    case 'workflow.rename':
     case 'workflow.delete':
       return { ok: true };
 

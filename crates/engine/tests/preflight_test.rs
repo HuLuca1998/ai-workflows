@@ -261,3 +261,59 @@ fn 汇总计数与检查项一致() {
             .count()
     );
 }
+
+#[test]
+fn 从入口到不了的节点要在_dry_run_就报出来() {
+    // codex 的用户测试发现的：拖了三个节点忘了连线，
+    // 校验说「通过」、Dry Run 说「3 个节点可依次执行」，
+    // 然后引擎真的把那个孤立的脚本跑了 —— 用户没料到它会执行。
+    let disconnected = serde_json::json!({
+        "nodes": [
+            {"id": "entry", "type": "entry", "title": "入口", "config": {}},
+            {"id": "orphan", "type": "script.shell", "title": "忘了连线的脚本",
+             "config": {"interpreter": "bash", "script": "rm -rf /tmp/important"}},
+            {"id": "end", "type": "end", "title": "结束", "config": {"outcome": "success"}}
+        ],
+        "edges": [],
+        "groups": []
+    });
+
+    let report = dry_run(&graph(disconnected), &std::env::temp_dir());
+    assert!(!report.ok, "有孤立节点时不该说「通过」");
+
+    let unreachable = report
+        .checks
+        .iter()
+        .find(|c| c.label.contains("可达"))
+        .expect("应当有一条可达性检查");
+    assert_eq!(unreachable.status, CheckStatus::Failed);
+    assert!(
+        unreachable.detail.contains("忘了连线的脚本") || unreachable.detail.contains("orphan"),
+        "详情要指出是哪个节点：{}",
+        unreachable.detail
+    );
+}
+
+#[test]
+fn 全部连通时可达性检查通过() {
+    let connected = serde_json::json!({
+        "nodes": [
+            {"id": "entry", "type": "entry", "title": "入口", "config": {}},
+            {"id": "run", "type": "script.shell", "title": "跑",
+             "config": {"interpreter": "bash", "script": "echo hi"}}
+        ],
+        "edges": [
+            {"id": "e1", "source": {"nodeId": "entry", "port": "success"},
+             "target": {"nodeId": "run", "port": "input"}}
+        ],
+        "groups": []
+    });
+
+    let report = dry_run(&graph(connected), &std::env::temp_dir());
+    let check = report
+        .checks
+        .iter()
+        .find(|c| c.label.contains("可达"))
+        .expect("应当有一条可达性检查");
+    assert_eq!(check.status, CheckStatus::Passed);
+}

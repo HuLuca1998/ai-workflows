@@ -206,12 +206,23 @@ export function validateGraph(graph: WorkflowGraph): ValidationResult {
     err('CYCLE', '节点位于环上，工作流必须是有向无环图', { nodeId });
   }
 
-  // 可达性（从入口出发）
+  // 可达性（从入口出发）。
+  //
+  // 这里是 **warning**：编辑中途拖入一个还没连线的节点是正常状态，
+  // 此时禁掉保存会很难用。
+  //
+  // 但文案必须说对 —— 原来写的是「运行时会被跳过」，那是反的：
+  // 调度器挑的是「上游都完成了的节点」，一个没有上游的节点
+  // 从第一轮起就满足条件，**它会被执行**。
+  // 真正的拦截在 Dry Run（`crates/engine/src/preflight.rs` 的可达性检查），
+  // 那时用户是要真的跑了，孤立节点就该是硬错误。
   if (entries[0]) {
     const reachable = reachableFrom(graph, entries[0].id);
     for (const node of byId.values()) {
       if (!reachable.has(node.id)) {
-        warn('ORPHAN_NODE', '从入口节点不可达，运行时会被跳过', { nodeId: node.id });
+        warn('ORPHAN_NODE', '从入口连不到这个节点，但运行时它仍会被执行 —— 多半是忘了连线', {
+          nodeId: node.id,
+        });
       }
     }
   } else {

@@ -3891,3 +3891,16 @@
 .supervisor__input:focus {
   border-color: var(--color-accent-700);
 }
+
+/* 工作流名可双击改：新建只能得到「未命名工作流 N」，
+   没有改名入口的话列表很快全是这种名字 */
+.editor-bar__name--editing {
+  border: 1px solid var(--color-accent-700);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--color-bg) 82%, #000);
+  color: inherit;
+  font: inherit;
+  padding: 2px 8px;
+  outline: none;
+  min-width: 200px;
+}

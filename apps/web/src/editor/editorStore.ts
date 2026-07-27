@@ -51,6 +51,8 @@ interface EditorState {
   loadVersionGraph: (versionId: string) => Promise<WorkflowGraph>;
   /** 把某个版本回填成新的草稿修订。原草稿仍在历史里，不会丢。 */
   rollbackTo: (versionId: string) => Promise<void>;
+  /** 给工作流改名。名字是用户识别它的唯一线索。 */
+  rename: (name: string) => Promise<void>;
   setSelection: (ids: string[]) => void;
   clear: () => void;
 }
@@ -182,6 +184,18 @@ export const useEditor = create<EditorState>((set, get) => ({
       set({ saving: false });
     } catch (error) {
       set({ saving: false, error: describe(error) });
+    }
+  },
+
+  rename: async (name: string) => {
+    const { workflowId } = get();
+    if (!workflowId) return;
+    // 先落库再改本地：反过来的话失败时界面显示的是一个没存上的名字
+    try {
+      await coreClient.call('workflow.rename', { id: workflowId, name });
+      set({ name });
+    } catch (error) {
+      set({ error: describe(error) });
     }
   },
 

@@ -772,6 +772,32 @@ impl Store {
             .map_err(StoreError::from)
     }
 
+    /// 给工作流改名。
+    ///
+    /// 新建时只能得到「未命名工作流 N」，没有改名入口的话列表很快
+    /// 就全是这种名字 —— 用户操作级测试在真实库里发现了 300 多条。
+    pub fn rename_workflow(&self, id: &str, name: &str) -> Result<()> {
+        let name = name.trim();
+        if name.is_empty() {
+            return Err(StoreError::Invalid(
+                "工作流名不能为空 —— 空名字在列表里就是一行看不见的东西".to_string(),
+            ));
+        }
+
+        let changed = self.conn.execute(
+            "UPDATE workflow SET name = ?2, updated_at = ?3 WHERE id = ?1",
+            params![id, name, now_iso()],
+        )?;
+        if changed == 0 {
+            return Err(StoreError::NotFound {
+                kind: "工作流",
+                id: id.to_string(),
+            });
+        }
+        self.index_text("workflow", id, name)?;
+        Ok(())
+    }
+
     // ── 记忆 ─────────────────────────────────────────────────────────────
 
     pub fn create_memory(&self, memory: &NewMemory) -> Result<String> {

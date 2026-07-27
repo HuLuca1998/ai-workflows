@@ -310,7 +310,12 @@ test.describe('执行记录', () => {
     const before = await page.locator('.runs__item').count();
     expect(before).toBeGreaterThan(1);
 
-    await page.getByRole('button', { name: '失败' }).click();
+    // 限定在筛选组里：运行条目现在带工作流名，而基线数据里有
+    // 「会失败的流程」这种名字，模糊匹配会同时命中它们
+    await page
+      .getByRole('group', { name: '筛选运行' })
+      .getByRole('button', { name: '失败' })
+      .click();
 
     // 筛选是后端做的：条数变少，且剩下的都带「失败」状态
     await expect

@@ -159,3 +159,50 @@ describe('界面用到的方法都接通了', () => {
     expect(notMapped, `这些方法没有 IPC 映射：${notMapped.join(', ')}`).toEqual([]);
   });
 });
+
+describe('契约不会悄悄剥掉后端发的字段', () => {
+  it('run.list 的 workflowName 与 workdir 能穿过 Zod', async () => {
+    // Zod 默认 strip 未声明的字段 —— 后端发了、契约没声明的，
+    // 会在 CoreApiClient 里被无声地删掉。症状是「运行条目只剩状态徽章」，
+    // 没有任何报错。踩过一次，所以这里用真实的 spec 走一遍
+    const { getMethodSpec } = await import('@aiwf/contracts');
+    const parsed = getMethodSpec('run.list').output.parse({
+      items: [
+        {
+          id: 'run_1',
+          workflowId: 'wf_1',
+          workflowName: '真实工作流名',
+          status: 'succeeded',
+          inputs: {},
+          envSnapshot: {},
+          workdir: '/tmp/x',
+          startedAt: '2026-07-27T10:00:00.000Z',
+        },
+      ],
+    }) as { items: Record<string, unknown>[] };
+
+    expect(parsed.items[0]?.workflowName).toBe('真实工作流名');
+    expect(parsed.items[0]?.workdir).toBe('/tmp/x');
+  });
+
+  it('fromIpcResult 造出来的对象也能穿过 Zod', async () => {
+    // 转换层与契约各对一半的情况：转换层加了字段但契约没有，
+    // 或者契约要求的字段转换层没给
+    const { getMethodSpec } = await import('@aiwf/contracts');
+    const converted = fromIpcResult('run.list', [
+      {
+        id: 'run_1',
+        workflowId: 'wf_1',
+        workflowName: '批量整理',
+        status: 'running',
+        inputsJson: '{"issue":"42"}',
+        currentNode: 'fix',
+        workdir: '/tmp/runs',
+        startedAt: '2026-07-27T10:00:00.000Z',
+      },
+    ]);
+
+    const result = getMethodSpec('run.list').output.safeParse(converted);
+    expect(result.success, result.success ? '' : JSON.stringify(result.error.issues)).toBe(true);
+  });
+});

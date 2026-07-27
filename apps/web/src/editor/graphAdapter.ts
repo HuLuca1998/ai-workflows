@@ -96,7 +96,10 @@ export function toFlowEdges(graph: WorkflowGraph): Edge[] {
     id: edge.id,
     source: edge.source.nodeId,
     target: edge.target.nodeId,
-    type: 'workflow',
+    // 不给 type：节点那边有注册的 `workflow` 组件，边这边没有 ——
+    // 标一个未注册的类型，React Flow 会静默退回默认样式，
+    // 同时每渲染一次就往控制台刷一条警告（一次编辑累计几十条）。
+    // 图纸里的连线本来就是默认样式，不需要自定义组件
     // 逻辑端口留在 data 里：连线选中后可以在右键菜单里切换
     data: { sourcePort: edge.source.port, targetPort: edge.target.port },
     label: edge.source.port,

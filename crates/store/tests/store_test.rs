@@ -1285,3 +1285,46 @@ fn 删除后彻底不注入() {
         0
     );
 }
+
+#[test]
+fn 工作流可以改名() {
+    // 用户操作级测试发现的：新建只能得到「未命名工作流 N」，
+    // 而且没有任何改名入口 —— 真实列表堆了 300 多条「未命名工作流」
+    let store = Store::open_in_memory().unwrap();
+    let id = store.create_workflow("未命名工作流 1", None).unwrap();
+
+    store.rename_workflow(&id, "GitHub Issue 修复").unwrap();
+    assert_eq!(
+        store.get_workflow(&id).unwrap().unwrap().name,
+        "GitHub Issue 修复"
+    );
+}
+
+#[test]
+fn 改名会更新时间戳_列表排序才跟得上() {
+    let store = Store::open_in_memory().unwrap();
+    let id = store.create_workflow("原名", None).unwrap();
+    let before = store.get_workflow(&id).unwrap().unwrap().updated_at;
+
+    std::thread::sleep(std::time::Duration::from_millis(5));
+    store.rename_workflow(&id, "新名").unwrap();
+
+    let after = store.get_workflow(&id).unwrap().unwrap().updated_at;
+    assert!(after >= before, "改名后 updated_at 应当更新");
+}
+
+#[test]
+fn 空名字被拒绝() {
+    // 空名字的工作流在列表里就是一行看不见的东西
+    let store = Store::open_in_memory().unwrap();
+    let id = store.create_workflow("有名字", None).unwrap();
+
+    assert!(store.rename_workflow(&id, "   ").is_err());
+    assert_eq!(store.get_workflow(&id).unwrap().unwrap().name, "有名字");
+}
+
+#[test]
+fn 改不存在的工作流报错() {
+    let store = Store::open_in_memory().unwrap();
+    assert!(store.rename_workflow("wf_nope", "新名").is_err());
+}

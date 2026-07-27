@@ -1,6 +1,7 @@
 import { act, render, screen, waitFor, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { MemoryRouter, Route, Routes } from 'react-router';
+import userEvent from '@testing-library/user-event';
 import { EditorPage } from '../src/editor/EditorPage.js';
 import { useEditor } from '../src/editor/editorStore.js';
 
@@ -251,5 +252,57 @@ describe('右键菜单', () => {
     const item = screen.getByRole('menuitem', { name: '用选中节点建分组' });
     expect(item).toBeDisabled();
     expect(item).toHaveAttribute('title', expect.stringContaining('两个以上'));
+  });
+});
+
+describe('工作流改名', () => {
+  it('双击标题进入编辑态', async () => {
+    const user = userEvent.setup();
+    renderEditor();
+
+    const title = await screen.findByRole('heading', { level: 1 });
+    await user.dblClick(title);
+
+    expect(screen.getByLabelText('工作流名称')).toBeInTheDocument();
+  });
+
+  it('回车提交改名', async () => {
+    const user = userEvent.setup();
+    renderEditor();
+
+    await user.dblClick(await screen.findByRole('heading', { level: 1 }));
+    const input = screen.getByLabelText('工作流名称');
+    await user.clear(input);
+    await user.type(input, 'GitHub Issue 修复{Enter}');
+
+    await waitFor(() => {
+      expect(useEditor.getState().name).toBe('GitHub Issue 修复');
+    });
+  });
+
+  it('Esc 取消，名字不变', async () => {
+    const user = userEvent.setup();
+    renderEditor();
+    const before = useEditor.getState().name;
+
+    await user.dblClick(await screen.findByRole('heading', { level: 1 }));
+    const input = screen.getByLabelText('工作流名称');
+    await user.clear(input);
+    await user.type(input, '不该生效{Escape}');
+
+    expect(useEditor.getState().name).toBe(before);
+  });
+
+  it('空名字不提交 —— 不为一次误触发一条审计记录', async () => {
+    const user = userEvent.setup();
+    renderEditor();
+    const before = useEditor.getState().name;
+
+    await user.dblClick(await screen.findByRole('heading', { level: 1 }));
+    const input = screen.getByLabelText('工作流名称');
+    await user.clear(input);
+    await user.type(input, '   {Enter}');
+
+    expect(useEditor.getState().name).toBe(before);
   });
 });

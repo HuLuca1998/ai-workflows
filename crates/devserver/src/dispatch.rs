@@ -211,6 +211,11 @@ pub fn dispatch(
             string(input, "id")?,
             string(input, "versionId")?,
         )?),
+        "workflow_rename" => to_value(api::workflow_rename(
+            &store,
+            string(input, "id")?,
+            string(input, "name")?,
+        )?),
         "workflow_delete" => to_value(api::workflow_delete(&store, string(input, "id")?)?),
         other => Err(ApiError {
             code: "VALIDATION".to_string(),

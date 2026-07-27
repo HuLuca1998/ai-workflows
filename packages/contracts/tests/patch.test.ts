@@ -196,10 +196,14 @@ describe('原子性与校验', () => {
   });
 
   it('应用后自动校验，结果一并返回给调用方决定是否落草稿', () => {
+    // 断开一条边会让下游节点从入口不可达。Patch 照样返回 ——
+    // 调用方（编辑器 / AI）拿着校验结果自己决定要不要落草稿，
+    // 而不是被 applyPatch 直接拒绝：编辑到一半的图本来就可能不合法
     const result = applyPatch(baseGraph(), 18, {
       baseRevision: 18,
       operations: [{ op: 'disconnect', edgeId: 'e1' }],
     });
+
     expect(result.validation.ok).toBe(true);
     expect(result.validation.issues.some((i) => i.code === 'ORPHAN_NODE')).toBe(true);
   });

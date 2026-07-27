@@ -154,3 +154,21 @@ describe('连线转换', () => {
     expect(defaultTargetPort('end')).toBe('input');
   });
 });
+
+describe('自定义类型必须是注册过的', () => {
+  it('边不带 type —— 未注册的类型会静默退化并刷控制台', () => {
+    // React Flow 对未注册的 type 不报错，只是退回默认样式，
+    // 同时每渲染一次刷一条 `Edge type "workflow" not found`。
+    // 一次编辑累计几十条，把真正的错误淹掉了
+    const edges = toFlowEdges(graph());
+    expect(edges.length).toBeGreaterThan(0);
+    for (const edge of edges) {
+      expect(edge.type, `边 ${edge.id} 带了 type，但边没有注册自定义组件`).toBeUndefined();
+    }
+  });
+
+  it('节点带 workflow 类型 —— 那个是注册过的', () => {
+    const nodes = toFlowNodes(graph(), {});
+    expect(nodes.every((node) => node.type === 'workflow')).toBe(true);
+  });
+});

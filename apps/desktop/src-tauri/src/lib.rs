@@ -418,6 +418,12 @@ fn workflow_rollback(state: State<'_, AppState>, id: String, version_id: String)
 }
 
 #[tauri::command]
+fn workflow_rename(state: State<'_, AppState>, id: String, name: String) -> IpcResult<()> {
+    let store = lock(&state)?;
+    api::workflow_rename(&store, id, name)
+}
+
+#[tauri::command]
 fn workflow_delete(state: State<'_, AppState>, id: String) -> IpcResult<()> {
     let store = lock(&state)?;
     api::workflow_delete(&store, id)
@@ -565,6 +571,7 @@ pub fn run() {
             workflow_publish,
             workflow_version_graph,
             workflow_rollback,
+            workflow_rename,
             workflow_delete,
             run_start,
             run_dry_run,

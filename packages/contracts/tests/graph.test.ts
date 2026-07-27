@@ -121,13 +121,28 @@ describe('图校验', () => {
     expect(validateGraph(graph).issues.map((i) => i.code)).toContain('CYCLE');
   });
 
-  it('不可达节点只是警告，不阻塞发布', () => {
+  it('不可达节点在编辑时只是警告 —— 拖了节点还没连线是正常状态', () => {
     const graph = minimalGraph();
     graph.nodes.push(node('lonely', 'script.shell', { interpreter: 'zsh', script: 'x' }));
     const result = validateGraph(graph);
     const orphan = result.issues.find((i) => i.code === 'ORPHAN_NODE');
+
     expect(orphan?.level).toBe('warning');
     expect(result.ok).toBe(true); // 只有 error 才让 ok 变 false
+  });
+
+  it('不可达节点的提示要说对后果：它会被执行，不是被跳过', () => {
+    // 原来的文案是「运行时会被跳过」，正好说反了 ——
+    // 调度器挑的是「上游都完成了的节点」，一个没有上游的节点
+    // 从第一轮起就满足条件。用户操作级测试真的碰到了：
+    // 三个断开的节点显示「校验通过」，然后那个脚本被执行了。
+    // 真正的拦截在 Dry Run，那时用户是要真的跑了
+    const graph = minimalGraph();
+    graph.nodes.push(node('lonely', 'script.shell', { interpreter: 'zsh', script: 'x' }));
+    const orphan = validateGraph(graph).issues.find((i) => i.code === 'ORPHAN_NODE');
+
+    expect(orphan?.message).toContain('仍会被执行');
+    expect(orphan?.message).not.toContain('跳过');
   });
 
   it('quorum 汇聚必须给出合法的票数', () => {

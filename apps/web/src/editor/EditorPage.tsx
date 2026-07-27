@@ -77,6 +77,7 @@ function EditorCanvas() {
     save,
     publish,
     setSelection,
+    rename,
     clear,
   } = useEditor();
   const flow = useReactFlow();
@@ -208,6 +209,7 @@ function EditorCanvas() {
         onPublish={() => void publish()}
         onToggleVersions={() => setVersionsOpen((open) => !open)}
         onRun={() => setLaunchOpen(true)}
+        onRename={(next) => void rename(next)}
       />
 
       {launchOpen && workflowId ? (

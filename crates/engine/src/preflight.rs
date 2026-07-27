@@ -60,6 +60,7 @@ pub fn dry_run(graph: &WorkflowGraph, workdir: &Path) -> DryRunReport {
     let mut checks = Vec::new();
 
     checks.push(check_structure(graph));
+    checks.push(check_reachable(graph));
     checks.push(check_workdir(workdir));
     checks.extend(check_interpreters(graph));
     checks.extend(check_git(graph));
@@ -100,6 +101,63 @@ fn check_structure(graph: &WorkflowGraph) -> Check {
             status: CheckStatus::Failed,
             detail: error.to_string(),
         },
+    }
+}
+
+/// 每个节点都要能从入口走到。
+///
+/// 拓扑排序不管连通性：三个互不相连的节点照样能排出一个顺序，
+/// 于是「可依次执行」这句话字面上没错，但用户拖了节点忘了连线时，
+/// 那个孤立的脚本**真的会被执行** —— 而他完全没料到。
+fn check_reachable(graph: &WorkflowGraph) -> Check {
+    let entries: Vec<&str> = graph
+        .nodes
+        .iter()
+        .filter(|node| node.node_type == "entry")
+        .map(|node| node.id.as_str())
+        .collect();
+
+    if entries.is_empty() {
+        return Check {
+            label: "节点可达性".to_string(),
+            status: CheckStatus::Failed,
+            detail: "没有入口节点，所有节点都不可达".to_string(),
+        };
+    }
+
+    let mut reached: BTreeSet<&str> = entries.iter().copied().collect();
+    let mut frontier: Vec<&str> = entries;
+
+    while let Some(current) = frontier.pop() {
+        for next in graph.downstream(current) {
+            if reached.insert(next) {
+                frontier.push(next);
+            }
+        }
+    }
+
+    let orphans: Vec<&str> = graph
+        .nodes
+        .iter()
+        .filter(|node| !reached.contains(node.id.as_str()))
+        .map(|node| node.title.as_str())
+        .collect();
+
+    if orphans.is_empty() {
+        Check {
+            label: "节点可达性".to_string(),
+            status: CheckStatus::Passed,
+            detail: format!("{} 个节点都能从入口走到", graph.nodes.len()),
+        }
+    } else {
+        Check {
+            label: "节点可达性".to_string(),
+            status: CheckStatus::Failed,
+            detail: format!(
+                "这些节点从入口走不到，但仍会被执行：{}。多半是忘了连线",
+                orphans.join("、")
+            ),
+        }
     }
 }
 

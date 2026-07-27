@@ -147,6 +147,7 @@ pub const COMMANDS: &[&str] = &[
     "workflow_publish",
     "workflow_version_graph",
     "workflow_rollback",
+    "workflow_rename",
     "workflow_delete",
 ];
 
@@ -1062,4 +1063,9 @@ pub fn supervisor_ask(
         })?;
 
     Ok(SupervisorAnswer { text, tool_calls })
+}
+
+pub fn workflow_rename(store: &Store, id: String, name: String) -> ApiResult<()> {
+    store.rename_workflow(&id, &name)?;
+    Ok(())
 }

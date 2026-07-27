@@ -1766,6 +1766,43 @@
       ]
     }
   },
+  "workflow.rename": {
+    "summary": "给工作流改名",
+    "scope": "workflow:write-draft",
+    "mutates": true,
+    "audited": true,
+    "input": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "id",
+        "name"
+      ]
+    },
+    "output": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "ok": {
+          "type": "boolean",
+          "const": true
+        }
+      },
+      "required": [
+        "ok"
+      ]
+    }
+  },
   "workflow.delete": {
     "summary": "归档 / 删除工作流（需单独确认）",
     "scope": "workflow:write-draft",
@@ -1993,6 +2030,10 @@
                 "type": "string",
                 "minLength": 1
               },
+              "workflowName": {
+                "default": "",
+                "type": "string"
+              },
               "versionId": {
                 "type": "string",
                 "minLength": 1
@@ -2037,6 +2078,9 @@
                 }
               },
               "currentNode": {
+                "type": "string"
+              },
+              "workdir": {
                 "type": "string"
               },
               "startedAt": {
@@ -2109,6 +2153,10 @@
               "type": "string",
               "minLength": 1
             },
+            "workflowName": {
+              "default": "",
+              "type": "string"
+            },
             "versionId": {
               "type": "string",
               "minLength": 1
@@ -2153,6 +2201,9 @@
               }
             },
             "currentNode": {
+              "type": "string"
+            },
+            "workdir": {
               "type": "string"
             },
             "startedAt": {

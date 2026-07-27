@@ -173,6 +173,16 @@ const SPECS = {
     scope: 'workflow:publish',
     summary: '把草稿发布为不可变版本',
   },
+  'workflow.rename': {
+    // 新建只能得到「未命名工作流 N」。没有改名入口的话列表很快全是这种名字 ——
+    // 用户操作级测试在真实库里发现了 300 多条
+    input: z.object({ id: z.string().min(1), name: z.string().min(1) }),
+    output: ok,
+    mutates: true,
+    audited: true,
+    scope: 'workflow:write-draft',
+    summary: '给工作流改名',
+  },
   'workflow.delete': {
     input: idOnly,
     output: ok,

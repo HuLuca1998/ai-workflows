@@ -101,6 +101,25 @@ test.describe('编辑器', () => {
     await expect(toolbar).toContainText('1 节点');
   });
 
+  test('双击标题改名，刷新后还是新名字', async ({ page }) => {
+    // 用户操作级测试发现的：新建只能得到「未命名工作流 N」，
+    // 没有改名入口 —— 真实库里堆了 300 多条同名的
+    const workflowId = await seedWorkflow(page, `改名前 ${Date.now()}`);
+    const renamed = `改名后 ${Date.now()}`;
+
+    await page.goto(`/editor/${workflowId}`);
+    await page.getByRole('heading', { level: 1 }).dblclick();
+    const input = page.getByLabel('工作流名称');
+    await input.fill(renamed);
+    await input.press('Enter');
+
+    await expect(page.getByRole('heading', { level: 1 })).toHaveText(renamed);
+
+    // 真的落库了
+    await page.reload();
+    await expect(page.getByRole('heading', { level: 1 })).toHaveText(renamed);
+  });
+
   test('未保存时禁止运行，并说清原因', async ({ page }) => {
     const workflowId = await seedWorkflow(page, '编辑器 · 脏草稿');
     await page.goto(`/editor/${workflowId}`);

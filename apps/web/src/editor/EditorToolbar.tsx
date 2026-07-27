@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { useNavigate } from 'react-router';
 import { Button } from '@aiwf/ui';
 import type { ValidationResult } from './editorDeps.js';
@@ -16,6 +17,7 @@ export interface EditorToolbarProps {
   onPublish: () => void;
   onToggleVersions: () => void;
   onRun: () => void;
+  onRename: (name: string) => void;
 }
 
 /**
@@ -38,9 +40,18 @@ export function EditorToolbar({
   onPublish,
   onToggleVersions,
   onRun,
+  onRename,
 }: EditorToolbarProps) {
   const navigate = useNavigate();
+  const [renaming, setRenaming] = useState(false);
   const errorCount = validation.issues.filter((i) => i.level === 'error').length;
+
+  const commitRename = (next: string) => {
+    setRenaming(false);
+    const trimmed = next.trim();
+    // 空名字或没改就当没发生 —— 不为一次误触发一条审计记录
+    if (trimmed && trimmed !== name) onRename(trimmed);
+  };
 
   return (
     <header className="editor-bar">
@@ -53,7 +64,25 @@ export function EditorToolbar({
         <i className="ph ph-arrow-left" aria-hidden="true" />
       </button>
 
-      <h1 className="editor-bar__name">{name}</h1>
+      {renaming ? (
+        <input
+          className="editor-bar__name editor-bar__name--editing"
+          aria-label="工作流名称"
+          autoFocus
+          defaultValue={name}
+          onBlur={(event) => commitRename(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter') commitRename(event.currentTarget.value);
+            if (event.key === 'Escape') setRenaming(false);
+          }}
+        />
+      ) : (
+        // 双击改名。新建只能得到「未命名工作流 N」，
+        // 没有改名入口的话列表很快全是这种名字
+        <h1 className="editor-bar__name" title="双击改名" onDoubleClick={() => setRenaming(true)}>
+          {name}
+        </h1>
+      )}
 
       <span className="editor-bar__rev">
         {latestVersion ? `草稿 · 基于 v${latestVersion}` : `草稿 · rev${rev}`}

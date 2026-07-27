@@ -44,6 +44,12 @@ export type WorkflowVersion = z.infer<typeof WorkflowVersionSchema>;
 export const RunSchema = z.object({
   id: z.string().min(1),
   workflowId: z.string().min(1),
+  /**
+   * 工作流名。存储层查 run 时顺带 JOIN 出来 ——
+   * 执行记录的列表与详情都要显示它，让界面再查一次 workflow 表
+   * 既慢又容易忘（忘了的症状是「运行条目只剩一个状态徽章」）。
+   */
+  workflowName: z.string().default(''),
   versionId: z.string().min(1).optional(),
   draftRev: z.number().int().min(0).optional(),
   status: z.enum(RUN_STATUSES),
@@ -51,6 +57,8 @@ export const RunSchema = z.object({
   /** 环境快照：同一工作流不同参数并行运行时互不影响。 */
   envSnapshot: z.record(z.string(), z.string()).default({}),
   currentNode: z.string().optional(),
+  /** 这次运行的工作目录。详情页要显示它 —— 并行运行靠它互不干扰。 */
+  workdir: z.string().optional(),
   startedAt: z.iso.datetime().optional(),
   endedAt: z.iso.datetime().optional(),
   /** 子工作流以独立 Run + parentRunId 表达，审批冒泡到父运行。 */
