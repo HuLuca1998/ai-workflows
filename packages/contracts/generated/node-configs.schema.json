@@ -1,0 +1,1026 @@
+{
+  "ai.analyze": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "properties": {
+      "agentProfileId": {
+        "type": "string",
+        "minLength": 1
+      },
+      "instruction": {
+        "type": "string",
+        "minLength": 1
+      },
+      "promptId": {
+        "type": "string",
+        "minLength": 1
+      },
+      "modelPolicy": {
+        "anyOf": [
+          {
+            "type": "string",
+            "enum": [
+              "fast",
+              "balanced",
+              "quality"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "modelId": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "required": [
+              "modelId"
+            ]
+          }
+        ]
+      },
+      "turnLimit": {
+        "default": 12,
+        "type": "integer",
+        "exclusiveMinimum": 0,
+        "maximum": 9007199254740991
+      },
+      "outputContract": {
+        "type": "object",
+        "properties": {
+          "documents": {
+            "default": "multi",
+            "type": "string",
+            "enum": [
+              "single",
+              "multi"
+            ]
+          },
+          "summarySchema": {
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {}
+          }
+        }
+      },
+      "target": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "required": [
+      "agentProfileId",
+      "instruction",
+      "target"
+    ]
+  },
+  "ai.review": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "properties": {
+      "agentProfileId": {
+        "type": "string",
+        "minLength": 1
+      },
+      "instruction": {
+        "type": "string",
+        "minLength": 1
+      },
+      "promptId": {
+        "type": "string",
+        "minLength": 1
+      },
+      "modelPolicy": {
+        "anyOf": [
+          {
+            "type": "string",
+            "enum": [
+              "fast",
+              "balanced",
+              "quality"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "modelId": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "required": [
+              "modelId"
+            ]
+          }
+        ]
+      },
+      "turnLimit": {
+        "default": 12,
+        "type": "integer",
+        "exclusiveMinimum": 0,
+        "maximum": 9007199254740991
+      },
+      "outputContract": {
+        "type": "object",
+        "properties": {
+          "documents": {
+            "default": "multi",
+            "type": "string",
+            "enum": [
+              "single",
+              "multi"
+            ]
+          },
+          "summarySchema": {
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {}
+          }
+        }
+      },
+      "target": {
+        "type": "string",
+        "minLength": 1
+      },
+      "checklist": {
+        "default": [],
+        "type": "array",
+        "items": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "severities": {
+        "default": [
+          "blocker",
+          "major",
+          "minor"
+        ],
+        "type": "array",
+        "items": {
+          "type": "string",
+          "enum": [
+            "blocker",
+            "major",
+            "minor"
+          ]
+        }
+      }
+    },
+    "required": [
+      "agentProfileId",
+      "instruction",
+      "target"
+    ]
+  },
+  "ai.decide": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "properties": {
+      "agentProfileId": {
+        "type": "string",
+        "minLength": 1
+      },
+      "instruction": {
+        "type": "string",
+        "minLength": 1
+      },
+      "promptId": {
+        "type": "string",
+        "minLength": 1
+      },
+      "modelPolicy": {
+        "anyOf": [
+          {
+            "type": "string",
+            "enum": [
+              "fast",
+              "balanced",
+              "quality"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "modelId": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "required": [
+              "modelId"
+            ]
+          }
+        ]
+      },
+      "turnLimit": {
+        "default": 12,
+        "type": "integer",
+        "exclusiveMinimum": 0,
+        "maximum": 9007199254740991
+      },
+      "outputContract": {
+        "type": "object",
+        "properties": {
+          "documents": {
+            "default": "multi",
+            "type": "string",
+            "enum": [
+              "single",
+              "multi"
+            ]
+          },
+          "summarySchema": {
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {}
+          }
+        }
+      },
+      "rules": {
+        "default": [],
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "level": {
+              "type": "string",
+              "enum": [
+                "L1",
+                "L2",
+                "L3"
+              ]
+            },
+            "when": {
+              "type": "string",
+              "minLength": 1
+            },
+            "then": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "required": [
+            "level",
+            "when",
+            "then"
+          ]
+        }
+      },
+      "autoDecideUpTo": {
+        "default": "L2",
+        "type": "string",
+        "enum": [
+          "L1",
+          "L2",
+          "L3"
+        ]
+      },
+      "onTimeout": {
+        "default": "escalate",
+        "type": "string",
+        "enum": [
+          "escalate",
+          "fail"
+        ]
+      },
+      "decisionSchema": {
+        "type": "object",
+        "propertyNames": {
+          "type": "string"
+        },
+        "additionalProperties": {}
+      }
+    },
+    "required": [
+      "agentProfileId",
+      "instruction"
+    ]
+  },
+  "ai.execute": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "properties": {
+      "agentProfileId": {
+        "type": "string",
+        "minLength": 1
+      },
+      "instruction": {
+        "type": "string",
+        "minLength": 1
+      },
+      "promptId": {
+        "type": "string",
+        "minLength": 1
+      },
+      "modelPolicy": {
+        "anyOf": [
+          {
+            "type": "string",
+            "enum": [
+              "fast",
+              "balanced",
+              "quality"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "modelId": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "required": [
+              "modelId"
+            ]
+          }
+        ]
+      },
+      "turnLimit": {
+        "default": 12,
+        "type": "integer",
+        "exclusiveMinimum": 0,
+        "maximum": 9007199254740991
+      },
+      "outputContract": {
+        "type": "object",
+        "properties": {
+          "documents": {
+            "default": "multi",
+            "type": "string",
+            "enum": [
+              "single",
+              "multi"
+            ]
+          },
+          "summarySchema": {
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {}
+          }
+        }
+      },
+      "workdirSource": {
+        "default": "worktree",
+        "type": "string",
+        "enum": [
+          "inherit",
+          "worktree",
+          "declared"
+        ]
+      },
+      "verifyCommands": {
+        "default": [],
+        "type": "array",
+        "items": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "required": [
+      "agentProfileId",
+      "instruction"
+    ]
+  },
+  "entry": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "properties": {
+      "trigger": {
+        "default": "manual",
+        "type": "string",
+        "enum": [
+          "manual",
+          "shortcut",
+          "url_scheme",
+          "schedule",
+          "webhook"
+        ]
+      },
+      "workdirSource": {
+        "default": "prompt",
+        "type": "string",
+        "enum": [
+          "prompt",
+          "fixed",
+          "inherit"
+        ]
+      },
+      "workdir": {
+        "type": "string"
+      },
+      "inputSchema": {
+        "type": "object",
+        "propertyNames": {
+          "type": "string"
+        },
+        "additionalProperties": {}
+      },
+      "injectedFields": {
+        "default": [],
+        "type": "array",
+        "items": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "required": [
+      "inputSchema"
+    ]
+  },
+  "subworkflow": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "properties": {
+      "workflowId": {
+        "type": "string",
+        "minLength": 1
+      },
+      "versionRef": {
+        "type": "string",
+        "minLength": 1
+      },
+      "mode": {
+        "default": "sync",
+        "type": "string",
+        "enum": [
+          "sync",
+          "parallel"
+        ]
+      },
+      "inputMapping": {
+        "default": {},
+        "type": "object",
+        "propertyNames": {
+          "type": "string"
+        },
+        "additionalProperties": {
+          "type": "string"
+        }
+      },
+      "outputMapping": {
+        "default": {},
+        "type": "object",
+        "propertyNames": {
+          "type": "string"
+        },
+        "additionalProperties": {
+          "type": "string"
+        }
+      },
+      "concurrencyLimit": {
+        "default": 1,
+        "type": "integer",
+        "exclusiveMinimum": 0,
+        "maximum": 9007199254740991
+      },
+      "onFailure": {
+        "default": "fail_parent",
+        "type": "string",
+        "enum": [
+          "fail_parent",
+          "continue",
+          "retry"
+        ]
+      },
+      "approvalInheritance": {
+        "default": "inherit",
+        "type": "string",
+        "enum": [
+          "inherit",
+          "isolate"
+        ]
+      }
+    },
+    "required": [
+      "workflowId",
+      "versionRef"
+    ]
+  },
+  "branch": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "properties": {
+      "cases": {
+        "minItems": 1,
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "port": {
+              "type": "string",
+              "minLength": 1
+            },
+            "when": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "required": [
+            "port",
+            "when"
+          ]
+        }
+      },
+      "defaultPort": {
+        "default": "default",
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "required": [
+      "cases"
+    ]
+  },
+  "transform": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "properties": {
+      "mappings": {
+        "minItems": 1,
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "from": {
+              "type": "string",
+              "minLength": 1
+            },
+            "to": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "required": [
+            "from",
+            "to"
+          ]
+        }
+      },
+      "outputSchema": {
+        "type": "object",
+        "propertyNames": {
+          "type": "string"
+        },
+        "additionalProperties": {}
+      }
+    },
+    "required": [
+      "mappings"
+    ]
+  },
+  "end": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "properties": {
+      "outcome": {
+        "type": "string",
+        "enum": [
+          "success",
+          "failure"
+        ]
+      },
+      "artifacts": {
+        "default": [],
+        "type": "array",
+        "items": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "required": [
+      "outcome"
+    ]
+  },
+  "approval": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "properties": {
+      "title": {
+        "type": "string",
+        "minLength": 1
+      },
+      "bodyMarkdown": {
+        "default": "",
+        "type": "string"
+      },
+      "interaction": {
+        "type": "string",
+        "enum": [
+          "single",
+          "multi",
+          "confirm",
+          "supplement"
+        ]
+      },
+      "options": {
+        "default": [],
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string",
+              "minLength": 1
+            },
+            "label": {
+              "type": "string",
+              "minLength": 1
+            },
+            "recommended": {
+              "default": false,
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "id",
+            "label"
+          ]
+        }
+      },
+      "waitStrategy": {
+        "default": "forever",
+        "type": "string",
+        "enum": [
+          "forever",
+          "timeout"
+        ]
+      },
+      "timeoutMs": {
+        "type": "integer",
+        "exclusiveMinimum": 0,
+        "maximum": 9007199254740991
+      },
+      "reminderAfterMs": {
+        "type": "integer",
+        "exclusiveMinimum": 0,
+        "maximum": 9007199254740991
+      }
+    },
+    "required": [
+      "title",
+      "interaction"
+    ]
+  },
+  "notify": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "properties": {
+      "title": {
+        "type": "string",
+        "minLength": 1
+      },
+      "subtitle": {
+        "type": "string"
+      },
+      "body": {
+        "type": "string",
+        "minLength": 1
+      },
+      "on": {
+        "default": [
+          "completed",
+          "failed",
+          "waiting_approval"
+        ],
+        "type": "array",
+        "items": {
+          "type": "string",
+          "enum": [
+            "completed",
+            "failed",
+            "waiting_approval",
+            "cancelled"
+          ]
+        }
+      },
+      "clickAction": {
+        "default": "open_run",
+        "type": "string",
+        "enum": [
+          "open_run",
+          "open_workflow",
+          "none"
+        ]
+      },
+      "onFailure": {
+        "default": "ignore",
+        "type": "string",
+        "enum": [
+          "ignore",
+          "fail_node",
+          "retry"
+        ]
+      }
+    },
+    "required": [
+      "title",
+      "body"
+    ]
+  },
+  "script.shell": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "properties": {
+      "interpreter": {
+        "type": "string",
+        "enum": [
+          "zsh",
+          "bash",
+          "sh"
+        ]
+      },
+      "script": {
+        "type": "string",
+        "minLength": 1
+      },
+      "workdir": {
+        "type": "string"
+      },
+      "env": {
+        "default": {},
+        "type": "object",
+        "propertyNames": {
+          "type": "string"
+        },
+        "additionalProperties": {
+          "type": "string"
+        }
+      },
+      "secretEnv": {
+        "default": {},
+        "type": "object",
+        "propertyNames": {
+          "type": "string"
+        },
+        "additionalProperties": {
+          "type": "string"
+        }
+      },
+      "outputParse": {
+        "default": "none",
+        "type": "string",
+        "enum": [
+          "none",
+          "json",
+          "lines"
+        ]
+      },
+      "successExitCodes": {
+        "default": [
+          0
+        ],
+        "type": "array",
+        "items": {
+          "type": "integer",
+          "minimum": -9007199254740991,
+          "maximum": 9007199254740991
+        }
+      },
+      "outputLimitBytes": {
+        "default": 1048576,
+        "type": "integer",
+        "exclusiveMinimum": 0,
+        "maximum": 9007199254740991
+      },
+      "timeoutMs": {
+        "default": 900000,
+        "type": "integer",
+        "exclusiveMinimum": 0,
+        "maximum": 9007199254740991
+      }
+    },
+    "required": [
+      "interpreter",
+      "script"
+    ]
+  },
+  "script.python": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "properties": {
+      "interpreter": {
+        "type": "string",
+        "enum": [
+          "python3",
+          "uv"
+        ]
+      },
+      "script": {
+        "type": "string",
+        "minLength": 1
+      },
+      "workdir": {
+        "type": "string"
+      },
+      "env": {
+        "default": {},
+        "type": "object",
+        "propertyNames": {
+          "type": "string"
+        },
+        "additionalProperties": {
+          "type": "string"
+        }
+      },
+      "secretEnv": {
+        "default": {},
+        "type": "object",
+        "propertyNames": {
+          "type": "string"
+        },
+        "additionalProperties": {
+          "type": "string"
+        }
+      },
+      "outputParse": {
+        "default": "none",
+        "type": "string",
+        "enum": [
+          "none",
+          "json",
+          "lines"
+        ]
+      },
+      "successExitCodes": {
+        "default": [
+          0
+        ],
+        "type": "array",
+        "items": {
+          "type": "integer",
+          "minimum": -9007199254740991,
+          "maximum": 9007199254740991
+        }
+      },
+      "outputLimitBytes": {
+        "default": 1048576,
+        "type": "integer",
+        "exclusiveMinimum": 0,
+        "maximum": 9007199254740991
+      },
+      "timeoutMs": {
+        "default": 900000,
+        "type": "integer",
+        "exclusiveMinimum": 0,
+        "maximum": 9007199254740991
+      }
+    },
+    "required": [
+      "interpreter",
+      "script"
+    ]
+  },
+  "git.worktree": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "properties": {
+      "repoRoot": {
+        "type": "string",
+        "minLength": 1
+      },
+      "baseBranch": {
+        "type": "string",
+        "minLength": 1
+      },
+      "branchTemplate": {
+        "default": "aiwf/${run.id}",
+        "type": "string",
+        "minLength": 1
+      },
+      "parentDir": {
+        "default": "~/worktrees",
+        "type": "string",
+        "minLength": 1
+      },
+      "fetch": {
+        "default": true,
+        "type": "boolean"
+      },
+      "conflictPolicy": {
+        "default": "suffix",
+        "type": "string",
+        "enum": [
+          "fail",
+          "reuse",
+          "suffix"
+        ]
+      },
+      "cleanupPolicy": {
+        "default": "on_success",
+        "type": "string",
+        "enum": [
+          "keep",
+          "on_success",
+          "on_run_end",
+          "manual"
+        ]
+      }
+    },
+    "required": [
+      "repoRoot",
+      "baseBranch"
+    ]
+  },
+  "env": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "properties": {
+      "operations": {
+        "minItems": 1,
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "op": {
+              "type": "string",
+              "enum": [
+                "set",
+                "unset",
+                "read"
+              ]
+            },
+            "key": {
+              "type": "string",
+              "minLength": 1
+            },
+            "value": {
+              "type": "string"
+            },
+            "scope": {
+              "default": "run",
+              "type": "string",
+              "enum": [
+                "node",
+                "run",
+                "workflow",
+                "global"
+              ]
+            }
+          },
+          "required": [
+            "op",
+            "key"
+          ]
+        }
+      },
+      "exportDotenv": {
+        "default": false,
+        "type": "boolean"
+      }
+    },
+    "required": [
+      "operations"
+    ]
+  },
+  "mcp.tool": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "properties": {
+      "serverId": {
+        "type": "string",
+        "minLength": 1
+      },
+      "toolAllowlist": {
+        "minItems": 1,
+        "type": "array",
+        "items": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "args": {
+        "default": {},
+        "type": "object",
+        "propertyNames": {
+          "type": "string"
+        },
+        "additionalProperties": {}
+      },
+      "scopes": {
+        "default": [],
+        "type": "array",
+        "items": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "required": [
+      "serverId",
+      "toolAllowlist"
+    ]
+  }
+}

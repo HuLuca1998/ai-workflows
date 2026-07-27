@@ -1,0 +1,36 @@
+{
+  "name": "ai-workflows",
+  "version": "0.0.0",
+  "private": true,
+  "description": "本地优先的 AI Workflow 客户端：macOS App + Web",
+  "packageManager": "pnpm@11.17.0",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "dev": "pnpm --filter @aiwf/web dev",
+    "build": "pnpm -r --sequential build",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:cov": "vitest run --coverage",
+    "typecheck": "pnpm -r --sequential typecheck",
+    "lint": "oxlint .",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "contracts:gen": "pnpm --filter @aiwf/contracts gen",
+    "contracts:check": "pnpm --filter @aiwf/contracts gen:check",
+    "rs:test": "cargo test --workspace",
+    "rs:lint": "cargo clippy --workspace --all-targets -- -D warnings",
+    "rs:fmt": "cargo fmt --all",
+    "rs:fmt:check": "cargo fmt --all -- --check",
+    "verify": "pnpm format:check && pnpm lint && pnpm typecheck && pnpm test && pnpm contracts:check && pnpm rs:fmt:check && pnpm rs:lint && pnpm rs:test"
+  },
+  "devDependencies": {
+    "@types/node": "^24.10.1",
+    "@vitest/coverage-v8": "^4.1.10",
+    "oxlint": "^1.75.0",
+    "prettier": "^3.9.6",
+    "typescript": "^5.9.3",
+    "vitest": "^4.1.10"
+  }
+}

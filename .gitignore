@@ -1,0 +1,39 @@
+# 依赖与构建产物
+node_modules/
+dist/
+build/
+target/
+*.tsbuildinfo
+coverage/
+.vite/
+
+# 生成物（由 contracts 的 codegen 产出，CI 校验一致性后提交，本地临时产物忽略）
+*.generated.tmp
+
+# 运行时数据（本地优先：工作流、运行记录、产物、日志一律不入库）
+.aiwf/
+artifacts/
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
+*.db
+
+# 凭据（Secret 只进 Keychain，仓库里永远不该出现）
+.env
+.env.*
+!.env.example
+*.pem
+*.p12
+*.mobileprovision
+
+# 编辑器与系统
+.DS_Store
+.idea/
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+*.swp
+
+# 本地临时
+tmp/
+scratch/

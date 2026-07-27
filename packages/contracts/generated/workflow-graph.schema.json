@@ -1,0 +1,283 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "nodes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "ai.analyze",
+              "ai.review",
+              "ai.decide",
+              "ai.execute",
+              "entry",
+              "subworkflow",
+              "branch",
+              "transform",
+              "end",
+              "approval",
+              "notify",
+              "script.shell",
+              "script.python",
+              "git.worktree",
+              "env",
+              "mcp.tool"
+            ]
+          },
+          "title": {
+            "type": "string",
+            "minLength": 1
+          },
+          "position": {
+            "type": "object",
+            "properties": {
+              "x": {
+                "type": "number"
+              },
+              "y": {
+                "type": "number"
+              }
+            },
+            "required": [
+              "x",
+              "y"
+            ]
+          },
+          "config": {},
+          "join": {
+            "type": "object",
+            "properties": {
+              "strategy": {
+                "default": "all",
+                "type": "string",
+                "enum": [
+                  "all",
+                  "any",
+                  "quorum",
+                  "sequential"
+                ]
+              },
+              "quorum": {
+                "type": "integer",
+                "exclusiveMinimum": 0,
+                "maximum": 9007199254740991
+              },
+              "merge": {
+                "default": "namespaced",
+                "type": "string",
+                "enum": [
+                  "namespaced",
+                  "shallow",
+                  "deep"
+                ]
+              },
+              "onPartialFailure": {
+                "default": "fail",
+                "type": "string",
+                "enum": [
+                  "fail",
+                  "continue"
+                ]
+              },
+              "timeoutMs": {
+                "type": "integer",
+                "exclusiveMinimum": 0,
+                "maximum": 9007199254740991
+              }
+            }
+          },
+          "capabilities": {
+            "type": "object",
+            "properties": {
+              "file": {
+                "default": "none",
+                "type": "string",
+                "enum": [
+                  "none",
+                  "read",
+                  "read-write"
+                ]
+              },
+              "command": {
+                "default": "none",
+                "type": "string",
+                "enum": [
+                  "none",
+                  "declared",
+                  "any"
+                ]
+              },
+              "network": {
+                "default": "none",
+                "type": "string",
+                "enum": [
+                  "none",
+                  "allowlist",
+                  "any"
+                ]
+              },
+              "memory": {
+                "default": "none",
+                "type": "string",
+                "enum": [
+                  "none",
+                  "read",
+                  "read-write"
+                ]
+              },
+              "secret": {
+                "default": [],
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              }
+            }
+          },
+          "retry": {
+            "type": "object",
+            "properties": {
+              "maxAttempts": {
+                "default": 1,
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 9007199254740991
+              },
+              "backoff": {
+                "default": "exponential",
+                "type": "string",
+                "enum": [
+                  "none",
+                  "fixed",
+                  "exponential"
+                ]
+              },
+              "timeoutMs": {
+                "default": 900000,
+                "type": "integer",
+                "exclusiveMinimum": 0,
+                "maximum": 9007199254740991
+              },
+              "idempotency": {
+                "default": "check_external",
+                "type": "string",
+                "enum": [
+                  "none",
+                  "check_external"
+                ]
+              },
+              "fallbackModel": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          },
+          "groupId": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "required": [
+          "id",
+          "type",
+          "title",
+          "position",
+          "config"
+        ]
+      }
+    },
+    "edges": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "source": {
+            "type": "object",
+            "properties": {
+              "nodeId": {
+                "type": "string",
+                "minLength": 1
+              },
+              "port": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "required": [
+              "nodeId",
+              "port"
+            ]
+          },
+          "target": {
+            "type": "object",
+            "properties": {
+              "nodeId": {
+                "type": "string",
+                "minLength": 1
+              },
+              "port": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "required": [
+              "nodeId",
+              "port"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "source",
+          "target"
+        ]
+      }
+    },
+    "groups": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "title": {
+            "type": "string",
+            "minLength": 1
+          },
+          "nodeIds": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        },
+        "required": [
+          "id",
+          "title",
+          "nodeIds"
+        ]
+      }
+    }
+  },
+  "required": [
+    "nodes",
+    "edges",
+    "groups"
+  ]
+}

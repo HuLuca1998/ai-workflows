@@ -1,0 +1,29 @@
+{
+  "name": "acp-reference",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "ACP（Claude Code / Codex）调用参考实现。整个目录可直接拷进新项目。",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "example": "tsx example.ts",
+    "probe": "tsx probe.ts"
+  },
+  "dependencies": {
+    "@agentclientprotocol/sdk": "1.3.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.6.3"
+  },
+  "peerDependenciesMeta": {
+    "@agentclientprotocol/claude-agent-acp": { "optional": true },
+    "@agentclientprotocol/codex-acp": { "optional": true }
+  },
+  "_comment": {
+    "runtimes": "runtime 单独装，按需选：npm i @agentclientprotocol/claude-agent-acp @agentclientprotocol/codex-acp",
+    "verified": "以上版本组合于 2026-07-27 实测：编译通过 + 端到端真实对话跑通",
+    "old-packages": "@zed-industries/{agent-client-protocol,claude-code-acp,codex-acp} 均已 deprecated，勿用"
+  }
+}

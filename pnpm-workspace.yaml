@@ -1,0 +1,8 @@
+packages:
+  - apps/*
+  - packages/*
+  - services/*
+
+# 只有这里列出的依赖可以执行安装脚本，其余一律不跑（供应链最小信任面）
+allowBuilds:
+  esbuild: true

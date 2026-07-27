@@ -1,0 +1,145 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "runId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "seq": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 9007199254740991
+    },
+    "ts": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$"
+    },
+    "type": {
+      "type": "string",
+      "enum": [
+        "run.created",
+        "run.preflight_passed",
+        "run.preflight_failed",
+        "run.queued",
+        "run.started",
+        "run.paused",
+        "run.resumed",
+        "run.interrupted",
+        "run.cancelled",
+        "run.succeeded",
+        "run.failed",
+        "node.queued",
+        "node.started",
+        "node.waiting",
+        "node.retried",
+        "node.succeeded",
+        "node.failed",
+        "node.skipped",
+        "node.cancelled",
+        "node.output_emitted",
+        "conversation.user_message",
+        "conversation.agent_message",
+        "conversation.agent_delta",
+        "reasoning.summary",
+        "tool.call_started",
+        "tool.call_finished",
+        "tool.call_failed",
+        "script.started",
+        "script.stdout",
+        "script.stderr",
+        "script.exited",
+        "approval.requested",
+        "approval.reminded",
+        "approval.decided",
+        "approval.expired",
+        "artifact.created",
+        "artifact.truncated",
+        "system.checkpoint_saved",
+        "system.env_snapshot",
+        "system.memory_injected",
+        "system.memory_written",
+        "system.prompt_resolved",
+        "system.model_resolved",
+        "system.model_downgraded",
+        "system.permission_granted",
+        "system.permission_denied",
+        "system.notification_sent",
+        "system.redaction_applied",
+        "system.session_rebuilt",
+        "system.audit"
+      ]
+    },
+    "nodeId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "attempt": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 9007199254740991
+    },
+    "actor": {
+      "type": "string",
+      "enum": [
+        "user",
+        "engine",
+        "agent",
+        "system",
+        "mcp"
+      ]
+    },
+    "status": {
+      "type": "string",
+      "minLength": 1
+    },
+    "summary": {
+      "type": "string",
+      "maxLength": 2000
+    },
+    "payloadRef": {
+      "type": "string",
+      "minLength": 1
+    },
+    "artifactRefs": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "parentEventId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "sensitivity": {
+      "type": "string",
+      "enum": [
+        "public",
+        "internal",
+        "sensitive"
+      ]
+    },
+    "schemaVer": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 9007199254740991
+    }
+  },
+  "required": [
+    "id",
+    "runId",
+    "seq",
+    "ts",
+    "type",
+    "actor",
+    "summary",
+    "sensitivity",
+    "schemaVer"
+  ]
+}

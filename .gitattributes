@@ -1,0 +1,10 @@
+# 统一换行，避免跨平台 diff 噪音
+* text=auto eol=lf
+
+# 生成物：diff 折叠，但仍参与版本控制（CI 校验其与源的一致性）
+packages/contracts/generated/** linguist-generated=true
+pnpm-lock.yaml -diff linguist-generated=true
+Cargo.lock -diff linguist-generated=true
+
+# 设计图纸原样保存，不做换行归一
+docs/design/** -text

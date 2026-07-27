@@ -1,0 +1,3711 @@
+{
+  "workflow.list": {
+    "summary": "列出工作流",
+    "scope": "workflow:read",
+    "mutates": false,
+    "audited": false,
+    "input": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "query": {
+          "type": "string"
+        },
+        "archived": {
+          "type": "boolean"
+        }
+      }
+    },
+    "output": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "items": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "name": {
+                "type": "string",
+                "minLength": 1
+              },
+              "folder": {
+                "type": "string"
+              },
+              "createdAt": {
+                "type": "string",
+                "format": "date-time",
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$"
+              },
+              "updatedAt": {
+                "type": "string",
+                "format": "date-time",
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$"
+              },
+              "archived": {
+                "default": false,
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "id",
+              "name",
+              "createdAt",
+              "updatedAt"
+            ]
+          }
+        }
+      },
+      "required": [
+        "items"
+      ]
+    }
+  },
+  "workflow.get": {
+    "summary": "读取工作流草稿与版本列表",
+    "scope": "workflow:read",
+    "mutates": false,
+    "audited": false,
+    "input": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "rev": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        }
+      },
+      "required": [
+        "id"
+      ]
+    },
+    "output": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "workflow": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string",
+              "minLength": 1
+            },
+            "name": {
+              "type": "string",
+              "minLength": 1
+            },
+            "folder": {
+              "type": "string"
+            },
+            "createdAt": {
+              "type": "string",
+              "format": "date-time",
+              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$"
+            },
+            "updatedAt": {
+              "type": "string",
+              "format": "date-time",
+              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$"
+            },
+            "archived": {
+              "default": false,
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "id",
+            "name",
+            "createdAt",
+            "updatedAt"
+          ]
+        },
+        "graph": {
+          "type": "object",
+          "properties": {
+            "nodes": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "ai.analyze",
+                      "ai.review",
+                      "ai.decide",
+                      "ai.execute",
+                      "entry",
+                      "subworkflow",
+                      "branch",
+                      "transform",
+                      "end",
+                      "approval",
+                      "notify",
+                      "script.shell",
+                      "script.python",
+                      "git.worktree",
+                      "env",
+                      "mcp.tool"
+                    ]
+                  },
+                  "title": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "position": {
+                    "type": "object",
+                    "properties": {
+                      "x": {
+                        "type": "number"
+                      },
+                      "y": {
+                        "type": "number"
+                      }
+                    },
+                    "required": [
+                      "x",
+                      "y"
+                    ]
+                  },
+                  "config": {},
+                  "join": {
+                    "type": "object",
+                    "properties": {
+                      "strategy": {
+                        "default": "all",
+                        "type": "string",
+                        "enum": [
+                          "all",
+                          "any",
+                          "quorum",
+                          "sequential"
+                        ]
+                      },
+                      "quorum": {
+                        "type": "integer",
+                        "exclusiveMinimum": 0,
+                        "maximum": 9007199254740991
+                      },
+                      "merge": {
+                        "default": "namespaced",
+                        "type": "string",
+                        "enum": [
+                          "namespaced",
+                          "shallow",
+                          "deep"
+                        ]
+                      },
+                      "onPartialFailure": {
+                        "default": "fail",
+                        "type": "string",
+                        "enum": [
+                          "fail",
+                          "continue"
+                        ]
+                      },
+                      "timeoutMs": {
+                        "type": "integer",
+                        "exclusiveMinimum": 0,
+                        "maximum": 9007199254740991
+                      }
+                    }
+                  },
+                  "capabilities": {
+                    "type": "object",
+                    "properties": {
+                      "file": {
+                        "default": "none",
+                        "type": "string",
+                        "enum": [
+                          "none",
+                          "read",
+                          "read-write"
+                        ]
+                      },
+                      "command": {
+                        "default": "none",
+                        "type": "string",
+                        "enum": [
+                          "none",
+                          "declared",
+                          "any"
+                        ]
+                      },
+                      "network": {
+                        "default": "none",
+                        "type": "string",
+                        "enum": [
+                          "none",
+                          "allowlist",
+                          "any"
+                        ]
+                      },
+                      "memory": {
+                        "default": "none",
+                        "type": "string",
+                        "enum": [
+                          "none",
+                          "read",
+                          "read-write"
+                        ]
+                      },
+                      "secret": {
+                        "default": [],
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "minLength": 1
+                        }
+                      }
+                    }
+                  },
+                  "retry": {
+                    "type": "object",
+                    "properties": {
+                      "maxAttempts": {
+                        "default": 1,
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 9007199254740991
+                      },
+                      "backoff": {
+                        "default": "exponential",
+                        "type": "string",
+                        "enum": [
+                          "none",
+                          "fixed",
+                          "exponential"
+                        ]
+                      },
+                      "timeoutMs": {
+                        "default": 900000,
+                        "type": "integer",
+                        "exclusiveMinimum": 0,
+                        "maximum": 9007199254740991
+                      },
+                      "idempotency": {
+                        "default": "check_external",
+                        "type": "string",
+                        "enum": [
+                          "none",
+                          "check_external"
+                        ]
+                      },
+                      "fallbackModel": {
+                        "type": "string",
+                        "minLength": 1
+                      }
+                    }
+                  },
+                  "groupId": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
+                "required": [
+                  "id",
+                  "type",
+                  "title",
+                  "position",
+                  "config"
+                ]
+              }
+            },
+            "edges": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "source": {
+                    "type": "object",
+                    "properties": {
+                      "nodeId": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "port": {
+                        "type": "string",
+                        "minLength": 1
+                      }
+                    },
+                    "required": [
+                      "nodeId",
+                      "port"
+                    ]
+                  },
+                  "target": {
+                    "type": "object",
+                    "properties": {
+                      "nodeId": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "port": {
+                        "type": "string",
+                        "minLength": 1
+                      }
+                    },
+                    "required": [
+                      "nodeId",
+                      "port"
+                    ]
+                  }
+                },
+                "required": [
+                  "id",
+                  "source",
+                  "target"
+                ]
+              }
+            },
+            "groups": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "title": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "nodeIds": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  }
+                },
+                "required": [
+                  "id",
+                  "title",
+                  "nodeIds"
+                ]
+              }
+            }
+          },
+          "required": [
+            "nodes",
+            "edges",
+            "groups"
+          ]
+        },
+        "rev": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "versions": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "workflowId": {
+                "type": "string",
+                "minLength": 1
+              },
+              "version": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 9007199254740991
+              },
+              "configHash": {
+                "type": "string",
+                "minLength": 1
+              },
+              "dependencyManifest": {
+                "default": {},
+                "type": "object",
+                "propertyNames": {
+                  "type": "string"
+                },
+                "additionalProperties": {
+                  "type": "string"
+                }
+              },
+              "publishedAt": {
+                "type": "string",
+                "format": "date-time",
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$"
+              },
+              "publishedBy": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "required": [
+              "id",
+              "workflowId",
+              "version",
+              "configHash",
+              "publishedAt",
+              "publishedBy"
+            ]
+          }
+        }
+      },
+      "required": [
+        "workflow",
+        "graph",
+        "rev",
+        "versions"
+      ]
+    }
+  },
+  "workflow.create": {
+    "summary": "创建工作流",
+    "scope": "workflow:write-draft",
+    "mutates": true,
+    "audited": true,
+    "input": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "folder": {
+          "type": "string"
+        },
+        "fromTemplate": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "name"
+      ]
+    },
+    "output": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "rev": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        }
+      },
+      "required": [
+        "id",
+        "rev"
+      ]
+    }
+  },
+  "workflow.patch": {
+    "summary": "结构化修改草稿；rev 不匹配返回 REVISION_CONFLICT",
+    "scope": "workflow:write-draft",
+    "mutates": true,
+    "audited": true,
+    "input": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "baseRevision": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "operations": {
+          "minItems": 1,
+          "type": "array",
+          "items": {
+            "oneOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "op": {
+                    "type": "string",
+                    "const": "addNode"
+                  },
+                  "nodeId": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "ai.analyze",
+                      "ai.review",
+                      "ai.decide",
+                      "ai.execute",
+                      "entry",
+                      "subworkflow",
+                      "branch",
+                      "transform",
+                      "end",
+                      "approval",
+                      "notify",
+                      "script.shell",
+                      "script.python",
+                      "git.worktree",
+                      "env",
+                      "mcp.tool"
+                    ]
+                  },
+                  "title": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "position": {
+                    "type": "object",
+                    "properties": {
+                      "x": {
+                        "type": "number"
+                      },
+                      "y": {
+                        "type": "number"
+                      }
+                    },
+                    "required": [
+                      "x",
+                      "y"
+                    ]
+                  },
+                  "config": {}
+                },
+                "required": [
+                  "op",
+                  "type",
+                  "title",
+                  "position",
+                  "config"
+                ]
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "op": {
+                    "type": "string",
+                    "const": "removeNode"
+                  },
+                  "nodeId": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
+                "required": [
+                  "op",
+                  "nodeId"
+                ]
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "op": {
+                    "type": "string",
+                    "const": "renameNode"
+                  },
+                  "nodeId": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "title": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
+                "required": [
+                  "op",
+                  "nodeId",
+                  "title"
+                ]
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "op": {
+                    "type": "string",
+                    "const": "moveNode"
+                  },
+                  "nodeId": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "position": {
+                    "type": "object",
+                    "properties": {
+                      "x": {
+                        "type": "number"
+                      },
+                      "y": {
+                        "type": "number"
+                      }
+                    },
+                    "required": [
+                      "x",
+                      "y"
+                    ]
+                  }
+                },
+                "required": [
+                  "op",
+                  "nodeId",
+                  "position"
+                ]
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "op": {
+                    "type": "string",
+                    "const": "setConfig"
+                  },
+                  "nodeId": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "config": {}
+                },
+                "required": [
+                  "op",
+                  "nodeId",
+                  "config"
+                ]
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "op": {
+                    "type": "string",
+                    "const": "setJoin"
+                  },
+                  "nodeId": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "join": {
+                    "type": "object",
+                    "properties": {
+                      "strategy": {
+                        "default": "all",
+                        "type": "string",
+                        "enum": [
+                          "all",
+                          "any",
+                          "quorum",
+                          "sequential"
+                        ]
+                      },
+                      "quorum": {
+                        "type": "integer",
+                        "exclusiveMinimum": 0,
+                        "maximum": 9007199254740991
+                      },
+                      "merge": {
+                        "default": "namespaced",
+                        "type": "string",
+                        "enum": [
+                          "namespaced",
+                          "shallow",
+                          "deep"
+                        ]
+                      },
+                      "onPartialFailure": {
+                        "default": "fail",
+                        "type": "string",
+                        "enum": [
+                          "fail",
+                          "continue"
+                        ]
+                      },
+                      "timeoutMs": {
+                        "type": "integer",
+                        "exclusiveMinimum": 0,
+                        "maximum": 9007199254740991
+                      }
+                    }
+                  }
+                },
+                "required": [
+                  "op",
+                  "nodeId",
+                  "join"
+                ]
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "op": {
+                    "type": "string",
+                    "const": "setCapabilities"
+                  },
+                  "nodeId": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "capabilities": {
+                    "type": "object",
+                    "properties": {
+                      "file": {
+                        "default": "none",
+                        "type": "string",
+                        "enum": [
+                          "none",
+                          "read",
+                          "read-write"
+                        ]
+                      },
+                      "command": {
+                        "default": "none",
+                        "type": "string",
+                        "enum": [
+                          "none",
+                          "declared",
+                          "any"
+                        ]
+                      },
+                      "network": {
+                        "default": "none",
+                        "type": "string",
+                        "enum": [
+                          "none",
+                          "allowlist",
+                          "any"
+                        ]
+                      },
+                      "memory": {
+                        "default": "none",
+                        "type": "string",
+                        "enum": [
+                          "none",
+                          "read",
+                          "read-write"
+                        ]
+                      },
+                      "secret": {
+                        "default": [],
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "minLength": 1
+                        }
+                      }
+                    }
+                  }
+                },
+                "required": [
+                  "op",
+                  "nodeId",
+                  "capabilities"
+                ]
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "op": {
+                    "type": "string",
+                    "const": "setRetry"
+                  },
+                  "nodeId": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "retry": {
+                    "type": "object",
+                    "properties": {
+                      "maxAttempts": {
+                        "default": 1,
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 9007199254740991
+                      },
+                      "backoff": {
+                        "default": "exponential",
+                        "type": "string",
+                        "enum": [
+                          "none",
+                          "fixed",
+                          "exponential"
+                        ]
+                      },
+                      "timeoutMs": {
+                        "default": 900000,
+                        "type": "integer",
+                        "exclusiveMinimum": 0,
+                        "maximum": 9007199254740991
+                      },
+                      "idempotency": {
+                        "default": "check_external",
+                        "type": "string",
+                        "enum": [
+                          "none",
+                          "check_external"
+                        ]
+                      },
+                      "fallbackModel": {
+                        "type": "string",
+                        "minLength": 1
+                      }
+                    }
+                  }
+                },
+                "required": [
+                  "op",
+                  "nodeId",
+                  "retry"
+                ]
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "op": {
+                    "type": "string",
+                    "const": "connect"
+                  },
+                  "edgeId": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "source": {
+                    "type": "object",
+                    "properties": {
+                      "nodeId": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "port": {
+                        "type": "string",
+                        "minLength": 1
+                      }
+                    },
+                    "required": [
+                      "nodeId",
+                      "port"
+                    ]
+                  },
+                  "target": {
+                    "type": "object",
+                    "properties": {
+                      "nodeId": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "port": {
+                        "type": "string",
+                        "minLength": 1
+                      }
+                    },
+                    "required": [
+                      "nodeId",
+                      "port"
+                    ]
+                  }
+                },
+                "required": [
+                  "op",
+                  "source",
+                  "target"
+                ]
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "op": {
+                    "type": "string",
+                    "const": "disconnect"
+                  },
+                  "edgeId": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
+                "required": [
+                  "op",
+                  "edgeId"
+                ]
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "op": {
+                    "type": "string",
+                    "const": "createGroup"
+                  },
+                  "groupId": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "title": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "nodeIds": {
+                    "minItems": 1,
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  }
+                },
+                "required": [
+                  "op",
+                  "title",
+                  "nodeIds"
+                ]
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "op": {
+                    "type": "string",
+                    "const": "deleteGroup"
+                  },
+                  "groupId": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
+                "required": [
+                  "op",
+                  "groupId"
+                ]
+              }
+            ]
+          }
+        }
+      },
+      "required": [
+        "id",
+        "baseRevision",
+        "operations"
+      ]
+    },
+    "output": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "rev": {
+          "type": "integer",
+          "minimum": -9007199254740991,
+          "maximum": 9007199254740991
+        },
+        "diff": {
+          "type": "object",
+          "properties": {
+            "added": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "node",
+                      "edge",
+                      "group"
+                    ]
+                  },
+                  "id": {
+                    "type": "string"
+                  },
+                  "label": {
+                    "type": "string"
+                  },
+                  "before": {},
+                  "after": {}
+                },
+                "required": [
+                  "kind",
+                  "id",
+                  "label"
+                ]
+              }
+            },
+            "removed": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "node",
+                      "edge",
+                      "group"
+                    ]
+                  },
+                  "id": {
+                    "type": "string"
+                  },
+                  "label": {
+                    "type": "string"
+                  },
+                  "before": {},
+                  "after": {}
+                },
+                "required": [
+                  "kind",
+                  "id",
+                  "label"
+                ]
+              }
+            },
+            "changed": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "node",
+                      "edge",
+                      "group"
+                    ]
+                  },
+                  "id": {
+                    "type": "string"
+                  },
+                  "label": {
+                    "type": "string"
+                  },
+                  "before": {},
+                  "after": {}
+                },
+                "required": [
+                  "kind",
+                  "id",
+                  "label"
+                ]
+              }
+            }
+          },
+          "required": [
+            "added",
+            "removed",
+            "changed"
+          ]
+        },
+        "validation": {
+          "type": "object",
+          "properties": {
+            "ok": {
+              "type": "boolean"
+            },
+            "issues": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "level": {
+                    "type": "string",
+                    "enum": [
+                      "error",
+                      "warning"
+                    ]
+                  },
+                  "code": {
+                    "type": "string"
+                  },
+                  "message": {
+                    "type": "string"
+                  },
+                  "nodeId": {
+                    "type": "string"
+                  },
+                  "edgeId": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "level",
+                  "code",
+                  "message"
+                ]
+              }
+            }
+          },
+          "required": [
+            "ok",
+            "issues"
+          ]
+        }
+      },
+      "required": [
+        "rev",
+        "diff",
+        "validation"
+      ]
+    }
+  },
+  "workflow.validate": {
+    "summary": "校验草稿",
+    "scope": "workflow:read",
+    "mutates": false,
+    "audited": false,
+    "input": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "rev": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        }
+      },
+      "required": [
+        "id"
+      ]
+    },
+    "output": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "ok": {
+          "type": "boolean"
+        },
+        "issues": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "level": {
+                "type": "string",
+                "enum": [
+                  "error",
+                  "warning"
+                ]
+              },
+              "code": {
+                "type": "string"
+              },
+              "message": {
+                "type": "string"
+              },
+              "nodeId": {
+                "type": "string"
+              },
+              "edgeId": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "level",
+              "code",
+              "message"
+            ]
+          }
+        }
+      },
+      "required": [
+        "ok",
+        "issues"
+      ]
+    }
+  },
+  "workflow.diff": {
+    "summary": "对比两个版本或草稿",
+    "scope": "workflow:read",
+    "mutates": false,
+    "audited": false,
+    "input": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "from": {
+          "type": "string",
+          "minLength": 1
+        },
+        "to": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "id",
+        "from",
+        "to"
+      ]
+    },
+    "output": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "added": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "node",
+                  "edge",
+                  "group"
+                ]
+              },
+              "id": {
+                "type": "string"
+              },
+              "label": {
+                "type": "string"
+              },
+              "before": {},
+              "after": {}
+            },
+            "required": [
+              "kind",
+              "id",
+              "label"
+            ]
+          }
+        },
+        "removed": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "node",
+                  "edge",
+                  "group"
+                ]
+              },
+              "id": {
+                "type": "string"
+              },
+              "label": {
+                "type": "string"
+              },
+              "before": {},
+              "after": {}
+            },
+            "required": [
+              "kind",
+              "id",
+              "label"
+            ]
+          }
+        },
+        "changed": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "node",
+                  "edge",
+                  "group"
+                ]
+              },
+              "id": {
+                "type": "string"
+              },
+              "label": {
+                "type": "string"
+              },
+              "before": {},
+              "after": {}
+            },
+            "required": [
+              "kind",
+              "id",
+              "label"
+            ]
+          }
+        }
+      },
+      "required": [
+        "added",
+        "removed",
+        "changed"
+      ]
+    }
+  },
+  "workflow.publish": {
+    "summary": "把草稿发布为不可变版本",
+    "scope": "workflow:publish",
+    "mutates": true,
+    "audited": true,
+    "input": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "rev": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "note": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "rev"
+      ]
+    },
+    "output": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "versionId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "version": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "configHash": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "versionId",
+        "version",
+        "configHash"
+      ]
+    }
+  },
+  "workflow.delete": {
+    "summary": "归档 / 删除工作流（需单独确认）",
+    "scope": "workflow:write-draft",
+    "mutates": true,
+    "audited": true,
+    "input": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "id"
+      ]
+    },
+    "output": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "ok": {
+          "type": "boolean",
+          "const": true
+        }
+      },
+      "required": [
+        "ok"
+      ]
+    }
+  },
+  "run.start": {
+    "summary": "启动运行（先做 preflight）",
+    "scope": "workflow:run",
+    "mutates": true,
+    "audited": true,
+    "input": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "workflowId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "versionId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "draftRev": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "inputs": {
+          "default": {},
+          "type": "object",
+          "propertyNames": {
+            "type": "string"
+          },
+          "additionalProperties": {}
+        },
+        "workdir": {
+          "type": "string",
+          "minLength": 1
+        },
+        "dryRun": {
+          "default": false,
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "workflowId",
+        "workdir"
+      ]
+    },
+    "output": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "runId": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "runId"
+      ]
+    }
+  },
+  "run.list": {
+    "summary": "列出运行",
+    "scope": "workflow:read",
+    "mutates": false,
+    "audited": false,
+    "input": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "workflowId": {
+          "type": "string"
+        },
+        "status": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "created",
+              "preflight",
+              "queued",
+              "running",
+              "waiting_approval",
+              "paused",
+              "interrupted",
+              "resuming",
+              "succeeded",
+              "failed",
+              "cancelled"
+            ]
+          }
+        },
+        "query": {
+          "type": "string"
+        }
+      }
+    },
+    "output": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "items": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "workflowId": {
+                "type": "string",
+                "minLength": 1
+              },
+              "versionId": {
+                "type": "string",
+                "minLength": 1
+              },
+              "draftRev": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "status": {
+                "type": "string",
+                "enum": [
+                  "created",
+                  "preflight",
+                  "queued",
+                  "running",
+                  "waiting_approval",
+                  "paused",
+                  "interrupted",
+                  "resuming",
+                  "succeeded",
+                  "failed",
+                  "cancelled"
+                ]
+              },
+              "inputs": {
+                "default": {},
+                "type": "object",
+                "propertyNames": {
+                  "type": "string"
+                },
+                "additionalProperties": {}
+              },
+              "envSnapshot": {
+                "default": {},
+                "type": "object",
+                "propertyNames": {
+                  "type": "string"
+                },
+                "additionalProperties": {
+                  "type": "string"
+                }
+              },
+              "currentNode": {
+                "type": "string"
+              },
+              "startedAt": {
+                "type": "string",
+                "format": "date-time",
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$"
+              },
+              "endedAt": {
+                "type": "string",
+                "format": "date-time",
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$"
+              },
+              "parentRunId": {
+                "type": "string",
+                "minLength": 1
+              },
+              "permissionPreset": {
+                "default": "workspace_safe",
+                "type": "string",
+                "enum": [
+                  "review_every_change",
+                  "workspace_safe",
+                  "trusted_workflow"
+                ]
+              }
+            },
+            "required": [
+              "id",
+              "workflowId",
+              "status"
+            ]
+          }
+        }
+      },
+      "required": [
+        "items"
+      ]
+    }
+  },
+  "run.get": {
+    "summary": "读取单次运行",
+    "scope": "workflow:read",
+    "mutates": false,
+    "audited": false,
+    "input": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "runId": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "runId"
+      ]
+    },
+    "output": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "run": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string",
+              "minLength": 1
+            },
+            "workflowId": {
+              "type": "string",
+              "minLength": 1
+            },
+            "versionId": {
+              "type": "string",
+              "minLength": 1
+            },
+            "draftRev": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "status": {
+              "type": "string",
+              "enum": [
+                "created",
+                "preflight",
+                "queued",
+                "running",
+                "waiting_approval",
+                "paused",
+                "interrupted",
+                "resuming",
+                "succeeded",
+                "failed",
+                "cancelled"
+              ]
+            },
+            "inputs": {
+              "default": {},
+              "type": "object",
+              "propertyNames": {
+                "type": "string"
+              },
+              "additionalProperties": {}
+            },
+            "envSnapshot": {
+              "default": {},
+              "type": "object",
+              "propertyNames": {
+                "type": "string"
+              },
+              "additionalProperties": {
+                "type": "string"
+              }
+            },
+            "currentNode": {
+              "type": "string"
+            },
+            "startedAt": {
+              "type": "string",
+              "format": "date-time",
+              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$"
+            },
+            "endedAt": {
+              "type": "string",
+              "format": "date-time",
+              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$"
+            },
+            "parentRunId": {
+              "type": "string",
+              "minLength": 1
+            },
+            "permissionPreset": {
+              "default": "workspace_safe",
+              "type": "string",
+              "enum": [
+                "review_every_change",
+                "workspace_safe",
+                "trusted_workflow"
+              ]
+            }
+          },
+          "required": [
+            "id",
+            "workflowId",
+            "status"
+          ]
+        }
+      },
+      "required": [
+        "run"
+      ]
+    }
+  },
+  "run.events": {
+    "summary": "游标分页拉事件；订阅版为 SSE / channel 推送",
+    "scope": "workflow:read",
+    "mutates": false,
+    "audited": false,
+    "input": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "runId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "fromSeq": {
+          "default": 0,
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "limit": {
+          "default": 200,
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 1000
+        },
+        "categories": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "run",
+              "node",
+              "conversation",
+              "reasoning",
+              "tool",
+              "script",
+              "approval",
+              "artifact",
+              "system"
+            ]
+          }
+        }
+      },
+      "required": [
+        "runId"
+      ]
+    },
+    "output": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "events": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "runId": {
+                "type": "string",
+                "minLength": 1
+              },
+              "seq": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 9007199254740991
+              },
+              "ts": {
+                "type": "string",
+                "format": "date-time",
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$"
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "run.created",
+                  "run.preflight_passed",
+                  "run.preflight_failed",
+                  "run.queued",
+                  "run.started",
+                  "run.paused",
+                  "run.resumed",
+                  "run.interrupted",
+                  "run.cancelled",
+                  "run.succeeded",
+                  "run.failed",
+                  "node.queued",
+                  "node.started",
+                  "node.waiting",
+                  "node.retried",
+                  "node.succeeded",
+                  "node.failed",
+                  "node.skipped",
+                  "node.cancelled",
+                  "node.output_emitted",
+                  "conversation.user_message",
+                  "conversation.agent_message",
+                  "conversation.agent_delta",
+                  "reasoning.summary",
+                  "tool.call_started",
+                  "tool.call_finished",
+                  "tool.call_failed",
+                  "script.started",
+                  "script.stdout",
+                  "script.stderr",
+                  "script.exited",
+                  "approval.requested",
+                  "approval.reminded",
+                  "approval.decided",
+                  "approval.expired",
+                  "artifact.created",
+                  "artifact.truncated",
+                  "system.checkpoint_saved",
+                  "system.env_snapshot",
+                  "system.memory_injected",
+                  "system.memory_written",
+                  "system.prompt_resolved",
+                  "system.model_resolved",
+                  "system.model_downgraded",
+                  "system.permission_granted",
+                  "system.permission_denied",
+                  "system.notification_sent",
+                  "system.redaction_applied",
+                  "system.session_rebuilt",
+                  "system.audit"
+                ]
+              },
+              "nodeId": {
+                "type": "string",
+                "minLength": 1
+              },
+              "attempt": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 9007199254740991
+              },
+              "actor": {
+                "type": "string",
+                "enum": [
+                  "user",
+                  "engine",
+                  "agent",
+                  "system",
+                  "mcp"
+                ]
+              },
+              "status": {
+                "type": "string",
+                "minLength": 1
+              },
+              "summary": {
+                "type": "string",
+                "maxLength": 2000
+              },
+              "payloadRef": {
+                "type": "string",
+                "minLength": 1
+              },
+              "artifactRefs": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              "parentEventId": {
+                "type": "string",
+                "minLength": 1
+              },
+              "sensitivity": {
+                "type": "string",
+                "enum": [
+                  "public",
+                  "internal",
+                  "sensitive"
+                ]
+              },
+              "schemaVer": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 9007199254740991
+              }
+            },
+            "required": [
+              "id",
+              "runId",
+              "seq",
+              "ts",
+              "type",
+              "actor",
+              "summary",
+              "sensitivity",
+              "schemaVer"
+            ]
+          }
+        },
+        "nextSeq": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "hasMore": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "events",
+        "nextSeq",
+        "hasMore"
+      ]
+    }
+  },
+  "run.resume": {
+    "summary": "从检查点恢复",
+    "scope": "workflow:run",
+    "mutates": true,
+    "audited": true,
+    "input": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "runId": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "runId"
+      ]
+    },
+    "output": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "runId": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "runId"
+      ]
+    }
+  },
+  "run.cancel": {
+    "summary": "取消运行：先停子进程再写 cancelled 事件，已产生的产物保留",
+    "scope": "workflow:run",
+    "mutates": true,
+    "audited": true,
+    "input": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "runId": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "runId"
+      ]
+    },
+    "output": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "runId": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "runId"
+      ]
+    }
+  },
+  "run.retryNode": {
+    "summary": "从失败节点重试；副作用操作重试前核对外部状态",
+    "scope": "workflow:run",
+    "mutates": true,
+    "audited": true,
+    "input": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "runId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "nodeId": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "runId",
+        "nodeId"
+      ]
+    },
+    "output": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "runId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "newAttempt": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        }
+      },
+      "required": [
+        "runId",
+        "newAttempt"
+      ]
+    }
+  },
+  "approval.decide": {
+    "summary": "提交审批决定",
+    "scope": "workflow:run",
+    "mutates": true,
+    "audited": true,
+    "input": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "runId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "nodeId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "decision": {
+          "type": "string",
+          "enum": [
+            "approved",
+            "changes_requested",
+            "rejected"
+          ]
+        },
+        "selected": {
+          "default": [],
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "supplement": {
+          "default": "",
+          "type": "string"
+        }
+      },
+      "required": [
+        "runId",
+        "nodeId",
+        "decision"
+      ]
+    },
+    "output": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "accepted": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "accepted"
+      ]
+    }
+  },
+  "memory.list": {
+    "summary": "按作用域列出记忆",
+    "scope": "memory:read",
+    "mutates": false,
+    "audited": false,
+    "input": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "scope": {
+          "type": "string"
+        },
+        "scopeId": {
+          "type": "string"
+        },
+        "query": {
+          "type": "string"
+        }
+      }
+    },
+    "output": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "items": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "scope": {
+                "type": "string",
+                "enum": [
+                  "global",
+                  "workspace",
+                  "workflow",
+                  "agent",
+                  "session"
+                ]
+              },
+              "scopeId": {
+                "type": "string"
+              },
+              "key": {
+                "type": "string",
+                "minLength": 1
+              },
+              "value": {
+                "type": "string"
+              },
+              "summary": {
+                "type": "string"
+              },
+              "source": {
+                "default": "user",
+                "type": "string",
+                "enum": [
+                  "user",
+                  "ai_proposed",
+                  "system"
+                ]
+              },
+              "createdBy": {
+                "type": "string",
+                "minLength": 1
+              },
+              "createdAt": {
+                "type": "string",
+                "format": "date-time",
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$"
+              },
+              "updatedAt": {
+                "type": "string",
+                "format": "date-time",
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$"
+              },
+              "expiresAt": {
+                "type": "string",
+                "format": "date-time",
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$"
+              },
+              "sensitivity": {
+                "default": "internal",
+                "type": "string",
+                "enum": [
+                  "public",
+                  "internal",
+                  "sensitive"
+                ]
+              },
+              "ver": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 9007199254740991
+              },
+              "tags": {
+                "default": [],
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "enabled": {
+                "default": true,
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "id",
+              "scope",
+              "key",
+              "value",
+              "createdBy",
+              "createdAt",
+              "updatedAt",
+              "ver"
+            ]
+          }
+        }
+      },
+      "required": [
+        "items"
+      ]
+    }
+  },
+  "memory.create": {
+    "summary": "写入记忆（Token 与密钥禁止写入）",
+    "scope": "memory:write",
+    "mutates": true,
+    "audited": true,
+    "input": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "scope": {
+          "type": "string",
+          "enum": [
+            "global",
+            "workspace",
+            "workflow",
+            "agent",
+            "session"
+          ]
+        },
+        "scopeId": {
+          "type": "string"
+        },
+        "key": {
+          "type": "string",
+          "minLength": 1
+        },
+        "value": {
+          "type": "string"
+        },
+        "summary": {
+          "type": "string"
+        },
+        "source": {
+          "default": "user",
+          "type": "string",
+          "enum": [
+            "user",
+            "ai_proposed",
+            "system"
+          ]
+        },
+        "createdBy": {
+          "type": "string",
+          "minLength": 1
+        },
+        "expiresAt": {
+          "type": "string",
+          "format": "date-time",
+          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$"
+        },
+        "sensitivity": {
+          "default": "internal",
+          "type": "string",
+          "enum": [
+            "public",
+            "internal",
+            "sensitive"
+          ]
+        },
+        "tags": {
+          "default": [],
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "enabled": {
+          "default": true,
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "scope",
+        "key",
+        "value",
+        "createdBy"
+      ]
+    },
+    "output": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "id"
+      ]
+    }
+  },
+  "memory.update": {
+    "summary": "更新记忆并生成新版本",
+    "scope": "memory:write",
+    "mutates": true,
+    "audited": true,
+    "input": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "value": {
+          "type": "string"
+        },
+        "summary": {
+          "type": "string"
+        },
+        "tags": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "enabled": {
+          "type": "boolean"
+        },
+        "ver": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        }
+      },
+      "required": [
+        "id",
+        "ver"
+      ]
+    },
+    "output": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "ver": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        }
+      },
+      "required": [
+        "ver"
+      ]
+    }
+  },
+  "memory.delete": {
+    "summary": "删除记忆（删除后不再注入未来调用）",
+    "scope": "memory:write",
+    "mutates": true,
+    "audited": true,
+    "input": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "id"
+      ]
+    },
+    "output": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "ok": {
+          "type": "boolean",
+          "const": true
+        }
+      },
+      "required": [
+        "ok"
+      ]
+    }
+  },
+  "prompt.list": {
+    "summary": "列出提示词",
+    "scope": "workflow:read",
+    "mutates": false,
+    "audited": false,
+    "input": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "group": {
+          "type": "string"
+        },
+        "query": {
+          "type": "string"
+        }
+      }
+    },
+    "output": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "items": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "group": {
+                "type": "string",
+                "minLength": 1
+              },
+              "name": {
+                "type": "string",
+                "minLength": 1
+              },
+              "sections": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "title": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "body": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "title",
+                    "body"
+                  ]
+                }
+              },
+              "vars": {
+                "default": [],
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "name": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "source": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "onMissing": {
+                      "default": "empty_and_log",
+                      "type": "string",
+                      "enum": [
+                        "empty_and_log",
+                        "fail",
+                        "default"
+                      ]
+                    },
+                    "default": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "name",
+                    "source"
+                  ]
+                }
+              },
+              "ver": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 9007199254740991
+              },
+              "builtin": {
+                "default": false,
+                "type": "boolean"
+              },
+              "updatedAt": {
+                "type": "string",
+                "format": "date-time",
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$"
+              }
+            },
+            "required": [
+              "id",
+              "group",
+              "name",
+              "sections",
+              "ver",
+              "updatedAt"
+            ]
+          }
+        }
+      },
+      "required": [
+        "items"
+      ]
+    }
+  },
+  "prompt.create": {
+    "summary": "新建提示词",
+    "scope": "workflow:write-draft",
+    "mutates": true,
+    "audited": true,
+    "input": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "group": {
+          "type": "string",
+          "minLength": 1
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "sections": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "title": {
+                "type": "string",
+                "minLength": 1
+              },
+              "body": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "title",
+              "body"
+            ]
+          }
+        },
+        "vars": {
+          "default": [],
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "type": "string",
+                "minLength": 1
+              },
+              "source": {
+                "type": "string",
+                "minLength": 1
+              },
+              "onMissing": {
+                "default": "empty_and_log",
+                "type": "string",
+                "enum": [
+                  "empty_and_log",
+                  "fail",
+                  "default"
+                ]
+              },
+              "default": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "source"
+            ]
+          }
+        },
+        "builtin": {
+          "default": false,
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "group",
+        "name",
+        "sections"
+      ]
+    },
+    "output": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "id"
+      ]
+    }
+  },
+  "prompt.update": {
+    "summary": "保存为新版本（运行记录引用具体版本号）",
+    "scope": "workflow:write-draft",
+    "mutates": true,
+    "audited": true,
+    "input": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "group": {
+          "type": "string",
+          "minLength": 1
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "sections": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "title": {
+                "type": "string",
+                "minLength": 1
+              },
+              "body": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "title",
+              "body"
+            ]
+          }
+        },
+        "vars": {
+          "default": [],
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "type": "string",
+                "minLength": 1
+              },
+              "source": {
+                "type": "string",
+                "minLength": 1
+              },
+              "onMissing": {
+                "default": "empty_and_log",
+                "type": "string",
+                "enum": [
+                  "empty_and_log",
+                  "fail",
+                  "default"
+                ]
+              },
+              "default": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "source"
+            ]
+          }
+        },
+        "ver": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "builtin": {
+          "default": false,
+          "type": "boolean"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$"
+        }
+      },
+      "required": [
+        "id",
+        "ver"
+      ]
+    },
+    "output": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "ver": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        }
+      },
+      "required": [
+        "ver"
+      ]
+    }
+  },
+  "prompt.delete": {
+    "summary": "删除自定义提示词；内置项只能恢复默认",
+    "scope": "workflow:write-draft",
+    "mutates": true,
+    "audited": true,
+    "input": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "id"
+      ]
+    },
+    "output": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "ok": {
+          "type": "boolean",
+          "const": true
+        }
+      },
+      "required": [
+        "ok"
+      ]
+    }
+  },
+  "model.list": {
+    "summary": "列出已登记模型",
+    "scope": "workflow:read",
+    "mutates": false,
+    "audited": false,
+    "input": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "enabledOnly": {
+          "default": false,
+          "type": "boolean"
+        }
+      }
+    },
+    "output": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "items": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "name": {
+                "type": "string",
+                "minLength": 1
+              },
+              "runtime": {
+                "type": "string",
+                "enum": [
+                  "acp.claude",
+                  "acp.codex",
+                  "provider.api"
+                ]
+              },
+              "modelId": {
+                "type": "string",
+                "minLength": 1
+              },
+              "effort": {
+                "default": "medium",
+                "type": "string",
+                "enum": [
+                  "minimal",
+                  "low",
+                  "medium",
+                  "high"
+                ]
+              },
+              "contextWindow": {
+                "type": "integer",
+                "exclusiveMinimum": 0,
+                "maximum": 9007199254740991
+              },
+              "capabilities": {
+                "default": [],
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "credentialRef": {
+                "type": "string",
+                "minLength": 1
+              },
+              "enabled": {
+                "default": true,
+                "type": "boolean"
+              },
+              "lastLatencyMs": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              }
+            },
+            "required": [
+              "id",
+              "name",
+              "runtime",
+              "modelId",
+              "contextWindow"
+            ]
+          }
+        }
+      },
+      "required": [
+        "items"
+      ]
+    }
+  },
+  "model.create": {
+    "summary": "登记模型（ACP 握手不返回模型列表，需手动登记或从 CLI 导入）",
+    "scope": "workflow:write-draft",
+    "mutates": true,
+    "audited": true,
+    "input": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "runtime": {
+          "type": "string",
+          "enum": [
+            "acp.claude",
+            "acp.codex",
+            "provider.api"
+          ]
+        },
+        "modelId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "effort": {
+          "default": "medium",
+          "type": "string",
+          "enum": [
+            "minimal",
+            "low",
+            "medium",
+            "high"
+          ]
+        },
+        "contextWindow": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991
+        },
+        "capabilities": {
+          "default": [],
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "credentialRef": {
+          "type": "string",
+          "minLength": 1
+        },
+        "enabled": {
+          "default": true,
+          "type": "boolean"
+        },
+        "lastLatencyMs": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        }
+      },
+      "required": [
+        "name",
+        "runtime",
+        "modelId",
+        "contextWindow"
+      ]
+    },
+    "output": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "id"
+      ]
+    }
+  },
+  "model.update": {
+    "summary": "更新模型登记",
+    "scope": "workflow:write-draft",
+    "mutates": true,
+    "audited": true,
+    "input": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "runtime": {
+          "type": "string",
+          "enum": [
+            "acp.claude",
+            "acp.codex",
+            "provider.api"
+          ]
+        },
+        "modelId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "effort": {
+          "default": "medium",
+          "type": "string",
+          "enum": [
+            "minimal",
+            "low",
+            "medium",
+            "high"
+          ]
+        },
+        "contextWindow": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991
+        },
+        "capabilities": {
+          "default": [],
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "credentialRef": {
+          "type": "string",
+          "minLength": 1
+        },
+        "enabled": {
+          "default": true,
+          "type": "boolean"
+        },
+        "lastLatencyMs": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        }
+      },
+      "required": [
+        "id"
+      ]
+    },
+    "output": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "ok": {
+          "type": "boolean",
+          "const": true
+        }
+      },
+      "required": [
+        "ok"
+      ]
+    }
+  },
+  "model.delete": {
+    "summary": "删除模型登记",
+    "scope": "workflow:write-draft",
+    "mutates": true,
+    "audited": true,
+    "input": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "id"
+      ]
+    },
+    "output": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "ok": {
+          "type": "boolean",
+          "const": true
+        }
+      },
+      "required": [
+        "ok"
+      ]
+    }
+  },
+  "model.test": {
+    "summary": "连通性测试",
+    "scope": "workflow:read",
+    "mutates": false,
+    "audited": true,
+    "input": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "id"
+      ]
+    },
+    "output": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "ok": {
+          "type": "boolean"
+        },
+        "latencyMs": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "detail": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "ok"
+      ]
+    }
+  },
+  "agent.list": {
+    "summary": "列出 Agent 角色",
+    "scope": "workflow:read",
+    "mutates": false,
+    "audited": false,
+    "input": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "query": {
+          "type": "string"
+        }
+      }
+    },
+    "output": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "items": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "name": {
+                "type": "string",
+                "minLength": 1
+              },
+              "role": {
+                "type": "string",
+                "minLength": 1
+              },
+              "goal": {
+                "default": "",
+                "type": "string"
+              },
+              "persona": {
+                "default": "",
+                "type": "string"
+              },
+              "runtime": {
+                "type": "string",
+                "enum": [
+                  "acp.claude",
+                  "acp.codex",
+                  "provider.api"
+                ]
+              },
+              "modelRef": {
+                "type": "string",
+                "minLength": 1
+              },
+              "fallbackModelRef": {
+                "type": "string",
+                "minLength": 1
+              },
+              "tools": {
+                "default": [],
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "capabilities": {
+                "type": "object",
+                "properties": {
+                  "file": {
+                    "default": "none",
+                    "type": "string",
+                    "enum": [
+                      "none",
+                      "read",
+                      "read-write"
+                    ]
+                  },
+                  "command": {
+                    "default": "none",
+                    "type": "string",
+                    "enum": [
+                      "none",
+                      "declared",
+                      "any"
+                    ]
+                  },
+                  "network": {
+                    "default": "none",
+                    "type": "string",
+                    "enum": [
+                      "none",
+                      "allowlist",
+                      "any"
+                    ]
+                  },
+                  "memory": {
+                    "default": "none",
+                    "type": "string",
+                    "enum": [
+                      "none",
+                      "read",
+                      "read-write"
+                    ]
+                  },
+                  "secret": {
+                    "default": [],
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  }
+                }
+              },
+              "outputContract": {
+                "default": "",
+                "type": "string"
+              },
+              "turnLimit": {
+                "default": 12,
+                "type": "integer",
+                "exclusiveMinimum": 0,
+                "maximum": 9007199254740991
+              },
+              "timeoutMs": {
+                "default": 900000,
+                "type": "integer",
+                "exclusiveMinimum": 0,
+                "maximum": 9007199254740991
+              },
+              "ver": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 9007199254740991
+              },
+              "builtin": {
+                "default": false,
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "id",
+              "name",
+              "role",
+              "runtime",
+              "modelRef",
+              "capabilities",
+              "ver"
+            ]
+          }
+        }
+      },
+      "required": [
+        "items"
+      ]
+    }
+  },
+  "agent.create": {
+    "summary": "新建 Agent 角色",
+    "scope": "workflow:write-draft",
+    "mutates": true,
+    "audited": true,
+    "input": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "role": {
+          "type": "string",
+          "minLength": 1
+        },
+        "goal": {
+          "default": "",
+          "type": "string"
+        },
+        "persona": {
+          "default": "",
+          "type": "string"
+        },
+        "runtime": {
+          "type": "string",
+          "enum": [
+            "acp.claude",
+            "acp.codex",
+            "provider.api"
+          ]
+        },
+        "modelRef": {
+          "type": "string",
+          "minLength": 1
+        },
+        "fallbackModelRef": {
+          "type": "string",
+          "minLength": 1
+        },
+        "tools": {
+          "default": [],
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "capabilities": {
+          "type": "object",
+          "properties": {
+            "file": {
+              "default": "none",
+              "type": "string",
+              "enum": [
+                "none",
+                "read",
+                "read-write"
+              ]
+            },
+            "command": {
+              "default": "none",
+              "type": "string",
+              "enum": [
+                "none",
+                "declared",
+                "any"
+              ]
+            },
+            "network": {
+              "default": "none",
+              "type": "string",
+              "enum": [
+                "none",
+                "allowlist",
+                "any"
+              ]
+            },
+            "memory": {
+              "default": "none",
+              "type": "string",
+              "enum": [
+                "none",
+                "read",
+                "read-write"
+              ]
+            },
+            "secret": {
+              "default": [],
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          }
+        },
+        "outputContract": {
+          "default": "",
+          "type": "string"
+        },
+        "turnLimit": {
+          "default": 12,
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991
+        },
+        "timeoutMs": {
+          "default": 900000,
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991
+        },
+        "builtin": {
+          "default": false,
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "name",
+        "role",
+        "runtime",
+        "modelRef",
+        "capabilities"
+      ]
+    },
+    "output": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "id"
+      ]
+    }
+  },
+  "agent.update": {
+    "summary": "保存 Agent 新版本；引用它的节点一并生效",
+    "scope": "workflow:write-draft",
+    "mutates": true,
+    "audited": true,
+    "input": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "role": {
+          "type": "string",
+          "minLength": 1
+        },
+        "goal": {
+          "default": "",
+          "type": "string"
+        },
+        "persona": {
+          "default": "",
+          "type": "string"
+        },
+        "runtime": {
+          "type": "string",
+          "enum": [
+            "acp.claude",
+            "acp.codex",
+            "provider.api"
+          ]
+        },
+        "modelRef": {
+          "type": "string",
+          "minLength": 1
+        },
+        "fallbackModelRef": {
+          "type": "string",
+          "minLength": 1
+        },
+        "tools": {
+          "default": [],
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "capabilities": {
+          "type": "object",
+          "properties": {
+            "file": {
+              "default": "none",
+              "type": "string",
+              "enum": [
+                "none",
+                "read",
+                "read-write"
+              ]
+            },
+            "command": {
+              "default": "none",
+              "type": "string",
+              "enum": [
+                "none",
+                "declared",
+                "any"
+              ]
+            },
+            "network": {
+              "default": "none",
+              "type": "string",
+              "enum": [
+                "none",
+                "allowlist",
+                "any"
+              ]
+            },
+            "memory": {
+              "default": "none",
+              "type": "string",
+              "enum": [
+                "none",
+                "read",
+                "read-write"
+              ]
+            },
+            "secret": {
+              "default": [],
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          }
+        },
+        "outputContract": {
+          "default": "",
+          "type": "string"
+        },
+        "turnLimit": {
+          "default": 12,
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991
+        },
+        "timeoutMs": {
+          "default": 900000,
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991
+        },
+        "ver": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "builtin": {
+          "default": false,
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "id",
+        "ver"
+      ]
+    },
+    "output": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "ver": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        }
+      },
+      "required": [
+        "ver"
+      ]
+    }
+  },
+  "agent.delete": {
+    "summary": "删除 Agent 角色（被引用时拒绝）",
+    "scope": "workflow:write-draft",
+    "mutates": true,
+    "audited": true,
+    "input": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "id"
+      ]
+    },
+    "output": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "ok": {
+          "type": "boolean",
+          "const": true
+        }
+      },
+      "required": [
+        "ok"
+      ]
+    }
+  },
+  "env.health": {
+    "summary": "环境健康报告",
+    "scope": "workflow:read",
+    "mutates": false,
+    "audited": false,
+    "input": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "recheck": {
+          "default": false,
+          "type": "boolean"
+        }
+      }
+    },
+    "output": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "status": {
+          "type": "string",
+          "enum": [
+            "ready",
+            "needs_attention"
+          ]
+        },
+        "items": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "capability": {
+                "type": "string",
+                "minLength": 1
+              },
+              "version": {
+                "type": "string"
+              },
+              "path": {
+                "type": "string"
+              },
+              "source": {
+                "type": "string",
+                "enum": [
+                  "system",
+                  "app_managed",
+                  "missing"
+                ]
+              },
+              "status": {
+                "type": "string",
+                "enum": [
+                  "ready",
+                  "needs_attention",
+                  "optional",
+                  "missing"
+                ]
+              },
+              "detail": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "capability",
+              "source",
+              "status"
+            ]
+          }
+        }
+      },
+      "required": [
+        "status",
+        "items"
+      ]
+    }
+  },
+  "env.install": {
+    "summary": "安装缺失工具（不使用 sudo，不改 shell profile）",
+    "scope": null,
+    "mutates": true,
+    "audited": true,
+    "input": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "tools": {
+          "minItems": 1,
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      },
+      "required": [
+        "tools"
+      ]
+    },
+    "output": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "started": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "started"
+      ]
+    }
+  }
+}

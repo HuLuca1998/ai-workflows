@@ -1,0 +1,8 @@
+pnpm-lock.yaml
+Cargo.lock
+dist/
+target/
+coverage/
+docs/design/
+docs/reference/acp/
+packages/contracts/generated/
