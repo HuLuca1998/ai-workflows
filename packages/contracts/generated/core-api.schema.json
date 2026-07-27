@@ -5096,6 +5096,44 @@
       ]
     }
   },
+  "run.diagnostics": {
+    "summary": "导出脱敏的诊断包",
+    "scope": null,
+    "mutates": true,
+    "audited": true,
+    "input": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "runId": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "runId"
+      ]
+    },
+    "output": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "bytes": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        }
+      },
+      "required": [
+        "path",
+        "bytes"
+      ]
+    }
+  },
   "env.install": {
     "summary": "安装缺失工具（不使用 sudo，不改 shell profile）",
     "scope": null,

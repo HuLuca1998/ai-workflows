@@ -162,6 +162,7 @@ pub const COMMANDS: &[&str] = &[
     "workspace_stats",
     "env_health",
     "run_artifact_content",
+    "run_diagnostics",
     "workflow_create",
     "workflow_get",
     "workflow_save_draft",
@@ -1474,5 +1475,125 @@ fn parse_proposal(body: &str) -> Option<Proposal> {
     Some(Proposal {
         summary,
         operations: operations.clone(),
+    })
+}
+
+/// 诊断包导出的结果。
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DiagnosticsResult {
+    pub path: String,
+    pub bytes: u64,
+}
+
+/// 导出一次运行的诊断包。
+///
+/// M5 的出口标准写着「诊断包不含 Secret」—— 那是这个功能存在的全部理由：
+/// 用户要把失败现场发给别人看，而手工整理必然会漏掉某处的 token。
+///
+/// 内容是运行本身 + 完整事件流 + 环境报告。环境那部分是因为
+/// 「在我机器上是好的」是最常见的一类原因，而让用户手工贴版本号必然漏。
+///
+/// **一切文本都过脱敏器**，包括启动参数 —— inputs 是用户自己填的，
+/// 里面可能就有 token，而启动表单不拦这个。
+pub fn run_diagnostics(
+    store: &Store,
+    out_dir: &Path,
+    run_id: String,
+) -> ApiResult<DiagnosticsResult> {
+    let run = store.get_run(&run_id)?.ok_or_else(|| {
+        // 导出一个空包的话，读的人会以为「这次运行什么都没发生」
+        ApiError::validation(format!("找不到运行 {run_id}"))
+    })?;
+
+    let redactor = aiwf_engine::redactor::Redactor::with_defaults();
+
+    // 事件流整段拉出来 —— 诊断包的价值就在于完整，分页在这里没有意义
+    let mut events = Vec::new();
+    let mut from_seq = 0_i64;
+    loop {
+        let page = store.events(&run_id, from_seq, 500)?;
+        if page.is_empty() {
+            break;
+        }
+        from_seq = page.last().map_or(from_seq, |event| event.seq);
+        for event in page {
+            events.push(serde_json::json!({
+                "seq": event.seq,
+                "ts": event.ts,
+                "type": event.kind,
+                "nodeId": event.node_id,
+                "nodeLabel": event.node_label,
+                "actor": event.actor,
+                "summary": redactor.redact(&event.summary),
+            }));
+        }
+    }
+
+    let environment = env::env_health(false)?;
+
+    // 产物只列元信息，不含内容。
+    //
+    // 内容可能有几十 MB，也可能有脚本 echo 出来的 token —— stdout 走的是
+    // artifact 而不是事件摘要，事件那层的脱敏管不到它。
+    // 名字、大小与哈希足够定位问题；真要看内容，界面里有预览。
+    let artifacts = run
+        .workdir
+        .as_deref()
+        .filter(|dir| !dir.is_empty())
+        .map(|dir| {
+            aiwf_engine::artifacts::ArtifactStore::new(
+                std::path::Path::new(dir).join(".aiwf-artifacts"),
+            )
+        })
+        .and_then(|store| store.list(&run_id).ok())
+        .unwrap_or_default()
+        .into_iter()
+        .map(|item| {
+            serde_json::json!({
+                "nodeId": item.node_id,
+                "name": item.name,
+                "kind": item.kind,
+                "bytes": item.bytes,
+                "sha256": item.sha256,
+            })
+        })
+        .collect::<Vec<_>>();
+
+    let bundle = serde_json::json!({
+        "kind": "aiwf-diagnostics",
+        "version": 1,
+        "note": "所有文本已过脱敏器；Secret 只以 keychain:// 引用形式出现",
+        "run": {
+            "id": run.id,
+            "workflowId": run.workflow_id,
+            "status": run.status,
+            "startedAt": run.started_at,
+            "endedAt": run.ended_at,
+            "currentNode": run.current_node,
+            // inputs 是用户填的，里面可能就有 token
+            "inputs": redactor.redact(&run.inputs_json),
+        },
+        "events": events,
+        "artifacts": artifacts,
+        "environment": environment,
+    });
+
+    let text = serde_json::to_string_pretty(&bundle)
+        .map_err(|error| ApiError::validation(format!("诊断包序列化失败：{error}")))?;
+
+    // 最后一道：整段再扫一遍。上面逐字段脱敏可能漏掉某个我没想到的字段，
+    // 而这个包是要发出去的
+    let text = redactor.redact(&text);
+
+    std::fs::create_dir_all(out_dir)
+        .map_err(|error| ApiError::validation(format!("建不了输出目录：{error}")))?;
+    let path = out_dir.join(format!("{run_id}-diagnostics.json"));
+    std::fs::write(&path, &text)
+        .map_err(|error| ApiError::validation(format!("写不了诊断包：{error}")))?;
+
+    Ok(DiagnosticsResult {
+        path: path.display().to_string(),
+        bytes: text.len() as u64,
     })
 }

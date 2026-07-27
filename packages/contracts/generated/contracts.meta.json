@@ -141,6 +141,7 @@
     "agent.duplicate",
     "agent.delete",
     "env.health",
+    "run.diagnostics",
     "env.install"
   ]
 }

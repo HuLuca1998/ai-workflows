@@ -248,3 +248,47 @@ describe('内部 ID 不该出现在界面上', () => {
     expect(progress.textContent).toContain('legacy_node');
   });
 });
+
+describe('导出诊断包', () => {
+  it('失败横幅有导出按钮 —— 图纸的第四个', async () => {
+    await openFailedRun();
+    expect(screen.getByRole('button', { name: '导出诊断包' })).toBeTruthy();
+  });
+
+  it('导出后告诉用户文件在哪 —— 不然他找不到', async () => {
+    respond({
+      'run.diagnostics': () => ({ path: '/tmp/run_1-diagnostics.json', bytes: 4096 }),
+    });
+    const user = await openFailedRun();
+    await user.click(screen.getByRole('button', { name: '导出诊断包' }));
+
+    expect(await screen.findByText(/run_1-diagnostics\.json/u)).toBeTruthy();
+  });
+
+  it('说明它已经脱敏 —— 用户要把它发给别人，得知道能不能发', async () => {
+    respond({
+      'run.diagnostics': () => ({ path: '/tmp/run_1-diagnostics.json', bytes: 4096 }),
+    });
+    const user = await openFailedRun();
+    await user.click(screen.getByRole('button', { name: '导出诊断包' }));
+
+    // 页面底部本来就有一句常驻的脱敏说明，所以限定在导出提示那条里找
+    const hint = await screen.findByText(/run_1-diagnostics\.json/u);
+    expect(hint.textContent).toMatch(/脱敏/u);
+  });
+
+  it('导出失败时报错', async () => {
+    respond({
+      'run.diagnostics': () => {
+        throw new Error('磁盘满了');
+      },
+    });
+    const user = await openFailedRun();
+    await user.click(screen.getByRole('button', { name: '导出诊断包' }));
+
+    await waitFor(() => {
+      const alerts = screen.getAllByRole('alert').map((el) => el.textContent ?? '');
+      expect(alerts.some((text) => text.includes('磁盘满了'))).toBe(true);
+    });
+  });
+});

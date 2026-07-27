@@ -389,3 +389,24 @@ describe('主管 AI 的改动先出 Diff', () => {
     expect(requiredScope('supervisor.ask')).toBe('workflow:read');
   });
 });
+
+describe('run.diagnostics', () => {
+  const spec = () => getMethodSpec('run.diagnostics');
+
+  it('按 runId 打包，输出落到用户指定的位置', () => {
+    expect(spec().input.safeParse({ runId: 'run_1' }).success).toBe(true);
+    expect(
+      spec().output.safeParse({ path: '/tmp/run_1-diagnostics.json', bytes: 4096 }).success,
+    ).toBe(true);
+  });
+
+  it('是写操作，且要审计 —— 它把运行数据落到磁盘', () => {
+    expect(spec().mutates).toBe(true);
+    expect(spec().audited).toBe(true);
+  });
+
+  it('不给远端 Scope —— 诊断包落在本机文件系统上', () => {
+    // 与 env.install 同一条理由：会动本机文件的操作只允许本地 UI 触发
+    expect(requiredScope('run.diagnostics')).toBeNull();
+  });
+});

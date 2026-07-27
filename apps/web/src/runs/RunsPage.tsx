@@ -36,6 +36,20 @@ export function RunsPage() {
   const runs = useRuns();
   const [params] = useSearchParams();
   const [tab, setTab] = useState<DetailTab>('events');
+  /** 刚导出的诊断包路径。不告诉用户在哪的话他找不到。 */
+  const [diagnostics, setDiagnostics] = useState<string | null>(null);
+  const [exportError, setExportError] = useState<string | null>(null);
+
+  const exportDiagnostics = async (runId: string) => {
+    setDiagnostics(null);
+    setExportError(null);
+    try {
+      const result = (await coreClient.call('run.diagnostics', { runId })) as { path: string };
+      setDiagnostics(result.path);
+    } catch (err) {
+      setExportError(err instanceof Error ? err.message : String(err));
+    }
+  };
   const { active, past } = runs.grouped();
   const selected = runs.selected();
   const progress = runs.progress();
@@ -269,7 +283,29 @@ export function RunsPage() {
                   >
                     用相同参数重跑
                   </button>
+                  <button
+                    type="button"
+                    className="runs__action"
+                    onClick={() => void exportDiagnostics(selected.id)}
+                  >
+                    导出诊断包
+                  </button>
                 </div>
+                {exportError ? (
+                  <p className="runs__error" role="alert">
+                    {exportError}
+                  </p>
+                ) : null}
+                {diagnostics ? (
+                  <p className="runs__diagnostics" role="status">
+                    <i className="ph ph-file-arrow-down" aria-hidden="true" />
+                    已导出到 {diagnostics}
+                    {/* 用户要把它发给别人，得知道能不能发 */}
+                    <span className="runs__diagnostics-note">
+                      · 内容已过脱敏器，Secret 只以 keychain:// 引用出现
+                    </span>
+                  </p>
+                ) : null}
               </div>
             ) : null}
 

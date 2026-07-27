@@ -408,6 +408,16 @@ fn run_artifact_content(
 }
 
 #[tauri::command]
+fn run_diagnostics(
+    state: State<'_, AppState>,
+    run_id: String,
+) -> IpcResult<api::DiagnosticsResult> {
+    let out = state.data_dir.join("diagnostics");
+    let store = lock(&state)?;
+    api::run_diagnostics(&store, &out, run_id)
+}
+
+#[tauri::command]
 fn env_health(recheck: Option<bool>) -> IpcResult<api::EnvHealthReport> {
     // 只读探测，不需要 store —— 它问的是这台机器上有什么
     api::env_health(recheck.unwrap_or(false))
@@ -608,6 +618,7 @@ pub fn run() {
             workflow_list,
             workspace_stats,
             env_health,
+            run_diagnostics,
             run_artifact_content,
             workflow_create,
             workflow_get,

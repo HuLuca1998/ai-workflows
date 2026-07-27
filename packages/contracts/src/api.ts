@@ -646,6 +646,22 @@ const SPECS = {
     scope: 'workflow:read',
     summary: '环境健康报告',
   },
+  'run.diagnostics': {
+    // 图纸「03 执行记录」失败横幅的第四个按钮。
+    // M5 的出口标准写着「诊断包不含 Secret」—— 那是这个方法存在的全部理由：
+    // 用户要把失败现场发给别人看，而手工整理必然会漏掉某处的 token。
+    input: z.object({ runId: z.string().min(1) }),
+    output: z.object({
+      /** 诊断包落在哪。界面显示它，用户自己去取。 */
+      path: z.string().min(1),
+      bytes: z.number().int().min(0),
+    }),
+    mutates: true,
+    audited: true,
+    // 与 env.install 同一条理由：会动本机文件的操作只允许本地 UI 触发
+    scope: null,
+    summary: '导出脱敏的诊断包',
+  },
   'env.install': {
     input: z.object({ tools: z.array(z.string().min(1)).min(1) }),
     output: z.object({ started: z.boolean() }),

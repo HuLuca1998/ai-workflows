@@ -191,6 +191,11 @@ pub fn dispatch(
         )?),
         "workflow_list" => to_value(api::workflow_list(&store)?),
         // 数据库同级的 data 目录就是运行工作目录，与 run_start 的默认一致
+        "run_diagnostics" => to_value(api::run_diagnostics(
+            &store,
+            &data_dir.join("diagnostics"),
+            string(input, "runId")?,
+        )?),
         "env_health" => to_value(api::env_health(
             opt_bool(input, "recheck").unwrap_or(false),
         )?),
