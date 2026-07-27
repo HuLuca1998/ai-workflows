@@ -79,10 +79,26 @@ function graph() {
       },
     ],
     edges: [
-      { id: 'e1', source: { nodeId: 'entry', port: 'success' }, target: { nodeId: 'read', port: 'input' } },
-      { id: 'e2', source: { nodeId: 'read', port: 'success' }, target: { nodeId: 'approve', port: 'input' } },
-      { id: 'e3', source: { nodeId: 'approve', port: 'approved' }, target: { nodeId: 'finish', port: 'input' } },
-      { id: 'e4', source: { nodeId: 'finish', port: 'success' }, target: { nodeId: 'end', port: 'input' } },
+      {
+        id: 'e1',
+        source: { nodeId: 'entry', port: 'success' },
+        target: { nodeId: 'read', port: 'input' },
+      },
+      {
+        id: 'e2',
+        source: { nodeId: 'read', port: 'success' },
+        target: { nodeId: 'approve', port: 'input' },
+      },
+      {
+        id: 'e3',
+        source: { nodeId: 'approve', port: 'approved' },
+        target: { nodeId: 'finish', port: 'input' },
+      },
+      {
+        id: 'e4',
+        source: { nodeId: 'finish', port: 'success' },
+        target: { nodeId: 'end', port: 'input' },
+      },
     ],
     groups: [],
   };
@@ -108,7 +124,11 @@ function failingGraph() {
       },
     ],
     edges: [
-      { id: 'e1', source: { nodeId: 'entry', port: 'success' }, target: { nodeId: 'boom', port: 'input' } },
+      {
+        id: 'e1',
+        source: { nodeId: 'entry', port: 'success' },
+        target: { nodeId: 'boom', port: 'input' },
+      },
     ],
     groups: [],
   };
@@ -144,8 +164,18 @@ async function main() {
   // ── 模型 ────────────────────────────────────────────────────────────────
   const models = await call('model_list', { enabledOnly: false });
   const wanted = [
-    { name: `${TAG} Opus 5 · high`, runtime: 'acp.claude', modelId: 'claude-opus-5', effort: 'high' },
-    { name: `${TAG} Sonnet 5 · medium`, runtime: 'acp.claude', modelId: 'claude-sonnet-5', effort: 'medium' },
+    {
+      name: `${TAG} Opus 5 · high`,
+      runtime: 'acp.claude',
+      modelId: 'claude-opus-5',
+      effort: 'high',
+    },
+    {
+      name: `${TAG} Sonnet 5 · medium`,
+      runtime: 'acp.claude',
+      modelId: 'claude-sonnet-5',
+      effort: 'medium',
+    },
     { name: `${TAG} Codex · high`, runtime: 'acp.codex', modelId: 'gpt-5-codex', effort: 'high' },
   ];
   for (const model of wanted) {
@@ -190,7 +220,11 @@ async function main() {
   // ── 失败的运行（失败横幅 + stderr 产物）────────────────────────────────
   const bad = await ensureWorkflow(`${TAG} 会失败的流程`, failingGraph());
   if (!bad.existed) {
-    const runId = await call('run_start', { workflowId: bad.id, draftRev: bad.rev, inputsJson: '{}' });
+    const runId = await call('run_start', {
+      workflowId: bad.id,
+      draftRev: bad.rev,
+      inputsJson: '{}',
+    });
     const status = await waitFor(runId, ['failed', 'succeeded']);
     console.log(`  + 运行 ${runId} → ${status}`);
   }

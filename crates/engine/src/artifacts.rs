@@ -18,6 +18,8 @@ pub enum ArtifactError {
     EmptyName,
     #[error("路径不在产物目录内：{path}")]
     OutsideRoot { path: String },
+    #[error("{path} 是符号链接，产物目录里不接受")]
+    SymlinkInPath { path: String },
     #[error("文件系统错误：{0}")]
     Io(#[from] std::io::Error),
 }
@@ -81,10 +83,22 @@ impl ArtifactStore {
         content: &[u8],
     ) -> Result<SavedArtifact> {
         let leaf = safe_leaf(name)?;
-        let dir = self.root.join(sanitize(run_id)).join(sanitize(node_id));
+        let dir = self
+            .root
+            .join(safe_segment(run_id)?)
+            .join(safe_segment(node_id)?);
         std::fs::create_dir_all(&dir)?;
 
+        // 目录链上任何一段是符号链接，写入就会落到别处 ——
+        // 而放这个链接的人可能就是上一次运行的脚本
+        reject_symlinks(&self.root, &dir)?;
+
         let path = dir.join(&leaf);
+        if path.symlink_metadata().is_ok_and(|meta| meta.is_symlink()) {
+            return Err(ArtifactError::SymlinkInPath {
+                path: path.display().to_string(),
+            });
+        }
         std::fs::write(&path, content)?;
 
         Ok(SavedArtifact {
@@ -100,10 +114,12 @@ impl ArtifactStore {
 
     /// 列出一次运行的全部产物。运行没有产物时返回空，不是错误。
     pub fn list(&self, run_id: &str) -> Result<Vec<SavedArtifact>> {
-        let run_dir = self.root.join(sanitize(run_id));
+        let run_dir = self.root.join(safe_segment(run_id)?);
         if !run_dir.is_dir() {
             return Ok(vec![]);
         }
+        // 顺着链接列目录会把外面的文件当成这次运行的产物
+        reject_symlinks(&self.root, &run_dir)?;
 
         let mut items = Vec::new();
         for node_entry in std::fs::read_dir(&run_dir)? {
@@ -182,18 +198,55 @@ fn safe_leaf(name: &str) -> Result<String> {
         .file_name()
         .map(|n| n.to_string_lossy().into_owned())
         .unwrap_or_default();
-    let cleaned = sanitize(&leaf);
-    if cleaned.is_empty() || cleaned == "." || cleaned == ".." {
-        return Err(ArtifactError::EmptyName);
-    }
-    Ok(cleaned)
+    safe_segment(&leaf)
 }
 
-fn sanitize(segment: &str) -> String {
-    segment
+/// 一段目录名。危险字符不是「过滤掉」而是**换成安全占位**。
+///
+/// 过滤会让 `a/b` 和 `ab` 变成同一个名字，两个节点的日志互相覆盖。
+/// 换成 `-` 至少保证不同的输入得到不同的名字。
+/// `.` 与 `..` 直接拒绝：它们会把路径带出这次运行的目录。
+fn safe_segment(segment: &str) -> Result<String> {
+    let replaced: String = segment
         .chars()
-        .filter(|c| !matches!(c, '/' | '\\' | '\0'))
-        .collect()
+        .map(|c| {
+            if matches!(c, '/' | '\\' | '\0') {
+                '-'
+            } else {
+                c
+            }
+        })
+        .collect();
+
+    if replaced.is_empty() || replaced == "." || replaced == ".." {
+        return Err(ArtifactError::EmptyName);
+    }
+    Ok(replaced)
+}
+
+/// 从 root 到 target 的每一段都不能是符号链接。
+///
+/// 只检查最终文件不够：中间任何一层被换成链接，写入都会落到别处。
+fn reject_symlinks(root: &Path, target: &Path) -> Result<()> {
+    let Ok(relative) = target.strip_prefix(root) else {
+        return Err(ArtifactError::OutsideRoot {
+            path: target.display().to_string(),
+        });
+    };
+
+    let mut current = root.to_path_buf();
+    for part in relative.components() {
+        current.push(part);
+        if current
+            .symlink_metadata()
+            .is_ok_and(|meta| meta.is_symlink())
+        {
+            return Err(ArtifactError::SymlinkInPath {
+                path: current.display().to_string(),
+            });
+        }
+    }
+    Ok(())
 }
 
 fn kind_from_name(name: &str) -> ArtifactKind {

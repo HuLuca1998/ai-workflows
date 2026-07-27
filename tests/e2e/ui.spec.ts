@@ -140,15 +140,19 @@ test.describe('模型登记（真实写库）', () => {
     await expect(page.getByText(name)).toBeVisible();
 
     await page.getByRole('button', { name }).click();
-    await expect(page.getByText('keychain://ui-test')).toBeVisible();
+
+    // 操作按钮限定在详情区内：左栏条目的状态标签也含「停用」两个字，
+    // 而基线数据里本来就有停用状态的模型
+    const detail = page.getByRole('region', { name: '模型详情' });
+    await expect(detail.getByText('keychain://ui-test')).toBeVisible();
     // 界面上不该有查看明文的入口
-    await expect(page.getByRole('button', { name: /显示明文|查看密钥/ })).toHaveCount(0);
+    await expect(detail.getByRole('button', { name: /显示明文|查看密钥/ })).toHaveCount(0);
 
-    await page.getByRole('button', { name: '停用' }).click();
-    await expect(page.getByRole('button', { name: '启用' })).toBeVisible();
+    await detail.getByRole('button', { name: '停用' }).click();
+    await expect(detail.getByRole('button', { name: '启用' })).toBeVisible();
 
-    await page.getByRole('button', { name: '删除' }).click();
-    await page.getByRole('button', { name: /确认删除/ }).click();
+    await detail.getByRole('button', { name: '删除' }).click();
+    await detail.getByRole('button', { name: /确认删除/ }).click();
     await expect(page.getByText(name)).toHaveCount(0);
   });
 

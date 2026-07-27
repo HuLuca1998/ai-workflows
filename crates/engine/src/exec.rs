@@ -4,8 +4,9 @@
 //! **失败要能指出该查哪里**。任何一件做假，用户第一次遇到跑飞的脚本时就会发现。
 
 use std::io::Read;
+use std::os::unix::process::CommandExt;
 use std::path::PathBuf;
-use std::process::{Command, Stdio};
+use std::process::{Child, Command, Stdio};
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
@@ -66,19 +67,30 @@ pub fn run_script(request: ScriptRequest) -> Result<ExecOutcome> {
 
     let started = Instant::now();
 
-    let mut child = Command::new(&request.interpreter)
+    let mut command = Command::new(&request.interpreter);
+    command
         .arg("-c")
         .arg(&request.script)
         .current_dir(&request.workdir)
         .envs(request.env.iter().map(|(k, v)| (k.as_str(), v.as_str())))
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .map_err(|source| ExecError::Spawn {
-            interpreter: request.interpreter.clone(),
-            source,
-        })?;
+        .stderr(Stdio::piped());
+
+    // 自成进程组：超时时才能一次杀掉脚本起的所有后代。
+    //
+    // 只杀直接子进程（那个 shell）的话，`sleep 30 &` 这种后台进程会继承
+    // stdout 写端继续活着，读管道的线程永远等不到 EOF ——
+    // 超时设 400ms，实测卡住 30 秒。
+    //
+    // `process_group(0)` 是安全 API（Rust 1.64+）：0 表示新建一个组，
+    // 组 id 就是子进程的 pid。workspace 级 forbid unsafe，用不了 setsid。
+    command.process_group(0);
+
+    let mut child = command.spawn().map_err(|source| ExecError::Spawn {
+        interpreter: request.interpreter.clone(),
+        source,
+    })?;
 
     // stdout / stderr 必须并发读：只读一个的话，另一个填满管道缓冲区就会死锁，
     // 而这个死锁只在输出量大的时候出现 —— 正是最难查的那类问题。
@@ -92,6 +104,10 @@ pub fn run_script(request: ScriptRequest) -> Result<ExecOutcome> {
     let (err_rx, err_handle) = drain(err_pipe);
 
     let status = wait_with_timeout(&mut child, request.timeout);
+
+    // 无论超时还是正常结束，都要确保后代进程不再攥着管道。
+    // 脚本自己秒退但留了个后台进程时，不收这一刀就会在下面 recv 上等到天荒地老
+    kill_process_group(&child);
 
     let (stdout, out_truncated) = out_rx.recv().unwrap_or_default();
     let (stderr, err_truncated) = err_rx.recv().unwrap_or_default();
@@ -120,13 +136,10 @@ pub fn run_script(request: ScriptRequest) -> Result<ExecOutcome> {
     })
 }
 
-/// 等进程结束，超时就杀掉。
+/// 等进程结束，超时就杀掉整个进程组。
 ///
 /// 返回 None 表示超时。杀完还要 wait 一次回收僵尸进程。
-fn wait_with_timeout(
-    child: &mut std::process::Child,
-    timeout: Duration,
-) -> Option<std::process::ExitStatus> {
+fn wait_with_timeout(child: &mut Child, timeout: Duration) -> Option<std::process::ExitStatus> {
     let deadline = Instant::now() + timeout;
     loop {
         match child.try_wait() {
@@ -135,12 +148,36 @@ fn wait_with_timeout(
             Err(_) => return None,
         }
         if Instant::now() >= deadline {
+            kill_process_group(child);
             let _ = child.kill();
             let _ = child.wait();
             return None;
         }
         std::thread::sleep(Duration::from_millis(20));
     }
+}
+
+/// 杀掉脚本所在的整个进程组。
+///
+/// 子进程用 `process_group(0)` 自成一组，组 id 等于它的 pid，
+/// 所以给 kill 传负的 pid 就是「杀这个组」。
+///
+/// 借 `kill` 命令而不是 libc::killpg，是因为 workspace 级 forbid unsafe。
+/// 多起一个短命进程换掉一处 unsafe，这笔账划算 ——
+/// 而且这条路径只在进程收尾时走一次。
+///
+/// 幂等：组里已经没进程了 kill 会返回非零，无所谓。
+fn kill_process_group(child: &Child) {
+    let pid = child.id();
+    if pid == 0 {
+        return;
+    }
+    let _ = Command::new("kill")
+        .arg("-KILL")
+        .arg(format!("-{pid}"))
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status();
 }
 
 /// 后台线程把一个管道读干净，带上限。

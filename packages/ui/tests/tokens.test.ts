@@ -48,10 +48,25 @@ describe('Nocturne 令牌', () => {
   });
 
   it('间距、圆角、阴影按 0.7 密度与 8px 圆角的既定尺度给出', () => {
-    for (const name of ['--space-1', '--space-8', '--radius-md', '--shadow-sm', '--shadow-lg']) {
+    for (const name of [
+      '--space-1',
+      '--space-8',
+      '--nocturne-radius-md',
+      '--shadow-sm',
+      '--shadow-lg',
+    ]) {
       expect(tokens).toContain(`${name}:`);
     }
-    expect(tokens).toContain('--radius-md: 8px');
+    expect(tokens).toContain('--nocturne-radius-md: 8px');
+  });
+
+  it('@theme 里的令牌不能自引用', () => {
+    // `--radius-sm: var(--radius-sm)` 是循环引用，CSS 会判定该变量无效，
+    // 用它的 border-radius 静默变成 0 —— 没有任何报错。踩过一次。
+    const selfReferencing = [...tokens.matchAll(/^\s*(--[\w-]+):\s*var\(\1\)/gmu)].map(
+      (match) => match[1],
+    );
+    expect(selfReferencing, `这些令牌引用了自己：${selfReferencing.join(', ')}`).toEqual([]);
   });
 
   it('响应 Increase Contrast：提高文本与描边对比', () => {

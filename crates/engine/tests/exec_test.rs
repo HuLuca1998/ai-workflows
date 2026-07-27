@@ -161,3 +161,48 @@ fn 未知解释器给出可操作的错误而不是_panic() {
         "错误信息实际：{error}"
     );
 }
+
+#[test]
+fn 超时要杀掉整棵进程树_而不只是那个_shell() {
+    // 脚本起了后台进程：kill 只杀直接子进程（shell），
+    // 后台进程继承了 stdout 写端继续活着，读管道的线程永远等不到 EOF。
+    // 症状是「超时设了 300ms，实际卡住几十秒甚至永远」。
+    let mut req = request("sleep 30 & echo started; wait");
+    req.timeout = Duration::from_millis(400);
+
+    let started = std::time::Instant::now();
+    let result = run_script(req).unwrap();
+    let elapsed = started.elapsed();
+
+    assert!(
+        matches!(result, ExecOutcome::TimedOut { .. }),
+        "实际：{result:?}"
+    );
+    assert!(
+        elapsed < Duration::from_secs(5),
+        "超时后没能收工，等了 {elapsed:?} —— 后台进程还攥着管道"
+    );
+}
+
+#[test]
+fn 后台进程不会让正常结束的脚本挂住() {
+    // 脚本本身秒退，但留了个后台进程。读管道不该等它。
+    let mut req = request("sleep 20 & echo done");
+    req.timeout = Duration::from_secs(8);
+
+    let started = std::time::Instant::now();
+    let result = run_script(req).unwrap();
+    let elapsed = started.elapsed();
+
+    match result {
+        ExecOutcome::Completed { code, stdout, .. } => {
+            assert_eq!(code, 0);
+            assert_eq!(stdout.trim(), "done");
+        }
+        other => panic!("实际：{other:?}"),
+    }
+    assert!(
+        elapsed < Duration::from_secs(5),
+        "脚本早就退了，却等了 {elapsed:?}"
+    );
+}

@@ -186,3 +186,85 @@ fn 分支名里的斜杠不会撑出目录层级() {
         "worktree 必须是 parent_dir 的直接子目录"
     );
 }
+
+#[test]
+fn 有被忽略的文件时也不清理() {
+    // git status --porcelain 默认不显示 .gitignore 命中的文件，
+    // 于是「干净」判断通过、整个目录被递归删除 ——
+    // 用户的构建缓存、本地配置、node_modules 一起没了。
+    let repo = fixture_repo("ignored");
+    std::fs::write(repo.join(".gitignore"), "cache/\n").unwrap();
+    let git = |args: &[&str], dir: &Path| {
+        Command::new("git")
+            .args(args)
+            .current_dir(dir)
+            .output()
+            .unwrap();
+    };
+    git(&["add", "-A"], &repo);
+    git(
+        &[
+            "-c",
+            "user.email=t@t",
+            "-c",
+            "user.name=T",
+            "commit",
+            "-qm",
+            "ignore",
+        ],
+        &repo,
+    );
+
+    let result = create_worktree(request(&repo, "fix/ignored")).unwrap();
+    std::fs::create_dir_all(result.path.join("cache")).unwrap();
+    std::fs::write(result.path.join("cache/build.bin"), "很贵的构建产物").unwrap();
+
+    let error = cleanup_worktree(&repo, &result.path)
+        .unwrap_err()
+        .to_string();
+    assert!(
+        error.contains("忽略") || error.contains("未提交"),
+        "错误信息实际：{error}"
+    );
+    assert!(
+        result.path.join("cache/build.bin").exists(),
+        "被忽略的文件被删掉了"
+    );
+}
+
+#[test]
+fn 只清理引擎自己建的_worktree() {
+    // cleanup 只验证「这是该仓库注册过的 worktree」，
+    // 于是用户手工建的干净 worktree 也会被删掉。
+    let repo = fixture_repo("foreign");
+    let mine = create_worktree(request(&repo, "fix/mine")).unwrap();
+
+    // 用户自己在别处建的 worktree
+    let theirs = std::env::temp_dir().join("aiwf_wt_user_owned");
+    let _ = std::fs::remove_dir_all(&theirs);
+    let ok = Command::new("git")
+        .args([
+            "worktree",
+            "add",
+            "-b",
+            "user/manual",
+            &theirs.to_string_lossy(),
+            "main",
+        ])
+        .current_dir(&repo)
+        .output()
+        .unwrap();
+    assert!(ok.status.success(), "建对照 worktree 失败");
+
+    let error = cleanup_worktree(&repo, &theirs).unwrap_err().to_string();
+    assert!(error.contains("不是"), "错误信息实际：{error}");
+    assert!(theirs.exists(), "用户自己的 worktree 被删了");
+
+    // 自己建的仍然清理得掉
+    cleanup_worktree(&repo, &mine.path).unwrap();
+
+    let _ = Command::new("git")
+        .args(["worktree", "remove", "--force", &theirs.to_string_lossy()])
+        .current_dir(&repo)
+        .output();
+}

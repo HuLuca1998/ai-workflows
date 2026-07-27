@@ -83,9 +83,9 @@ impl Supervisor {
     /// 只对挂起或已失败的运行有意义；已经在跑的运行重复 spawn 会让
     /// 两个线程抢同一个 Run，那是最难查的一类 bug。
     pub fn resume(&self, store: &Store, run_id: &str) -> Result<()> {
-        if self.is_active(run_id) {
-            return Ok(());
-        }
+        // 状态校验放在 is_active 之前：一个刚被取消的运行，线程可能还在
+        // 收尾（cancels 里还有它），先查 is_active 会直接返回 Ok，
+        // 于是「恢复一个已取消的运行」悄悄成功了
         let runner = Runner::new();
         let status = runner.status(store, run_id)?;
 
@@ -99,6 +99,11 @@ impl Supervisor {
                 status,
                 action: "恢复",
             }));
+        }
+
+        // 已经有线程在推进它就不必再起一个
+        if self.is_active(run_id) {
+            return Ok(());
         }
 
         store.set_run_status(run_id, "running", None)?;

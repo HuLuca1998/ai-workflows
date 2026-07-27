@@ -156,3 +156,54 @@ fn 预览产物根目录之外的文件被拒绝() {
         .to_string();
     assert!(error.contains("产物"), "错误信息实际：{error}");
 }
+
+#[test]
+fn 预先摆好的符号链接不能把产物写到根目录外() {
+    // 攻击面：谁能在产物目录里放符号链接？——上一次运行的脚本就能。
+    // create_dir_all 与 write 都跟随链接，日志会写到 /outside 去。
+    let (store, root) = store("symlink");
+    std::fs::create_dir_all(&root).unwrap();
+
+    let outside = std::env::temp_dir().join("aiwf_art_outside");
+    let _ = std::fs::remove_dir_all(&outside);
+    std::fs::create_dir_all(&outside).unwrap();
+
+    // run_evil 这个「运行目录」其实是通往外面的链接
+    std::os::unix::fs::symlink(&outside, root.join("run_evil")).unwrap();
+
+    let result = store.save("run_evil", "node", ArtifactKind::Log, "leak.log", b"x");
+    assert!(
+        result.is_err() || !outside.join("node/leak.log").exists(),
+        "产物顺着符号链接写到了 {}",
+        outside.display()
+    );
+}
+
+#[test]
+fn 节点_id_里的点分量不能逃出运行目录() {
+    // node_id=".." 会写到 <root>/stdout.log，跑出这次运行的目录
+    let (store, root) = store("dots");
+    let saved = store.save("run_1", "..", ArtifactKind::Log, "out.log", b"x");
+
+    // 拒绝也是正确答案；接受了就必须还在 run_1 目录里
+    if let Ok(item) = saved {
+        assert!(
+            item.path.starts_with(root.join("run_1")),
+            "写到了 {}，逃出了 run_1 目录",
+            item.path.display()
+        );
+    }
+}
+
+#[test]
+fn 节点_id_清洗后不能互相碰撞() {
+    // a/b 与 ab 都被过滤成 ab，两个节点的日志会互相覆盖
+    let (store, _root) = store("collide");
+    let first = store.save("run_1", "a/b", ArtifactKind::Log, "out.log", b"aaa");
+    let second = store.save("run_1", "ab", ArtifactKind::Log, "out.log", b"bbb");
+
+    if let (Ok(a), Ok(b)) = (&first, &second) {
+        assert_ne!(a.path, b.path, "两个不同节点的日志落到了同一个文件");
+        assert_eq!(std::fs::read(&a.path).unwrap(), b"aaa", "先写的被覆盖了");
+    }
+}

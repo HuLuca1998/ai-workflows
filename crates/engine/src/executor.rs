@@ -35,7 +35,7 @@ pub struct NodeExecutor {
 
 impl NodeExecutor {
     pub fn new(workdir: PathBuf) -> Self {
-        let worktree_parent = workdir.join(".aiwf-worktrees");
+        let worktree_parent = workdir.join(crate::worktree::ENGINE_WORKTREE_DIR);
         let artifacts = ArtifactStore::new(workdir.join(".aiwf-artifacts"));
         Self {
             workdir,

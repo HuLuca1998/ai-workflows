@@ -49,6 +49,10 @@ fn resolve_workdir(workdir: Option<&str>, data_dir: &std::path::Path) -> std::pa
     if let Some(rest) = raw.strip_prefix("~/")
         && let Some(home) = std::env::var_os("HOME")
     {
+        // 去掉前导斜杠：`~//tmp/x` 的 rest 是 `/tmp/x`，
+        // 而 PathBuf::join 遇到绝对路径会**丢掉左边整段** ——
+        // 结果落到文件系统根下的 /tmp/x，而不是家目录里
+        let rest = rest.trim_start_matches('/');
         return std::path::PathBuf::from(home).join(rest);
     }
     std::path::PathBuf::from(raw)
