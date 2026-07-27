@@ -1,0 +1,99 @@
+import { useNavigate } from 'react-router';
+import { Button } from '@aiwf/ui';
+import type { ValidationResult } from './editorDeps.js';
+
+export interface EditorToolbarProps {
+  name: string;
+  rev: number;
+  /** 最近一个已发布版本号；没有就是从未发布。 */
+  latestVersion?: number;
+  dirty: boolean;
+  saving: boolean;
+  validation: ValidationResult;
+  nodeCount: number;
+  edgeCount: number;
+  onSave: () => void;
+  onPublish: () => void;
+  onToggleVersions: () => void;
+}
+
+/**
+ * 编辑器工具栏，50px，照图纸「02 画布编辑器」：
+ * 返回 · 名称 · 草稿标签 · 撤销重做 · 校验状态 · 版本 · 发布版本 · 运行。
+ *
+ * 撤销重做按图纸是禁用态（图纸里重做那个图标用的是 neutral-700，
+ * 且快捷键表把 ⌘Z 标为「待实现」），所以这里也保持禁用而不是画个点不动的按钮。
+ */
+export function EditorToolbar({
+  name,
+  rev,
+  latestVersion,
+  dirty,
+  saving,
+  validation,
+  nodeCount,
+  edgeCount,
+  onSave,
+  onPublish,
+  onToggleVersions,
+}: EditorToolbarProps) {
+  const navigate = useNavigate();
+  const errorCount = validation.issues.filter((i) => i.level === 'error').length;
+
+  return (
+    <header className="editor-bar">
+      <button
+        type="button"
+        className="editor-bar__back"
+        onClick={() => navigate('/')}
+        aria-label="返回工作流列表"
+      >
+        <i className="ph ph-arrow-left" aria-hidden="true" />
+      </button>
+
+      <h1 className="editor-bar__name">{name}</h1>
+
+      <span className="editor-bar__rev">
+        {latestVersion ? `草稿 · 基于 v${latestVersion}` : `草稿 · rev${rev}`}
+      </span>
+
+      <span className="editor-bar__sep" aria-hidden="true" />
+
+      {/* 撤销 / 重做：快捷键表里标为待实现，保持禁用而不是给个假按钮 */}
+      <button type="button" className="editor-bar__icon" disabled aria-label="撤销（待实现）">
+        <i className="ph ph-arrow-arc-left" aria-hidden="true" />
+      </button>
+      <button type="button" className="editor-bar__icon" disabled aria-label="重做（待实现）">
+        <i className="ph ph-arrow-arc-right" aria-hidden="true" />
+      </button>
+
+      <span className="editor-bar__grow" />
+
+      <span className="editor-bar__validation" data-ok={errorCount === 0 ? 'true' : 'false'}>
+        <i
+          className={`ph ${errorCount === 0 ? 'ph-check-circle' : 'ph-warning-circle'}`}
+          aria-hidden="true"
+        />
+        {errorCount === 0
+          ? `校验通过 · ${nodeCount} 节点 ${edgeCount} 连接`
+          : `${errorCount} 个问题 · ${nodeCount} 节点 ${edgeCount} 连接`}
+      </span>
+
+      <Button onClick={onToggleVersions}>
+        <i className="ph ph-clock-counter-clockwise" aria-hidden="true" />
+        版本
+      </Button>
+      <Button onClick={onSave} loading={saving} disabled={!dirty}>
+        {dirty ? '保存草稿' : '已保存'}
+      </Button>
+      <Button onClick={onPublish} disabled={saving || errorCount > 0}>
+        发布版本
+      </Button>
+      {/* 运行要等 M2 的引擎，禁用并说明原因，不做点了没反应的按钮 */}
+      <Button variant="primary" disabled title="运行需要执行引擎，M2 阶段接入">
+        <i className="ph ph-play" aria-hidden="true" />
+        运行
+      </Button>
+    </header>
+  );
+}

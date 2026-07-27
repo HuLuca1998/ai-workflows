@@ -110,6 +110,20 @@ describe('MCP 出口的落地顺序', () => {
 });
 
 describe('入参出参形状', () => {
+  it('workflow.patch 可以带上客户端应用 Patch 后的结果图', () => {
+    // 结构化 Patch 的应用逻辑（applyPatch）在这个包里，Rust 侧没有对应实现。
+    // 所以客户端算完 Diff 与新图后，把结果图一并提交，引擎只做 baseRevision
+    // 守卫与落库。详见 docs/adr/0008-patch-carries-resulting-graph.md
+    const parsed = getMethodSpec('workflow.patch').input.safeParse({
+      id: 'wf_1',
+      baseRevision: 18,
+      operations: [{ op: 'renameNode', nodeId: 'n1', title: 'x' }],
+      graphJson: '{"nodes":[],"edges":[],"groups":[]}',
+    });
+    expect(parsed.success).toBe(true);
+    expect((parsed.data as { graphJson?: string }).graphJson).toBeTruthy();
+  });
+
   it('workflow.patch 携带 baseRevision，冲突时返回 REVISION_CONFLICT', () => {
     const spec = getMethodSpec('workflow.patch');
     const parsed = spec.input.safeParse({

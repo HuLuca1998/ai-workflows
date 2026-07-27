@@ -134,6 +134,8 @@ export class DraftStore {
         id: this.workflowId,
         baseRevision: this.currentRev,
         operations,
+        // 结果图一并提交：applyPatch 的实现只在这一侧，引擎不重写一份（ADR-0008）
+        graphJson: JSON.stringify(this.currentGraph),
       })) as { rev: number };
 
       this.currentRev = result.rev;

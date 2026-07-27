@@ -101,6 +101,14 @@ const SPECS = {
       id: z.string().min(1),
       baseRevision: z.number().int().min(0),
       operations: z.array(PatchOperationSchema).min(1),
+      /**
+       * 客户端应用 Patch 后的结果图（JSON）。
+       *
+       * 结构化 Patch 的应用逻辑（applyPatch）在本包里，引擎侧没有对应实现，
+       * 所以由调用方算出 Diff 与新图后一并提交，引擎只做 baseRevision 守卫与落库。
+       * 不传时由实现方决定是否自行应用——见 docs/adr/0008。
+       */
+      graphJson: z.string().min(1).optional(),
     }),
     output: z.object({
       rev: z.number().int(),

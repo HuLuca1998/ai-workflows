@@ -46,7 +46,8 @@ interface WorkspaceState {
     activeWorktrees: number;
   };
   load: () => Promise<void>;
-  createWorkflow: (name: string) => Promise<void>;
+  /** 返回新建的工作流 id，便于直接跳进编辑器。 */
+  createWorkflow: (name: string) => Promise<string | null>;
 }
 
 export const useWorkspace = create<WorkspaceState>((set, get) => ({
@@ -79,7 +80,8 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
   },
 
   createWorkflow: async (name: string) => {
-    await coreClient.call('workflow.create', { name });
+    const result = (await coreClient.call('workflow.create', { name })) as { id: string };
     await get().load();
+    return result.id ?? null;
   },
 }));

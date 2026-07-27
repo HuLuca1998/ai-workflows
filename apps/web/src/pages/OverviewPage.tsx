@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { useNavigate } from 'react-router';
 import { Button, StatusBadge, Tag } from '@aiwf/ui';
 import { useWorkspace } from '../data/workspace.js';
 
@@ -14,6 +15,7 @@ const FILTERS = ['全部', '运行中', '草稿', '失败'] as const;
 type Filter = (typeof FILTERS)[number];
 
 export function OverviewPage() {
+  const navigate = useNavigate();
   const { workflows, loading, error, load, createWorkflow } = useWorkspace();
   const [filter, setFilter] = useState<Filter>('全部');
   const [query, setQuery] = useState('');
@@ -36,7 +38,9 @@ export function OverviewPage() {
   const onCreate = async () => {
     setCreating(true);
     try {
-      await createWorkflow(`未命名工作流 ${workflows.length + 1}`);
+      const id = await createWorkflow(`未命名工作流 ${workflows.length + 1}`);
+      // 建完直接进编辑器：新建的意图就是要去搭流程
+      if (id) navigate(`/editor/${id}`);
     } finally {
       setCreating(false);
     }
@@ -128,7 +132,12 @@ export function OverviewPage() {
             </thead>
             <tbody>
               {visible.map((w) => (
-                <tr key={w.id}>
+                <tr
+                  key={w.id}
+                  onClick={() => navigate(`/editor/${w.id}`)}
+                  data-clickable="true"
+                  title="打开编辑器"
+                >
                   <td>
                     <p className="wf-table__name">{w.name}</p>
                     <p className="wf-table__desc">

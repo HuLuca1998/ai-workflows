@@ -172,3 +172,33 @@ describe('AI 提议先出 Diff', () => {
     expect(notified).toBe(2);
   });
 });
+
+describe('提交内容', () => {
+  it('随操作一并提交结果图——applyPatch 只在客户端有实现（ADR-0008）', async () => {
+    const seen: unknown[] = [];
+    const transport = new MemoryTransport({
+      'workflow.patch': (input) => {
+        seen.push(input);
+        return {
+          rev: 19,
+          diff: { added: [], removed: [], changed: [] },
+          validation: { ok: true, issues: [] },
+        };
+      },
+    });
+    const draft = new DraftStore(new CoreApiClient(transport), 'wf_1', {
+      graph: graph(),
+      rev: 18,
+    });
+
+    draft.apply(addLint);
+    await draft.commit();
+
+    const payload = seen[0] as { graphJson?: string; operations: unknown[] };
+    expect(payload.graphJson).toBeTruthy();
+    // 操作列表也要在：审计与重放靠它，不能只剩一张图
+    expect(payload.operations).toHaveLength(1);
+    const submitted = JSON.parse(payload.graphJson as string) as { nodes: { id: string }[] };
+    expect(submitted.nodes.map((n) => n.id)).toContain('run_lint');
+  });
+});

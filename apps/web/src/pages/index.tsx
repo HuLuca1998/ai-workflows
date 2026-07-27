@@ -1,5 +1,6 @@
 import type { ReactElement, ReactNode } from 'react';
 import { NAV_ITEMS } from '../navigation.js';
+import { EditorPage } from '../editor/EditorPage.js';
 import { OverviewPage } from './OverviewPage.js';
 import { PlaceholderPage } from './PlaceholderPage.js';
 import { SettingsPage } from './SettingsPage.js';
@@ -35,9 +36,16 @@ const REAL_CONTENT: Record<string, ReactNode> = {
 /** 整屏自绘（不套 PlaceholderPage 的标题结构）。 */
 const FULL_SCREENS: Record<string, ReactElement> = {
   '/': <OverviewPage />,
+  '/editor': <EditorPage />,
 };
 
-export const PAGES: readonly PageRoute[] = NAV_ITEMS.map((item) => ({
+/** 需要额外注册带参数的子路由的屏。 */
+const EXTRA_ROUTES: readonly PageRoute[] = [
+  // 编辑器要拿到工作流 id；不带 id 时显示「先选一个工作流」
+  { path: '/editor/:workflowId', element: <EditorPage /> },
+];
+
+const BASE_PAGES: readonly PageRoute[] = NAV_ITEMS.map((item) => ({
   // 除首页外都按前缀匹配，方便后续挂子路由（/runs/:runId 等）
   path: item.path === '/' ? '/' : `${item.path}/*`,
   element: FULL_SCREENS[item.path] ?? (
@@ -50,3 +58,6 @@ export const PAGES: readonly PageRoute[] = NAV_ITEMS.map((item) => ({
     </PlaceholderPage>
   ),
 }));
+
+// 带参数的路由要排在前缀路由之前，否则会被 /editor/* 抢先匹配
+export const PAGES: readonly PageRoute[] = [...EXTRA_ROUTES, ...BASE_PAGES];
