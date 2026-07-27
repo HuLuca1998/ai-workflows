@@ -6,7 +6,7 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
-use aiwf_store::{EXPECTED_SCHEMA_VERSION, NewRunEvent, Store};
+use aiwf_store::{EXPECTED_SCHEMA_VERSION, NewModel, NewRunEvent, Store};
 
 fn store() -> Store {
     Store::open_in_memory().expect("打开内存库")
@@ -501,4 +501,148 @@ fn 运行详情带上工作流名_列表不用再查一次() {
 fn 读不存在的运行返回_none_而不是报错() {
     let store = Store::open_in_memory().unwrap();
     assert!(store.get_run("run_nope").unwrap().is_none());
+}
+
+// ── 模型登记（M3）─────────────────────────────────────────────────────────
+
+fn model(name: &str) -> NewModel {
+    NewModel {
+        name: name.to_string(),
+        runtime: "acp_claude_code".to_string(),
+        model_id: "claude-opus-5".to_string(),
+        effort: "high".to_string(),
+        context_window: 200_000,
+        capabilities: vec!["结构化输出".to_string(), "工具调用".to_string()],
+        credential_ref: Some("keychain://anthropic".to_string()),
+        enabled: true,
+    }
+}
+
+#[test]
+fn 登记模型后能按_id_读回() {
+    let store = Store::open_in_memory().unwrap();
+    let id = store.create_model(&model("Opus 5 · high")).unwrap();
+
+    let found = store.get_model(&id).unwrap().expect("应当能读到");
+    assert_eq!(found.name, "Opus 5 · high");
+    assert_eq!(found.effort, "high");
+    assert_eq!(found.capabilities, vec!["结构化输出", "工具调用"]);
+}
+
+#[test]
+fn 同一模型的不同档位是不同条目() {
+    // 图纸原话：「同一模型的不同档位登记为不同条目，运行记录能区分」
+    let store = Store::open_in_memory().unwrap();
+    let mut low = model("Opus 5 · low");
+    low.effort = "low".to_string();
+
+    store.create_model(&model("Opus 5 · high")).unwrap();
+    store.create_model(&low).unwrap();
+
+    assert_eq!(store.list_models(false).unwrap().len(), 2);
+}
+
+#[test]
+fn 只列已启用时跳过停用条目() {
+    // 「系统内所有模型下拉只列出这里已启用的条目」
+    let store = Store::open_in_memory().unwrap();
+    let mut off = model("停用的");
+    off.enabled = false;
+    store.create_model(&model("启用的")).unwrap();
+    store.create_model(&off).unwrap();
+
+    let enabled = store.list_models(true).unwrap();
+    assert_eq!(enabled.len(), 1);
+    assert_eq!(enabled[0].name, "启用的");
+    assert_eq!(store.list_models(false).unwrap().len(), 2);
+}
+
+#[test]
+fn 凭据只存引用_明文密钥被拒绝() {
+    // 硬约束：仓库、事件、日志、导出里只出现 keychain:// 引用
+    let store = Store::open_in_memory().unwrap();
+    let mut plain = model("明文");
+    plain.credential_ref = Some("sk-ant-api03-abcdefghijklmnop".to_string());
+
+    let error = store.create_model(&plain).unwrap_err().to_string();
+    assert!(error.contains("keychain://"), "错误信息实际：{error}");
+}
+
+#[test]
+fn 更新只改传进来的字段_没传的保持原样() {
+    let store = Store::open_in_memory().unwrap();
+    let id = store.create_model(&model("原名")).unwrap();
+
+    store
+        .update_model(&id, Some("新名"), None, None, None, None, None, None)
+        .unwrap();
+
+    let found = store.get_model(&id).unwrap().unwrap();
+    assert_eq!(found.name, "新名");
+    // 没传的字段不该被清空
+    assert_eq!(found.model_id, "claude-opus-5");
+    assert_eq!(found.capabilities.len(), 2);
+}
+
+#[test]
+fn 停用与启用来回切换() {
+    let store = Store::open_in_memory().unwrap();
+    let id = store.create_model(&model("切换")).unwrap();
+
+    store
+        .update_model(&id, None, None, None, None, None, None, Some(false))
+        .unwrap();
+    assert!(!store.get_model(&id).unwrap().unwrap().enabled);
+
+    store
+        .update_model(&id, None, None, None, None, None, None, Some(true))
+        .unwrap();
+    assert!(store.get_model(&id).unwrap().unwrap().enabled);
+}
+
+#[test]
+fn 删除模型后读不到() {
+    let store = Store::open_in_memory().unwrap();
+    let id = store.create_model(&model("待删")).unwrap();
+    store.delete_model(&id).unwrap();
+    assert!(store.get_model(&id).unwrap().is_none());
+}
+
+#[test]
+fn 记录最近一次连通性测试的延迟() {
+    let store = Store::open_in_memory().unwrap();
+    let id = store.create_model(&model("测延迟")).unwrap();
+
+    store.record_model_latency(&id, 342).unwrap();
+    assert_eq!(
+        store.get_model(&id).unwrap().unwrap().last_latency_ms,
+        Some(342)
+    );
+}
+
+#[test]
+fn 模型按接入方式分组_列表顺序稳定() {
+    // 图纸左栏按 runtime 分组显示，顺序跳来跳去会让人找不到刚建的那条
+    let store = Store::open_in_memory().unwrap();
+    let mut codex = model("Codex 条目");
+    codex.runtime = "acp_codex".to_string();
+    store.create_model(&codex).unwrap();
+    store.create_model(&model("Claude 条目")).unwrap();
+
+    let first = store.list_models(false).unwrap();
+    let second = store.list_models(false).unwrap();
+    assert_eq!(
+        first.iter().map(|m| &m.id).collect::<Vec<_>>(),
+        second.iter().map(|m| &m.id).collect::<Vec<_>>()
+    );
+    // 同一 runtime 的排在一起
+    assert_eq!(first[0].runtime, "acp_claude_code");
+}
+
+#[test]
+fn 上下文窗口必须为正数() {
+    let store = Store::open_in_memory().unwrap();
+    let mut zero = model("零窗口");
+    zero.context_window = 0;
+    assert!(store.create_model(&zero).is_err());
 }

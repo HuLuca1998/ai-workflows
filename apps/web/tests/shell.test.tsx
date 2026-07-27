@@ -128,9 +128,9 @@ describe('路由', () => {
   });
 
   it('每个菜单项都能渲染出一级标题', () => {
-    // 图纸里执行记录是三栏并列，每栏有自己的小标题，页面级不存在大标题；
-    // 硬塞一个会偏离图纸，它的可识别名由三个 region 的 aria-label 承担
-    const SELF_DRAWN_WITHOUT_H1 = new Set(['/runs']);
+    // 这几屏在图纸里是并列分栏，每栏有自己的小标题，页面级不存在大标题；
+    // 硬塞一个会偏离图纸，可识别名由各栏的 aria-label 承担
+    const SELF_DRAWN_WITHOUT_H1 = new Set(['/runs', '/models']);
 
     for (const item of NAV_ITEMS.filter((nav) => !SELF_DRAWN_WITHOUT_H1.has(nav.path))) {
       const { unmount } = renderShell(item.path);

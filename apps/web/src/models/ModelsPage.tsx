@@ -1,0 +1,390 @@
+import { useEffect, useState } from 'react';
+import { coreClient } from '../data/workspace.js';
+
+/**
+ * 模型 —— 严格照图纸「07 模型」：262px 左栏（按接入方式分组）+ 详情。
+ *
+ * 两条产品规则在这一屏兑现：
+ * 1.「系统内所有模型下拉只列出这里已启用的条目」—— 停用是一等操作
+ * 2. 凭据只显示 `keychain://` 引用，界面上**不存在**查看明文的路径。
+ *    留一个「显示明文」按钮，等于把密钥搬到截图与录屏里
+ */
+
+interface Model {
+  id: string;
+  name: string;
+  runtime: string;
+  modelId: string;
+  effort: string;
+  contextWindow: number;
+  capabilities: string[];
+  credentialRef?: string;
+  enabled: boolean;
+  lastLatencyMs?: number;
+}
+
+/** 接入方式的显示名。图纸左栏按这个分组。 */
+const RUNTIME_LABELS: Record<string, string> = {
+  acp_claude_code: 'Claude Code（ACP）',
+  acp_codex: 'Codex（ACP）',
+  openai_compatible: 'OpenAI 兼容端点',
+  local: '本地模型',
+};
+
+const EFFORTS = ['minimal', 'low', 'medium', 'high'] as const;
+
+export function ModelsPage() {
+  const [items, setItems] = useState<Model[] | null>(null);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [creating, setCreating] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const load = async () => {
+    try {
+      const result = (await coreClient.call('model.list', { enabledOnly: false })) as {
+        items: Model[];
+      };
+      setItems(result.items);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  };
+
+  useEffect(() => {
+    void load();
+  }, []);
+
+  const selected = items?.find((model) => model.id === selectedId) ?? null;
+  const grouped = groupByRuntime(items ?? []);
+
+  const onToggle = async () => {
+    if (!selected) return;
+    await coreClient.call('model.update', { id: selected.id, enabled: !selected.enabled });
+    await load();
+  };
+
+  const onDelete = async () => {
+    if (!selected) return;
+    await coreClient.call('model.delete', { id: selected.id });
+    setSelectedId(null);
+    setConfirmDelete(false);
+    await load();
+  };
+
+  return (
+    <div className="models">
+      <aside className="models__list">
+        <div className="models__list-head">
+          <span className="runs__label">已配置模型</span>
+          <span className="runs__grow" />
+          <button
+            type="button"
+            className="models__add"
+            aria-label="登记模型"
+            onClick={() => {
+              setCreating(true);
+              setSelectedId(null);
+            }}
+          >
+            <i className="ph ph-plus" aria-hidden="true" />
+          </button>
+        </div>
+
+        <div className="models__list-body">
+          {items !== null && items.length === 0 ? (
+            <p className="runs__empty">
+              还没有登记模型。ACP 握手不返回模型列表，所以模型要在这里手工登记， 或从本机 CLI
+              配置导入。
+            </p>
+          ) : null}
+
+          {grouped.map(([runtime, models]) => (
+            <div key={runtime}>
+              <p className="models__group">
+                <span>{RUNTIME_LABELS[runtime] ?? runtime}</span>
+                <span className="runs__grow" />
+                <span>{models.length}</span>
+              </p>
+              {models.map((model) => (
+                <button
+                  key={model.id}
+                  type="button"
+                  className="models__item"
+                  data-selected={model.id === selectedId ? 'true' : undefined}
+                  onClick={() => {
+                    setSelectedId(model.id);
+                    setCreating(false);
+                    setConfirmDelete(false);
+                  }}
+                >
+                  <span className="models__item-main">
+                    <span className="models__item-name">{model.name}</span>
+                    <span className="models__item-meta">
+                      {model.modelId} · {model.effort}
+                    </span>
+                  </span>
+                  <span className="models__item-state" data-enabled={model.enabled}>
+                    {model.enabled ? '已启用' : '已停用'}
+                  </span>
+                </button>
+              ))}
+            </div>
+          ))}
+        </div>
+
+        <p className="models__foot">
+          系统内所有模型下拉只列出这里已启用的条目，AI 无法引用未登记的模型。
+        </p>
+      </aside>
+
+      <section className="models__detail" aria-label="模型详情">
+        {error ? (
+          <p className="runs__error" role="alert">
+            {error}
+          </p>
+        ) : null}
+
+        {creating ? (
+          <ModelForm
+            onCancel={() => setCreating(false)}
+            onSaved={async () => {
+              setCreating(false);
+              await load();
+            }}
+          />
+        ) : selected ? (
+          <>
+            <header className="models__detail-head">
+              <div>
+                <div className="models__detail-title">
+                  <h4>{selected.name}</h4>
+                  <span className="models__badge" data-enabled={selected.enabled}>
+                    {selected.enabled ? '已启用' : '已停用'}
+                  </span>
+                </div>
+                <p className="models__detail-sub">
+                  {RUNTIME_LABELS[selected.runtime] ?? selected.runtime}
+                </p>
+              </div>
+              <span className="runs__grow" />
+              <button type="button" className="runs__action" onClick={() => void onToggle()}>
+                {selected.enabled ? '停用' : '启用'}
+              </button>
+              {confirmDelete ? (
+                <button type="button" className="runs__action" onClick={() => void onDelete()}>
+                  确认删除
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  className="runs__action"
+                  onClick={() => setConfirmDelete(true)}
+                >
+                  删除
+                </button>
+              )}
+            </header>
+
+            {confirmDelete ? (
+              <p className="models__warn" role="status">
+                删除后引用这个模型的 Agent 与节点会失效。确认要删除吗？
+              </p>
+            ) : null}
+
+            <div className="models__grid">
+              <Field
+                label="接入方式"
+                value={RUNTIME_LABELS[selected.runtime] ?? selected.runtime}
+              />
+              <Field label="模型 ID" value={selected.modelId} mono />
+              <div>
+                <p className="models__label">推理档位</p>
+                <div className="launch__seg" role="group" aria-label="推理档位">
+                  {EFFORTS.map((effort) => (
+                    <button key={effort} type="button" data-active={selected.effort === effort}>
+                      {effort}
+                    </button>
+                  ))}
+                </div>
+                <p className="models__note">同一模型的不同档位登记为不同条目，运行记录能区分</p>
+              </div>
+              <Field label="上下文窗口" value={selected.contextWindow.toLocaleString('en-US')} />
+            </div>
+
+            <div className="models__cards">
+              <div className="models__card">
+                <p className="models__card-title">凭据与端点</p>
+                <dl className="models__kv">
+                  <dt>凭据</dt>
+                  <dd className="models__mono">{selected.credentialRef ?? '未设置'}</dd>
+                  <dt>延迟</dt>
+                  <dd>
+                    {selected.lastLatencyMs === undefined
+                      ? '尚未测试'
+                      : `${selected.lastLatencyMs} ms（最近一次测试）`}
+                  </dd>
+                </dl>
+              </div>
+
+              <div className="models__card">
+                <p className="models__card-title">能力标签</p>
+                <ul className="models__caps" aria-label="能力标签">
+                  {selected.capabilities.map((cap) => (
+                    <li key={cap}>{cap}</li>
+                  ))}
+                </ul>
+                <p className="models__note">
+                  不具备「结构化输出」的模型不会出现在要求 JSON Schema 的节点下拉里。
+                </p>
+              </div>
+            </div>
+
+            <div className="models__acp">
+              <p className="models__acp-title">
+                <i className="ph ph-plugs-connected" aria-hidden="true" />
+                ACP 不提供模型列表
+              </p>
+              <p className="models__acp-body">
+                ACP 握手只返回协议能力与 session modes（权限档位），不返回可用模型。 因此 ACP
+                模型需要在这里登记；从 CLI 配置导入与连通性测试要等适配器接上（M3）。
+              </p>
+            </div>
+          </>
+        ) : (
+          <p className="runs__empty runs__empty--center">选一个模型查看详情，或登记一个新的。</p>
+        )}
+      </section>
+    </div>
+  );
+}
+
+function Field({ label, value, mono }: { label: string; value: string; mono?: boolean }) {
+  return (
+    <div>
+      <p className="models__label">{label}</p>
+      <p className={mono ? 'models__value models__mono' : 'models__value'}>{value}</p>
+    </div>
+  );
+}
+
+function ModelForm({ onCancel, onSaved }: { onCancel: () => void; onSaved: () => void }) {
+  const [name, setName] = useState('');
+  const [runtime, setRuntime] = useState('acp_claude_code');
+  const [modelId, setModelId] = useState('');
+  const [effort, setEffort] = useState('medium');
+  const [contextWindow, setContextWindow] = useState('');
+  const [credentialRef, setCredentialRef] = useState('');
+  const [error, setError] = useState<string | null>(null);
+
+  const onSave = async () => {
+    // 明文密钥在界面这一层就拦住：让它走到 IPC 再报错，
+    // 那一路上它已经出现在日志与错误上报里了
+    if (credentialRef && !credentialRef.startsWith('keychain://')) {
+      setError('凭据必须是 keychain:// 引用。请先把密钥存进钥匙串，再在这里引用它。');
+      return;
+    }
+    if (!name.trim() || !modelId.trim() || !contextWindow.trim()) {
+      setError('名称、模型 ID 与上下文窗口是必填项。');
+      return;
+    }
+
+    setError(null);
+    try {
+      await coreClient.call('model.create', {
+        name,
+        runtime,
+        modelId,
+        effort,
+        contextWindow: Number(contextWindow),
+        capabilities: [],
+        ...(credentialRef ? { credentialRef } : {}),
+        enabled: true,
+      });
+      onSaved();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  };
+
+  return (
+    <div className="models__form">
+      <h4>登记模型</h4>
+      <label className="models__field">
+        <span className="models__label">名称</span>
+        <input type="text" value={name} onChange={(e) => setName(e.target.value)} />
+      </label>
+      <label className="models__field">
+        <span className="models__label">接入方式</span>
+        <select value={runtime} onChange={(e) => setRuntime(e.target.value)}>
+          {Object.entries(RUNTIME_LABELS).map(([key, label]) => (
+            <option key={key} value={key}>
+              {label}
+            </option>
+          ))}
+        </select>
+      </label>
+      <label className="models__field">
+        <span className="models__label">模型 ID</span>
+        <input type="text" value={modelId} onChange={(e) => setModelId(e.target.value)} />
+      </label>
+      <label className="models__field">
+        <span className="models__label">推理档位</span>
+        <select value={effort} onChange={(e) => setEffort(e.target.value)}>
+          {EFFORTS.map((option) => (
+            <option key={option} value={option}>
+              {option}
+            </option>
+          ))}
+        </select>
+      </label>
+      <label className="models__field">
+        <span className="models__label">上下文窗口</span>
+        <input
+          type="text"
+          value={contextWindow}
+          onChange={(e) => setContextWindow(e.target.value)}
+        />
+      </label>
+      <label className="models__field">
+        <span className="models__label">凭据</span>
+        <input
+          type="text"
+          placeholder="keychain://…"
+          value={credentialRef}
+          onChange={(e) => setCredentialRef(e.target.value)}
+        />
+      </label>
+
+      {error ? (
+        <p className="runs__error" role="alert">
+          {error}
+        </p>
+      ) : null}
+
+      <div className="models__form-actions">
+        <button type="button" className="runs__action" onClick={onCancel}>
+          取消
+        </button>
+        <button
+          type="button"
+          className="runs__action runs__action--primary"
+          onClick={() => void onSave()}
+        >
+          保存
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/** 按接入方式分组，组内保持后端给的顺序（已按 runtime + name 排过）。 */
+function groupByRuntime(models: readonly Model[]): [string, Model[]][] {
+  const groups = new Map<string, Model[]>();
+  for (const model of models) {
+    const bucket = groups.get(model.runtime) ?? [];
+    bucket.push(model);
+    groups.set(model.runtime, bucket);
+  }
+  return [...groups.entries()];
+}

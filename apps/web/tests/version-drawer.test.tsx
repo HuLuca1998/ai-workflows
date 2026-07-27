@@ -106,11 +106,16 @@ describe('结构（照图纸）', () => {
 describe('版本对比', () => {
   it('默认选中最新版本并显示它与草稿的 Diff', async () => {
     renderDrawer();
-    await waitFor(() => expect(screen.getByText('v2 → 当前草稿')).toBeInTheDocument());
+    expect(await screen.findByText('v2 → 当前草稿')).toBeInTheDocument();
+
+    // 标题在选中版本时就渲染，而 Diff 要等 loadVersionGraph 回来 ——
+    // 只等标题会在机器负载高时随机失败（真踩过）
     const diff = screen.getByLabelText('版本对比');
     // 草稿里多了 lint 节点与一条连线
-    expect(within(diff).getByText(/\+ node script\.shell「运行 lint」/u)).toBeInTheDocument();
-    expect(within(diff).getByText(/\+ edge entry\.success → lint/u)).toBeInTheDocument();
+    expect(
+      await within(diff).findByText(/\+ node script\.shell「运行 lint」/u),
+    ).toBeInTheDocument();
+    expect(await within(diff).findByText(/\+ edge entry\.success → lint/u)).toBeInTheDocument();
   });
 
   it('切换版本会重新读图', async () => {

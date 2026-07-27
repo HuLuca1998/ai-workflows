@@ -117,6 +117,52 @@ pub struct RunEventRow {
     pub sensitivity: String,
 }
 
+/// 登记一个模型。
+///
+/// 「ACP 握手只返回协议能力与 session modes，不返回可用模型」——
+/// 所以模型必须在这里手工登记或从 CLI 配置导入。
+pub struct NewModel {
+    pub name: String,
+    pub runtime: String,
+    pub model_id: String,
+    pub effort: String,
+    pub context_window: i64,
+    pub capabilities: Vec<String>,
+    /// 只接受 `keychain://` 引用。明文密钥在这一层就被拒绝。
+    pub credential_ref: Option<String>,
+    pub enabled: bool,
+}
+
+#[derive(Debug, Clone)]
+pub struct ModelRow {
+    pub id: String,
+    pub name: String,
+    pub runtime: String,
+    pub model_id: String,
+    pub effort: String,
+    pub context_window: i64,
+    pub capabilities: Vec<String>,
+    pub credential_ref: Option<String>,
+    pub enabled: bool,
+    pub last_latency_ms: Option<i64>,
+}
+
+fn map_model_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<ModelRow> {
+    let caps: String = row.get(6)?;
+    Ok(ModelRow {
+        id: row.get(0)?,
+        name: row.get(1)?,
+        runtime: row.get(2)?,
+        model_id: row.get(3)?,
+        effort: row.get(4)?,
+        context_window: row.get(5)?,
+        capabilities: serde_json::from_str(&caps).unwrap_or_default(),
+        credential_ref: row.get(7)?,
+        enabled: row.get::<_, i64>(8)? != 0,
+        last_latency_ms: row.get(9)?,
+    })
+}
+
 /// 一次运行，带上工作流名。
 #[derive(Debug, Clone)]
 pub struct RunRow {
@@ -570,6 +616,131 @@ impl Store {
             .map_err(StoreError::from)
     }
 
+    // ── 模型登记 ─────────────────────────────────────────────────────────
+
+    pub fn create_model(&self, model: &NewModel) -> Result<String> {
+        validate_credential_ref(model.credential_ref.as_deref())?;
+        if model.context_window <= 0 {
+            return Err(StoreError::Invalid("上下文窗口必须是正数".to_string()));
+        }
+
+        let id = new_id("model");
+        let caps = serde_json::to_string(&model.capabilities)
+            .map_err(|e| StoreError::Invalid(e.to_string()))?;
+        self.conn.execute(
+            "INSERT INTO model(id, name, runtime, model_id, effort, ctx, caps_json, cred_ref, enabled)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+            params![
+                id,
+                model.name,
+                model.runtime,
+                model.model_id,
+                model.effort,
+                model.context_window,
+                caps,
+                model.credential_ref,
+                i64::from(model.enabled),
+            ],
+        )?;
+        Ok(id)
+    }
+
+    pub fn get_model(&self, id: &str) -> Result<Option<ModelRow>> {
+        let row = self
+            .conn
+            .query_row(
+                "SELECT id, name, runtime, model_id, effort, ctx, caps_json, cred_ref, enabled, last_latency_ms
+                 FROM model WHERE id = ?1",
+                params![id],
+                map_model_row,
+            )
+            .optional()?;
+        Ok(row)
+    }
+
+    /// 列出模型。`enabled_only` 对应「所有模型下拉只列出已启用的条目」。
+    ///
+    /// 按 runtime 再按名字排序：图纸左栏按接入方式分组，
+    /// 顺序跳来跳去会让人找不到刚建的那条。
+    pub fn list_models(&self, enabled_only: bool) -> Result<Vec<ModelRow>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, name, runtime, model_id, effort, ctx, caps_json, cred_ref, enabled, last_latency_ms
+             FROM model
+             WHERE (?1 = 0 OR enabled = 1)
+             ORDER BY runtime ASC, name ASC",
+        )?;
+        let rows = stmt.query_map(params![i64::from(enabled_only)], map_model_row)?;
+        rows.collect::<std::result::Result<Vec<_>, _>>()
+            .map_err(StoreError::from)
+    }
+
+    /// 部分更新。没传的字段保持原样 —— 传 None 当成「清空」会让
+    /// 界面上改个名字就把凭据引用弄丢。
+    #[allow(clippy::too_many_arguments)]
+    pub fn update_model(
+        &self,
+        id: &str,
+        name: Option<&str>,
+        runtime: Option<&str>,
+        model_id: Option<&str>,
+        effort: Option<&str>,
+        context_window: Option<i64>,
+        capabilities: Option<&[String]>,
+        enabled: Option<bool>,
+    ) -> Result<()> {
+        let caps = capabilities
+            .map(serde_json::to_string)
+            .transpose()
+            .map_err(|e| StoreError::Invalid(e.to_string()))?;
+
+        self.conn.execute(
+            "UPDATE model SET
+                name     = COALESCE(?2, name),
+                runtime  = COALESCE(?3, runtime),
+                model_id = COALESCE(?4, model_id),
+                effort   = COALESCE(?5, effort),
+                ctx      = COALESCE(?6, ctx),
+                caps_json = COALESCE(?7, caps_json),
+                enabled  = COALESCE(?8, enabled)
+             WHERE id = ?1",
+            params![
+                id,
+                name,
+                runtime,
+                model_id,
+                effort,
+                context_window,
+                caps,
+                enabled.map(i64::from),
+            ],
+        )?;
+        Ok(())
+    }
+
+    /// 单独更新凭据引用。与其他字段分开，是为了让「改凭据」在审计里独立可见。
+    pub fn set_model_credential(&self, id: &str, credential_ref: Option<&str>) -> Result<()> {
+        validate_credential_ref(credential_ref)?;
+        self.conn.execute(
+            "UPDATE model SET cred_ref = ?2 WHERE id = ?1",
+            params![id, credential_ref],
+        )?;
+        Ok(())
+    }
+
+    pub fn record_model_latency(&self, id: &str, latency_ms: i64) -> Result<()> {
+        self.conn.execute(
+            "UPDATE model SET last_latency_ms = ?2 WHERE id = ?1",
+            params![id, latency_ms],
+        )?;
+        Ok(())
+    }
+
+    pub fn delete_model(&self, id: &str) -> Result<()> {
+        self.conn
+            .execute("DELETE FROM model WHERE id = ?1", params![id])?;
+        Ok(())
+    }
+
     /// Run 的启动参数 JSON。
     pub fn run_inputs(&self, run_id: &str) -> Result<Option<String>> {
         let inputs = self
@@ -934,6 +1105,29 @@ fn segment_cjk(text: &str) -> String {
         }
     }
     out
+}
+
+/// 凭据只能是引用。
+///
+/// 明文密钥一旦落库，就会跟着数据库备份、导出包、诊断包到处走 ——
+/// 而这些地方都不该有密钥。在写入这一层拒绝，比在界面上提醒可靠。
+fn validate_credential_ref(reference: Option<&str>) -> Result<()> {
+    let Some(reference) = reference else {
+        return Ok(());
+    };
+    if reference.is_empty() || reference.starts_with("keychain://") {
+        return Ok(());
+    }
+    Err(StoreError::Invalid(format!(
+        "凭据必须是 keychain:// 引用，收到的是 {}。密钥请存进钥匙串后引用它",
+        mask(reference)
+    )))
+}
+
+/// 报错时也不能把收到的密钥原样打出来 —— 错误信息会进日志。
+fn mask(secret: &str) -> String {
+    let head: String = secret.chars().take(4).collect();
+    format!("{head}…（已遮蔽，共 {} 字符）", secret.chars().count())
 }
 
 #[cfg(test)]

@@ -132,6 +132,113 @@ pub struct RunEventsPage {
 
 /// 启动运行。preflight 与建 Run 同步做完（调用方立刻拿到 runId
 /// 或立刻知道图有问题），执行本身在后台线程。
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ModelDto {
+    id: String,
+    name: String,
+    runtime: String,
+    model_id: String,
+    effort: String,
+    context_window: i64,
+    capabilities: Vec<String>,
+    credential_ref: Option<String>,
+    enabled: bool,
+    last_latency_ms: Option<i64>,
+}
+
+impl From<aiwf_store::ModelRow> for ModelDto {
+    fn from(row: aiwf_store::ModelRow) -> Self {
+        Self {
+            id: row.id,
+            name: row.name,
+            runtime: row.runtime,
+            model_id: row.model_id,
+            effort: row.effort,
+            context_window: row.context_window,
+            capabilities: row.capabilities,
+            credential_ref: row.credential_ref,
+            enabled: row.enabled,
+            last_latency_ms: row.last_latency_ms,
+        }
+    }
+}
+
+#[tauri::command]
+fn model_list(state: State<'_, AppState>, enabled_only: bool) -> IpcResult<Vec<ModelDto>> {
+    let store = lock(&state)?;
+    Ok(store
+        .list_models(enabled_only)?
+        .into_iter()
+        .map(ModelDto::from)
+        .collect())
+}
+
+#[allow(clippy::too_many_arguments)]
+#[tauri::command]
+fn model_create(
+    state: State<'_, AppState>,
+    name: String,
+    runtime: String,
+    model_id: String,
+    effort: String,
+    context_window: i64,
+    capabilities: Vec<String>,
+    credential_ref: Option<String>,
+    enabled: bool,
+) -> IpcResult<String> {
+    let store = lock(&state)?;
+    Ok(store.create_model(&aiwf_store::NewModel {
+        name,
+        runtime,
+        model_id,
+        effort,
+        context_window,
+        capabilities,
+        credential_ref,
+        enabled,
+    })?)
+}
+
+#[allow(clippy::too_many_arguments)]
+#[tauri::command]
+fn model_update(
+    state: State<'_, AppState>,
+    id: String,
+    name: Option<String>,
+    runtime: Option<String>,
+    model_id: Option<String>,
+    effort: Option<String>,
+    context_window: Option<i64>,
+    capabilities: Option<Vec<String>>,
+    credential_ref: Option<String>,
+    enabled: Option<bool>,
+) -> IpcResult<()> {
+    let store = lock(&state)?;
+    store.update_model(
+        &id,
+        name.as_deref(),
+        runtime.as_deref(),
+        model_id.as_deref(),
+        effort.as_deref(),
+        context_window,
+        capabilities.as_deref(),
+        enabled,
+    )?;
+    // 凭据单独走一条，改凭据在审计里独立可见
+    if let Some(reference) = credential_ref {
+        store.set_model_credential(&id, Some(&reference))?;
+    }
+    Ok(())
+}
+
+#[tauri::command]
+fn model_delete(state: State<'_, AppState>, id: String) -> IpcResult<()> {
+    let store = lock(&state)?;
+    store.delete_model(&id)?;
+    Ok(())
+}
+
 #[tauri::command]
 fn run_start(
     state: State<'_, AppState>,
@@ -637,7 +744,11 @@ pub fn run() {
             run_artifacts,
             run_cancel,
             run_resume,
-            approval_decide
+            approval_decide,
+            model_list,
+            model_create,
+            model_update,
+            model_delete
         ])
         .build(tauri::generate_context!())
         .expect("启动桌面壳失败")

@@ -35,6 +35,10 @@ const COMMANDS: Partial<Record<CoreApiMethod, string>> = {
   'run.cancel': 'run_cancel',
   'run.resume': 'run_resume',
   'approval.decide': 'approval_decide',
+  'model.list': 'model_list',
+  'model.create': 'model_create',
+  'model.update': 'model_update',
+  'model.delete': 'model_delete',
 };
 
 export function ipcCommandFor(method: CoreApiMethod): string | null {
@@ -87,6 +91,10 @@ export function toIpcInput(method: CoreApiMethod, input: unknown): Record<string
       statuses: Array.isArray(record.status) ? record.status : [],
       ...(record.query ? { query: record.query } : {}),
     };
+  }
+
+  if (method === 'model.list') {
+    return { enabledOnly: record.enabledOnly ?? false };
   }
 
   if (method === 'run.events') {
@@ -265,6 +273,16 @@ export function fromIpcResult(method: CoreApiMethod, raw: unknown): unknown {
 
     case 'run.cancel':
     case 'run.resume':
+      return { ok: true };
+
+    case 'model.list':
+      return { items: raw ?? [] };
+
+    case 'model.create':
+      return { id: raw as string };
+
+    case 'model.update':
+    case 'model.delete':
       return { ok: true };
 
     case 'approval.decide':
