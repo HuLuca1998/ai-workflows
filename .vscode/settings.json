@@ -1,0 +1,20 @@
+{
+  "editor.formatOnSave": true,
+  "editor.defaultFormatter": "esbenp.prettier-vscode",
+  "[rust]": {
+    "editor.defaultFormatter": "rust-lang.rust-analyzer"
+  },
+  "rust-analyzer.linkedProjects": ["Cargo.toml"],
+  "rust-analyzer.check.command": "clippy",
+  "files.watcherExclude": {
+    "**/target/**": true,
+    "**/dist/**": true,
+    "**/node_modules/**": true
+  },
+  "search.exclude": {
+    "**/target": true,
+    "**/dist": true,
+    "packages/contracts/generated": true
+  },
+  "typescript.tsdk": "node_modules/typescript/lib"
+}

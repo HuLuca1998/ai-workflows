@@ -1,0 +1,11 @@
+{
+  "recommendations": [
+    "rust-lang.rust-analyzer",
+    "tauri-apps.tauri-vscode",
+    "oxc.oxc-vscode",
+    "esbenp.prettier-vscode",
+    "zenclabs.previewjs",
+    "vitest.explorer",
+    "bradlc.vscode-tailwindcss"
+  ]
+}
