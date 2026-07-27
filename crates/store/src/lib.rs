@@ -117,6 +117,38 @@ pub struct RunEventRow {
     pub sensitivity: String,
 }
 
+/// 一次运行，带上工作流名。
+#[derive(Debug, Clone)]
+pub struct RunRow {
+    pub id: String,
+    pub workflow_id: String,
+    pub workflow_name: String,
+    pub version_id: Option<String>,
+    pub draft_rev: Option<i64>,
+    pub status: String,
+    pub inputs_json: String,
+    pub current_node: Option<String>,
+    pub workdir: Option<String>,
+    pub started_at: Option<String>,
+    pub ended_at: Option<String>,
+}
+
+fn map_run_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<RunRow> {
+    Ok(RunRow {
+        id: row.get(0)?,
+        workflow_id: row.get(1)?,
+        workflow_name: row.get(2)?,
+        version_id: row.get(3)?,
+        draft_rev: row.get(4)?,
+        status: row.get(5)?,
+        inputs_json: row.get(6)?,
+        current_node: row.get(7)?,
+        workdir: row.get(8)?,
+        started_at: row.get(9)?,
+        ended_at: row.get(10)?,
+    })
+}
+
 #[derive(Debug, Clone)]
 pub struct CheckpointRow {
     pub run_id: String,
@@ -479,6 +511,63 @@ impl Store {
             params![run_id, status, current_node, ended],
         )?;
         Ok(())
+    }
+
+    /// 运行详情，带上工作流名 —— 列表与详情都要显示它，
+    /// 让调用方再查一次 workflow 表既慢又容易忘。
+    pub fn get_run(&self, run_id: &str) -> Result<Option<RunRow>> {
+        let row = self
+            .conn
+            .query_row(
+                "SELECT r.id, r.workflow_id, w.name, r.version_id, r.draft_rev, r.status,
+                        r.inputs_json, r.current_node, r.workdir, r.started_at, r.ended_at
+                 FROM run r JOIN workflow w ON w.id = r.workflow_id
+                 WHERE r.id = ?1",
+                params![run_id],
+                map_run_row,
+            )
+            .optional()?;
+        Ok(row)
+    }
+
+    /// 列出运行。最新的在最前 —— 执行记录页第一眼要看到刚跑的那个。
+    ///
+    /// 三个筛选条件是「与」的关系，对应图纸左栏的搜索框 + 筛选 chips。
+    pub fn list_runs(
+        &self,
+        workflow_id: Option<&str>,
+        statuses: &[String],
+        query: Option<&str>,
+    ) -> Result<Vec<RunRow>> {
+        // 状态是可变长度的 IN 列表，只能拼进 SQL；值本身来自枚举，
+        // 但仍然只拼占位符，绝不把内容拼进语句
+        let status_clause = if statuses.is_empty() {
+            String::new()
+        } else {
+            let holes = vec!["?"; statuses.len()].join(",");
+            format!(" AND r.status IN ({holes})")
+        };
+
+        let sql = format!(
+            "SELECT r.id, r.workflow_id, w.name, r.version_id, r.draft_rev, r.status,
+                    r.inputs_json, r.current_node, r.workdir, r.started_at, r.ended_at
+             FROM run r JOIN workflow w ON w.id = r.workflow_id
+             WHERE (?1 IS NULL OR r.workflow_id = ?1)
+               AND (?2 IS NULL OR r.id LIKE ?2 OR w.name LIKE ?2 OR r.inputs_json LIKE ?2)
+               {status_clause}
+             ORDER BY r.started_at DESC, r.rowid DESC"
+        );
+
+        let like = query.map(|q| format!("%{q}%"));
+        let mut params: Vec<&dyn rusqlite::ToSql> = vec![&workflow_id, &like];
+        for status in statuses {
+            params.push(status);
+        }
+
+        let mut stmt = self.conn.prepare(&sql)?;
+        let rows = stmt.query_map(params.as_slice(), map_run_row)?;
+        rows.collect::<std::result::Result<Vec<_>, _>>()
+            .map_err(StoreError::from)
     }
 
     /// Run 的启动参数 JSON。

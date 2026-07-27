@@ -26,6 +26,13 @@ const COMMANDS: Partial<Record<CoreApiMethod, string>> = {
   'workflow.rollback': 'workflow_rollback',
   'workflow.publish': 'workflow_publish',
   'workflow.delete': 'workflow_delete',
+  'run.start': 'run_start',
+  'run.list': 'run_list',
+  'run.get': 'run_get',
+  'run.events': 'run_events',
+  'run.cancel': 'run_cancel',
+  'run.resume': 'run_resume',
+  'approval.decide': 'approval_decide',
 };
 
 export function ipcCommandFor(method: CoreApiMethod): string | null {
@@ -59,7 +66,80 @@ export function toIpcInput(method: CoreApiMethod, input: unknown): Record<string
     return { id: record.id, baseRev: record.baseRevision, graphJson };
   }
 
+  if (method === 'run.start') {
+    // Rust 侧收 JSON 字符串：让 serde 去解一个任意 Value
+    // 会把「输入是什么形状」这件事从契约里糊掉
+    return {
+      workflowId: record.workflowId,
+      ...(record.versionId ? { versionId: record.versionId } : {}),
+      ...(record.draftRev === undefined ? {} : { draftRev: record.draftRev }),
+      inputsJson: JSON.stringify(record.inputs ?? {}),
+      workdir: record.workdir,
+    };
+  }
+
+  if (method === 'run.list') {
+    // Rust 侧参数是 Vec<String>，undefined 会让 invoke 直接报参数错误
+    return {
+      ...(record.workflowId ? { workflowId: record.workflowId } : {}),
+      statuses: Array.isArray(record.status) ? record.status : [],
+      ...(record.query ? { query: record.query } : {}),
+    };
+  }
+
+  if (method === 'run.events') {
+    return {
+      runId: record.runId,
+      fromSeq: record.fromSeq ?? 0,
+      limit: record.limit ?? 200,
+    };
+  }
+
+  if (method === 'approval.decide') {
+    // selected 与 supplement 属于审批的完整语义，等 M2 后半段的
+    // 审批面板接上时再传；现在发过去 Rust 侧只会报参数不认识
+    return { runId: record.runId, nodeId: record.nodeId, decision: record.decision };
+  }
+
   return record;
+}
+
+interface RunRowDto {
+  id: string;
+  workflowId: string;
+  workflowName: string;
+  status: string;
+  inputsJson: string;
+  currentNode?: string | null;
+  workdir?: string | null;
+  startedAt?: string | null;
+  endedAt?: string | null;
+}
+
+function toRun(row: RunRowDto): Record<string, unknown> {
+  return {
+    id: row.id,
+    workflowId: row.workflowId,
+    workflowName: row.workflowName,
+    status: row.status,
+    inputs: parseInputs(row.inputsJson),
+    envSnapshot: {},
+    ...(row.currentNode ? { currentNode: row.currentNode } : {}),
+    ...(row.workdir ? { workdir: row.workdir } : {}),
+    ...(row.startedAt ? { startedAt: row.startedAt } : {}),
+    ...(row.endedAt ? { endedAt: row.endedAt } : {}),
+  };
+}
+
+/** 一条坏记录不该让整个执行记录页打不开。 */
+function parseInputs(raw: string | undefined): Record<string, unknown> {
+  if (!raw) return {};
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    return parsed && typeof parsed === 'object' ? (parsed as Record<string, unknown>) : {};
+  } catch {
+    return {};
+  }
 }
 
 interface WorkflowRowDto {
@@ -165,6 +245,25 @@ export function fromIpcResult(method: CoreApiMethod, raw: unknown): unknown {
       return { rev: raw as number };
 
     case 'workflow.delete':
+      return { ok: true };
+
+    case 'run.start':
+      return { runId: raw as string };
+
+    case 'run.list':
+      return { items: ((raw ?? []) as RunRowDto[]).map(toRun) };
+
+    case 'run.get':
+      return { run: raw ? toRun(raw as RunRowDto) : null };
+
+    case 'run.events':
+      return raw;
+
+    case 'run.cancel':
+    case 'run.resume':
+      return { ok: true };
+
+    case 'approval.decide':
       return { ok: true };
 
     default:

@@ -8,6 +8,8 @@ use std::path::PathBuf;
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, Ordering};
 
+use aiwf_engine::runner::RunRequest;
+use aiwf_engine::supervisor::Supervisor;
 use aiwf_store::Store;
 use serde::Serialize;
 use tauri::image::Image;
@@ -47,8 +49,195 @@ impl From<aiwf_store::StoreError> for IpcError {
 type IpcResult<T> = Result<T, IpcError>;
 
 /// 写入串行化到单个 writer：SQLite 连接不是 Sync，用锁把它固定在一处。
+///
+/// 后台执行走的是另一条路：Supervisor 给每个运行开自己的连接（WAL 允许），
+/// 否则一个跑十分钟的脚本会把界面的所有查询卡住。
 pub struct AppState {
     store: Mutex<Store>,
+    supervisor: Supervisor,
+}
+
+impl From<aiwf_engine::supervisor::SupervisorError> for IpcError {
+    fn from(error: aiwf_engine::supervisor::SupervisorError) -> Self {
+        use aiwf_engine::supervisor::SupervisorError as E;
+        let (code, retriable) = match &error {
+            E::Store(inner) => match inner {
+                aiwf_store::StoreError::RevisionConflict { .. } => ("REVISION_CONFLICT", true),
+                aiwf_store::StoreError::Sqlite(_) => ("INTERNAL", false),
+                _ => ("VALIDATION", false),
+            },
+            // preflight 不过属于用户能修的问题
+            E::Run(_) => ("VALIDATION", false),
+            E::Poisoned => ("INTERNAL", false),
+        };
+        Self {
+            code: code.to_string(),
+            message: error.to_string(),
+            retriable,
+        }
+    }
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RunSummary {
+    id: String,
+    workflow_id: String,
+    workflow_name: String,
+    status: String,
+    inputs_json: String,
+    current_node: Option<String>,
+    workdir: Option<String>,
+    started_at: Option<String>,
+    ended_at: Option<String>,
+}
+
+impl From<aiwf_store::RunRow> for RunSummary {
+    fn from(row: aiwf_store::RunRow) -> Self {
+        Self {
+            id: row.id,
+            workflow_id: row.workflow_id,
+            workflow_name: row.workflow_name,
+            status: row.status,
+            inputs_json: row.inputs_json,
+            current_node: row.current_node,
+            workdir: row.workdir,
+            started_at: row.started_at,
+            ended_at: row.ended_at,
+        }
+    }
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RunEventDto {
+    id: String,
+    seq: i64,
+    ts: String,
+    kind: String,
+    node_id: Option<String>,
+    attempt: Option<i64>,
+    actor: String,
+    summary: String,
+    sensitivity: String,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RunEventsPage {
+    events: Vec<RunEventDto>,
+    next_seq: i64,
+    has_more: bool,
+}
+
+/// 启动运行。preflight 与建 Run 同步做完（调用方立刻拿到 runId
+/// 或立刻知道图有问题），执行本身在后台线程。
+#[tauri::command]
+fn run_start(
+    state: State<'_, AppState>,
+    workflow_id: String,
+    version_id: Option<String>,
+    draft_rev: Option<i64>,
+    inputs_json: String,
+    workdir: String,
+) -> IpcResult<String> {
+    let store = lock(&state)?;
+    let run_id = state.supervisor.start(
+        &store,
+        RunRequest {
+            workflow_id,
+            version_id,
+            draft_rev,
+            inputs_json,
+            workdir,
+        },
+    )?;
+    Ok(run_id)
+}
+
+#[tauri::command]
+fn run_list(
+    state: State<'_, AppState>,
+    workflow_id: Option<String>,
+    statuses: Vec<String>,
+    query: Option<String>,
+) -> IpcResult<Vec<RunSummary>> {
+    let store = lock(&state)?;
+    Ok(store
+        .list_runs(workflow_id.as_deref(), &statuses, query.as_deref())?
+        .into_iter()
+        .map(RunSummary::from)
+        .collect())
+}
+
+#[tauri::command]
+fn run_get(state: State<'_, AppState>, run_id: String) -> IpcResult<Option<RunSummary>> {
+    let store = lock(&state)?;
+    Ok(store.get_run(&run_id)?.map(RunSummary::from))
+}
+
+/// 游标分页拉事件。界面靠 nextSeq 增量拉，不重复读已有的部分。
+#[tauri::command]
+fn run_events(
+    state: State<'_, AppState>,
+    run_id: String,
+    from_seq: i64,
+    limit: i64,
+) -> IpcResult<RunEventsPage> {
+    let store = lock(&state)?;
+    // 多取一条来判断还有没有更多，省掉一次 count 查询
+    let mut rows = store.events(&run_id, from_seq, limit + 1)?;
+    let has_more = rows.len() as i64 > limit;
+    rows.truncate(limit as usize);
+
+    let next_seq = rows.last().map_or(from_seq, |row| row.seq);
+    Ok(RunEventsPage {
+        events: rows
+            .into_iter()
+            .map(|row| RunEventDto {
+                id: row.id,
+                seq: row.seq,
+                ts: row.ts,
+                kind: row.kind,
+                node_id: row.node_id,
+                attempt: row.attempt,
+                actor: row.actor,
+                summary: row.summary,
+                sensitivity: row.sensitivity,
+            })
+            .collect(),
+        next_seq,
+        has_more,
+    })
+}
+
+#[tauri::command]
+fn run_cancel(state: State<'_, AppState>, run_id: String) -> IpcResult<()> {
+    let store = lock(&state)?;
+    state.supervisor.cancel(&store, &run_id)?;
+    Ok(())
+}
+
+/// 从检查点恢复：接着最近一次挂起的位置往下跑。
+#[tauri::command]
+fn run_resume(state: State<'_, AppState>, run_id: String) -> IpcResult<()> {
+    let store = lock(&state)?;
+    state.supervisor.resume(&store, &run_id)?;
+    Ok(())
+}
+
+#[tauri::command]
+fn approval_decide(
+    state: State<'_, AppState>,
+    run_id: String,
+    node_id: String,
+    decision: String,
+) -> IpcResult<()> {
+    let store = lock(&state)?;
+    state
+        .supervisor
+        .decide_approval(&store, &run_id, &node_id, &decision)?;
+    Ok(())
 }
 
 #[derive(Serialize)]
@@ -330,6 +519,7 @@ pub fn run() {
             let store = Store::open(&path)?;
             app.manage(AppState {
                 store: Mutex::new(store),
+                supervisor: Supervisor::new(path),
             });
             build_tray(app.handle())?;
             Ok(())
@@ -354,7 +544,14 @@ pub fn run() {
             workflow_publish,
             workflow_version_graph,
             workflow_rollback,
-            workflow_delete
+            workflow_delete,
+            run_start,
+            run_list,
+            run_get,
+            run_events,
+            run_cancel,
+            run_resume,
+            approval_decide
         ])
         .build(tauri::generate_context!())
         .expect("启动桌面壳失败")

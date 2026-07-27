@@ -14,6 +14,7 @@ pub mod plan;
 pub mod redactor;
 pub mod runner;
 pub mod status;
+pub mod supervisor;
 pub mod worktree;
 
 pub use path_guard::PathGuard;

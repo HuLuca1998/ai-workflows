@@ -426,3 +426,79 @@ fn 带初始图创建_模板与导入走这条路() {
     assert_eq!(s.draft_revision(&id).unwrap(), Some(0));
     assert_eq!(s.get_draft(&id, 0).unwrap().as_deref(), Some(graph));
 }
+
+// ── 运行列表与详情（执行记录页要用）────────────────────────────────────────
+
+#[test]
+fn 列出运行按开始时间倒序_最新的在最前() {
+    let store = Store::open_in_memory().unwrap();
+    let workflow = store.create_workflow("流程", None).unwrap();
+    let first = store.create_run(&workflow, None, Some(0), "{}").unwrap();
+    let second = store.create_run(&workflow, None, Some(0), "{}").unwrap();
+
+    let runs = store.list_runs(None, &[], None).unwrap();
+    assert_eq!(runs.len(), 2);
+    // 同一毫秒创建时靠 rowid 兜底，最新的必须在前
+    assert_eq!(runs[0].id, second);
+    assert_eq!(runs[1].id, first);
+}
+
+#[test]
+fn 按工作流筛选运行() {
+    let store = Store::open_in_memory().unwrap();
+    let a = store.create_workflow("A", None).unwrap();
+    let b = store.create_workflow("B", None).unwrap();
+    store.create_run(&a, None, Some(0), "{}").unwrap();
+    let in_b = store.create_run(&b, None, Some(0), "{}").unwrap();
+
+    let runs = store.list_runs(Some(&b), &[], None).unwrap();
+    assert_eq!(runs.len(), 1);
+    assert_eq!(runs[0].id, in_b);
+}
+
+#[test]
+fn 按状态筛选运行() {
+    let store = Store::open_in_memory().unwrap();
+    let workflow = store.create_workflow("流程", None).unwrap();
+    let running = store.create_run(&workflow, None, Some(0), "{}").unwrap();
+    let done = store.create_run(&workflow, None, Some(0), "{}").unwrap();
+    store.set_run_status(&running, "running", None).unwrap();
+    store.set_run_status(&done, "succeeded", None).unwrap();
+
+    let active = store
+        .list_runs(None, &["running".to_string()], None)
+        .unwrap();
+    assert_eq!(active.len(), 1);
+    assert_eq!(active[0].id, running);
+}
+
+#[test]
+fn 搜索能命中_run_id_与工作流名() {
+    let store = Store::open_in_memory().unwrap();
+    let workflow = store.create_workflow("批量文件整理", None).unwrap();
+    let run = store.create_run(&workflow, None, Some(0), "{}").unwrap();
+
+    assert_eq!(store.list_runs(None, &[], Some("批量")).unwrap().len(), 1);
+    assert_eq!(
+        store.list_runs(None, &[], Some(&run[..6])).unwrap().len(),
+        1
+    );
+    assert_eq!(store.list_runs(None, &[], Some("不存在")).unwrap().len(), 0);
+}
+
+#[test]
+fn 运行详情带上工作流名_列表不用再查一次() {
+    let store = Store::open_in_memory().unwrap();
+    let workflow = store.create_workflow("我的流程", None).unwrap();
+    let run = store.create_run(&workflow, None, Some(0), "{}").unwrap();
+
+    let detail = store.get_run(&run).unwrap().expect("应当能读到");
+    assert_eq!(detail.workflow_name, "我的流程");
+    assert_eq!(detail.status, "created");
+}
+
+#[test]
+fn 读不存在的运行返回_none_而不是报错() {
+    let store = Store::open_in_memory().unwrap();
+    assert!(store.get_run("run_nope").unwrap().is_none());
+}

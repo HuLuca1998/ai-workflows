@@ -1,0 +1,122 @@
+import { describe, expect, it } from 'vitest';
+import { fromIpcResult, ipcCommandFor, toIpcInput } from '../src/data/ipc.js';
+
+/**
+ * IPC 转换层。
+ *
+ * 契约用点号方法名与 camelCase，Rust 侧是另一套形状。字段名写错的症状是
+ * 「数据莫名为空」而不是报错，所以每条映射都要有断言压着。
+ */
+
+// ── run.* 与 approval.decide（M2）──────────────────────────────────────────
+
+describe('run.* 的映射', () => {
+  it('run.start 把 inputs 序列化成 JSON 字符串', () => {
+    const args = toIpcInput('run.start', {
+      workflowId: 'wf_1',
+      draftRev: 3,
+      inputs: { issue: '42' },
+      workdir: '/tmp/x',
+      dryRun: false,
+    });
+    expect(args.workflowId).toBe('wf_1');
+    expect(args.draftRev).toBe(3);
+    // Rust 侧收字符串：让 serde 去解 Value 会把类型契约糊掉
+    expect(args.inputsJson).toBe('{"issue":"42"}');
+  });
+
+  it('run.start 不发送 undefined 的 versionId', () => {
+    const args = toIpcInput('run.start', {
+      workflowId: 'wf_1',
+      draftRev: 0,
+      inputs: {},
+      workdir: '/tmp/x',
+    });
+    expect('versionId' in args).toBe(false);
+  });
+
+  it('run.start 结果包成 runId 对象', () => {
+    expect(fromIpcResult('run.start', 'run_abc')).toEqual({ runId: 'run_abc' });
+  });
+
+  it('run.list 把 status 数组转成 statuses 参数', () => {
+    const args = toIpcInput('run.list', { status: ['running', 'succeeded'] });
+    expect(args.statuses).toEqual(['running', 'succeeded']);
+  });
+
+  it('run.list 没给筛选时发空数组而不是 undefined', () => {
+    // Rust 侧参数是 Vec<String>，undefined 会让 invoke 直接报参数错误
+    const args = toIpcInput('run.list', {});
+    expect(args.statuses).toEqual([]);
+  });
+
+  it('run.list 把 inputs_json 解析回对象', () => {
+    const result = fromIpcResult('run.list', [
+      {
+        id: 'run_1',
+        workflowId: 'wf_1',
+        workflowName: '批量整理',
+        status: 'running',
+        inputsJson: '{"issue":"42"}',
+        currentNode: 'fix',
+        startedAt: '2026-07-27T10:00:00Z',
+      },
+    ]) as { items: { inputs: Record<string, unknown>; workflowName: string }[] };
+
+    expect(result.items[0]?.inputs).toEqual({ issue: '42' });
+    expect(result.items[0]?.workflowName).toBe('批量整理');
+  });
+
+  it('inputs_json 损坏时给空对象而不是让整页崩掉', () => {
+    // 一条坏记录不该让整个执行记录页打不开
+    const result = fromIpcResult('run.list', [
+      { id: 'run_1', workflowId: 'wf_1', workflowName: 'x', status: 'failed', inputsJson: '{坏' },
+    ]) as { items: { inputs: Record<string, unknown> }[] };
+    expect(result.items[0]?.inputs).toEqual({});
+  });
+
+  it('run.get 读不到时返回 null 而不是抛错', () => {
+    expect(fromIpcResult('run.get', null)).toEqual({ run: null });
+  });
+
+  it('run.events 原样带上 nextSeq 与 hasMore', () => {
+    const page = fromIpcResult('run.events', {
+      events: [{ id: 'ev_1', seq: 1, ts: 't', kind: 'run.created', actor: 'engine', summary: 's' }],
+      nextSeq: 1,
+      hasMore: false,
+    }) as { events: unknown[]; nextSeq: number; hasMore: boolean };
+    expect(page.events).toHaveLength(1);
+    expect(page.nextSeq).toBe(1);
+    expect(page.hasMore).toBe(false);
+  });
+
+  it('approval.decide 只发 Rust 需要的三个字段', () => {
+    const args = toIpcInput('approval.decide', {
+      runId: 'run_1',
+      nodeId: 'ap',
+      decision: 'approved',
+      selected: ['方案一'],
+      supplement: '记得留 worktree',
+    });
+    expect(args).toEqual({ runId: 'run_1', nodeId: 'ap', decision: 'approved' });
+  });
+
+  it('run.cancel / run.resume 回 runId 对象', () => {
+    expect(fromIpcResult('run.cancel', null)).toEqual({ ok: true });
+    expect(fromIpcResult('run.resume', null)).toEqual({ ok: true });
+  });
+
+  it('每个 run.* 方法都有对应的 IPC 命令', () => {
+    for (const method of [
+      'run.start',
+      'run.list',
+      'run.get',
+      'run.events',
+      'run.cancel',
+      'run.resume',
+      'approval.decide',
+    ] as const) {
+      expect(ipcCommandFor(method)).not.toBeNull();
+    }
+  });
+});

@@ -279,13 +279,28 @@ impl Runner {
     /// 检查点频繁写对本地 SQLite 完全不是负担，而它换来的是
     /// 「杀掉 App 后重启能回到同一位置」这条硬要求。
     pub fn run_all(&self, store: &Store, run_id: &str) -> Result<String> {
+        self.run_until_pause(store, run_id, &std::sync::atomic::AtomicBool::new(false))
+    }
+
+    /// 一路跑到结束或挂起，每个节点边界检查取消标志。
+    ///
+    /// 取消在**节点边界**生效而不是中途打断：一个正在 push 的脚本被拦腰砍断
+    /// 会留下说不清楚的外部状态。当前节点跑完，下一个不再开始。
+    pub fn run_until_pause(
+        &self,
+        store: &Store,
+        run_id: &str,
+        cancel: &std::sync::atomic::AtomicBool,
+    ) -> Result<String> {
         let workdir = self.workdir(store, run_id)?;
         let executor = NodeExecutor::new(workdir);
         let mut scope = self.restore_scope(store, run_id)?;
 
         loop {
-            let result = self.step_with(store, run_id, &executor, &mut scope)?;
-            match result {
+            if cancel.load(std::sync::atomic::Ordering::SeqCst) {
+                return self.status(store, run_id);
+            }
+            match self.step_with(store, run_id, &executor, &mut scope)? {
                 StepResult::Advanced { .. } => continue,
                 StepResult::WaitingApproval { .. } => return self.status(store, run_id),
                 StepResult::Finished { status } => return Ok(status),
