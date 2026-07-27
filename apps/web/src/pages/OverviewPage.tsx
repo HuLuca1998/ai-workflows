@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router';
 import { Button, StatusBadge, Tag } from '@aiwf/ui';
+import { WORKFLOW_TEMPLATES } from '@aiwf/contracts';
 import { useWorkspace } from '../data/workspace.js';
 
 /**
@@ -35,10 +36,14 @@ export function OverviewPage() {
     });
   }, [workflows, filter, query]);
 
-  const onCreate = async () => {
+  const onCreate = async (templateId?: string) => {
     setCreating(true);
     try {
-      const id = await createWorkflow(`未命名工作流 ${workflows.length + 1}`);
+      const template = templateId ? WORKFLOW_TEMPLATES.find((t) => t.id === templateId) : undefined;
+      const id = await createWorkflow(
+        template ? template.name : `未命名工作流 ${workflows.length + 1}`,
+        template?.operations,
+      );
       // 建完直接进编辑器：新建的意图就是要去搭流程
       if (id) navigate(`/editor/${id}`);
     } finally {
@@ -109,13 +114,25 @@ export function OverviewPage() {
           <div className="empty">
             <i className="ph ph-flow-arrow" aria-hidden="true" />
             <p className="empty__title">还没有工作流</p>
-            <p className="empty__detail">
-              新建一个空工作流，然后在编辑器里从左侧拖入入口节点。
-              <br />
-              模板库（6 个预设流程）在 M1 随节点库一起上线。
-            </p>
+            <p className="empty__detail">从模板开始，或新建一个空工作流再从左侧拖入入口节点。</p>
+
+            <div className="templates">
+              {WORKFLOW_TEMPLATES.map((template) => (
+                <button
+                  key={template.id}
+                  type="button"
+                  className="template"
+                  onClick={() => void onCreate(template.id)}
+                  disabled={creating}
+                >
+                  <span className="template__name">{template.name}</span>
+                  <span className="template__summary">{template.summary}</span>
+                </button>
+              ))}
+            </div>
+
             <Button variant="primary" onClick={() => void onCreate()} loading={creating}>
-              新建工作流
+              新建空白工作流
             </Button>
           </div>
         ) : null}

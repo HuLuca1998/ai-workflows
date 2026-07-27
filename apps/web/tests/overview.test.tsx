@@ -63,9 +63,36 @@ describe('空态', () => {
   it('没有工作流时说明会发生什么，并给一条出路', () => {
     renderPage();
     expect(screen.getByText('还没有工作流')).toBeInTheDocument();
-    expect(screen.getByText(/模板库（6 个预设流程）在 M1/u)).toBeInTheDocument();
-    // 两个入口：头部的与空态里的
-    expect(screen.getAllByRole('button', { name: /新建工作流/u }).length).toBe(2);
+    expect(screen.getByRole('button', { name: /新建空白工作流/u })).toBeInTheDocument();
+  });
+
+  it('列出可用模板（图纸：空态显示模板库入口）', async () => {
+    const { WORKFLOW_TEMPLATES } = await import('@aiwf/contracts');
+    renderPage();
+    for (const template of WORKFLOW_TEMPLATES) {
+      expect(screen.getByText(template.name)).toBeInTheDocument();
+      expect(screen.getByText(template.summary)).toBeInTheDocument();
+    }
+  });
+
+  it('点模板会带着模板的结构化操作去创建', async () => {
+    const { WORKFLOW_TEMPLATES } = await import('@aiwf/contracts');
+    const created: unknown[] = [];
+    useWorkspace.setState({
+      createWorkflow: async (name, operations) => {
+        created.push({ name, count: operations?.length ?? 0 });
+        return 'wf_new';
+      },
+    });
+    renderPage();
+
+    const template = WORKFLOW_TEMPLATES[0];
+    expect(template).toBeDefined();
+    fireEvent.click(screen.getByText(template!.name));
+
+    await waitFor(() => expect(created).toHaveLength(1));
+    expect(created[0]).toMatchObject({ name: template!.name });
+    expect((created[0] as { count: number }).count).toBeGreaterThan(10);
   });
 });
 

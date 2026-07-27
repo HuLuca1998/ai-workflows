@@ -368,3 +368,47 @@ fn 未发布过的工作流版本列表为空而不是报错() {
 }
 
 const EMPTY: &str = r#"{"nodes":[],"edges":[],"groups":[]}"#;
+
+// ── M1 出口标准：模板搭出的工作流能发布为 v1 ──────────────────────────────
+
+#[test]
+fn 从空工作流到发布_v1_的完整链路() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("aiwf.sqlite");
+    let s = Store::open(&path).unwrap();
+
+    // 1. 新建：带 rev 0 的空草稿
+    let id = s.create_workflow("GitHub Issue 修复", None).unwrap();
+    assert_eq!(s.draft_revision(&id).unwrap(), Some(0));
+
+    // 2. 客户端应用模板的结构化操作后，把结果图提交（带版本守卫）
+    let template_graph = r#"{"nodes":[{"id":"entry","type":"entry","title":"入口","position":{"x":0,"y":0},"config":{}}],"edges":[],"groups":[]}"#;
+    let rev = s.save_draft_guarded(&id, 0, template_graph).unwrap();
+    assert_eq!(rev, 1);
+
+    // 3. 发布为 v1
+    let v1 = s.publish(&id, rev, "本地用户").unwrap();
+    assert_eq!(v1.version, 1);
+
+    // 4. 快照不可变：之后怎么改草稿，v1 都不变
+    s.save_draft_guarded(&id, rev, r#"{"nodes":[],"edges":[],"groups":[]}"#)
+        .unwrap();
+    let snapshot = s.get_version(&v1.id).unwrap().unwrap();
+    assert_eq!(snapshot.graph_json, template_graph);
+    assert_eq!(snapshot.config_hash, v1.config_hash);
+
+    // 5. 重开应用后版本仍在，且能读回完整的图
+    drop(s);
+    let reopened = Store::open(&path).unwrap();
+    let versions = reopened.list_versions(&id).unwrap();
+    assert_eq!(versions.len(), 1);
+    assert_eq!(versions[0].version, 1);
+    assert!(
+        reopened
+            .get_version(&v1.id)
+            .unwrap()
+            .unwrap()
+            .graph_json
+            .contains("entry")
+    );
+}

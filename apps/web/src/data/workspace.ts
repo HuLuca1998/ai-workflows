@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { applyPatch, type PatchOperation } from '@aiwf/contracts';
 import { CoreApiClient, MemoryTransport, type Transport } from '@aiwf/client-core';
 import { isDesktopRuntime } from '../updater/useAppVersion.js';
 import { createTauriTransport } from './ipc.js';
@@ -46,8 +47,12 @@ interface WorkspaceState {
     activeWorktrees: number;
   };
   load: () => Promise<void>;
-  /** 返回新建的工作流 id，便于直接跳进编辑器。 */
-  createWorkflow: (name: string) => Promise<string | null>;
+  /**
+   * 新建工作流。给了 operations 就在建完后立刻应用（模板）。
+   * 模板走的是与手工搭建完全相同的 patch 路径，因此同样被校验守住。
+   * 返回新建的工作流 id，便于直接跳进编辑器。
+   */
+  createWorkflow: (name: string, operations?: readonly PatchOperation[]) => Promise<string | null>;
 }
 
 export const useWorkspace = create<WorkspaceState>((set, get) => ({
@@ -79,8 +84,23 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
     }
   },
 
-  createWorkflow: async (name: string) => {
+  createWorkflow: async (name: string, operations?: readonly PatchOperation[]) => {
     const result = (await coreClient.call('workflow.create', { name })) as { id: string };
+
+    if (operations && operations.length > 0) {
+      // 新建的工作流是 rev 0 的空草稿；模板作为第一次改动提交
+      const applied = applyPatch({ nodes: [], edges: [], groups: [] }, 0, {
+        baseRevision: 0,
+        operations: [...operations],
+      });
+      await coreClient.call('workflow.patch', {
+        id: result.id,
+        baseRevision: 0,
+        operations: [...operations],
+        graphJson: JSON.stringify(applied.graph),
+      });
+    }
+
     await get().load();
     return result.id ?? null;
   },
