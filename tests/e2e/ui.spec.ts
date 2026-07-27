@@ -83,11 +83,15 @@ const SCRIPT_GRAPH = {
 
 test.describe('外壳与导航', () => {
   test('概览页加载并列出真实工作流', async ({ page }) => {
-    await createWorkflow(page, 'UI 测试 · 概览', SCRIPT_GRAPH);
+    // 名字带时间戳：这个库是所有用例共用的，跑到后面会有几十条记录
+    const name = `UI 测试 · 概览 ${Date.now()}`;
+    await createWorkflow(page, name, SCRIPT_GRAPH);
     await page.goto('/');
 
     await expect(page.getByRole('heading', { name: '工作流', level: 1 })).toBeVisible();
-    await expect(page.getByText('UI 测试 · 概览')).toBeVisible();
+    // 用计数而不是 toBeVisible：列表长了之后目标行会被挤出视口，
+    // 那不是「没渲染」，只是要滚动
+    await expect(page.locator('.wf-table__name').filter({ hasText: name })).toHaveCount(1);
   });
 
   test('每个菜单项都能打开且不报控制台错误', async ({ page }) => {
