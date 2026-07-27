@@ -432,6 +432,57 @@ impl Store {
         Ok(id)
     }
 
+    /// 读取 Run 的当前状态。
+    pub fn run_status(&self, run_id: &str) -> Result<Option<String>> {
+        let status = self
+            .conn
+            .query_row(
+                "SELECT status FROM run WHERE id = ?1",
+                params![run_id],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()?;
+        Ok(status)
+    }
+
+    /// 更新 Run 状态与当前节点。状态机的合法性由引擎侧保证。
+    pub fn set_run_status(
+        &self,
+        run_id: &str,
+        status: &str,
+        current_node: Option<&str>,
+    ) -> Result<()> {
+        let ended = matches!(status, "succeeded" | "failed" | "cancelled").then(now_iso);
+        self.conn.execute(
+            "UPDATE run SET status = ?2, current_node = ?3, ended_at = COALESCE(?4, ended_at)
+             WHERE id = ?1",
+            params![run_id, status, current_node, ended],
+        )?;
+        Ok(())
+    }
+
+    /// Run 引用的图：优先用已发布版本，其次用草稿修订。
+    pub fn run_graph(&self, run_id: &str) -> Result<Option<String>> {
+        let row: Option<(Option<String>, Option<i64>, String)> = self
+            .conn
+            .query_row(
+                "SELECT version_id, draft_rev, workflow_id FROM run WHERE id = ?1",
+                params![run_id],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .optional()?;
+
+        let Some((version_id, draft_rev, workflow_id)) = row else {
+            return Ok(None);
+        };
+
+        if let Some(version_id) = version_id {
+            return Ok(self.get_version(&version_id)?.map(|v| v.graph_json));
+        }
+        let rev = draft_rev.unwrap_or(0);
+        self.get_draft(&workflow_id, rev)
+    }
+
     /// 测试脚手架：建一个最小可用的 Run。生产代码请用 [`Store::create_run`]。
     #[doc(hidden)]
     pub fn create_run_for_test(&self, workflow_id: &str) -> Result<String> {

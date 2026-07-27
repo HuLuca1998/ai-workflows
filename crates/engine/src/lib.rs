@@ -5,8 +5,11 @@
 //!
 //! M0 只落地两块安全基元与状态机骨架；调度器在 M2 补齐。
 
+pub mod graph;
 pub mod path_guard;
+pub mod plan;
 pub mod redactor;
+pub mod runner;
 pub mod status;
 
 pub use path_guard::PathGuard;
