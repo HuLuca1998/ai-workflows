@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router';
 import { type RunStatusName, StatusBadge } from '@aiwf/ui';
+import { coreClient } from '../data/workspace.js';
 import { type RunEvent, type RunFilter, type RunSummary, useRuns } from './runsStore.js';
 
 /**
@@ -269,11 +270,7 @@ export function RunsPage() {
 
             <div className="runs__detail-body">
               {tab === 'events' ? <EventList events={runs.events} /> : null}
-              {tab === 'artifacts' ? (
-                <p className="runs__empty">
-                  产物存储在 M2 后半段接上。届时这里会列出 Diff、报告与日志文件。
-                </p>
-              ) : null}
+              {tab === 'artifacts' ? <ArtifactList runId={selected.id} /> : null}
               {tab === 'conversation' ? (
                 <p className="runs__empty">
                   对话视图要等 AI 节点接上 ACP（M3）。现在这次运行还没有 AI 消息。
@@ -346,6 +343,95 @@ function EventList({ events }: { events: readonly RunEvent[] }) {
       </p>
     </>
   );
+}
+
+interface Artifact {
+  nodeId: string;
+  kind: string;
+  name: string;
+  path: string;
+  bytes: number;
+  sha256: string;
+}
+
+function ArtifactList({ runId }: { runId: string }) {
+  const [items, setItems] = useState<Artifact[] | null>(null);
+  const [root, setRoot] = useState('');
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    void coreClient
+      .call('run.artifacts', { runId })
+      .then((result) => {
+        if (cancelled) return;
+        const page = result as { items: Artifact[]; root: string };
+        setItems(page.items);
+        setRoot(page.root);
+      })
+      .catch((err: unknown) => {
+        if (!cancelled) setError(err instanceof Error ? err.message : String(err));
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [runId]);
+
+  if (error) {
+    return (
+      <p className="runs__empty" role="alert">
+        {error}
+      </p>
+    );
+  }
+  if (items === null) return <p className="runs__empty">正在读取产物…</p>;
+
+  return (
+    <>
+      {items.length === 0 ? (
+        <p className="runs__empty">这次运行还没有产物。脚本的输出与生成的文件会出现在这里。</p>
+      ) : (
+        <ul className="runs__artifacts">
+          {items.map((item) => (
+            <li key={item.path} className="runs__artifact">
+              <i className={`ph ${artifactIcon(item.kind)}`} aria-hidden="true" />
+              <span className="runs__artifact-main">
+                <span className="runs__artifact-name">{item.name}</span>
+                <span className="runs__artifact-meta">
+                  {formatBytes(item.bytes)} · {item.nodeId}
+                </span>
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+      {root ? (
+        <p className="runs__redact">
+          <i className="ph ph-folder-open" aria-hidden="true" />
+          {root}
+        </p>
+      ) : null}
+    </>
+  );
+}
+
+function artifactIcon(kind: string): string {
+  switch (kind) {
+    case 'diff':
+      return 'ph-file-diff';
+    case 'report':
+      return 'ph-file-text';
+    case 'log':
+      return 'ph-terminal-window';
+    default:
+      return 'ph-file';
+  }
+}
+
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
 }
 
 function ApprovalPanel({

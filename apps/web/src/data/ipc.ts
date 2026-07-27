@@ -31,6 +31,7 @@ const COMMANDS: Partial<Record<CoreApiMethod, string>> = {
   'run.list': 'run_list',
   'run.get': 'run_get',
   'run.events': 'run_events',
+  'run.artifacts': 'run_artifacts',
   'run.cancel': 'run_cancel',
   'run.resume': 'run_resume',
   'approval.decide': 'approval_decide',
@@ -259,6 +260,7 @@ export function fromIpcResult(method: CoreApiMethod, raw: unknown): unknown {
 
     case 'run.events':
     case 'run.dryRun':
+    case 'run.artifacts':
       return raw;
 
     case 'run.cancel':

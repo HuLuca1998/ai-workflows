@@ -97,6 +97,7 @@
     "run.list",
     "run.get",
     "run.events",
+    "run.artifacts",
     "run.resume",
     "run.cancel",
     "run.retryNode",

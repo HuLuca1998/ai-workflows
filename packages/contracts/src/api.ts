@@ -270,6 +270,27 @@ const SPECS = {
     scope: 'workflow:read',
     summary: '游标分页拉事件；订阅版为 SSE / channel 推送',
   },
+  'run.artifacts': {
+    input: z.object({ runId: z.string().min(1) }),
+    output: z.object({
+      items: z.array(
+        z.object({
+          nodeId: z.string(),
+          kind: z.string(),
+          name: z.string(),
+          path: z.string(),
+          bytes: z.number().int().min(0),
+          sha256: z.string(),
+        }),
+      ),
+      /** 产物目录，图纸里显示在列表底部。 */
+      root: z.string(),
+    }),
+    mutates: false,
+    audited: false,
+    scope: 'workflow:read',
+    summary: '列出一次运行的产物',
+  },
   'run.resume': {
     input: z.object({ runId: z.string().min(1) }),
     output: z.object({ runId: z.string().min(1) }),

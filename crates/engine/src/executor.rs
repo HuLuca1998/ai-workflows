@@ -7,6 +7,7 @@
 use std::path::PathBuf;
 use std::time::Duration;
 
+use crate::artifacts::{ArtifactKind, ArtifactStore};
 use crate::exec::{ExecOutcome, ScriptRequest, run_script};
 use crate::graph::GraphNode;
 use crate::interp::{Scope, interpolate};
@@ -28,15 +29,39 @@ pub struct NodeExecutor {
     workdir: PathBuf,
     /// worktree 落地的父目录。
     worktree_parent: PathBuf,
+    artifacts: ArtifactStore,
+    run_id: String,
 }
 
 impl NodeExecutor {
     pub fn new(workdir: PathBuf) -> Self {
         let worktree_parent = workdir.join(".aiwf-worktrees");
+        let artifacts = ArtifactStore::new(workdir.join(".aiwf-artifacts"));
         Self {
             workdir,
             worktree_parent,
+            artifacts,
+            run_id: "run".to_string(),
         }
+    }
+
+    /// 产物按运行分目录，得知道自己在跑哪个运行。
+    #[must_use]
+    pub fn with_run_id(mut self, run_id: &str) -> Self {
+        self.run_id = run_id.to_string();
+        self
+    }
+
+    /// 产物落在应用数据目录下，与工作目录分开：
+    /// 用户可能把工作目录指向自己的仓库，产物写进去会污染工作区。
+    #[must_use]
+    pub fn with_artifact_root(mut self, root: PathBuf) -> Self {
+        self.artifacts = ArtifactStore::new(root);
+        self
+    }
+
+    pub fn artifacts(&self) -> &ArtifactStore {
+        &self.artifacts
     }
 
     pub fn workdir(&self) -> &PathBuf {
@@ -121,6 +146,10 @@ impl NodeExecutor {
                     });
                 }
 
+                // 输出落产物：事件表里只留摘要，几百 KB 的日志放文件
+                self.save_output(&node.id, "stdout.log", &stdout);
+                self.save_output(&node.id, "stderr.log", &stderr);
+
                 // 输出进 scope，下游节点才能引用 ${节点.success.stdout}
                 scope.set_node_output(
                     &node.id,
@@ -192,6 +221,24 @@ impl NodeExecutor {
                 message: error.to_string(),
             }),
         }
+    }
+
+    /// 落一个输出产物。空输出不写文件 ——
+    /// 一堆 0 字节的 stdout.log 只会让产物列表变噪音。
+    ///
+    /// 写失败不让节点失败：脚本已经成功跑完了，因为存不下日志而
+    /// 判它失败，会让用户去查一个根本没出问题的脚本。
+    fn save_output(&self, node_id: &str, name: &str, content: &str) {
+        if content.is_empty() {
+            return;
+        }
+        let _ = self.artifacts.save(
+            &self.run_id,
+            node_id,
+            ArtifactKind::Log,
+            name,
+            content.as_bytes(),
+        );
     }
 
     fn require_str(&self, node: &GraphNode, field: &str) -> Result<String> {

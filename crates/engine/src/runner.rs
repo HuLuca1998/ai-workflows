@@ -293,7 +293,7 @@ impl Runner {
         cancel: &std::sync::atomic::AtomicBool,
     ) -> Result<String> {
         let workdir = self.workdir(store, run_id)?;
-        let executor = NodeExecutor::new(workdir);
+        let executor = NodeExecutor::new(workdir).with_run_id(run_id);
         let mut scope = self.restore_scope(store, run_id)?;
 
         loop {

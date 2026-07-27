@@ -210,3 +210,63 @@ fn 通知节点在无桌面环境下也不应崩溃() {
     // 通知的实际发送在 Tauri 壳里做，引擎只负责记录意图
     assert!(matches!(&outcome, NodeOutcome::Succeeded { port } if port == "success"));
 }
+
+// ── 输出落产物 ────────────────────────────────────────────────────────────
+
+#[test]
+fn 脚本输出落成产物文件_事件里只留摘要() {
+    // 技术选型：大 payload 落 artifacts/，事件只留摘要与引用
+    let dir = std::env::temp_dir().join("aiwf_exec_art");
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+
+    let executor = NodeExecutor::new(dir.clone()).with_run_id("run_art");
+    let mut scope = Scope::new("run_art");
+    executor
+        .execute(
+            &node(
+                "logger",
+                "script.shell",
+                serde_json::json!({
+                    "interpreter": "bash",
+                    "script": "echo 第一行; echo 第二行 >&2",
+                    "timeoutMs": 5000
+                }),
+            ),
+            &mut scope,
+        )
+        .unwrap();
+
+    let artifacts = executor.artifacts().list("run_art").unwrap();
+    let names: Vec<_> = artifacts.iter().map(|a| a.name.as_str()).collect();
+    assert!(names.contains(&"stdout.log"), "实际产物：{names:?}");
+    assert!(names.contains(&"stderr.log"), "实际产物：{names:?}");
+
+    let stdout = artifacts.iter().find(|a| a.name == "stdout.log").unwrap();
+    assert_eq!(
+        std::fs::read_to_string(&stdout.path).unwrap().trim(),
+        "第一行"
+    );
+}
+
+#[test]
+fn 没有输出的脚本不留空产物文件() {
+    // 一堆 0 字节的 stdout.log 只会让产物列表变噪音
+    let dir = std::env::temp_dir().join("aiwf_exec_art2");
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+
+    let executor = NodeExecutor::new(dir).with_run_id("run_art2");
+    executor
+        .execute(
+            &node(
+                "quiet",
+                "script.shell",
+                serde_json::json!({"interpreter": "bash", "script": "true", "timeoutMs": 5000}),
+            ),
+            &mut Scope::new("run_art2"),
+        )
+        .unwrap();
+
+    assert_eq!(executor.artifacts().list("run_art2").unwrap().len(), 0);
+}

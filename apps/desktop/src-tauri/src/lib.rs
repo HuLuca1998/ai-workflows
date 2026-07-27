@@ -245,6 +245,56 @@ fn run_events(
     })
 }
 
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ArtifactDto {
+    node_id: String,
+    kind: String,
+    name: String,
+    path: String,
+    bytes: u64,
+    sha256: String,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ArtifactsDto {
+    items: Vec<ArtifactDto>,
+    root: String,
+}
+
+#[tauri::command]
+fn run_artifacts(state: State<'_, AppState>, run_id: String) -> IpcResult<ArtifactsDto> {
+    let store = lock(&state)?;
+    let workdir = store
+        .run_workdir(&run_id)?
+        .filter(|dir| !dir.is_empty())
+        .map_or_else(std::env::temp_dir, std::path::PathBuf::from);
+    drop(store);
+
+    let artifacts = aiwf_engine::artifacts::ArtifactStore::new(workdir.join(".aiwf-artifacts"));
+    let items = artifacts.list(&run_id).map_err(|error| IpcError {
+        code: "INTERNAL".to_string(),
+        message: format!("读取产物失败：{error}"),
+        retriable: true,
+    })?;
+
+    Ok(ArtifactsDto {
+        root: artifacts.root().join(&run_id).display().to_string(),
+        items: items
+            .into_iter()
+            .map(|item| ArtifactDto {
+                node_id: item.node_id,
+                kind: item.kind,
+                name: item.name,
+                path: item.path.display().to_string(),
+                bytes: item.bytes,
+                sha256: item.sha256,
+            })
+            .collect(),
+    })
+}
+
 #[tauri::command]
 fn run_cancel(state: State<'_, AppState>, run_id: String) -> IpcResult<()> {
     let store = lock(&state)?;
@@ -584,6 +634,7 @@ pub fn run() {
             run_list,
             run_get,
             run_events,
+            run_artifacts,
             run_cancel,
             run_resume,
             approval_decide

@@ -266,3 +266,57 @@ describe('操作', () => {
     expect(screen.getByRole('button', { name: '拒绝' })).toBeTruthy();
   });
 });
+
+describe('产物 tab', () => {
+  /** 按方法分派：run.list 与 run.artifacts 的形状不同，一把梭会互相污染。 */
+  function mockArtifacts(items: unknown[], root: string) {
+    call.mockImplementation((method: string) => {
+      if (method === 'run.artifacts') return Promise.resolve({ items, root });
+      if (method === 'run.list') return Promise.resolve({ items: [RUN] });
+      return Promise.resolve({ events: [], nextSeq: 0, hasMore: false });
+    });
+  }
+
+  const ARTIFACT = {
+    nodeId: 'fix',
+    kind: 'log',
+    name: 'stdout.log',
+    path: '/tmp/x/stdout.log',
+    bytes: 1240,
+    sha256: 'abc',
+  };
+
+  it('切到产物会拉取这次运行的产物列表', async () => {
+    reset({ items: [RUN] as never, selectedId: 'run_1' });
+    mockArtifacts([ARTIFACT], '/tmp/x');
+    const user = (await import('@testing-library/user-event')).default.setup();
+    view();
+    await user.click(screen.getByRole('tab', { name: '产物' }));
+
+    await screen.findByText('stdout.log');
+    expect(call).toHaveBeenCalledWith('run.artifacts', { runId: 'run_1' });
+  });
+
+  it('产物条目显示大小与所属节点', async () => {
+    reset({ items: [RUN] as never, selectedId: 'run_1' });
+    mockArtifacts([ARTIFACT], '/tmp/x');
+    const user = (await import('@testing-library/user-event')).default.setup();
+    view();
+    await user.click(screen.getByRole('tab', { name: '产物' }));
+
+    const row = (await screen.findByText('stdout.log')).closest('li');
+    expect(row?.textContent).toContain('1.2 KB');
+    expect(row?.textContent).toContain('fix');
+  });
+
+  it('没有产物时说明为什么空，并给出产物目录', async () => {
+    reset({ items: [RUN] as never, selectedId: 'run_1' });
+    mockArtifacts([], '/tmp/runs/run_1');
+    const user = (await import('@testing-library/user-event')).default.setup();
+    view();
+    await user.click(screen.getByRole('tab', { name: '产物' }));
+
+    expect(await screen.findByText(/这次运行还没有产物/u)).toBeTruthy();
+    expect(screen.getByText('/tmp/runs/run_1')).toBeTruthy();
+  });
+});

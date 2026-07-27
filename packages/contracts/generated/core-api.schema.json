@@ -2405,6 +2405,74 @@
       ]
     }
   },
+  "run.artifacts": {
+    "summary": "列出一次运行的产物",
+    "scope": "workflow:read",
+    "mutates": false,
+    "audited": false,
+    "input": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "runId": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "runId"
+      ]
+    },
+    "output": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "items": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "nodeId": {
+                "type": "string"
+              },
+              "kind": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              },
+              "path": {
+                "type": "string"
+              },
+              "bytes": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "sha256": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "nodeId",
+              "kind",
+              "name",
+              "path",
+              "bytes",
+              "sha256"
+            ]
+          }
+        },
+        "root": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "items",
+        "root"
+      ]
+    }
+  },
   "run.resume": {
     "summary": "从检查点恢复",
     "scope": "workflow:run",
