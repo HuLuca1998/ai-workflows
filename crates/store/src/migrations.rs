@@ -8,10 +8,17 @@ use rusqlite::Connection;
 use crate::Result;
 
 /// 当前 schema 版本。新增迁移时同时更新这里与 `MIGRATIONS`。
-pub const EXPECTED_SCHEMA_VERSION: i64 = 1;
+pub const EXPECTED_SCHEMA_VERSION: i64 = 2;
 
 /// (版本号, 说明, SQL)
-const MIGRATIONS: &[(i64, &str, &str)] = &[(1, "初始 schema", include_str!("sql/001_init.sql"))];
+const MIGRATIONS: &[(i64, &str, &str)] = &[
+    (1, "初始 schema", include_str!("sql/001_init.sql")),
+    (
+        2,
+        "run 增加 workdir",
+        include_str!("sql/002_run_workdir.sql"),
+    ),
+];
 
 pub(crate) fn migrate(conn: &Connection) -> Result<()> {
     conn.execute_batch(

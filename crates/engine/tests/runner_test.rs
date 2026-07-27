@@ -328,3 +328,84 @@ fn 同一工作流可以并行跑多个运行_互不影响() {
         "另一个运行不该被带着往前跑"
     );
 }
+
+// ── 真实执行：Runner + NodeExecutor 闭环 ──────────────────────────────────
+
+#[test]
+fn 真实执行一条_shell_工作流并把上游输出传给下游() {
+    // 这是 M2 的核心断言：两个脚本节点，第二个引用第一个的输出。
+    // 通不过就说明「工作流真的跑起来了」这句话是假的。
+    let graph = serde_json::json!({
+        "nodes": [
+            {"id": "entry", "type": "entry", "title": "入口", "config": {}},
+            {"id": "a", "type": "script.shell", "title": "产出",
+             "config": {"interpreter": "bash", "script": "echo 42", "timeoutMs": 5000}},
+            {"id": "b", "type": "script.shell", "title": "消费",
+             "config": {"interpreter": "bash", "script": "echo got-${a.success.stdout}", "timeoutMs": 5000}}
+        ],
+        "edges": [
+            {"id": "e1", "source": {"nodeId": "entry", "port": "success"}, "target": {"nodeId": "a", "port": "input"}},
+            {"id": "e2", "source": {"nodeId": "a", "port": "success"}, "target": {"nodeId": "b", "port": "input"}}
+        ],
+        "groups": []
+    })
+    .to_string();
+
+    let (store, workflow) = setup(&graph);
+    let runner = Runner::new();
+    let run_id = runner.start(&store, request(&workflow)).unwrap();
+
+    let status = runner.run_all(&store, &run_id).unwrap();
+    assert_eq!(status, "succeeded", "运行应当成功");
+
+    // 下游真的拿到了上游的输出
+    let events = store.events(&run_id, 0, 200).unwrap();
+    let b_done = events
+        .iter()
+        .find(|e| e.kind == "node.succeeded" && e.node_id.as_deref() == Some("b"))
+        .expect("b 应当成功");
+    assert!(b_done.summary.contains("消费"), "实际：{}", b_done.summary);
+}
+
+#[test]
+fn 上游节点的输出在重启后仍能被下游引用() {
+    // 检查点必须带着 scope 快照，否则重启后 ${a.success.stdout} 解析不出来
+    let graph = serde_json::json!({
+        "nodes": [
+            {"id": "entry", "type": "entry", "title": "入口", "config": {}},
+            {"id": "a", "type": "script.shell", "title": "产出",
+             "config": {"interpreter": "bash", "script": "echo 7", "timeoutMs": 5000}},
+            {"id": "ap", "type": "approval", "title": "审批", "config": {"title": "确认"}},
+            {"id": "b", "type": "script.shell", "title": "消费",
+             "config": {"interpreter": "bash", "script": "echo v=${a.success.stdout}", "timeoutMs": 5000}}
+        ],
+        "edges": [
+            {"id": "e1", "source": {"nodeId": "entry", "port": "success"}, "target": {"nodeId": "a", "port": "input"}},
+            {"id": "e2", "source": {"nodeId": "a", "port": "success"}, "target": {"nodeId": "ap", "port": "input"}},
+            {"id": "e3", "source": {"nodeId": "ap", "port": "approved"}, "target": {"nodeId": "b", "port": "input"}}
+        ],
+        "groups": []
+    })
+    .to_string();
+
+    let (store, workflow) = setup(&graph);
+    let runner = Runner::new();
+    let run_id = runner.start(&store, request(&workflow)).unwrap();
+
+    // 跑到审批挂起
+    let status = runner.run_all(&store, &run_id).unwrap();
+    assert_eq!(status, "waiting_approval");
+
+    // 「重启」：换一个全新的 Runner，什么内存状态都没有
+    let after_restart = Runner::new();
+    assert_eq!(
+        after_restart.pending_approval(&store, &run_id).unwrap(),
+        Some("ap".to_string())
+    );
+    after_restart
+        .decide_approval(&store, &run_id, "ap", "approved")
+        .unwrap();
+
+    let final_status = after_restart.run_all(&store, &run_id).unwrap();
+    assert_eq!(final_status, "succeeded", "重启后应当能跑完");
+}

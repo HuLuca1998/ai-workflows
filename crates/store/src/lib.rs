@@ -423,11 +423,31 @@ impl Store {
         draft_rev: Option<i64>,
         inputs_json: &str,
     ) -> Result<String> {
+        self.create_run_in(workflow_id, version_id, draft_rev, inputs_json, None)
+    }
+
+    /// 带工作目录的建 Run。并行运行靠不同的工作目录互不干扰。
+    pub fn create_run_in(
+        &self,
+        workflow_id: &str,
+        version_id: Option<&str>,
+        draft_rev: Option<i64>,
+        inputs_json: &str,
+        workdir: Option<&str>,
+    ) -> Result<String> {
         let id = new_id("run");
         self.conn.execute(
-            "INSERT INTO run(id, workflow_id, version_id, draft_rev, status, inputs_json, started_at)
-             VALUES (?1, ?2, ?3, ?4, 'created', ?5, ?6)",
-            params![id, workflow_id, version_id, draft_rev, inputs_json, now_iso()],
+            "INSERT INTO run(id, workflow_id, version_id, draft_rev, status, inputs_json, workdir, started_at)
+             VALUES (?1, ?2, ?3, ?4, 'created', ?5, ?6, ?7)",
+            params![
+                id,
+                workflow_id,
+                version_id,
+                draft_rev,
+                inputs_json,
+                workdir,
+                now_iso()
+            ],
         )?;
         Ok(id)
     }
@@ -459,6 +479,33 @@ impl Store {
             params![run_id, status, current_node, ended],
         )?;
         Ok(())
+    }
+
+    /// Run 的启动参数 JSON。
+    pub fn run_inputs(&self, run_id: &str) -> Result<Option<String>> {
+        let inputs = self
+            .conn
+            .query_row(
+                "SELECT inputs_json FROM run WHERE id = ?1",
+                params![run_id],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()?;
+        Ok(inputs)
+    }
+
+    /// Run 的工作目录。
+    pub fn run_workdir(&self, run_id: &str) -> Result<Option<String>> {
+        let dir = self
+            .conn
+            .query_row(
+                "SELECT workdir FROM run WHERE id = ?1",
+                params![run_id],
+                |row| row.get::<_, Option<String>>(0),
+            )
+            .optional()?
+            .flatten();
+        Ok(dir)
     }
 
     /// Run 引用的图：优先用已发布版本，其次用草稿修订。

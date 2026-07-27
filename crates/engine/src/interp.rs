@@ -59,6 +59,25 @@ impl Scope {
         vars
     }
 
+    /// 序列化成可落盘的快照。检查点靠它跨重启保住上游输出。
+    pub fn snapshot(&self) -> Value {
+        serde_json::json!({
+            "inputs": self.inputs,
+            "outputs": self.outputs,
+        })
+    }
+
+    pub fn restore(&mut self, snapshot: Value) {
+        if let Some(inputs) = snapshot.get("inputs") {
+            self.inputs = inputs.clone();
+        }
+        if let Some(outputs) = snapshot.get("outputs").and_then(Value::as_object) {
+            for (key, value) in outputs {
+                self.outputs.insert(key.clone(), value.clone());
+            }
+        }
+    }
+
     fn lookup(&self, reference: &str) -> Option<Value> {
         let (head, rest) = reference.split_once('.')?;
 

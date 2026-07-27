@@ -1,6 +1,8 @@
 use aiwf_store::{NewRunEvent, Store};
 
+use crate::executor::NodeExecutor;
 use crate::graph::WorkflowGraph;
+use crate::interp::Scope;
 use crate::plan::ExecutionPlan;
 
 /// Run 的生命周期与推进。
@@ -23,6 +25,8 @@ pub enum RunError {
     GraphInvalid(String),
     #[error("无法建立执行计划：{0}")]
     Plan(#[from] crate::plan::PlanError),
+    #[error("节点执行失败：{0}")]
+    Executor(#[from] crate::executor::ExecutorError),
 }
 
 pub type Result<T> = std::result::Result<T, RunError>;
@@ -72,11 +76,12 @@ impl Runner {
     /// preflight 不通过就直接失败，绝不带着一张坏图进队列——
     /// 那样错误会在执行到一半时才暴露，且已经产生了副作用。
     pub fn start(&self, store: &Store, request: RunRequest) -> Result<String> {
-        let run_id = store.create_run(
+        let run_id = store.create_run_in(
             &request.workflow_id,
             request.version_id.as_deref(),
             request.draft_rev,
             &request.inputs_json,
+            Some(&request.workdir),
         )?;
 
         self.emit(store, &run_id, "run.created", None, "engine", "运行已创建")?;
@@ -118,6 +123,37 @@ impl Runner {
     pub fn step<F>(&self, store: &Store, run_id: &str, execute: F) -> Result<StepResult>
     where
         F: Fn(&crate::graph::GraphNode) -> NodeOutcome,
+    {
+        let mut scope = Scope::new(run_id);
+        self.advance(store, run_id, &mut scope, |node, _| execute(node))
+    }
+
+    /// 用真实执行器推进一个节点。
+    fn step_with(
+        &self,
+        store: &Store,
+        run_id: &str,
+        executor: &NodeExecutor,
+        scope: &mut Scope,
+    ) -> Result<StepResult> {
+        self.advance(store, run_id, scope, |node, scope| {
+            executor
+                .execute(node, scope)
+                .unwrap_or_else(|error| NodeOutcome::Failed {
+                    message: error.to_string(),
+                })
+        })
+    }
+
+    fn advance<F>(
+        &self,
+        store: &Store,
+        run_id: &str,
+        scope: &mut Scope,
+        execute: F,
+    ) -> Result<StepResult>
+    where
+        F: Fn(&crate::graph::GraphNode, &mut Scope) -> NodeOutcome,
     {
         let status = self.status(store, run_id)?;
         if matches!(status.as_str(), "succeeded" | "failed" | "cancelled") {
@@ -177,7 +213,7 @@ impl Runner {
         let outcome = if node.node_type == "approval" {
             NodeOutcome::NeedsApproval
         } else {
-            execute(node)
+            execute(node, scope)
         };
 
         match outcome {
@@ -190,6 +226,7 @@ impl Runner {
                     "engine",
                     &format!("{} 完成 · 走 {port} 分支", node.title),
                 )?;
+                self.checkpoint(store, run_id, scope, None)?;
                 Ok(StepResult::Advanced { node_id })
             }
 
@@ -228,16 +265,30 @@ impl Runner {
                 )?;
 
                 // 检查点必须在挂起时落下：杀掉应用后靠它回到同一位置
-                let seq = self.last_seq(store, run_id)?;
-                store.save_checkpoint(
-                    run_id,
-                    seq,
-                    "{}",
-                    Some(&format!(r#"{{"nodeId":"{node_id}"}}"#)),
-                )?;
+                self.checkpoint(store, run_id, scope, Some(&node_id))?;
                 store.set_run_status(run_id, "waiting_approval", Some(&node_id))?;
 
                 Ok(StepResult::WaitingApproval { node_id })
+            }
+        }
+    }
+
+    /// 用真实执行器一路跑到结束或挂起。
+    ///
+    /// 每个节点完成后都落一次检查点（带 Scope 快照）——
+    /// 检查点频繁写对本地 SQLite 完全不是负担，而它换来的是
+    /// 「杀掉 App 后重启能回到同一位置」这条硬要求。
+    pub fn run_all(&self, store: &Store, run_id: &str) -> Result<String> {
+        let workdir = self.workdir(store, run_id)?;
+        let executor = NodeExecutor::new(workdir);
+        let mut scope = self.restore_scope(store, run_id)?;
+
+        loop {
+            let result = self.step_with(store, run_id, &executor, &mut scope)?;
+            match result {
+                StepResult::Advanced { .. } => continue,
+                StepResult::WaitingApproval { .. } => return self.status(store, run_id),
+                StepResult::Finished { status } => return Ok(status),
             }
         }
     }
@@ -361,6 +412,59 @@ impl Runner {
             }
         }
         Ok(completed)
+    }
+
+    /// 落检查点：seq + Scope 快照 + 挂起的审批节点。
+    fn checkpoint(
+        &self,
+        store: &Store,
+        run_id: &str,
+        scope: &Scope,
+        pending: Option<&str>,
+    ) -> Result<()> {
+        let seq = self.last_seq(store, run_id)?;
+        let env_json = serde_json::to_string(&scope.snapshot())
+            .map_err(|e| RunError::GraphInvalid(e.to_string()))?;
+        let pending_json = pending.map(|node| format!(r#"{{"nodeId":"{node}"}}"#));
+        store.save_checkpoint(run_id, seq, &env_json, pending_json.as_deref())?;
+        Ok(())
+    }
+
+    /// 从最新检查点恢复 Scope。
+    ///
+    /// 没有这一步，重启后下游节点引用 `${a.success.stdout}` 会解析不出来——
+    /// 「回到同一审批点」就只是回到了那个位置，却没法继续往下跑。
+    fn restore_scope(&self, store: &Store, run_id: &str) -> Result<Scope> {
+        let mut scope = Scope::new(run_id);
+
+        if let Some(inputs) = store.run_inputs(run_id)? {
+            if let Ok(value) = serde_json::from_str(&inputs) {
+                scope.set_inputs(value);
+            }
+        }
+
+        if let Some(checkpoint) = store.latest_checkpoint(run_id)? {
+            if let Ok(snapshot) = serde_json::from_str(&checkpoint.env_json) {
+                scope.restore(snapshot);
+            }
+        }
+        Ok(scope)
+    }
+
+    /// 运行的工作目录，不存在就建。
+    ///
+    /// 这是引擎自己的运行目录（每个 Run 一个），第一次跑必然不存在——
+    /// 让它报错等于要求用户先手动 mkdir。用户显式指定的仓库路径是另一回事，
+    /// 那种路径不存在时 worktree 节点会报错，不在这里兜底。
+    fn workdir(&self, store: &Store, run_id: &str) -> Result<std::path::PathBuf> {
+        let dir = store
+            .run_workdir(run_id)?
+            .filter(|dir| !dir.is_empty())
+            .map_or_else(std::env::temp_dir, std::path::PathBuf::from);
+        std::fs::create_dir_all(&dir).map_err(|e| {
+            RunError::GraphInvalid(format!("无法创建运行目录 {}：{e}", dir.display()))
+        })?;
+        Ok(dir)
     }
 
     fn last_seq(&self, store: &Store, run_id: &str) -> Result<i64> {
