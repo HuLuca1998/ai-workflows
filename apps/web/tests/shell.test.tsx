@@ -128,12 +128,24 @@ describe('路由', () => {
   });
 
   it('每个菜单项都能渲染出一级标题', () => {
-    for (const item of NAV_ITEMS) {
+    // 图纸里执行记录是三栏并列，每栏有自己的小标题，页面级不存在大标题；
+    // 硬塞一个会偏离图纸，它的可识别名由三个 region 的 aria-label 承担
+    const SELF_DRAWN_WITHOUT_H1 = new Set(['/runs']);
+
+    for (const item of NAV_ITEMS.filter((nav) => !SELF_DRAWN_WITHOUT_H1.has(nav.path))) {
       const { unmount } = renderShell(item.path);
       const heading = screen.getByRole('heading', { level: 1 });
       // 首页是自绘整屏（标题「工作流」），其余骨架页的标题等于菜单名
       expect(heading.textContent?.trim()).toBe(item.path === '/' ? '工作流' : item.label);
       unmount();
     }
+  });
+
+  it('执行记录的三栏各自可被辅助技术定位', () => {
+    renderShell('/runs');
+    for (const label of ['节点进度', '运行详情']) {
+      expect(screen.getByRole('region', { name: label })).toBeInTheDocument();
+    }
+    expect(screen.getByRole('group', { name: '筛选运行' })).toBeInTheDocument();
   });
 });

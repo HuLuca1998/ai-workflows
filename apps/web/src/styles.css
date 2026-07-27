@@ -1860,3 +1860,622 @@
   color: var(--color-neutral-400);
   white-space: nowrap;
 }
+
+/* ── 执行记录（图纸「03 执行记录」）──────────────────────────────────────── */
+.runs {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+
+/* 左栏 308px、中栏 232px 都是图纸给的固定宽度 */
+.runs__list {
+  width: 308px;
+  flex: none;
+  border-right: 1px solid var(--color-divider);
+  display: flex;
+  flex-direction: column;
+  background: color-mix(in srgb, var(--color-surface) 18%, var(--color-bg));
+}
+
+.runs__list-head {
+  flex: none;
+  padding: 16px 14px 10px;
+}
+
+.runs__list-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+/* 小标题：字距与大写承担层级，不靠加粗 */
+.runs__label {
+  font-size: 11px;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--color-neutral-600);
+}
+
+.runs__grow {
+  flex: 1;
+}
+
+.runs__icon {
+  border: 0;
+  background: none;
+  color: var(--color-neutral-500);
+  cursor: pointer;
+  padding: 0;
+  display: grid;
+  place-items: center;
+}
+
+.runs__icon:hover {
+  color: var(--color-neutral-300);
+}
+
+.runs__search {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  height: 28px;
+  padding: 0 10px;
+  border-radius: 7px;
+  border: 1px solid var(--color-divider);
+  color: var(--color-neutral-600);
+  font-size: 11.5px;
+  margin-bottom: 9px;
+}
+
+.runs__search i {
+  font-size: 12px;
+}
+
+.runs__search input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  background: none;
+  color: var(--color-neutral-200);
+  font-size: 11.5px;
+  outline: none;
+}
+
+.runs__search input::placeholder {
+  color: var(--color-neutral-600);
+}
+
+.runs__filters {
+  display: flex;
+  gap: 4px;
+}
+
+/* 筛选是药丸形，与图纸「01 工作流首页」的 chips 一致 */
+.runs__chip {
+  padding: 3px 10px;
+  border-radius: 20px;
+  border: 1px solid var(--color-divider);
+  background: none;
+  color: var(--color-neutral-500);
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.runs__chip[data-active='true'] {
+  border-color: var(--color-accent-700);
+  background: rgba(145, 132, 217, 0.14);
+  color: var(--color-accent-200);
+}
+
+.runs__list-body {
+  flex: 1;
+  overflow: auto;
+  padding: 0 10px 14px;
+}
+
+.runs__group {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 14px 4px 6px;
+  font-size: 11px;
+  color: var(--color-neutral-600);
+  margin: 0;
+}
+
+.runs__group--live {
+  padding-top: 8px;
+}
+
+.runs__dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--color-accent);
+  animation: runs-dot 1.6s infinite;
+}
+
+@keyframes runs-dot {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.25;
+  }
+}
+
+.runs__item {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  width: 100%;
+  padding: 9px 10px;
+  border-radius: 9px;
+  border: 1px solid transparent;
+  background: none;
+  text-align: left;
+  cursor: pointer;
+  color: inherit;
+}
+
+.runs__item:hover {
+  background: color-mix(in srgb, var(--color-surface) 45%, transparent);
+}
+
+.runs__item[data-selected='true'] {
+  border-color: var(--color-accent-700);
+  background: rgba(145, 132, 217, 0.1);
+}
+
+.runs__item-row {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.runs__item-name {
+  font-size: 12.5px;
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.runs__item-params,
+.runs__item-foot {
+  font-size: 11px;
+  color: var(--color-neutral-500);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.runs__item-foot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--color-neutral-600);
+}
+
+.runs__item-node {
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.runs__foot {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  border-top: 1px solid var(--color-divider);
+  font-size: 11px;
+  color: var(--color-neutral-600);
+  margin: 0;
+}
+
+.runs__empty {
+  padding: 12px 4px;
+  font-size: 11.5px;
+  line-height: 1.7;
+  color: var(--color-neutral-500);
+  margin: 0;
+}
+
+.runs__empty--center {
+  margin: auto;
+  max-width: 320px;
+  text-align: center;
+}
+
+.runs__error {
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid rgba(224, 104, 92, 0.4);
+  background: rgba(224, 104, 92, 0.1);
+  font-size: 11.5px;
+  color: #e0685c;
+  margin: 4px 0 8px;
+}
+
+/* ── 中栏：节点进度 ─────────────────────────────────────────────────────── */
+.runs__nodes {
+  width: 232px;
+  flex: none;
+  border-right: 1px solid var(--color-divider);
+  display: flex;
+  flex-direction: column;
+}
+
+.runs__nodes-head {
+  flex: none;
+  padding: 14px 12px 10px;
+  border-bottom: 1px solid var(--color-divider);
+}
+
+.runs__bar {
+  height: 4px;
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--color-bg) 70%, #000);
+  margin-top: 8px;
+  overflow: hidden;
+}
+
+.runs__bar-fill {
+  height: 100%;
+  border-radius: 3px;
+  background: var(--color-accent);
+  transition: width 0.3s ease;
+}
+
+.runs__nodes-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 7px 0 0;
+  font-size: 11px;
+  color: var(--color-neutral-500);
+}
+
+.runs__nodes-cur {
+  margin: 6px 0 0;
+  font-size: 11.5px;
+  color: var(--color-accent-200);
+}
+
+.runs__nodes-body {
+  flex: 1;
+  overflow: auto;
+  padding: 8px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.runs__node {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 8px;
+  border-radius: 8px;
+}
+
+.runs__node[data-state='running'] {
+  background: rgba(145, 132, 217, 0.1);
+}
+
+.runs__node i {
+  font-size: 14px;
+  color: var(--color-neutral-400);
+  flex: none;
+}
+
+.runs__node[data-state='succeeded'] i {
+  color: #7fb894;
+}
+
+.runs__node[data-state='failed'] i {
+  color: #e0685c;
+}
+
+.runs__node-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.runs__node-title {
+  font-size: 12px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.runs__node-sub {
+  font-size: 10.5px;
+  color: var(--color-neutral-600);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.runs__node-state {
+  font-size: 10.5px;
+  color: var(--color-neutral-500);
+  flex: none;
+}
+
+/* ── 右栏：运行详情 ─────────────────────────────────────────────────────── */
+.runs__detail {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.runs__detail-head {
+  flex: none;
+  padding: 18px 26px 14px;
+  border-bottom: 1px solid var(--color-divider);
+  background: color-mix(in srgb, var(--color-surface) 25%, var(--color-bg));
+}
+
+.runs__detail-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.runs__detail-title h4 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 400;
+}
+
+.runs__params {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 9px;
+}
+
+.runs__params-label {
+  font-size: 11px;
+  color: var(--color-neutral-600);
+  align-self: center;
+  margin-right: 2px;
+}
+
+/* 参数是等宽药丸：值要能一眼看出是原样传进去的 */
+.runs__param {
+  padding: 2px 8px;
+  border-radius: 6px;
+  background: rgba(233, 233, 237, 0.07);
+  font-family: ui-monospace, Menlo, monospace;
+  font-size: 11px;
+  color: var(--color-neutral-300);
+}
+
+.runs__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  font-size: 11.5px;
+  color: var(--color-neutral-500);
+}
+
+.runs__meta i {
+  margin-right: 4px;
+}
+
+.runs__action {
+  height: 28px;
+  padding: 0 12px;
+  border-radius: 7px;
+  border: 1px solid var(--color-divider);
+  background: none;
+  color: var(--color-neutral-300);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.runs__action:hover {
+  border-color: var(--color-neutral-600);
+}
+
+.runs__action--primary {
+  border-color: var(--color-accent-600);
+  background: var(--color-accent);
+  color: var(--color-accent-900);
+}
+
+.runs__failed {
+  flex: none;
+  padding: 12px 26px;
+  border-bottom: 1px solid var(--color-divider);
+  background: linear-gradient(90deg, rgba(224, 104, 92, 0.14), transparent);
+}
+
+.runs__failed-title {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin: 0 0 6px;
+  font-size: 13px;
+}
+
+.runs__failed-title i {
+  color: #e0685c;
+  font-size: 16px;
+}
+
+/* 错误详情用等宽：exitCode 与 stderr 的每个字符都可能重要 */
+.runs__failed-body {
+  font-family: ui-monospace, Menlo, monospace;
+  font-size: 11px;
+  line-height: 1.75;
+  color: var(--color-neutral-400);
+  padding: 8px 10px;
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--color-bg) 78%, #000);
+  margin: 0;
+}
+
+.runs__approval {
+  flex: none;
+  margin: 14px 26px 0;
+  padding: 14px;
+  border-radius: 10px;
+  border: 1px solid var(--color-accent-600);
+  background: linear-gradient(180deg, rgba(145, 132, 217, 0.16), rgba(145, 132, 217, 0.03));
+}
+
+.runs__approval-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 10px;
+  font-size: 13px;
+  color: var(--color-accent-200);
+}
+
+.runs__approval-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.runs__tabs {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 9px 26px;
+  border-bottom: 1px solid var(--color-divider);
+}
+
+.runs__tab {
+  padding: 4px 11px;
+  border-radius: 7px;
+  border: 1px solid transparent;
+  background: none;
+  color: var(--color-neutral-500);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.runs__tab[aria-selected='true'] {
+  border-color: var(--color-divider);
+  background: color-mix(in srgb, var(--color-surface) 60%, var(--color-bg));
+  color: var(--color-neutral-200);
+}
+
+.runs__evcount {
+  font-size: 11px;
+  color: var(--color-neutral-600);
+}
+
+.runs__detail-body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 22px 26px 26px;
+  display: flex;
+  flex-direction: column;
+}
+
+.runs__events {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: min(680px, 100%);
+}
+
+.runs__event {
+  position: relative;
+  padding: 11px 13px 12px 17px;
+  border-radius: 9px;
+  border: 1px solid var(--color-divider);
+  background: color-mix(in srgb, var(--color-surface) 55%, var(--color-bg));
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+/* 左侧色条按事件类别着色，扫一眼就能分出哪些是审批 */
+.runs__event-rail {
+  position: absolute;
+  left: 0;
+  top: 10px;
+  bottom: 10px;
+  width: 3px;
+  border-radius: 0 3px 3px 0;
+  background: var(--color-neutral-700);
+}
+
+.runs__event[data-kind='审批'] .runs__event-rail {
+  background: var(--color-accent);
+}
+
+.runs__event[data-kind='节点'] .runs__event-rail {
+  background: var(--color-accent-700);
+}
+
+.runs__event-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.runs__event-time,
+.runs__event-type {
+  font-family: ui-monospace, Menlo, monospace;
+  font-size: 11px;
+}
+
+.runs__event-time {
+  color: var(--color-neutral-600);
+}
+
+.runs__event-type {
+  color: var(--color-neutral-400);
+}
+
+.runs__event-cat {
+  font-size: 10.5px;
+  padding: 1px 7px;
+  border-radius: 20px;
+  background: rgba(233, 233, 237, 0.07);
+  color: var(--color-neutral-500);
+}
+
+.runs__event-node {
+  font-size: 11px;
+  color: var(--color-neutral-600);
+}
+
+.runs__event-title {
+  font-size: 12.5px;
+  line-height: 1.65;
+}
+
+.runs__redact {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 2px 6px;
+  font-size: 11px;
+  color: var(--color-neutral-600);
+  margin: 0;
+}
