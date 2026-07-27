@@ -14,7 +14,10 @@ pnpm dev:server -- --port 5177 --db /tmp/aiwf-e2e/aiwf.sqlite
 python3 tests/e2e/api_e2e.py --workdir /tmp/aiwf-e2e/runs
 python3 tests/e2e/api_e2e.py --workdir /tmp/aiwf-e2e/runs --repo /path/to/git/repo
 
-# 3. 浏览器层：9 条用例，真实点击 → 真实引擎
+# 3. 真实 GitHub 全流程：读 Issue → worktree → 改代码 → 推分支 → 开 PR
+python3 tests/e2e/github_scenario.py --repo /path/to/repo --issue 1
+
+# 4. 浏览器层：16 条用例，真实点击 → 真实引擎
 VITE_AIWF_SERVER=http://127.0.0.1:5177 pnpm dev    # 另开一个终端
 pnpm test:e2e
 ```
@@ -56,6 +59,22 @@ pnpm test:e2e
 | 并发写事件       | `crates/store/tests/store_test.rs`          | #2：4 线程 × 25 条，断言 seq 无缺口 |
 | 终态不可覆盖     | 同上                                        | #3                                  |
 | 事件去重         | `apps/web/tests/runs-store.test.ts`         | #6                                  |
+
+## 真实 GitHub 场景
+
+`tests/e2e/github_scenario.py` 是图纸「GitHub Issue 修复」那条主线的可执行版本：
+AI 节点（分析 / 执行 / 审查 / 决策）留给 M3，其余每一步都是真的 ——
+真调 gh 读 Issue、真建 worktree、真改代码、真推分支、真开 PR。
+
+它验证的几件事单靠单元测试证明不了：
+
+- **审批前外部世界没被动过**：主仓库工作区干净，远端还没有这个分支
+- **批准后才发生外部写操作**：分支推上去、PR 开出来
+- **每个节点都留下 succeeded 事件**：8 个节点全在事件流里
+- **跑完自己收拾干净**：关 PR、删远端分支、移除 worktree
+
+需要 gh 已登录且对目标仓库有写权限。测试用的夹具仓库是
+`HuLuca1998/aiwf-e2e-fixture`（私有），里面留了一个可复现的缓存失效缺陷。
 
 ## 测试数据
 
