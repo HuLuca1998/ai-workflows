@@ -197,7 +197,10 @@ jobs:
         if: ${{ inputs.dry_run }}
         env:
           APPLE_SIGNING_IDENTITY: '-'
-        run: pnpm --filter @aiwf/desktop build -- --target aarch64-apple-darwin
+        # 必须用 exec 直传：`pnpm run build -- --target ...` 里的 `--` 会把参数
+        # 交给 cargo 而不是 tauri，结果 cargo 编到 target/<triple>/ 而 bundler
+        # 仍去找 target/release/，报 "can't open main binary"
+        run: pnpm --filter @aiwf/desktop exec tauri build --target aarch64-apple-darwin
 
       - name: 摘要
         if: always()
