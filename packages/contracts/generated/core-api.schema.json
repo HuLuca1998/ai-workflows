@@ -2910,6 +2910,42 @@
       ]
     }
   },
+  "memory.toggle": {
+    "summary": "启用 / 停用一条记忆",
+    "scope": "memory:write",
+    "mutates": true,
+    "audited": true,
+    "input": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "enabled": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "id",
+        "enabled"
+      ]
+    },
+    "output": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "ok": {
+          "type": "boolean",
+          "const": true
+        }
+      },
+      "required": [
+        "ok"
+      ]
+    }
+  },
   "memory.delete": {
     "summary": "删除记忆（删除后不再注入未来调用）",
     "scope": "memory:write",

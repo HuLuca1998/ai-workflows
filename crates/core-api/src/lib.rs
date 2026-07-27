@@ -111,6 +111,11 @@ impl From<aiwf_engine::supervisor::SupervisorError> for ApiError {
 
 /// 已接通的方法名清单。HTTP 侧按它分派，测试按它守住两端一致。
 pub const COMMANDS: &[&str] = &[
+    "memory_list",
+    "memory_create",
+    "memory_update",
+    "memory_toggle",
+    "memory_delete",
     "prompt_list",
     "prompt_create",
     "prompt_update",
@@ -193,6 +198,51 @@ pub struct RunEventsPage {
     events: Vec<RunEventDto>,
     next_seq: i64,
     has_more: bool,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MemoryDto {
+    pub id: String,
+    pub scope: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub scope_id: Option<String>,
+    pub key: String,
+    pub value: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub summary: Option<String>,
+    pub source: String,
+    pub created_by: String,
+    pub created_at: String,
+    pub updated_at: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub expires_at: Option<String>,
+    pub sensitivity: String,
+    pub ver: i64,
+    pub tags: Vec<String>,
+    pub enabled: bool,
+}
+
+impl From<aiwf_store::MemoryRow> for MemoryDto {
+    fn from(row: aiwf_store::MemoryRow) -> Self {
+        Self {
+            id: row.id,
+            scope: row.scope,
+            scope_id: row.scope_id,
+            key: row.key,
+            value: row.value,
+            summary: row.summary,
+            source: row.source,
+            created_by: row.created_by,
+            created_at: row.created_at,
+            updated_at: row.updated_at,
+            expires_at: row.expires_at,
+            sensitivity: row.sensitivity,
+            ver: row.ver,
+            tags: row.tags,
+            enabled: row.enabled,
+        }
+    }
 }
 
 #[derive(Serialize)]
@@ -852,5 +902,67 @@ pub fn prompt_duplicate(store: &Store, id: String, name: String) -> ApiResult<St
 
 pub fn prompt_delete(store: &Store, id: String) -> ApiResult<()> {
     store.delete_prompt(&id)?;
+    Ok(())
+}
+
+// ── 记忆 ────────────────────────────────────────────────────────────────────
+
+pub fn memory_list(
+    store: &Store,
+    scope: Option<String>,
+    query: Option<String>,
+) -> ApiResult<Vec<MemoryDto>> {
+    Ok(store
+        .list_memories(scope.as_deref(), query.as_deref())?
+        .into_iter()
+        .map(MemoryDto::from)
+        .collect())
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn memory_create(
+    store: &Store,
+    scope: String,
+    scope_id: Option<String>,
+    key: String,
+    value: String,
+    source: Option<String>,
+    created_by: Option<String>,
+    tags: Vec<String>,
+) -> ApiResult<String> {
+    Ok(store.create_memory(&aiwf_store::NewMemory {
+        scope,
+        scope_id,
+        key,
+        value,
+        summary: None,
+        source: source.unwrap_or_else(|| "user".to_string()),
+        created_by: created_by.unwrap_or_else(|| "本地用户".to_string()),
+        sensitivity: "internal".to_string(),
+        tags,
+    })?)
+}
+
+/// 更新记忆。`baseVer` 是乐观锁 —— 落后的版本会被拒绝，
+/// 否则 AI 通过 MCP 的写入会悄悄覆盖用户刚改的内容。
+pub fn memory_update(
+    store: &Store,
+    id: String,
+    base_ver: i64,
+    value: Option<String>,
+    tags: Option<Vec<String>>,
+) -> ApiResult<()> {
+    store.update_memory(&id, base_ver, value.as_deref(), tags.as_deref())?;
+    Ok(())
+}
+
+/// 启用 / 停用。停用是比删除更轻的一档：先停掉看看有没有影响。
+pub fn memory_toggle(store: &Store, id: String, enabled: bool) -> ApiResult<()> {
+    store.set_memory_enabled(&id, enabled)?;
+    Ok(())
+}
+
+pub fn memory_delete(store: &Store, id: String) -> ApiResult<()> {
+    store.delete_memory(&id)?;
     Ok(())
 }

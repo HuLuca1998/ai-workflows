@@ -228,6 +228,67 @@ fn map_agent_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<AgentRow> {
     })
 }
 
+/// 写一条记忆。
+///
+/// 记忆会被注入后续每一次 AI 调用 —— 所以它既是长期上下文，
+/// 也是一条**持续生效**的指令。这决定了几件事：
+/// key 在作用域内唯一、更新要带版本号、内容不能有密钥。
+pub struct NewMemory {
+    pub scope: String,
+    pub scope_id: Option<String>,
+    pub key: String,
+    pub value: String,
+    pub summary: Option<String>,
+    /// user / ai_proposed / system。AI 提议的默认不启用。
+    pub source: String,
+    pub created_by: String,
+    pub sensitivity: String,
+    pub tags: Vec<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct MemoryRow {
+    pub id: String,
+    pub scope: String,
+    pub scope_id: Option<String>,
+    pub key: String,
+    pub value: String,
+    pub summary: Option<String>,
+    pub source: String,
+    pub created_by: String,
+    pub created_at: String,
+    pub updated_at: String,
+    pub expires_at: Option<String>,
+    pub sensitivity: String,
+    pub ver: i64,
+    pub tags: Vec<String>,
+    pub enabled: bool,
+}
+
+const MEMORY_COLUMNS: &str = "id, scope, scope_id, key, value, summary, source, created_by,
+     created_at, updated_at, expires_at, sensitivity, ver, tags_json, enabled";
+
+fn map_memory_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<MemoryRow> {
+    let tags: String = row.get(13)?;
+    Ok(MemoryRow {
+        id: row.get(0)?,
+        scope: row.get(1)?,
+        scope_id: row.get(2)?,
+        key: row.get(3)?,
+        value: row.get(4)?,
+        summary: row.get(5)?,
+        source: row.get(6)?,
+        created_by: row.get(7)?,
+        created_at: row.get(8)?,
+        updated_at: row.get(9)?,
+        expires_at: row.get(10)?,
+        sensitivity: row.get(11)?,
+        ver: row.get(12)?,
+        tags: serde_json::from_str(&tags).unwrap_or_default(),
+        enabled: row.get::<_, i64>(14)? != 0,
+    })
+}
+
 /// 登记一条提示词。
 ///
 /// 「系统调用 AI 的每一处都在这里：节点、⌘K 协作、记忆提议、通知与失败归因。」
@@ -308,17 +369,6 @@ pub struct CheckpointRow {
     pub env_json: String,
     pub pending_approval_json: Option<String>,
     pub created_at: String,
-}
-
-#[derive(Debug, Clone)]
-pub struct MemoryRow {
-    pub id: String,
-    pub scope: String,
-    pub scope_id: Option<String>,
-    pub key: String,
-    pub value: String,
-    pub ver: i64,
-    pub updated_at: String,
 }
 
 #[derive(Debug, Clone)]
@@ -720,6 +770,168 @@ impl Store {
         let rows = stmt.query_map(params.as_slice(), map_run_row)?;
         rows.collect::<std::result::Result<Vec<_>, _>>()
             .map_err(StoreError::from)
+    }
+
+    // ── 记忆 ─────────────────────────────────────────────────────────────
+
+    pub fn create_memory(&self, memory: &NewMemory) -> Result<String> {
+        reject_secret_like(&memory.value)?;
+
+        // 同一作用域下 key 唯一：两条同 key 的记忆会让
+        // 「注入哪一条」变成运气问题
+        let exists: i64 = self.conn.query_row(
+            "SELECT COUNT(*) FROM memory
+             WHERE scope = ?1 AND COALESCE(scope_id, '') = COALESCE(?2, '') AND key = ?3",
+            params![memory.scope, memory.scope_id, memory.key],
+            |row| row.get(0),
+        )?;
+        if exists > 0 {
+            return Err(StoreError::Invalid(format!(
+                "{} 作用域下已存在 key {}",
+                memory.scope, memory.key
+            )));
+        }
+
+        // AI 提议的默认不启用：「确认后才保存，并注入后续调用」
+        let enabled = memory.source != "ai_proposed";
+
+        let id = new_id("mem");
+        let now = now_iso();
+        let tags =
+            serde_json::to_string(&memory.tags).map_err(|e| StoreError::Invalid(e.to_string()))?;
+        self.conn.execute(
+            "INSERT INTO memory(id, scope, scope_id, key, value, summary, source, created_by,
+                                created_at, updated_at, sensitivity, ver, tags_json, enabled)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?9, ?10, 1, ?11, ?12)",
+            params![
+                id,
+                memory.scope,
+                memory.scope_id,
+                memory.key,
+                memory.value,
+                memory.summary,
+                memory.source,
+                memory.created_by,
+                now,
+                memory.sensitivity,
+                tags,
+                i64::from(enabled),
+            ],
+        )?;
+        self.index_text("memory", &id, &format!("{} {}", memory.key, memory.value))?;
+        Ok(id)
+    }
+
+    pub fn get_memory(&self, id: &str) -> Result<Option<MemoryRow>> {
+        let sql = format!("SELECT {MEMORY_COLUMNS} FROM memory WHERE id = ?1");
+        let row = self
+            .conn
+            .query_row(&sql, params![id], map_memory_row)
+            .optional()?;
+        Ok(row)
+    }
+
+    /// 列出记忆。`query` 同时匹配 key、内容与标签
+    ///（图纸的搜索框写的是「搜索 key、内容或标签」）。
+    pub fn list_memories(
+        &self,
+        scope: Option<&str>,
+        query: Option<&str>,
+    ) -> Result<Vec<MemoryRow>> {
+        let sql = format!(
+            "SELECT {MEMORY_COLUMNS} FROM memory
+             WHERE (?1 IS NULL OR scope = ?1)
+               AND (?2 IS NULL OR key LIKE ?2 OR value LIKE ?2 OR tags_json LIKE ?2)
+             ORDER BY updated_at DESC"
+        );
+        let like = query.map(|q| format!("%{q}%"));
+        let mut stmt = self.conn.prepare(&sql)?;
+        let rows = stmt.query_map(params![scope, like], map_memory_row)?;
+        rows.collect::<std::result::Result<Vec<_>, _>>()
+            .map_err(StoreError::from)
+    }
+
+    /// 要注入到下一次 AI 调用里的记忆。
+    ///
+    /// 只取**启用且未过期**的。停用与过期的仍留在列表里 ——
+    /// 用户要能看到它们并知道为什么不生效。
+    pub fn memories_for_injection(
+        &self,
+        scope: &str,
+        scope_id: Option<&str>,
+    ) -> Result<Vec<MemoryRow>> {
+        let sql = format!(
+            "SELECT {MEMORY_COLUMNS} FROM memory
+             WHERE scope = ?1
+               AND COALESCE(scope_id, '') = COALESCE(?2, '')
+               AND enabled = 1
+               AND (expires_at IS NULL OR expires_at > ?3)
+             ORDER BY updated_at DESC"
+        );
+        let mut stmt = self.conn.prepare(&sql)?;
+        let rows = stmt.query_map(params![scope, scope_id, now_iso()], map_memory_row)?;
+        rows.collect::<std::result::Result<Vec<_>, _>>()
+            .map_err(StoreError::from)
+    }
+
+    /// 更新记忆，**带乐观锁**。
+    ///
+    /// `base_ver` 与当前版本对不上就拒绝。没有这道锁，AI 通过 MCP 的写入
+    /// 会悄悄覆盖用户刚改的内容 —— 而用户不会知道自己的修改没了。
+    pub fn update_memory(
+        &self,
+        id: &str,
+        base_ver: i64,
+        value: Option<&str>,
+        tags: Option<&[String]>,
+    ) -> Result<()> {
+        if let Some(value) = value {
+            reject_secret_like(value)?;
+        }
+        let tags_json = tags
+            .map(serde_json::to_string)
+            .transpose()
+            .map_err(|e| StoreError::Invalid(e.to_string()))?;
+
+        let changed = self.conn.execute(
+            "UPDATE memory SET
+                value      = COALESCE(?3, value),
+                tags_json  = COALESCE(?4, tags_json),
+                ver        = ver + 1,
+                updated_at = ?5
+             WHERE id = ?1 AND ver = ?2",
+            params![id, base_ver, value, tags_json, now_iso()],
+        )?;
+
+        if changed == 0 {
+            let current = self.get_memory(id)?.map_or(0, |m| m.ver);
+            return Err(StoreError::Invalid(format!(
+                "记忆已被改过：你带的版本是 {base_ver}，当前是 {current}。请重新读取后再改"
+            )));
+        }
+        Ok(())
+    }
+
+    pub fn set_memory_enabled(&self, id: &str, enabled: bool) -> Result<()> {
+        self.conn.execute(
+            "UPDATE memory SET enabled = ?2, updated_at = ?3 WHERE id = ?1",
+            params![id, i64::from(enabled), now_iso()],
+        )?;
+        Ok(())
+    }
+
+    pub fn set_memory_expiry(&self, id: &str, expires_at: Option<&str>) -> Result<()> {
+        self.conn.execute(
+            "UPDATE memory SET expires_at = ?2, updated_at = ?3 WHERE id = ?1",
+            params![id, expires_at, now_iso()],
+        )?;
+        Ok(())
+    }
+
+    pub fn delete_memory(&self, id: &str) -> Result<()> {
+        self.conn
+            .execute("DELETE FROM memory WHERE id = ?1", params![id])?;
+        Ok(())
     }
 
     // ── 提示词库 ─────────────────────────────────────────────────────────
@@ -1345,26 +1557,6 @@ impl Store {
         }
     }
 
-    pub fn list_memory(&self, scope: &str, scope_id: Option<&str>) -> Result<Vec<MemoryRow>> {
-        let mut stmt = self.conn.prepare(
-            "SELECT id, scope, scope_id, key, value, ver, updated_at FROM memory
-             WHERE scope = ?1 AND IFNULL(scope_id, '') = IFNULL(?2, '') AND enabled = 1
-             ORDER BY updated_at DESC",
-        )?;
-        let rows = stmt.query_map(params![scope, scope_id], |row| {
-            Ok(MemoryRow {
-                id: row.get(0)?,
-                scope: row.get(1)?,
-                scope_id: row.get(2)?,
-                key: row.get(3)?,
-                value: row.get(4)?,
-                ver: row.get(5)?,
-                updated_at: row.get(6)?,
-            })
-        })?;
-        Ok(rows.collect::<std::result::Result<Vec<_>, _>>()?)
-    }
-
     // ── 全文检索 ────────────────────────────────────────────────────────────
 
     fn index_text(&self, kind: &str, ref_id: &str, text: &str) -> Result<()> {
@@ -1493,6 +1685,34 @@ fn segment_cjk(text: &str) -> String {
         }
     }
     out
+}
+
+/// 记忆内容里不能出现看起来像凭据的东西。
+///
+/// 「Token、密钥和敏感文件内容禁止写入记忆」—— 记忆会被注入
+/// **每一次** AI 调用，写进去等于持续发给模型，而且会跟着
+/// 导出包、诊断包到处走。
+///
+/// 这里只挡明显的形态。真正的防线是「Secret 只进 Keychain」，
+/// 但那管不住用户手工粘贴 —— 所以这一层要有。
+fn reject_secret_like(value: &str) -> Result<()> {
+    const PATTERNS: &[(&str, &str)] = &[
+        ("AKIA", "AWS 访问密钥"),
+        ("sk-ant-", "Anthropic API Key"),
+        ("ghp_", "GitHub 个人令牌"),
+        ("gho_", "GitHub OAuth 令牌"),
+        ("xoxb-", "Slack Bot 令牌"),
+        ("-----BEGIN", "私钥"),
+    ];
+
+    for (prefix, what) in PATTERNS {
+        if value.contains(prefix) {
+            return Err(StoreError::Invalid(format!(
+                "内容里像是有{what}。记忆会被注入每一次 AI 调用，密钥请存进钥匙串后用 keychain:// 引用"
+            )));
+        }
+    }
+    Ok(())
 }
 
 /// 分段必须是非空的 JSON 数组。

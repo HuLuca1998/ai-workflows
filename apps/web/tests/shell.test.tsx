@@ -132,11 +132,20 @@ describe('路由', () => {
     // 硬塞一个会偏离图纸，可识别名由各栏的 aria-label 承担
     const SELF_DRAWN_WITHOUT_H1 = new Set(['/runs', '/models', '/agents', '/prompts']);
 
+    // 图纸给的标题：概览是「工作流」不是菜单名「概览与工作流」，
+    // 记忆是「记忆管理」不是「记忆」
+    const SELF_DRAWN_TITLES: Record<string, string> = {
+      '/': '工作流',
+      '/memory': '记忆管理',
+    };
+
     for (const item of NAV_ITEMS.filter((nav) => !SELF_DRAWN_WITHOUT_H1.has(nav.path))) {
       const { unmount } = renderShell(item.path);
       const heading = screen.getByRole('heading', { level: 1 });
-      // 首页是自绘整屏（标题「工作流」），其余骨架页的标题等于菜单名
-      expect(heading.textContent?.trim()).toBe(item.path === '/' ? '工作流' : item.label);
+      // 自绘整屏的标题按图纸走，与菜单名不一定相同；
+      // 其余骨架页的标题等于菜单名
+      const expected = SELF_DRAWN_TITLES[item.path] ?? item.label;
+      expect(heading.textContent?.trim()).toBe(expected);
       unmount();
     }
   });

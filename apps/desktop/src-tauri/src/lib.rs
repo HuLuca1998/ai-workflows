@@ -28,6 +28,58 @@ pub mod tray;
 type IpcResult<T> = Result<T, ApiError>;
 
 #[tauri::command]
+fn memory_list(
+    state: State<'_, AppState>,
+    scope: Option<String>,
+    query: Option<String>,
+) -> IpcResult<Vec<api::MemoryDto>> {
+    let store = lock(&state)?;
+    api::memory_list(&store, scope, query)
+}
+
+#[allow(clippy::too_many_arguments)]
+#[tauri::command]
+fn memory_create(
+    state: State<'_, AppState>,
+    scope: String,
+    scope_id: Option<String>,
+    key: String,
+    value: String,
+    source: Option<String>,
+    created_by: Option<String>,
+    tags: Vec<String>,
+) -> IpcResult<String> {
+    let store = lock(&state)?;
+    api::memory_create(
+        &store, scope, scope_id, key, value, source, created_by, tags,
+    )
+}
+
+#[tauri::command]
+fn memory_update(
+    state: State<'_, AppState>,
+    id: String,
+    base_ver: i64,
+    value: Option<String>,
+    tags: Option<Vec<String>>,
+) -> IpcResult<()> {
+    let store = lock(&state)?;
+    api::memory_update(&store, id, base_ver, value, tags)
+}
+
+#[tauri::command]
+fn memory_toggle(state: State<'_, AppState>, id: String, enabled: bool) -> IpcResult<()> {
+    let store = lock(&state)?;
+    api::memory_toggle(&store, id, enabled)
+}
+
+#[tauri::command]
+fn memory_delete(state: State<'_, AppState>, id: String) -> IpcResult<()> {
+    let store = lock(&state)?;
+    api::memory_delete(&store, id)
+}
+
+#[tauri::command]
 fn prompt_list(
     state: State<'_, AppState>,
     query: Option<String>,
@@ -513,6 +565,11 @@ pub fn run() {
             run_cancel,
             run_resume,
             approval_decide,
+            memory_list,
+            memory_create,
+            memory_update,
+            memory_toggle,
+            memory_delete,
             prompt_list,
             prompt_create,
             prompt_update,

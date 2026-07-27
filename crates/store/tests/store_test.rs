@@ -6,7 +6,9 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
-use aiwf_store::{EXPECTED_SCHEMA_VERSION, NewAgent, NewModel, NewPrompt, NewRunEvent, Store};
+use aiwf_store::{
+    EXPECTED_SCHEMA_VERSION, NewAgent, NewMemory, NewModel, NewPrompt, NewRunEvent, Store,
+};
 
 fn store() -> Store {
     Store::open_in_memory().expect("打开内存库")
@@ -251,7 +253,7 @@ fn 记忆在同一作用域内_key_唯一() {
     s.upsert_memory("workflow", Some("wf_1"), "保留 worktree", "改成合并后清理")
         .unwrap();
 
-    let items = s.list_memory("workflow", Some("wf_1")).unwrap();
+    let items = s.memories_for_injection("workflow", Some("wf_1")).unwrap();
     assert_eq!(items.len(), 1, "同一 key 应更新而不是新增");
     assert_eq!(items[0].value, "改成合并后清理");
     assert_eq!(items[0].ver, 2, "每次更新生成新版本");
@@ -259,7 +261,7 @@ fn 记忆在同一作用域内_key_唯一() {
     // 不同作用域互不干扰
     s.upsert_memory("global", None, "保留 worktree", "全局偏好")
         .unwrap();
-    assert_eq!(s.list_memory("global", None).unwrap().len(), 1);
+    assert_eq!(s.memories_for_injection("global", None).unwrap().len(), 1);
 }
 
 // ── 全文检索 ────────────────────────────────────────────────────────────────
@@ -1071,4 +1073,215 @@ fn 删除自建提示词后读不到() {
     let id = store.create_prompt(&prompt("待删")).unwrap();
     store.delete_prompt(&id).unwrap();
     assert!(store.get_prompt(&id).unwrap().is_none());
+}
+
+// ── 记忆（M4）──────────────────────────────────────────────────────────────
+
+fn memory(key: &str) -> NewMemory {
+    NewMemory {
+        scope: "workspace".to_string(),
+        scope_id: None,
+        key: key.to_string(),
+        value: "PR 合并前保留 worktree".to_string(),
+        summary: None,
+        source: "user".to_string(),
+        created_by: "本地用户".to_string(),
+        sensitivity: "internal".to_string(),
+        tags: vec!["worktree".to_string()],
+    }
+}
+
+#[test]
+fn 写入记忆后能按_key_读回() {
+    let store = Store::open_in_memory().unwrap();
+    let id = store.create_memory(&memory("worktree.cleanup")).unwrap();
+
+    let found = store.get_memory(&id).unwrap().expect("应当能读到");
+    assert_eq!(found.key, "worktree.cleanup");
+    assert_eq!(found.scope, "workspace");
+    assert_eq!(found.ver, 1);
+    assert!(found.enabled);
+}
+
+#[test]
+fn 同一作用域下_key_唯一() {
+    // 两条同 key 的记忆会让「注入哪一条」变成运气问题
+    let store = Store::open_in_memory().unwrap();
+    store.create_memory(&memory("dup.key")).unwrap();
+    let error = store
+        .create_memory(&memory("dup.key"))
+        .unwrap_err()
+        .to_string();
+    assert!(
+        error.contains("已存在") || error.contains("唯一"),
+        "错误实际：{error}"
+    );
+}
+
+#[test]
+fn 不同作用域可以有同名_key() {
+    // global 的「代码风格」与某个工作流的「代码风格」是两回事
+    let store = Store::open_in_memory().unwrap();
+    let mut global = memory("code.style");
+    global.scope = "global".to_string();
+    store.create_memory(&global).unwrap();
+    store.create_memory(&memory("code.style")).unwrap();
+
+    assert_eq!(store.list_memories(None, None).unwrap().len(), 2);
+}
+
+#[test]
+fn 按作用域筛选() {
+    // 图纸顶部有一排作用域 chips
+    let store = Store::open_in_memory().unwrap();
+    let mut global = memory("g");
+    global.scope = "global".to_string();
+    store.create_memory(&global).unwrap();
+    store.create_memory(&memory("w")).unwrap();
+
+    assert_eq!(store.list_memories(Some("global"), None).unwrap().len(), 1);
+    assert_eq!(
+        store.list_memories(Some("workspace"), None).unwrap().len(),
+        1
+    );
+}
+
+#[test]
+fn 搜索命中_key_内容与标签() {
+    // 图纸的搜索框写的是「搜索 key、内容或标签」
+    let store = Store::open_in_memory().unwrap();
+    store.create_memory(&memory("worktree.cleanup")).unwrap();
+
+    assert_eq!(
+        store.list_memories(None, Some("worktree")).unwrap().len(),
+        1
+    );
+    assert_eq!(store.list_memories(None, Some("PR 合并")).unwrap().len(), 1);
+    assert_eq!(store.list_memories(None, Some("不相干")).unwrap().len(), 0);
+}
+
+#[test]
+fn 更新带乐观锁_落后的版本被拒绝() {
+    // 「AI 通过 MCP 更新时携带版本号，落后版本会被拒绝」——
+    // 没有这道锁，AI 的写入会悄悄覆盖用户刚改的内容
+    let store = Store::open_in_memory().unwrap();
+    let id = store.create_memory(&memory("locked")).unwrap();
+
+    store.update_memory(&id, 1, Some("用户改的"), None).unwrap();
+    assert_eq!(store.get_memory(&id).unwrap().unwrap().ver, 2);
+
+    // AI 拿着旧版本号来写
+    let error = store
+        .update_memory(&id, 1, Some("AI 改的"), None)
+        .unwrap_err()
+        .to_string();
+    assert!(error.contains("版本"), "错误实际：{error}");
+    assert_eq!(store.get_memory(&id).unwrap().unwrap().value, "用户改的");
+}
+
+#[test]
+fn 停用的记忆不再注入_但还留着() {
+    // 「删除后不再注入未来调用」——停用是比删除更轻的一档：
+    // 先停掉看看有没有影响，确认没用了再删
+    let store = Store::open_in_memory().unwrap();
+    let id = store.create_memory(&memory("toggle")).unwrap();
+
+    store.set_memory_enabled(&id, false).unwrap();
+    assert!(!store.get_memory(&id).unwrap().unwrap().enabled);
+
+    // 注入时只取启用的
+    assert_eq!(
+        store
+            .memories_for_injection("workspace", None)
+            .unwrap()
+            .len(),
+        0
+    );
+    store.set_memory_enabled(&id, true).unwrap();
+    assert_eq!(
+        store
+            .memories_for_injection("workspace", None)
+            .unwrap()
+            .len(),
+        1
+    );
+}
+
+#[test]
+fn 过期的记忆不再注入() {
+    let store = Store::open_in_memory().unwrap();
+    let id = store.create_memory(&memory("expiring")).unwrap();
+    store
+        .set_memory_expiry(&id, Some("2020-01-01T00:00:00.000Z"))
+        .unwrap();
+
+    assert_eq!(
+        store
+            .memories_for_injection("workspace", None)
+            .unwrap()
+            .len(),
+        0
+    );
+    // 但列表里还能看到它 —— 用户要知道它为什么不生效
+    assert_eq!(store.list_memories(None, None).unwrap().len(), 1);
+}
+
+#[test]
+fn ai_提议的记忆默认不启用_要确认才生效() {
+    // 图纸：「AI 提议写入 · 确认后才保存，并注入后续调用」
+    let store = Store::open_in_memory().unwrap();
+    let mut proposed = memory("ai.suggested");
+    proposed.source = "ai_proposed".to_string();
+    let id = store.create_memory(&proposed).unwrap();
+
+    let found = store.get_memory(&id).unwrap().unwrap();
+    assert!(!found.enabled, "AI 提议的记忆不该直接生效");
+    assert_eq!(
+        store
+            .memories_for_injection("workspace", None)
+            .unwrap()
+            .len(),
+        0
+    );
+
+    // 采纳后才注入
+    store.set_memory_enabled(&id, true).unwrap();
+    assert_eq!(
+        store
+            .memories_for_injection("workspace", None)
+            .unwrap()
+            .len(),
+        1
+    );
+}
+
+#[test]
+fn 看起来像密钥的内容被拒绝() {
+    // 「Token、密钥和敏感文件内容禁止写入记忆」——
+    // 记忆会被注入每一次 AI 调用，写进去等于发给模型
+    let store = Store::open_in_memory().unwrap();
+    let mut secret = memory("leaked");
+    secret.value = "AKIAIOSFODNN7EXAMPLE".to_string();
+
+    let error = store.create_memory(&secret).unwrap_err().to_string();
+    assert!(
+        error.contains("密钥") || error.contains("凭据"),
+        "错误实际：{error}"
+    );
+}
+
+#[test]
+fn 删除后彻底不注入() {
+    let store = Store::open_in_memory().unwrap();
+    let id = store.create_memory(&memory("gone")).unwrap();
+    store.delete_memory(&id).unwrap();
+
+    assert!(store.get_memory(&id).unwrap().is_none());
+    assert_eq!(
+        store
+            .memories_for_injection("workspace", None)
+            .unwrap()
+            .len(),
+        0
+    );
 }

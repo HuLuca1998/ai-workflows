@@ -25,6 +25,34 @@ pub fn dispatch(
     })?;
 
     match command {
+        "memory_list" => to_value(api::memory_list(
+            &store,
+            opt_string(input, "scope"),
+            opt_string(input, "query"),
+        )?),
+        "memory_create" => to_value(api::memory_create(
+            &store,
+            string(input, "scope")?,
+            opt_string(input, "scopeId"),
+            string(input, "key")?,
+            string(input, "value")?,
+            opt_string(input, "source"),
+            opt_string(input, "createdBy"),
+            strings(input, "tags"),
+        )?),
+        "memory_update" => to_value(api::memory_update(
+            &store,
+            string(input, "id")?,
+            int(input, "baseVer")?,
+            opt_string(input, "value"),
+            opt_strings(input, "tags"),
+        )?),
+        "memory_toggle" => to_value(api::memory_toggle(
+            &store,
+            string(input, "id")?,
+            boolean(input, "enabled"),
+        )?),
+        "memory_delete" => to_value(api::memory_delete(&store, string(input, "id")?)?),
         "prompt_list" => to_value(api::prompt_list(&store, opt_string(input, "query"))?),
         "prompt_create" => to_value(api::prompt_create(
             &store,

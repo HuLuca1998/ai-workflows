@@ -118,11 +118,54 @@ test.describe('提示词库（图纸「06 提示词库」）', () => {
   });
 });
 
+test.describe('记忆管理（图纸「04 记忆管理」）', () => {
+  test.beforeEach(async ({ page }) => {
+    await page.goto('/memory');
+    await expect(page.getByRole('heading', { level: 1 })).toHaveText('记忆管理');
+  });
+
+  test('作用域 chips 照图纸六个', async ({ page }) => {
+    const group = page.getByRole('group', { name: '作用域' });
+    const labels = await group.getByRole('button').allTextContents();
+    expect(labels.map((l) => l.trim())).toEqual([
+      '全部',
+      '全局',
+      '工作区',
+      '工作流',
+      'Agent',
+      '会话',
+    ]);
+  });
+
+  test('底部常驻那句关于密钥与权限的说明', async ({ page }) => {
+    await expect(page.getByText(/Token、密钥和敏感文件内容禁止写入记忆/)).toBeVisible();
+  });
+
+  test('AI 提议的条目单独占一块，并说明确认后才生效', async ({ page }) => {
+    const region = page.getByRole('region', { name: 'AI 提议写入' });
+    if ((await region.count()) === 0) test.skip();
+    await expect(region.getByText('确认后才保存，并注入后续调用')).toBeVisible();
+  });
+
+  test('停用一条记忆后它仍在列表里，只是标成已停用', async ({ page }) => {
+    const rows = page.locator('.memory__row[data-enabled]');
+    if ((await rows.count()) === 0) test.skip();
+
+    const before = await rows.count();
+    const toggle = page.locator('.memory__actions button').first();
+    await toggle.click();
+
+    // 条数不变 —— 停用不是删除
+    await expect(rows).toHaveCount(before);
+    await expect(page.locator('.memory__off').first()).toBeVisible();
+
+    // 恢复原状，别污染留存数据
+    await page.locator('.memory__actions button').first().click();
+  });
+});
+
 test.describe('尚未实现的屏', () => {
-  for (const [path, label] of [
-    ['/memory', '记忆'],
-    ['/onboarding', '首次配置'],
-  ] as const) {
+  for (const [path, label] of [['/onboarding', '首次配置']] as const) {
     test(`${label} 说明自己在等哪个里程碑，而不是白屏`, async ({ page }) => {
       await page.goto(path);
       await expect(page.getByRole('heading', { level: 1 })).toContainText(label);

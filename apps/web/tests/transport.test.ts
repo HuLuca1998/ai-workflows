@@ -20,9 +20,9 @@ describe('方法名映射', () => {
   });
 
   it('尚未接通的方法返回 null，由调用方报明确的未实现错误', () => {
-    // run.retryNode 属于 M2 后半段，memory.* 属于 M4
+    // run.retryNode 属于 M2 后半段，env.health 属于 M5
     expect(ipcCommandFor('run.retryNode')).toBeNull();
-    expect(ipcCommandFor('memory.list')).toBeNull();
+    expect(ipcCommandFor('env.health')).toBeNull();
   });
 });
 
@@ -137,7 +137,7 @@ describe('未接通的方法', () => {
     const { createTauriTransport } = await import('../src/data/ipc.js');
     const invoke = vi.fn();
     const transport = createTauriTransport(async (cmd, args) => invoke(cmd, args));
-    await expect(transport.call('memory.list', {})).rejects.toThrow(/尚未接通|ROADMAP/u);
+    await expect(transport.call('env.health', {})).rejects.toThrow(/尚未接通|ROADMAP/u);
     expect(invoke).not.toHaveBeenCalled();
   });
 });

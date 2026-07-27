@@ -35,6 +35,11 @@ const COMMANDS: Partial<Record<CoreApiMethod, string>> = {
   'run.cancel': 'run_cancel',
   'run.resume': 'run_resume',
   'approval.decide': 'approval_decide',
+  'memory.list': 'memory_list',
+  'memory.create': 'memory_create',
+  'memory.update': 'memory_update',
+  'memory.toggle': 'memory_toggle',
+  'memory.delete': 'memory_delete',
   'prompt.list': 'prompt_list',
   'prompt.create': 'prompt_create',
   'prompt.update': 'prompt_update',
@@ -297,11 +302,13 @@ export function fromIpcResult(method: CoreApiMethod, raw: unknown): unknown {
     case 'run.resume':
       return { ok: true };
 
+    case 'memory.list':
     case 'prompt.list':
     case 'agent.list':
     case 'model.list':
       return { items: raw ?? [] };
 
+    case 'memory.create':
     case 'agent.create':
     case 'agent.duplicate':
     case 'prompt.create':
@@ -312,6 +319,9 @@ export function fromIpcResult(method: CoreApiMethod, raw: unknown): unknown {
     case 'agent.delete':
     case 'prompt.update':
     case 'prompt.delete':
+    case 'memory.update':
+    case 'memory.toggle':
+    case 'memory.delete':
       return { ok: true };
 
     case 'model.create':

@@ -366,6 +366,17 @@ const SPECS = {
     scope: 'memory:write',
     summary: '更新记忆并生成新版本',
   },
+  'memory.toggle': {
+    // 停用是比删除更轻的一档：先停掉看看有没有影响，确认没用了再删。
+    // 与 update 分开是为了让「谁在什么时候停用了哪条记忆」在审计里单独可见 ——
+    // 记忆会注入每一次 AI 调用，它的开关值得单独记一笔
+    input: z.object({ id: z.string().min(1), enabled: z.boolean() }),
+    output: ok,
+    mutates: true,
+    audited: true,
+    scope: 'memory:write',
+    summary: '启用 / 停用一条记忆',
+  },
   'memory.delete': {
     input: idOnly,
     output: ok,

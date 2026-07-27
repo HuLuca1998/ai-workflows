@@ -105,6 +105,7 @@
     "memory.list",
     "memory.create",
     "memory.update",
+    "memory.toggle",
     "memory.delete",
     "prompt.list",
     "prompt.create",
