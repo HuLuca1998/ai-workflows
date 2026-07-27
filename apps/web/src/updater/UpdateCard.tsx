@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useState } from 'react';
-import { UpdateController, type UpdaterBackend } from '@aiwf/client-core';
+import { UpdateController, isDevVersion, type UpdaterBackend } from '@aiwf/client-core';
 import { Button, Tag } from '@aiwf/ui';
+import type { VersionInfo } from './useAppVersion.js';
 
 export interface UpdateCardProps {
-  currentVersion: string;
+  versionInfo: VersionInfo;
   /** 桌面形态注入 Tauri 后端；Web 形态传 null。 */
   backend: UpdaterBackend | null;
   /** 自动检查：进入设置页时查一次。 */
@@ -16,7 +17,8 @@ export interface UpdateCardProps {
  * 刻意不做「发现新版本就弹窗」：这是一个会长时间挂着运行的工具，
  * 打断正在等审批的用户比晚一天更新代价更大。用户来到这一屏才提示。
  */
-export function UpdateCard({ currentVersion, backend, autoCheck = true }: UpdateCardProps) {
+export function UpdateCard({ versionInfo, backend, autoCheck = true }: UpdateCardProps) {
+  const { version: currentVersion, source, error: versionError } = versionInfo;
   const controller = useMemo(
     () => (backend ? new UpdateController(backend, { currentVersion }) : null),
     [backend, currentVersion],
@@ -41,6 +43,20 @@ export function UpdateCard({ currentVersion, backend, autoCheck = true }: Update
     );
   }
 
+  // 版本读不到就没法比较，检查更新一定不会工作——必须说清原因而不是显示「尚未检查更新」
+  if (source === 'unavailable') {
+    return (
+      <section className="update-card" data-status="error">
+        <header className="update-card__head">
+          <h2>版本</h2>
+          <Tag tone="danger">未知</Tag>
+        </header>
+        <p className="update-card__error">{versionError ?? '无法读取应用版本'}</p>
+        <p className="update-card__meta">版本未知时不会检查更新，避免拿错版本号做比较。</p>
+      </section>
+    );
+  }
+
   const state = controller.state;
 
   return (
@@ -52,7 +68,11 @@ export function UpdateCard({ currentVersion, backend, autoCheck = true }: Update
         </Tag>
       </header>
 
-      <p className="update-card__meta">{describe(state.status, state.latest)}</p>
+      <p className="update-card__meta">
+        {isDevVersion(currentVersion)
+          ? '开发构建不检查更新（没有对应的发布版本）'
+          : describe(state.status, state.latest)}
+      </p>
       {state.notes ? <p className="update-card__notes">{state.notes}</p> : null}
       {state.message ? <p className="update-card__error">{state.message}</p> : null}
 

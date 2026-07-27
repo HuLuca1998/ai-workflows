@@ -7,8 +7,8 @@ import { useWorkspace } from '../src/data/workspace.js';
 /**
  * 概览页按图纸「01 工作流首页」实现。
  *
- * 这里守的核心是一条产品原则：**界面上不出现假数据**。
- * 引擎还没接上的统计必须显示「—」并说明原因，否则「可解释优先」就失效了。
+ * 守的是两件事：结构与图纸一致（四张卡、标签、筛选 chips），
+ * 以及引擎未接通时数值位留空——不填演示数字，也不加图纸上没有的说明文案。
  */
 
 const renderPage = () =>
@@ -31,20 +31,19 @@ describe('页面骨架', () => {
     await waitFor(() => expect(screen.getByText(/本地优先 · \d+ 个工作流/u)).toBeInTheDocument());
   });
 
-  it('统计条四列齐全', () => {
+  it('统计条四张卡与图纸一致', () => {
     renderPage();
-    // 在统计区内查找：「工作流」既是大标题也是统计卡标签
     const stats = screen.getByRole('region', { name: '概览统计' });
-    for (const label of ['等待审批', '今日运行', 'Token 用量', '工作流']) {
+    for (const label of ['等待审批', '今日运行', 'Token 用量', '活跃 worktree']) {
       expect(within(stats).getByText(label)).toBeInTheDocument();
     }
   });
 
-  it('引擎未接上的统计显示「—」并标明何时可用，而不是编一个数字', () => {
+  it('引擎未接通时数值位留空，不填演示数字也不加图纸外的文案', () => {
     renderPage();
     const stats = screen.getByRole('region', { name: '概览统计' });
-    expect(within(stats).getAllByText('—').length).toBeGreaterThanOrEqual(3);
-    expect(within(stats).getAllByText(/接上后可用/u).length).toBeGreaterThan(0);
+    expect(stats.textContent).not.toMatch(/[0-9]/u);
+    expect(stats.textContent).not.toMatch(/可用|待接入|—/u);
   });
 
   it('搜索框与两个操作按钮就位', () => {

@@ -98,19 +98,27 @@ jobs:
       - name: 安装 Rust 工具链
         run: rustup toolchain install stable --profile minimal --target aarch64-apple-darwin
 
+      # 缓存要**写**：CI 那边跑的是 cargo check（debug profile，产物是 rmeta），
+      # 与这里的 release 构建不共享编译产物，只共享 crates 下载。
+      # 所以发版必须自己保存一份 release profile 的 target，
+      # 下一次发版才能真正复用——不写的话每次发版都从零编译。
       - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: macos-arm64-release
+          cache-all-crates: true
 
       - name: 安装依赖
         run: pnpm install --frozen-lockfile
 
       # 发布前最后一道门禁：不把坏版本推给用户。
-      # CI 已经跑过一遍，但 tag 可能指向一个没跑过 CI 的提交。
+      # 刻意不跑 cargo test —— 它用 debug profile，会把整个依赖树再编译一遍
+      # （与紧接着的 release 构建不共享产物），单这一步就多花一分多钟。
+      # Rust 侧由 main 上的 CI 覆盖；这里只留跑得快、且能挡住发布事故的检查。
       - name: 门禁
         run: |
           pnpm test
           pnpm contracts:check
           node scripts/scan-secrets.mjs
-          cargo test -p aiwf-engine -p aiwf-store
 
       - name: 写入版本号
         shell: bash

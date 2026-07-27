@@ -9,6 +9,6 @@ import { useAppVersion } from '../updater/useAppVersion.js';
  * 版本号必须走 useAppVersion——它会在桌面形态下从 Tauri 取真实版本。
  */
 export function SettingsPage() {
-  const version = useAppVersion();
-  return <UpdateCard currentVersion={version} backend={createUpdaterBackend()} />;
+  const versionInfo = useAppVersion();
+  return <UpdateCard versionInfo={versionInfo} backend={createUpdaterBackend()} />;
 }

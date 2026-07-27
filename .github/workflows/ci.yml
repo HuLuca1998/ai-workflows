@@ -65,10 +65,14 @@ jobs:
       - name: 安装 Rust 工具链
         run: rustup toolchain install stable --profile minimal --component rustfmt,clippy
 
+      # shared-key 必须显式给：rust-cache 默认把 job 名放进 cache key，
+      # 于是同一平台的每个 job 各存一份缓存，谁也用不上谁的，还互相 LRU 驱逐。
       - uses: Swatinem/rust-cache@v2
         with:
-          # 桌面壳要 GTK 等系统依赖，Linux CI 上只测引擎与存储
-          workspaces: '. -> target'
+          shared-key: linux-x64
+          cache-all-crates: true
+          # 只让 main 写缓存：PR 与 tag 只读，避免把主缓存挤掉
+          save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: 格式检查
         run: cargo fmt --all -- --check
@@ -145,7 +149,13 @@ jobs:
       - name: 安装 Rust 工具链
         run: rustup toolchain install stable --profile minimal
 
+      # 与 Release 分开用 key：这里是 cargo check（debug），那边是 release 构建，
+      # 编译产物本来就不通用，共用一个 key 只会让两份 target 互相覆盖
       - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: macos-arm64-check
+          cache-all-crates: true
+          save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: 安装依赖
         run: pnpm install --frozen-lockfile

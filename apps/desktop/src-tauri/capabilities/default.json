@@ -1,0 +1,18 @@
+{
+  "$schema": "../gen/schemas/macOS-schema.json",
+  "identifier": "default",
+  "description": "主窗口的权限白名单。Tauri 2 的权限是白名单制：没在这里列出的插件命令，前端调用会被直接拒绝。少一条的症状往往不是报错，而是某个功能安静地不工作——自动更新检查不到新版本就是这么来的。",
+  "windows": ["main"],
+  "permissions": [
+    "core:default",
+
+    "core:app:allow-version",
+
+    "updater:allow-check",
+    "updater:allow-download",
+    "updater:allow-install",
+    "updater:allow-download-and-install",
+
+    "process:allow-restart"
+  ]
+}

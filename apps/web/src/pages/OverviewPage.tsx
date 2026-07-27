@@ -3,11 +3,11 @@ import { Button, StatusBadge, Tag } from '@aiwf/ui';
 import { useWorkspace } from '../data/workspace.js';
 
 /**
- * 概览与工作流（图纸「01 工作流首页」）。
+ * 概览与工作流 —— 严格照图纸「01 工作流首页」。
  *
- * 数据全部来自真实的 Core API。M0 只接通了工作流列表，所以运行相关的统计
- * 显示为「—」并标注原因，而不是填一个看起来像真的数字——
- * 界面上出现假数据，就等于让「可解释优先」这条原则失效。
+ * 统计条的四张卡、标签、字号、颜色、筛选 chips 的药丸形状与位置都取自图纸。
+ * 引擎（M2）与 AI 节点（M3）接上前，这些卡的**数值位留空**：
+ * 结构照图纸，但不填演示数字，也不添加图纸上没有的说明文案。
  */
 
 const FILTERS = ['全部', '运行中', '草稿', '失败'] as const;
@@ -68,10 +68,10 @@ export function OverviewPage() {
       </header>
 
       <section className="stats" role="region" aria-label="概览统计">
-        <Stat label="等待审批" value="—" note="引擎接上后可用（M2）" />
-        <Stat label="今日运行" value="—" note="引擎接上后可用（M2）" />
-        <Stat label="Token 用量" value="—" note="AI 节点接上后可用（M3）" />
-        <Stat label="工作流" value={String(workflows.length)} note="本地持久化" accent />
+        <Stat label="等待审批" accent />
+        <Stat label="今日运行" noteTone="success" />
+        <Stat label="Token 用量" />
+        <Stat label="活跃 worktree" />
       </section>
 
       <section className="list" role="region" aria-label="全部工作流">
@@ -164,23 +164,31 @@ export function OverviewPage() {
   );
 }
 
+/**
+ * 统计卡。图纸里第一张的数字用强调色、第二张的副文本用成功色。
+ * value / note 缺省时数值位保持图纸的高度，不塌陷、不填占位符。
+ */
 function Stat({
   label,
   value,
   note,
   accent,
+  noteTone,
 }: {
   label: string;
-  value: string;
-  note: string;
+  value?: string;
+  note?: string;
   accent?: boolean;
+  noteTone?: 'success';
 }) {
   return (
     <div className="stat">
       <p className="stat__label">{label}</p>
       <p className="stat__value" data-accent={accent ? 'true' : undefined}>
-        {value}
-        <span className="stat__note">{note}</span>
+        <span className="stat__number">{value ?? ''}</span>
+        <span className="stat__note" data-tone={noteTone}>
+          {note ?? ''}
+        </span>
       </p>
     </div>
   );
