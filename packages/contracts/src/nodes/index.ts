@@ -20,3 +20,5 @@ export {
 } from './definitions.js';
 
 export { fieldDescriptors, type FieldControl, type FieldDescriptor } from './fields.js';
+
+export { describeIssue } from './issue-text.js';

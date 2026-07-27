@@ -211,3 +211,30 @@ describe('登记新模型', () => {
     });
   });
 });
+
+describe('推理档位的展示语义', () => {
+  it('当前档位有 aria-pressed —— 四个按钮 class 相同时它是唯一线索', async () => {
+    const user = userEvent.setup();
+    view();
+    await user.click(await screen.findByRole('button', { name: /Opus 5/u }));
+
+    const group = screen.getByRole('group', { name: '推理档位' });
+    const pressed = within(group)
+      .getAllByRole('button')
+      .filter((b) => b.getAttribute('aria-pressed') === 'true');
+    expect(pressed).toHaveLength(1);
+    expect(pressed[0]?.textContent).toBe('high');
+  });
+
+  it('档位按钮不可点 —— 改档位等于换一个条目，不是编辑', async () => {
+    const user = userEvent.setup();
+    view();
+    await user.click(await screen.findByRole('button', { name: /Opus 5/u }));
+
+    for (const button of within(screen.getByRole('group', { name: '推理档位' })).getAllByRole(
+      'button',
+    )) {
+      expect(button).toBeDisabled();
+    }
+  });
+});

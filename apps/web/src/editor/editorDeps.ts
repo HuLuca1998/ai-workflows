@@ -7,6 +7,7 @@ export {
   NODE_LIBRARY,
   WorkflowGraphSchema,
   diffGraphs,
+  describeIssue,
   fieldDescriptors,
   getNodeDefinition,
   resolveNodeOutputs,

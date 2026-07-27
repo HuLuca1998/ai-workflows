@@ -198,13 +198,27 @@ export function ModelsPage() {
               <Field label="模型 ID" value={selected.modelId} mono />
               <div>
                 <p className="models__label">推理档位</p>
+                {/* 展示器，不是控件：「同一模型的不同档位登记为不同条目」——
+                    在这里改档位等于换一个条目，那不是「编辑」而是「新建」。
+                    所以按钮 disabled，并用 aria-pressed 说明哪个是当前值：
+                    四个按钮 class 完全相同、又没有语义的话，
+                    读屏用户与灰度截图都读不出当前档位 */}
                 <div className="launch__seg" role="group" aria-label="推理档位">
                   {EFFORTS.map((effort) => (
-                    <button key={effort} type="button" data-active={selected.effort === effort}>
+                    <button
+                      key={effort}
+                      type="button"
+                      disabled
+                      aria-pressed={selected.effort === effort}
+                      data-active={selected.effort === effort}
+                    >
                       {effort}
                     </button>
                   ))}
                 </div>
+                <p className="models__note">
+                  档位不能就地改 —— 同一模型的不同档位是不同条目，改档位请另外登记一条。
+                </p>
                 <p className="models__note">同一模型的不同档位登记为不同条目，运行记录能区分</p>
               </div>
               <Field label="上下文窗口" value={selected.contextWindow.toLocaleString('en-US')} />

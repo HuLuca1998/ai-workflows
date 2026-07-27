@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
 import {
+  describeIssue,
   fieldDescriptors,
   getNodeDefinition,
   resolveNodeOutputs,
@@ -44,11 +45,14 @@ export function NodeConfigDialog({ node, graph, onClose, onSave }: NodeConfigDia
   const onSubmit = () => {
     const parsed = definition.configSchema.safeParse(draft);
     if (!parsed.success) {
-      // 逐字段回显错误，而不是弹一句「保存失败」让人猜哪里不对
+      // 逐字段回显错误，而不是弹一句「保存失败」让人猜哪里不对。
+      // 文案走契约的 describeIssue —— Zod 默认吐的是英文
+      //（`Too small: expected string to have >=1 characters`），
+      // 而这一屏是 Schema 驱动渲染的，文案也该由 Schema 驱动
       const errors: Record<string, string> = {};
       for (const issue of parsed.error.issues) {
         const key = String(issue.path[0] ?? '');
-        if (key && !errors[key]) errors[key] = issue.message;
+        if (key && !errors[key]) errors[key] = describeIssue(issue, definition.configSchema);
       }
       setFieldErrors(errors);
       setTab('配置');

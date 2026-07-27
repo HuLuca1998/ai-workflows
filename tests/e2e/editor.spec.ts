@@ -158,3 +158,42 @@ test.describe('版本', () => {
     await expect(drawer.getByText(/先保存草稿才能发布/)).toBeVisible();
   });
 });
+
+test.describe('画布缩放', () => {
+  test('拖几个节点进来不会自动放大到顶格', async ({ page }) => {
+    // codex 报的现象：拖到第三个节点时画布自动缩放到 220%（= maxZoom），
+    // 节点重叠且溢出可视区。根因是 fitView 每次节点变化都重新适配，
+    // 而三个挨得很近的节点「适配」出来就是把它们放到最大
+    const id = await seedWorkflow(page, `缩放验证 ${Date.now()}`);
+    await page.goto(`/editor/${id}`);
+    await expect(page.locator('.react-flow__node')).toHaveCount(1);
+
+    for (const label of ['Shell 脚本', '人工审批', '条件分支']) {
+      await dragNodeToCanvas(page, label);
+      await page.waitForTimeout(150);
+    }
+
+    const zoom = await page.locator('.editor__zoom-value').textContent();
+    const percent = Number.parseInt(zoom?.replace('%', '') ?? '0', 10);
+    expect(percent, `实际缩放 ${zoom}`).toBeLessThanOrEqual(100);
+  });
+
+  test('打开一张大图时会缩小到看得全', async ({ page }) => {
+    // 反过来的一半：fitView 该做的事是「缩小到看得全」，那个要留着
+    const nodes = Array.from({ length: 12 }, (_, i) => ({
+      id: `n${i}`,
+      type: 'script.shell',
+      title: `节点 ${i}`,
+      position: { x: i * 400, y: (i % 3) * 300 },
+      config: { interpreter: 'bash', script: 'echo hi', timeoutMs: 10_000 },
+    }));
+    const { id } = await seedGraph(page, `大图 ${Date.now()}`, { nodes, edges: [], groups: [] });
+
+    await page.goto(`/editor/${id}`);
+    await expect(page.locator('.react-flow__node')).toHaveCount(12);
+
+    const zoom = await page.locator('.editor__zoom-value').textContent();
+    const percent = Number.parseInt(zoom?.replace('%', '') ?? '0', 10);
+    expect(percent, `实际缩放 ${zoom}`).toBeLessThan(100);
+  });
+});

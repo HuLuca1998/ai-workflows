@@ -48,6 +48,15 @@ function downloadGraph(graph: unknown, filename: string): void {
 const MIN_ZOOM = 0.35;
 const MAX_ZOOM = 2.2;
 
+/**
+ * fitView 的上限压到 100%。
+ *
+ * 不压的话它会「适配到填满」——拖进来的头几个节点挨得近，
+ * 于是画布直接放大到 maxZoom（220%），节点重叠还溢出可视区。
+ * fitView 该做的只有「缩小到看得全」，放大交给用户自己。
+ */
+const FIT_VIEW = { maxZoom: 1, padding: 0.2 };
+
 export function EditorPage() {
   return (
     <ReactFlowProvider>
@@ -295,6 +304,7 @@ function EditorCanvas() {
             minZoom={MIN_ZOOM}
             maxZoom={MAX_ZOOM}
             fitView
+            fitViewOptions={FIT_VIEW}
             // 图纸：⌘/Ctrl + 滚轮以光标为中心缩放，滚轮平移
             zoomActivationKeyCode="Meta"
             panOnScroll

@@ -208,3 +208,20 @@ describe('其余标签页', () => {
     expect(screen.getByText(/要等引擎/u)).toBeInTheDocument();
   });
 });
+
+describe('校验文案是中文', () => {
+  it('必填为空时说「不能为空」，不是 Zod 的英文默认值', () => {
+    // codex 报的原文：清空脚本内容点保存，显示
+    // `Too small: expected string to have >=1 characters`。
+    // 能挡住保存，但不符合界面语言
+    const onSave = vi.fn();
+    render(<NodeConfigDialog node={shellNode} graph={graph} onSave={onSave} onClose={vi.fn()} />);
+
+    fireEvent.change(screen.getByLabelText(/脚本内容/u), { target: { value: '' } });
+    fireEvent.click(screen.getByRole('button', { name: '保存到草稿' }));
+
+    expect(screen.getByText('脚本内容不能为空')).toBeTruthy();
+    expect(screen.queryByText(/Too small|expected string/u)).toBeNull();
+    expect(onSave).not.toHaveBeenCalled();
+  });
+});
