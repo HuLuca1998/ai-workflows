@@ -494,6 +494,10 @@
         },
         "fromTemplate": {
           "type": "string"
+        },
+        "graphJson": {
+          "type": "string",
+          "minLength": 1
         }
       },
       "required": [

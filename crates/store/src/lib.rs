@@ -205,8 +205,19 @@ impl Store {
 
     // ── 工作流 ──────────────────────────────────────────────────────────────
 
-    /// 创建工作流，并附带一份 rev 0 的空草稿——画布打开即可编辑。
+    /// 创建工作流，并附带一份 rev 0 的草稿——画布打开即可编辑。
     pub fn create_workflow(&self, name: &str, folder: Option<&str>) -> Result<String> {
+        self.create_workflow_with_graph(name, folder, EMPTY_GRAPH)
+    }
+
+    /// 带初始图创建。模板与导入走这里：它们不是「相对于某个版本的改动」，
+    /// 没有结构化操作可记，硬凑一条假 Patch 会污染审计。
+    pub fn create_workflow_with_graph(
+        &self,
+        name: &str,
+        folder: Option<&str>,
+        graph_json: &str,
+    ) -> Result<String> {
         let id = new_id("wf");
         let now = now_iso();
         self.conn.execute(
@@ -217,7 +228,7 @@ impl Store {
         self.conn.execute(
             "INSERT INTO workflow_revision(workflow_id, rev, graph_json, updated_at)
              VALUES (?1, 0, ?2, ?3)",
-            params![id, EMPTY_GRAPH, now],
+            params![id, graph_json, now],
         )?;
         self.index_text("workflow", &id, name)?;
         Ok(id)

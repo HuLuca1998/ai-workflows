@@ -75,9 +75,16 @@ fn workflow_list(state: State<'_, AppState>) -> IpcResult<Vec<WorkflowSummary>> 
 }
 
 #[tauri::command]
-fn workflow_create(state: State<'_, AppState>, name: String) -> IpcResult<String> {
+fn workflow_create(
+    state: State<'_, AppState>,
+    name: String,
+    graph_json: Option<String>,
+) -> IpcResult<String> {
     let store = lock(&state)?;
-    Ok(store.create_workflow(&name, None)?)
+    Ok(match graph_json {
+        Some(graph) => store.create_workflow_with_graph(&name, None, &graph)?,
+        None => store.create_workflow(&name, None)?,
+    })
 }
 
 #[derive(Serialize)]

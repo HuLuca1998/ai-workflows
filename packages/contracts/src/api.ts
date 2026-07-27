@@ -89,6 +89,11 @@ const SPECS = {
       name: z.string().min(1),
       folder: z.string().optional(),
       fromTemplate: z.string().optional(),
+      /**
+       * 初始图（JSON）。模板与导入都走这里：它们没有「相对于什么的改动」，
+       * 拿假 Patch 去凑 operations 会往审计里写一条不存在的操作。
+       */
+      graphJson: z.string().min(1).optional(),
     }),
     output: z.object({ id: z.string().min(1), rev: z.number().int().min(0) }),
     mutates: true,

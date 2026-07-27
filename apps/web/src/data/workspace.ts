@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { applyPatch, type PatchOperation } from '@aiwf/contracts';
+import { applyPatch, type PatchOperation, type WorkflowGraph } from '@aiwf/contracts';
 import { CoreApiClient, MemoryTransport, type Transport } from '@aiwf/client-core';
 import { isDesktopRuntime } from '../updater/useAppVersion.js';
 import { createTauriTransport } from './ipc.js';
@@ -53,6 +53,8 @@ interface WorkspaceState {
    * 返回新建的工作流 id，便于直接跳进编辑器。
    */
   createWorkflow: (name: string, operations?: readonly PatchOperation[]) => Promise<string | null>;
+  /** 导入一份已校验过的图，作为新工作流的第一个修订。 */
+  importWorkflow: (name: string, graph: WorkflowGraph) => Promise<string | null>;
 }
 
 export const useWorkspace = create<WorkspaceState>((set, get) => ({
@@ -84,23 +86,34 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
     }
   },
 
+  importWorkflow: async (name: string, graph: WorkflowGraph) => {
+    // 导入没有「相对于什么的改动」，所以直接带初始图创建，
+    // 而不是拿一条假 Patch 去凑 operations
+    const result = (await coreClient.call('workflow.create', {
+      name,
+      graphJson: JSON.stringify(graph),
+    })) as { id: string };
+    await get().load();
+    return result.id ?? null;
+  },
+
   createWorkflow: async (name: string, operations?: readonly PatchOperation[]) => {
-    const result = (await coreClient.call('workflow.create', { name })) as { id: string };
+    // 模板先在本地跑一遍 applyPatch——它因此被同一套校验守住，
+    // 再把结果图作为初始图创建
+    const graphJson =
+      operations && operations.length > 0
+        ? JSON.stringify(
+            applyPatch({ nodes: [], edges: [], groups: [] }, 0, {
+              baseRevision: 0,
+              operations: [...operations],
+            }).graph,
+          )
+        : undefined;
 
-    if (operations && operations.length > 0) {
-      // 新建的工作流是 rev 0 的空草稿；模板作为第一次改动提交
-      const applied = applyPatch({ nodes: [], edges: [], groups: [] }, 0, {
-        baseRevision: 0,
-        operations: [...operations],
-      });
-      await coreClient.call('workflow.patch', {
-        id: result.id,
-        baseRevision: 0,
-        operations: [...operations],
-        graphJson: JSON.stringify(applied.graph),
-      });
-    }
-
+    const result = (await coreClient.call('workflow.create', {
+      name,
+      ...(graphJson ? { graphJson } : {}),
+    })) as { id: string };
     await get().load();
     return result.id ?? null;
   },

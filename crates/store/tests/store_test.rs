@@ -412,3 +412,17 @@ fn 从空工作流到发布_v1_的完整链路() {
             .contains("entry")
     );
 }
+
+#[test]
+fn 带初始图创建_模板与导入走这条路() {
+    let s = store();
+    let graph = r#"{"nodes":[{"id":"entry","type":"entry","title":"入口","position":{"x":0,"y":0},"config":{}}],"edges":[],"groups":[]}"#;
+
+    let id = s
+        .create_workflow_with_graph("从模板创建", None, graph)
+        .unwrap();
+
+    // 初始图就是 rev 0，不需要再来一次「改动」把它写进去
+    assert_eq!(s.draft_revision(&id).unwrap(), Some(0));
+    assert_eq!(s.get_draft(&id, 0).unwrap().as_deref(), Some(graph));
+}

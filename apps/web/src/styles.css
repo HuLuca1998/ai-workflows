@@ -1838,3 +1838,25 @@
   font-size: 11.5px;
   color: var(--color-neutral-500);
 }
+
+/* ── 画布上的分组框（图纸：带标题的虚线框）───────────────────────────── */
+.wf-group {
+  position: absolute;
+  border: 1px dashed var(--color-neutral-700);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--color-surface) 18%, transparent);
+  pointer-events: auto;
+}
+
+.wf-group__title {
+  position: absolute;
+  left: 12px;
+  top: -10px;
+  padding: 1px 8px;
+  border-radius: 5px;
+  background: color-mix(in srgb, var(--color-bg) 90%, #000);
+  border: 1px solid var(--color-neutral-700);
+  font-size: 10.5px;
+  color: var(--color-neutral-400);
+  white-space: nowrap;
+}

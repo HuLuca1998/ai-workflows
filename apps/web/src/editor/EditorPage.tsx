@@ -6,6 +6,7 @@ import {
   ReactFlow,
   ReactFlowProvider,
   useReactFlow,
+  ViewportPortal,
   type Connection,
   type NodeChange,
   type NodeTypes,
@@ -17,6 +18,7 @@ import type { MenuTarget } from './menuActions.js';
 import { useEditor } from './editorStore.js';
 import { EditorToolbar } from './EditorToolbar.jsx';
 import { CanvasContextMenu } from './ContextMenu.jsx';
+import { GroupLayer, groupBoxes } from './GroupFrame.jsx';
 import { NodeConfigDialog } from './NodeConfigDialog.jsx';
 import { NodeLibrary } from './NodeLibrary.jsx';
 import { VersionDrawer } from './VersionDrawer.jsx';
@@ -97,6 +99,7 @@ function EditorCanvas() {
     [graph, validation],
   );
   const edges = useMemo(() => toFlowEdges(graph), [graph]);
+  const groups = useMemo(() => groupBoxes(graph), [graph]);
   const configNode = useMemo(
     () => (configNodeId ? graph.nodes.find((n) => n.id === configNodeId) : undefined),
     [configNodeId, graph],
@@ -278,6 +281,12 @@ function EditorCanvas() {
             deleteKeyCode={['Delete', 'Backspace']}
             proOptions={{ hideAttribution: true }}
           >
+            <ViewportPortal>
+              <GroupLayer
+                boxes={groups}
+                onContextMenu={(groupId, at) => setMenu({ target: { kind: 'group', groupId }, at })}
+              />
+            </ViewportPortal>
             <Background variant={BackgroundVariant.Dots} gap={22} size={1} />
           </ReactFlow>
 

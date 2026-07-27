@@ -35,6 +35,14 @@ export function ipcCommandFor(method: CoreApiMethod): string | null {
 export function toIpcInput(method: CoreApiMethod, input: unknown): Record<string, unknown> {
   const record = (input ?? {}) as Record<string, unknown>;
 
+  if (method === 'workflow.create') {
+    // Rust 侧参数是 snake_case
+    return {
+      name: record.name,
+      ...(record.graphJson ? { graphJson: record.graphJson } : {}),
+    };
+  }
+
   if (method === 'workflow.rollback') {
     return { id: record.id, versionId: record.versionId };
   }

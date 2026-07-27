@@ -5,6 +5,7 @@
 export {
   CoreApiError,
   NODE_LIBRARY,
+  WorkflowGraphSchema,
   diffGraphs,
   fieldDescriptors,
   getNodeDefinition,

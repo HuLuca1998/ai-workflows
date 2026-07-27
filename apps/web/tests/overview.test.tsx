@@ -75,6 +75,16 @@ describe('空态', () => {
     }
   });
 
+  it('导入非法文件时报出原因，不覆盖任何东西', async () => {
+    renderPage();
+    const input = screen.getByLabelText('导入工作流文件') as HTMLInputElement;
+    const file = new File(['{ 这不是 JSON'], 'broken.json', { type: 'application/json' });
+    Object.defineProperty(file, 'text', { value: async () => '{ 这不是 JSON' });
+
+    fireEvent.change(input, { target: { files: [file] } });
+    await waitFor(() => expect(screen.getByText(/导入失败/u)).toBeInTheDocument());
+  });
+
   it('点模板会带着模板的结构化操作去创建', async () => {
     const { WORKFLOW_TEMPLATES } = await import('@aiwf/contracts');
     const created: unknown[] = [];

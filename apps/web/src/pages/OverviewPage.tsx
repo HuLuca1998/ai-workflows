@@ -1,7 +1,8 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router';
 import { Button, StatusBadge, Tag } from '@aiwf/ui';
 import { WORKFLOW_TEMPLATES } from '@aiwf/contracts';
+import { parseGraphFile } from '../editor/importGraph.js';
 import { useWorkspace } from '../data/workspace.js';
 
 /**
@@ -17,10 +18,12 @@ type Filter = (typeof FILTERS)[number];
 
 export function OverviewPage() {
   const navigate = useNavigate();
-  const { workflows, loading, error, load, createWorkflow } = useWorkspace();
+  const { workflows, loading, error, load, createWorkflow, importWorkflow } = useWorkspace();
   const [filter, setFilter] = useState<Filter>('全部');
   const [query, setQuery] = useState('');
   const [creating, setCreating] = useState(false);
+  const [importError, setImportError] = useState<string | null>(null);
+  const fileInput = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     void load();
@@ -69,7 +72,35 @@ export function OverviewPage() {
             aria-label="搜索工作流"
           />
         </label>
-        <Button>导入</Button>
+        <Button onClick={() => fileInput.current?.click()}>导入</Button>
+        <input
+          ref={fileInput}
+          type="file"
+          accept="application/json,.json"
+          className="sr-only"
+          aria-label="导入工作流文件"
+          onChange={(event) => {
+            const file = event.target.files?.[0];
+            event.target.value = '';
+            if (!file) return;
+            setImportError(null);
+            void file.text().then(async (text) => {
+              const result = parseGraphFile(text);
+              if (!result.ok || !result.graph) {
+                // 导入失败必须说清原因：坏图一旦进来会先覆盖草稿再乱来
+                setImportError(result.error ?? '导入失败');
+                return;
+              }
+              setCreating(true);
+              try {
+                const id = await importWorkflow(file.name.replace(/\.json$/iu, ''), result.graph);
+                if (id) navigate(`/editor/${id}`);
+              } finally {
+                setCreating(false);
+              }
+            });
+          }}
+        />
         <Button variant="primary" onClick={() => void onCreate()} loading={creating}>
           <i className="ph ph-plus" aria-hidden="true" />
           新建工作流
@@ -105,6 +136,12 @@ export function OverviewPage() {
         {error ? (
           <p className="list__error" role="alert">
             读取失败：{error}
+          </p>
+        ) : null}
+
+        {importError ? (
+          <p className="list__error" role="alert">
+            导入失败：{importError}
           </p>
         ) : null}
 
