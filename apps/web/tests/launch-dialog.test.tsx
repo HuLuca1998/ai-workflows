@@ -80,9 +80,11 @@ describe('启动表单', () => {
     render(<LaunchDialog {...props} />);
     expect(screen.getByLabelText(/Issue 编号/u)).toBeTruthy();
     expect(screen.getByLabelText(/仓库/u)).toBeTruthy();
-    // required 里的字段标星
-    expect(screen.getByText('Issue 编号').textContent).toContain('*');
-    expect(screen.getByText('仓库').textContent).not.toContain('*');
+    // required 里的字段标星。星号在 label 容器上而不是文本那层 ——
+    // aria-labelledby 会取累积文本，星号一起进去的话
+    // 字段的可读名就成了「Issue 编号 *」
+    expect(screen.getByText('Issue 编号').closest('.launch__label')?.textContent).toContain('*');
+    expect(screen.getByText('仓库').closest('.launch__label')?.textContent).not.toContain('*');
   });
 
   it('schema 里的默认值预填进表单', () => {
@@ -188,5 +190,106 @@ describe('启动表单', () => {
     await user.click(screen.getByRole('button', { name: '取消' }));
     expect(props.onClose).toHaveBeenCalled();
     expect(call).not.toHaveBeenCalledWith('run.start', expect.anything());
+  });
+});
+
+describe('参数按 Schema 的类型渲染与校验', () => {
+  const TYPED_GRAPH = {
+    nodes: [
+      {
+        id: 'entry',
+        type: 'entry',
+        title: '入口',
+        position: { x: 0, y: 0 },
+        config: {
+          trigger: 'manual',
+          inputSchema: {
+            type: 'object',
+            required: ['count', 'flag', 'mode'],
+            properties: {
+              count: { type: 'integer', title: '数量', minimum: 1 },
+              flag: { type: 'boolean', title: '开关' },
+              mode: { type: 'string', title: '模式', enum: ['safe', 'fast'] },
+              note: { type: 'string', title: '备注' },
+            },
+          },
+        },
+      },
+    ],
+    edges: [],
+    groups: [],
+  };
+
+  /** Dry Run 通过的报告：不通过时「开始运行」本来就该被拦住。 */
+  const OK_REPORT = {
+    checks: [{ label: '图结构', status: 'passed' }],
+    passed: 1,
+    failed: 0,
+    ok: true,
+  };
+
+  const open = () => {
+    call.mockResolvedValue(OK_REPORT);
+    return render(<LaunchDialog {...props} graph={TYPED_GRAPH as never} />);
+  };
+
+  it('integer 用数字输入并带上下限 —— 不是任意文本框', async () => {
+    open();
+    const input = (await screen.findByLabelText('数量')) as HTMLInputElement;
+    expect(input.type).toBe('number');
+    expect(input.min).toBe('1');
+  });
+
+  it('boolean 用复选框', async () => {
+    open();
+    const input = (await screen.findByLabelText('开关')) as HTMLInputElement;
+    expect(input.type).toBe('checkbox');
+  });
+
+  it('enum 用下拉，且只列出允许的值', async () => {
+    open();
+    const select = (await screen.findByLabelText('模式')) as HTMLSelectElement;
+    expect(select.tagName).toBe('SELECT');
+    expect([...select.options].map((o) => o.value).filter(Boolean)).toEqual(['safe', 'fast']);
+  });
+
+  it('没有类型信息的仍是文本框 —— 不为了统一而瞎猜', async () => {
+    open();
+    const input = (await screen.findByLabelText('备注')) as HTMLInputElement;
+    expect(input.type).toBe('text');
+  });
+
+  it('数字字段发出去的是数字，不是字符串', async () => {
+    // 发成字符串的话，脚本里 ${input.count} + 1 会变成字符串拼接 ——
+    // 而那只有跑到那一行时才会暴露
+    const user = userEvent.setup();
+    open();
+    // 等 Dry Run 回来：没通过时「开始运行」是被拦住的
+    await screen.findByText(/1 项通过/u);
+    await user.type(await screen.findByLabelText('数量'), '5');
+    await user.click(screen.getByLabelText('开关'));
+    await user.selectOptions(screen.getByLabelText('模式'), 'fast');
+    await user.click(screen.getByRole('button', { name: /开始运行/u }));
+
+    await waitFor(() => {
+      expect(call).toHaveBeenCalledWith(
+        'run.start',
+        expect.objectContaining({
+          inputs: expect.objectContaining({ count: 5, flag: true, mode: 'fast' }),
+        }),
+      );
+    });
+  });
+
+  it('必填为空时给出中文错误与 aria-invalid，而不是只有红框', async () => {
+    // codex 复测报的：三个 input 只有内部 data-missing，
+    // aria-invalid 数量为 0，页面上没有任何可见的错误文本 ——
+    // 读屏用户完全不知道为什么点了没反应
+    const user = userEvent.setup();
+    open();
+    await user.click(await screen.findByRole('button', { name: /开始运行/u }));
+
+    expect(screen.getByLabelText('数量')).toHaveAttribute('aria-invalid', 'true');
+    expect(screen.getAllByText('必填项，请填写').length).toBeGreaterThan(0);
   });
 });

@@ -44,11 +44,23 @@ interface DryRunReport {
   ok: boolean;
 }
 
+/**
+ * 一个启动参数。
+ *
+ * `kind` 来自入口的 inputSchema。**丢掉类型的代价不是难看，是错**：
+ * 整数字段拿到 "不是数字"、布尔字段拿到 "也不是布尔值"，
+ * 运行照样成功，而后续节点拿到的参数类型是坏的。
+ */
 interface Field {
   key: string;
   label: string;
   required: boolean;
+  kind: 'text' | 'number' | 'boolean' | 'enum';
   defaultValue: string;
+  /** enum 的可选值。 */
+  options?: string[];
+  minimum?: number;
+  maximum?: number;
 }
 
 export function LaunchDialog({
@@ -90,7 +102,10 @@ export function LaunchDialog({
   }, [workflowId, versionId, workdir]);
 
   const onStart = async () => {
-    const empty = fields.filter((field) => field.required && !values[field.key]?.trim());
+    // 布尔字段的「false」也是填了 —— 用 trim() 判空会把它当成没填
+    const empty = fields.filter(
+      (field) => field.required && field.kind !== 'boolean' && !values[field.key]?.trim(),
+    );
     if (empty.length > 0) {
       setMissing(empty.map((field) => field.key));
       return;
@@ -102,7 +117,7 @@ export function LaunchDialog({
       const result = (await coreClient.call('run.start', {
         workflowId,
         ...target,
-        inputs: values,
+        inputs: coerce(fields, values),
         ...(workdir ? { workdir } : {}),
       })) as { runId: string };
       onStarted(result.runId);
@@ -169,19 +184,31 @@ export function LaunchDialog({
             <section className="launch__fields">
               {fields.map((field) => (
                 <label key={field.key} className="launch__field">
-                  <span className="launch__label" id={`launch-${field.key}`}>
-                    {field.label}
-                    {field.required ? <span className="launch__req"> *</span> : null}
+                  <span className="launch__label">
+                    {/* id 挂在只含文本的这层：aria-labelledby 会取整个元素的
+                        累积文本，星号一起进去的话字段的可读名就成了「数量 *」 */}
+                    <span id={`launch-${field.key}`}>{field.label}</span>
+                    {/* 星号是视觉标记，不进无障碍名 ——
+                        否则字段的可读名字会变成「数量 *」 */}
+                    {field.required ? (
+                      <span className="launch__req" aria-hidden="true">
+                        {' '}
+                        *
+                      </span>
+                    ) : null}
                   </span>
-                  <input
-                    type="text"
+                  <FieldInput
+                    field={field}
                     value={values[field.key] ?? ''}
-                    aria-labelledby={`launch-${field.key}`}
-                    data-missing={missing.includes(field.key) ? 'true' : undefined}
-                    onChange={(event) =>
-                      setValues((prev) => ({ ...prev, [field.key]: event.target.value }))
-                    }
+                    invalid={missing.includes(field.key)}
+                    onChange={(next) => setValues((prev) => ({ ...prev, [field.key]: next }))}
                   />
+                  {/* 只有红框的话读屏用户完全不知道为什么点了没反应 */}
+                  {missing.includes(field.key) ? (
+                    // 不重复字段名：错误就在字段下面，位置本身说明了是哪个，
+                    // 重复一遍反而会和 label 撞成两个同名元素
+                    <span className="launch__error">必填项，请填写</span>
+                  ) : null}
                 </label>
               ))}
             </section>
@@ -256,23 +283,137 @@ export function LaunchDialog({
   );
 }
 
-/** 入口节点的 inputSchema → 表单字段。 */
+/**
+ * 按类型渲染一个参数控件。
+ *
+ * 全用文本框的代价不是难看：整数字段拿到「不是数字」照样能启动运行，
+ * 而后续节点拿到的参数是坏的 —— 那时的报错来自脚本，跟输入完全对不上。
+ */
+function FieldInput({
+  field,
+  value,
+  invalid,
+  onChange,
+}: {
+  field: Field;
+  value: string;
+  invalid: boolean;
+  onChange: (next: string) => void;
+}) {
+  const shared = {
+    'aria-labelledby': `launch-${field.key}`,
+    'aria-invalid': invalid || undefined,
+    'data-missing': invalid ? 'true' : undefined,
+  } as const;
+
+  if (field.kind === 'boolean') {
+    return (
+      <input
+        {...shared}
+        type="checkbox"
+        checked={value === 'true'}
+        onChange={(event) => onChange(String(event.target.checked))}
+      />
+    );
+  }
+
+  if (field.kind === 'enum') {
+    return (
+      <select {...shared} value={value} onChange={(event) => onChange(event.target.value)}>
+        <option value="">请选择</option>
+        {(field.options ?? []).map((option) => (
+          <option key={option} value={option}>
+            {option}
+          </option>
+        ))}
+      </select>
+    );
+  }
+
+  return (
+    <input
+      {...shared}
+      type={field.kind === 'number' ? 'number' : 'text'}
+      {...(field.minimum === undefined ? {} : { min: field.minimum })}
+      {...(field.maximum === undefined ? {} : { max: field.maximum })}
+      value={value}
+      onChange={(event) => onChange(event.target.value)}
+    />
+  );
+}
+
+interface PropertySpec {
+  type?: string;
+  title?: string;
+  default?: unknown;
+  enum?: unknown[];
+  minimum?: number;
+  maximum?: number;
+}
+
+/**
+ * 入口节点的 inputSchema → 表单字段。
+ *
+ * 类型信息一路带下来：JSON Schema 已经说清楚了每个字段是什么，
+ * 全渲染成文本框等于把这份声明扔掉，然后指望用户不填错。
+ */
 function fieldsFromEntry(graph: WorkflowGraph): Field[] {
   const entry = graph.nodes.find((node) => node.type === 'entry');
   const schema = (entry?.config as { inputSchema?: unknown } | undefined)?.inputSchema as
-    | { required?: string[]; properties?: Record<string, { title?: string; default?: unknown }> }
-    | undefined;
+    { required?: string[]; properties?: Record<string, PropertySpec> } | undefined;
 
   const properties = schema?.properties;
   if (!properties) return [];
   const required = new Set(schema.required ?? []);
 
-  return Object.entries(properties).map(([key, spec]) => ({
-    key,
-    label: spec.title ?? key,
-    required: required.has(key),
-    defaultValue: spec.default === undefined ? '' : String(spec.default),
-  }));
+  return Object.entries(properties).map(([key, spec]) => {
+    const options = Array.isArray(spec.enum) ? spec.enum.map(String) : undefined;
+    return {
+      key,
+      label: spec.title ?? key,
+      required: required.has(key),
+      kind: kindOf(spec, options),
+      defaultValue: spec.default === undefined ? '' : String(spec.default),
+      ...(options ? { options } : {}),
+      ...(spec.minimum === undefined ? {} : { minimum: spec.minimum }),
+      ...(spec.maximum === undefined ? {} : { maximum: spec.maximum }),
+    };
+  });
+}
+
+/** 认不出的类型退回文本框 —— 不为了统一而瞎猜。 */
+function kindOf(spec: PropertySpec, options?: string[]): Field['kind'] {
+  if (options && options.length > 0) return 'enum';
+  if (spec.type === 'integer' || spec.type === 'number') return 'number';
+  if (spec.type === 'boolean') return 'boolean';
+  return 'text';
+}
+
+/**
+ * 表单值 → 发给引擎的参数。
+ *
+ * 数字发成字符串的话，脚本里 `${input.count} + 1` 会变成字符串拼接 ——
+ * 而那只有在跑到那一行时才会暴露。
+ */
+function coerce(fields: readonly Field[], values: Record<string, string>): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const field of fields) {
+    const raw = values[field.key];
+    if (raw === undefined || raw === '') continue;
+    switch (field.kind) {
+      case 'number': {
+        const parsed = Number(raw);
+        out[field.key] = Number.isNaN(parsed) ? raw : parsed;
+        break;
+      }
+      case 'boolean':
+        out[field.key] = raw === 'true';
+        break;
+      default:
+        out[field.key] = raw;
+    }
+  }
+  return out;
 }
 
 function describe(error: unknown): string {

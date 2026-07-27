@@ -4237,3 +4237,11 @@
   font-size: 10.5px;
   color: var(--color-neutral-600);
 }
+
+/* 启动表单的字段错误。只有红框的话读屏用户完全不知道为什么点了没反应 */
+.launch__error {
+  display: block;
+  margin-top: 4px;
+  font-size: 11px;
+  color: var(--color-danger, #c25b52);
+}
