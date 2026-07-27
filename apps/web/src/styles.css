@@ -1,0 +1,202 @@
+/*
+ * Web 形态的布局层。
+ * 组件外观来自 @aiwf/ui 的令牌与组件层；这里只写外壳的骨架尺寸。
+ */
+@import '@aiwf/ui/styles.css';
+@import 'tailwindcss';
+
+.app-shell {
+  display: grid;
+  grid-template-rows: var(--layout-titlebar-h) 1fr;
+  height: 100vh;
+  overflow: hidden;
+}
+
+.app-shell__body {
+  display: flex;
+  min-height: 0;
+}
+
+.app-shell__content {
+  flex: 1;
+  min-width: 0;
+  overflow: auto;
+}
+
+/* ── 标题栏 ─────────────────────────────────────────────────────────────── */
+.title-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  padding: 0 var(--space-4);
+  border-bottom: 1px solid var(--color-divider);
+  background: var(--color-bg);
+}
+
+/* macOS 交通灯的安全区：桌面形态下由系统绘制 */
+.title-bar__traffic {
+  width: 68px;
+  flex: none;
+}
+
+.title-bar__breadcrumb {
+  font-size: 12px;
+  color: var(--color-text-muted);
+}
+
+.title-bar__ask {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-3);
+  border: 1px solid var(--color-divider);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-text);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.title-bar__ask kbd {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--color-text-muted);
+}
+
+/* ── 主导航 ─────────────────────────────────────────────────────────────── */
+.side-nav {
+  width: var(--layout-nav-w);
+  flex: none;
+  border-right: 1px solid var(--color-divider);
+  padding: var(--space-4) var(--space-3);
+  display: grid;
+  gap: 2px;
+  align-content: start;
+  overflow: auto;
+}
+
+.side-nav[data-collapsed='true'] {
+  width: var(--layout-nav-collapsed-w);
+  justify-items: center;
+}
+
+.side-nav__item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-sm);
+  color: var(--color-text);
+  text-decoration: none;
+  font-size: 12.5px;
+}
+
+.side-nav__item:hover {
+  background: color-mix(in srgb, var(--color-text) 6%, transparent);
+}
+
+.side-nav__item[aria-current='page'] {
+  background: color-mix(in srgb, var(--color-accent) 16%, transparent);
+  color: var(--color-accent-300);
+}
+
+.side-nav__glyph {
+  width: 16px;
+  text-align: center;
+  flex: none;
+}
+
+/* 收起时文字仍留在无障碍树里 */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* ── 页面 ───────────────────────────────────────────────────────────────── */
+.page {
+  padding: var(--space-8);
+  max-width: 1100px;
+}
+
+.page__head h1 {
+  font-size: 19px;
+}
+
+.page__summary,
+.page__todo {
+  color: var(--color-text-muted);
+  font-size: 12.5px;
+}
+
+.page__body {
+  margin-top: var(--space-6);
+}
+
+/* ── 主管 AI 抽屉 ───────────────────────────────────────────────────────── */
+.supervisor {
+  width: var(--layout-drawer-w);
+  flex: none;
+  border-left: 1px solid var(--color-divider);
+  background: var(--color-surface);
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  min-height: 0;
+}
+
+.supervisor__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-4);
+  padding: var(--space-4) var(--space-6);
+  border-bottom: 1px solid var(--color-divider);
+}
+
+.supervisor__head h2 {
+  font-size: 14px;
+  margin: 0;
+}
+
+.supervisor__sub,
+.supervisor__hint {
+  margin: var(--space-1) 0 0;
+  font-size: 11.5px;
+  color: var(--color-text-muted);
+}
+
+.supervisor__body {
+  padding: var(--space-6);
+  overflow: auto;
+}
+
+.supervisor__scopes {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-6);
+  border-top: 1px solid var(--color-divider);
+  font-size: 11px;
+  color: var(--color-text-muted);
+}
+
+.supervisor__scopes code {
+  padding: 1px var(--space-2);
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--color-accent) 16%, transparent);
+  color: var(--color-accent-300);
+}
+
+.supervisor__scopes em {
+  font-style: normal;
+  color: var(--color-status-waiting);
+}
