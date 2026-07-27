@@ -4,6 +4,6 @@ export default defineConfig({
   test: {
     name: 'client-core',
     environment: 'node',
-    include: ['tests/**/*.test.ts'],
+    include: ['tests/**/*.test.ts', 'tests/**/*.test.tsx'],
   },
 });

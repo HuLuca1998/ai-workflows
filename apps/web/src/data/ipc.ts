@@ -1,0 +1,198 @@
+import {
+  CoreApiError,
+  ERROR_CODES,
+  type CoreApiMethod,
+  type ErrorCode,
+  type Transport,
+} from './ipc-deps.js';
+
+/**
+ * Core API 方法 ↔ Tauri IPC 命令的转换层。
+ *
+ * 契约用点号方法名与 camelCase，Rust 侧用 snake_case，两边形状不同。
+ * 转换逻辑单独放在这里而不是散在调用点，是因为字段名写错的症状是
+ * 「数据莫名为空」而不是报错——必须能单测。
+ */
+
+/** 已接通引擎的方法。没列在这里的方法调用时会明确报未实现。 */
+const COMMANDS: Partial<Record<CoreApiMethod, string>> = {
+  'workflow.list': 'workflow_list',
+  'workflow.get': 'workflow_get',
+  'workflow.create': 'workflow_create',
+  // patch 的结构化操作在客户端应用并生成 Diff（contracts 的 applyPatch），
+  // 落库写整份图 + baseRevision 守卫，见 crates/store 的 save_draft_guarded
+  'workflow.patch': 'workflow_save_draft',
+  'workflow.publish': 'workflow_publish',
+  'workflow.delete': 'workflow_delete',
+};
+
+export function ipcCommandFor(method: CoreApiMethod): string | null {
+  return COMMANDS[method] ?? null;
+}
+
+export function toIpcInput(method: CoreApiMethod, input: unknown): Record<string, unknown> {
+  const record = (input ?? {}) as Record<string, unknown>;
+
+  if (method === 'workflow.patch') {
+    const graphJson = record.graphJson;
+    if (typeof graphJson !== 'string' || graphJson.length === 0) {
+      // 静默发一个空图会把用户的工作流清掉，这里必须硬失败
+      throw new CoreApiError({
+        code: 'INTERNAL',
+        message: 'workflow.patch 缺少 graphJson：调用方要先在客户端应用 Patch 再提交',
+      });
+    }
+    return { id: record.id, baseRev: record.baseRevision, graphJson };
+  }
+
+  return record;
+}
+
+interface WorkflowRowDto {
+  id: string;
+  name: string;
+  folder?: string | null;
+  created_at?: string;
+  updated_at: string;
+}
+
+interface VersionMetaDto {
+  id: string;
+  version: number;
+  config_hash: string;
+  published_at: string;
+  published_by: string;
+}
+
+export function fromIpcResult(method: CoreApiMethod, raw: unknown): unknown {
+  switch (method) {
+    case 'workflow.list': {
+      const rows = (raw ?? []) as WorkflowRowDto[];
+      return {
+        items: rows.map((row) => ({
+          id: row.id,
+          name: row.name,
+          ...(row.folder ? { folder: row.folder } : {}),
+          createdAt: row.created_at ?? row.updated_at,
+          updatedAt: row.updated_at,
+          archived: false,
+        })),
+      };
+    }
+
+    case 'workflow.get': {
+      const detail = raw as WorkflowRowDto & {
+        rev: number;
+        graph_json: string;
+        versions: VersionMetaDto[];
+      };
+      let graph: unknown;
+      try {
+        graph = JSON.parse(detail.graph_json);
+      } catch (error) {
+        // 给一张空图会让用户以为工作流丢了，宁可报错
+        throw new CoreApiError({
+          code: 'INTERNAL',
+          message: `工作流 ${detail.id} 的图数据无法解析：${String(error)}`,
+          hint: '草稿可能已损坏，可从版本抽屉回滚到某个已发布版本',
+        });
+      }
+      return {
+        workflow: {
+          id: detail.id,
+          name: detail.name,
+          ...(detail.folder ? { folder: detail.folder } : {}),
+          createdAt: detail.created_at ?? detail.updated_at,
+          updatedAt: detail.updated_at,
+          archived: false,
+        },
+        graph,
+        rev: detail.rev,
+        versions: (detail.versions ?? []).map((v) => ({
+          id: v.id,
+          workflowId: detail.id,
+          version: v.version,
+          configHash: v.config_hash,
+          dependencyManifest: {},
+          publishedAt: v.published_at,
+          publishedBy: v.published_by,
+        })),
+      };
+    }
+
+    case 'workflow.create':
+      return { id: raw as string, rev: 0 };
+
+    case 'workflow.patch':
+      // Diff 与校验结果已在客户端算过（DraftStore），这里只回新 rev
+      return {
+        rev: raw as number,
+        diff: { added: [], removed: [], changed: [] },
+        validation: { ok: true, issues: [] },
+      };
+
+    case 'workflow.publish': {
+      const dto = raw as { version_id: string; version: number; config_hash: string };
+      return { versionId: dto.version_id, version: dto.version, configHash: dto.config_hash };
+    }
+
+    case 'workflow.delete':
+      return { ok: true };
+
+    default:
+      return raw;
+  }
+}
+
+export function normalizeIpcError(error: unknown): CoreApiError {
+  if (error instanceof CoreApiError) return error;
+
+  if (error && typeof error === 'object' && 'code' in error) {
+    const candidate = error as { code: unknown; message?: unknown; retriable?: unknown };
+    const code = ERROR_CODES.find((c) => c === candidate.code);
+    if (code) {
+      return new CoreApiError({
+        code: code as ErrorCode,
+        message: typeof candidate.message === 'string' ? candidate.message : 'IPC 调用失败',
+        ...(typeof candidate.retriable === 'boolean' ? { retriable: candidate.retriable } : {}),
+      });
+    }
+  }
+
+  return new CoreApiError({
+    code: 'INTERNAL',
+    message: `IPC 调用失败：${error instanceof Error ? error.message : String(error)}`,
+    details: error,
+  });
+}
+
+export type InvokeFn = (command: string, args: Record<string, unknown>) => Promise<unknown>;
+
+/**
+ * 桌面形态的传输实现。invoke 由外部注入，便于测试。
+ */
+export function createTauriTransport(invoke: InvokeFn): Transport {
+  return {
+    async call(method, input) {
+      const command = ipcCommandFor(method);
+      if (!command) {
+        throw new CoreApiError({
+          code: 'INTERNAL',
+          message: `${method} 尚未接通引擎`,
+          hint: '该方法所属的能力还没实现，见 docs/ROADMAP.md 的里程碑安排',
+        });
+      }
+      try {
+        const raw = await invoke(command, toIpcInput(method, input));
+        return fromIpcResult(method, raw);
+      } catch (error) {
+        throw normalizeIpcError(error);
+      }
+    },
+
+    subscribeEvents() {
+      // 事件流在 M2 随引擎接上
+      return () => {};
+    },
+  };
+}

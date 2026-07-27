@@ -28,15 +28,18 @@ pub struct IpcError {
 
 impl From<aiwf_store::StoreError> for IpcError {
     fn from(error: aiwf_store::StoreError) -> Self {
-        let code = match error {
-            aiwf_store::StoreError::Invalid(_) => "VALIDATION",
-            aiwf_store::StoreError::NotFound { .. } => "VALIDATION",
-            aiwf_store::StoreError::Sqlite(_) => "INTERNAL",
+        // 错误码与 @aiwf/contracts 的 ERROR_CODES 对齐，界面只处理一种错误形状
+        let (code, retriable) = match error {
+            aiwf_store::StoreError::Invalid(_) => ("VALIDATION", false),
+            aiwf_store::StoreError::NotFound { .. } => ("VALIDATION", false),
+            // 冲突可重试：调用方重新读取草稿后再提交
+            aiwf_store::StoreError::RevisionConflict { .. } => ("REVISION_CONFLICT", true),
+            aiwf_store::StoreError::Sqlite(_) => ("INTERNAL", false),
         };
         Self {
             code: code.to_string(),
             message: error.to_string(),
-            retriable: false,
+            retriable,
         }
     }
 }
@@ -58,11 +61,7 @@ pub struct WorkflowSummary {
 
 #[tauri::command]
 fn workflow_list(state: State<'_, AppState>) -> IpcResult<Vec<WorkflowSummary>> {
-    let store = state.store.lock().map_err(|_| IpcError {
-        code: "INTERNAL".into(),
-        message: "存储锁中毒".into(),
-        retriable: false,
-    })?;
+    let store = lock(&state)?;
     Ok(store
         .list_workflows()?
         .into_iter()
@@ -77,12 +76,121 @@ fn workflow_list(state: State<'_, AppState>) -> IpcResult<Vec<WorkflowSummary>> 
 
 #[tauri::command]
 fn workflow_create(state: State<'_, AppState>, name: String) -> IpcResult<String> {
-    let store = state.store.lock().map_err(|_| IpcError {
-        code: "INTERNAL".into(),
-        message: "存储锁中毒".into(),
-        retriable: false,
-    })?;
+    let store = lock(&state)?;
     Ok(store.create_workflow(&name, None)?)
+}
+
+#[derive(Serialize)]
+pub struct VersionMetaDto {
+    id: String,
+    version: i64,
+    config_hash: String,
+    published_at: String,
+    published_by: String,
+}
+
+#[derive(Serialize)]
+pub struct WorkflowDetail {
+    id: String,
+    name: String,
+    folder: Option<String>,
+    created_at: String,
+    updated_at: String,
+    /// 当前草稿修订号。提交改动时要带回来做版本守卫。
+    rev: i64,
+    graph_json: String,
+    versions: Vec<VersionMetaDto>,
+}
+
+#[tauri::command]
+fn workflow_get(state: State<'_, AppState>, id: String) -> IpcResult<WorkflowDetail> {
+    let store = lock(&state)?;
+    let workflow = store
+        .get_workflow(&id)?
+        .ok_or(aiwf_store::StoreError::NotFound {
+            kind: "工作流",
+            id: id.clone(),
+        })?;
+    let rev = store
+        .draft_revision(&id)?
+        .ok_or(aiwf_store::StoreError::NotFound {
+            kind: "草稿",
+            id: id.clone(),
+        })?;
+    let graph_json = store
+        .get_draft(&id, rev)?
+        .ok_or(aiwf_store::StoreError::NotFound {
+            kind: "草稿修订",
+            id: format!("{id}@{rev}"),
+        })?;
+
+    Ok(WorkflowDetail {
+        id: workflow.id,
+        name: workflow.name,
+        folder: workflow.folder,
+        created_at: workflow.created_at,
+        updated_at: workflow.updated_at,
+        rev,
+        graph_json,
+        versions: store
+            .list_versions(&id)?
+            .into_iter()
+            .map(|v| VersionMetaDto {
+                id: v.id,
+                version: v.version,
+                config_hash: v.config_hash,
+                published_at: v.published_at,
+                published_by: v.published_by,
+            })
+            .collect(),
+    })
+}
+
+/// 保存草稿。`base_rev` 不匹配时返回 REVISION_CONFLICT，绝不覆盖别处的改动。
+#[tauri::command]
+fn workflow_save_draft(
+    state: State<'_, AppState>,
+    id: String,
+    base_rev: i64,
+    graph_json: String,
+) -> IpcResult<i64> {
+    let store = lock(&state)?;
+    Ok(store.save_draft_guarded(&id, base_rev, &graph_json)?)
+}
+
+#[derive(Serialize)]
+pub struct PublishedDto {
+    version_id: String,
+    version: i64,
+    config_hash: String,
+}
+
+#[tauri::command]
+fn workflow_publish(state: State<'_, AppState>, id: String, rev: i64) -> IpcResult<PublishedDto> {
+    let store = lock(&state)?;
+    // 发布者暂时固定为本机用户；M4 接入身份后改为真实 actor
+    let published = store.publish(&id, rev, "本地用户")?;
+    Ok(PublishedDto {
+        version_id: published.id,
+        version: published.version,
+        config_hash: published.config_hash,
+    })
+}
+
+#[tauri::command]
+fn workflow_delete(state: State<'_, AppState>, id: String) -> IpcResult<()> {
+    let store = lock(&state)?;
+    store.delete_workflow(&id)?;
+    Ok(())
+}
+
+/// 取存储锁。锁中毒说明有 writer 线程 panic 过，此时任何写入都不可信。
+fn lock<'a>(state: &'a State<'_, AppState>) -> IpcResult<std::sync::MutexGuard<'a, Store>> {
+    state.store.lock().map_err(|_| IpcError {
+        code: "INTERNAL".into(),
+        message: "存储锁中毒：有写入线程崩溃过，请重启应用".into(),
+        retriable: false,
+    })
 }
 
 /// 应用数据目录：工作流、运行记录、产物、日志都落在这里。
@@ -194,7 +302,14 @@ pub fn run() {
                 }
             }
         })
-        .invoke_handler(tauri::generate_handler![workflow_list, workflow_create])
+        .invoke_handler(tauri::generate_handler![
+            workflow_list,
+            workflow_create,
+            workflow_get,
+            workflow_save_draft,
+            workflow_publish,
+            workflow_delete
+        ])
         .build(tauri::generate_context!())
         .expect("启动桌面壳失败")
         .run(|app, event| {

@@ -303,3 +303,68 @@ fn 删除工作流会连带清理其运行与事件() {
         "级联删除应清掉事件"
     );
 }
+
+// ── 草稿写入的版本守卫（M1：画布保存要能挡住并发覆盖）────────────────────
+
+#[test]
+fn 保存草稿时基础版本不匹配会被拒绝() {
+    let s = store();
+    let id = s.create_workflow("流程", None).unwrap();
+
+    // 基于 rev 0 写入，得到 rev 1
+    assert_eq!(s.save_draft_guarded(&id, 0, EMPTY).unwrap(), 1);
+
+    // 再基于 rev 0 写入：说明调用方读到的是旧草稿，必须拒绝而不是悄悄覆盖
+    let err = s.save_draft_guarded(&id, 0, EMPTY).unwrap_err();
+    assert!(
+        matches!(
+            err,
+            aiwf_store::StoreError::RevisionConflict { current: 1, .. }
+        ),
+        "应报版本冲突并带上当前 rev，实际：{err}"
+    );
+
+    // 基于最新 rev 写入正常
+    assert_eq!(s.save_draft_guarded(&id, 1, EMPTY).unwrap(), 2);
+}
+
+#[test]
+fn 版本冲突不会写入任何东西() {
+    let s = store();
+    let id = s.create_workflow("流程", None).unwrap();
+    s.save_draft_guarded(&id, 0, r#"{"nodes":[{"id":"a"}],"edges":[],"groups":[]}"#)
+        .unwrap();
+
+    let _ = s.save_draft_guarded(&id, 0, r#"{"nodes":[],"edges":[],"groups":[]}"#);
+
+    // 冲突那次的内容不能落库
+    assert_eq!(s.draft_revision(&id).unwrap(), Some(1));
+    assert!(s.get_draft(&id, 1).unwrap().unwrap().contains("\"a\""));
+}
+
+#[test]
+fn 列出版本时按版本号倒序_最新在前() {
+    let s = store();
+    let id = s.create_workflow("流程", None).unwrap();
+    s.save_draft_guarded(&id, 0, EMPTY).unwrap();
+    s.publish(&id, 1, "你").unwrap();
+    s.save_draft_guarded(&id, 1, EMPTY).unwrap();
+    s.publish(&id, 2, "你").unwrap();
+
+    let versions = s.list_versions(&id).unwrap();
+    assert_eq!(versions.len(), 2);
+    assert_eq!(
+        versions[0].version, 2,
+        "最新版本要排在最前，界面按这个顺序渲染版本抽屉"
+    );
+    assert_eq!(versions[1].version, 1);
+}
+
+#[test]
+fn 未发布过的工作流版本列表为空而不是报错() {
+    let s = store();
+    let id = s.create_workflow("流程", None).unwrap();
+    assert!(s.list_versions(&id).unwrap().is_empty());
+}
+
+const EMPTY: &str = r#"{"nodes":[],"edges":[],"groups":[]}"#;

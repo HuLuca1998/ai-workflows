@@ -30,6 +30,10 @@ pub enum StoreError {
     Invalid(String),
     #[error("找不到 {kind} {id}")]
     NotFound { kind: &'static str, id: String },
+    /// 草稿已被别处改过。对应契约里的 REVISION_CONFLICT，
+    /// 带上当前 rev 让调用方能直接重新读取而不必再查一次。
+    #[error("草稿已变化：基础版本 {base}，当前 rev {current}")]
+    RevisionConflict { base: i64, current: i64 },
 }
 
 pub type Result<T> = std::result::Result<T, StoreError>;
@@ -51,6 +55,16 @@ pub struct PublishedVersion {
     pub id: String,
     pub version: i64,
     pub config_hash: String,
+}
+
+/// 版本元数据（不含图本体）。
+#[derive(Debug, Clone)]
+pub struct VersionMeta {
+    pub id: String,
+    pub version: i64,
+    pub config_hash: String,
+    pub published_at: String,
+    pub published_by: String,
 }
 
 #[derive(Debug, Clone)]
@@ -288,6 +302,52 @@ impl Store {
             )
             .optional()?;
         Ok(graph)
+    }
+
+    /// 带版本守卫的草稿写入。
+    ///
+    /// `base_rev` 是调用方读到的修订号；与当前不符就拒绝，绝不悄悄覆盖别人的改动。
+    /// 这是契约里 `workflow.patch` 的落地点：结构化 Patch 由调用方在客户端应用
+    /// 并生成 Diff（`@aiwf/contracts` 的 applyPatch），落库时写整份图 ——
+    /// 存储本来就以整图为单位，而版本守卫必须在这一侧做才对并发安全。
+    pub fn save_draft_guarded(
+        &self,
+        workflow_id: &str,
+        base_rev: i64,
+        graph_json: &str,
+    ) -> Result<i64> {
+        let current = self
+            .draft_revision(workflow_id)?
+            .ok_or(StoreError::NotFound {
+                kind: "工作流",
+                id: workflow_id.to_string(),
+            })?;
+        if current != base_rev {
+            return Err(StoreError::RevisionConflict {
+                base: base_rev,
+                current,
+            });
+        }
+        self.save_draft(workflow_id, graph_json)
+    }
+
+    /// 某个工作流的全部已发布版本，最新在前（版本抽屉按这个顺序渲染）。
+    /// 不含 graph_json：列表页不需要，避免把几份完整图一起读出来。
+    pub fn list_versions(&self, workflow_id: &str) -> Result<Vec<VersionMeta>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, version, config_hash, published_at, published_by
+             FROM workflow_version WHERE workflow_id = ?1 ORDER BY version DESC",
+        )?;
+        let rows = stmt.query_map(params![workflow_id], |row| {
+            Ok(VersionMeta {
+                id: row.get(0)?,
+                version: row.get(1)?,
+                config_hash: row.get(2)?,
+                published_at: row.get(3)?,
+                published_by: row.get(4)?,
+            })
+        })?;
+        Ok(rows.collect::<std::result::Result<Vec<_>, _>>()?)
     }
 
     /// 把某个草稿修订发布成不可变版本快照。

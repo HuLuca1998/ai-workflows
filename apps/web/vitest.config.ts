@@ -8,6 +8,7 @@ export default defineConfig({
     environment: 'jsdom',
     globals: true,
     setupFiles: ['./tests/setup.ts'],
-    include: ['tests/**/*.test.tsx'],
+    // 两种后缀都要收：只写 .test.tsx 会让纯逻辑测试静默不执行
+    include: ['tests/**/*.test.ts', 'tests/**/*.test.tsx'],
   },
 });
