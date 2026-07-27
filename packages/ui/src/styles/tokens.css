@@ -54,8 +54,11 @@
 
   /* ── 字体 ─────────────────────────────────────────────────────────── */
   --font-heading: Inter, -apple-system, 'PingFang SC', 'Hiragino Sans GB', system-ui, sans-serif;
-  --font-body: Inter, -apple-system, 'PingFang SC', 'Hiragino Sans GB', system-ui, sans-serif;
-  --font-mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+  --nocturne-font-body:
+    Inter, -apple-system, 'PingFang SC', 'Hiragino Sans GB', system-ui, sans-serif;
+  /* 兼容直接用 --font-body 的地方（AppShell 的 body 规则） */
+  --font-body: var(--nocturne-font-body);
+  --nocturne-font-mono: ui-monospace, SFMono-Regular, Menlo, monospace;
   --font-heading-weight: 500;
 
   /* ── 间距（密度 0.70×，这套界面是刻意密的）─────────────────────────── */
@@ -114,8 +117,8 @@
   --color-text: var(--nocturne-text);
   --color-accent: var(--nocturne-accent);
 
-  --font-sans: var(--font-body);
-  --font-mono: var(--font-mono);
+  --font-sans: var(--nocturne-font-body);
+  --font-mono: var(--nocturne-font-mono);
 
   --radius-sm: var(--nocturne-radius-sm);
   --radius-md: var(--nocturne-radius-md);

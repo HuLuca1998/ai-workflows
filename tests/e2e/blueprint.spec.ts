@@ -163,6 +163,15 @@ test.describe('设计令牌', () => {
         '--color-accent',
         '--layout-nav-w',
         '--layout-titlebar-h',
+        // 字体令牌走同一套 @theme 映射，同样会被自引用坑掉。
+        // --font-mono 空掉时，配置哈希、run id、脚本内容全部退回默认字体 ——
+        // 而这些恰恰是最需要等宽对齐的东西。
+        //
+        // 不查 --font-sans：Tailwind 的内置主题键按需输出，
+        // 没有 font-sans utility 被用到时它就不在 :root 上。
+        // 代码里也没人用 var(--font-sans)，body 走的是 --font-body
+        '--font-mono',
+        '--font-body',
       ];
       return names.filter((name) => style.getPropertyValue(name).trim() === '');
     });
