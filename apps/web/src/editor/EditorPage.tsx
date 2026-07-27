@@ -13,8 +13,10 @@ import {
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import type { NodeType } from '@aiwf/contracts';
+import type { MenuTarget } from './menuActions.js';
 import { useEditor } from './editorStore.js';
 import { EditorToolbar } from './EditorToolbar.jsx';
+import { CanvasContextMenu } from './ContextMenu.jsx';
 import { NodeConfigDialog } from './NodeConfigDialog.jsx';
 import { NodeLibrary } from './NodeLibrary.jsx';
 import { WorkflowNode } from './WorkflowNode.jsx';
@@ -48,6 +50,7 @@ function EditorCanvas() {
     saving,
     loading,
     error,
+    selection,
     load,
     apply,
     save,
@@ -61,6 +64,10 @@ function EditorCanvas() {
   const [selectedCount, setSelectedCount] = useState(0);
   /** 双击打开的节点（图纸：双击节点打开配置弹层）。 */
   const [configNodeId, setConfigNodeId] = useState<string | null>(null);
+  /** 右键菜单：目标与屏幕位置。 */
+  const [menu, setMenu] = useState<{ target: MenuTarget; at: { x: number; y: number } } | null>(
+    null,
+  );
 
   useEffect(() => {
     if (workflowId) void load(workflowId);
@@ -196,6 +203,26 @@ function EditorCanvas() {
             onConnect={onConnect}
             onSelectionChange={onSelectionChange}
             onNodeDoubleClick={(_, node) => setConfigNodeId(node.id)}
+            onNodeContextMenu={(event, node) => {
+              event.preventDefault();
+              setMenu({
+                target: { kind: 'node', nodeId: node.id },
+                at: { x: event.clientX, y: event.clientY },
+              });
+            }}
+            onEdgeContextMenu={(event, edge) => {
+              event.preventDefault();
+              setMenu({
+                target: { kind: 'edge', edgeId: edge.id },
+                at: { x: event.clientX, y: event.clientY },
+              });
+            }}
+            onPaneContextMenu={(event) => {
+              event.preventDefault();
+              const e = event as unknown as MouseEvent;
+              setMenu({ target: { kind: 'canvas' }, at: { x: e.clientX, y: e.clientY } });
+            }}
+            onPaneClick={() => setMenu(null)}
             onDrop={onDrop}
             onDragOver={(event) => {
               event.preventDefault();
@@ -237,6 +264,17 @@ function EditorCanvas() {
               {Math.round(zoom * 100)}%
             </button>
           </div>
+
+          {menu ? (
+            <CanvasContextMenu
+              target={menu.target}
+              at={menu.at}
+              ctx={{ graph, selection }}
+              onClose={() => setMenu(null)}
+              onApply={apply}
+              onEditNode={setConfigNodeId}
+            />
+          ) : null}
 
           {configNode ? (
             <NodeConfigDialog

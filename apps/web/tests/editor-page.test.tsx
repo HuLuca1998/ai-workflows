@@ -202,3 +202,45 @@ describe('异常态', () => {
     expect(screen.getByRole('link', { name: '概览与工作流' })).toBeInTheDocument();
   });
 });
+
+describe('右键菜单', () => {
+  it('节点右键弹出菜单，含图纸列出的五项', async () => {
+    const { fireEvent } = await import('@testing-library/react');
+    renderEditor();
+    const node = document.querySelector('.wf-node');
+    expect(node).not.toBeNull();
+
+    fireEvent.contextMenu(node as Element);
+    const menu = screen.getByRole('menu');
+    for (const label of ['编辑配置', '复制', '断开全部连线', '用选中节点建分组', '删除']) {
+      expect(within(menu).getByRole('menuitem', { name: label })).toBeInTheDocument();
+    }
+  });
+
+  it('点「编辑配置」打开配置弹层而不是改图', async () => {
+    const { fireEvent } = await import('@testing-library/react');
+    renderEditor();
+    fireEvent.contextMenu(document.querySelector('.wf-node') as Element);
+    fireEvent.click(screen.getByRole('menuitem', { name: '编辑配置' }));
+
+    expect(screen.getByRole('dialog')).toHaveAccessibleName(/配置/u);
+    expect(screen.queryByRole('menu')).toBeNull();
+  });
+
+  it('Esc 关闭菜单', async () => {
+    const { fireEvent } = await import('@testing-library/react');
+    renderEditor();
+    fireEvent.contextMenu(document.querySelector('.wf-node') as Element);
+    fireEvent.keyDown(screen.getByRole('menu'), { key: 'Escape' });
+    expect(screen.queryByRole('menu')).toBeNull();
+  });
+
+  it('选中不足两个时「建分组」禁用并给出原因', async () => {
+    const { fireEvent } = await import('@testing-library/react');
+    renderEditor();
+    fireEvent.contextMenu(document.querySelector('.wf-node') as Element);
+    const item = screen.getByRole('menuitem', { name: '用选中节点建分组' });
+    expect(item).toBeDisabled();
+    expect(item).toHaveAttribute('title', expect.stringContaining('两个以上'));
+  });
+});

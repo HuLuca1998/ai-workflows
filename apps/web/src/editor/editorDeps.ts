@@ -4,6 +4,7 @@
  */
 export {
   CoreApiError,
+  NODE_LIBRARY,
   fieldDescriptors,
   getNodeDefinition,
   resolveNodeOutputs,
