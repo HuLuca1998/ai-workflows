@@ -96,10 +96,10 @@ APPLE_ID / APPLE_PASSWORD / APPLE_TEAM_ID   # 公证用
 
 ## 排查
 
-| 现象                           | 检查                                                                           |
-| ------------------------------ | ------------------------------------------------------------------------------ |
-| 应用内检查更新一直「已是最新」 | 当前版本是不是 `dev`（开发构建会跳过检查）；`latest.json` 里的版本是否真的更高 |
-| 下载后安装失败                 | 签名是否匹配：`tauri.conf.json` 的公钥与 CI 用的私钥必须是同一对               |
-| CI 发布成功但 latest.json 缺失 | `includeUpdaterJson: true` 与 bundle targets 里的 `updater` 都要在             |
-| nightly 把稳定版用户带跑了     | 检查 release 的 prerelease 标记——它必须为 true                                 |
+| 现象                                                  | 检查                                                                                                                                         |
+| ----------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| 应用内检查更新一直「已是最新」                        | 当前版本是不是 `dev`（开发构建会跳过检查）；`latest.json` 里的版本是否真的更高                                                               |
+| 下载后安装失败                                        | 签名是否匹配：`tauri.conf.json` 的公钥与 CI 用的私钥必须是同一对                                                                             |
+| CI 发布成功但 latest.json 缺失                        | `includeUpdaterJson: true` 与 bundle targets 里的 `updater` 都要在                                                                           |
+| nightly 把稳定版用户带跑了                            | 检查 release 的 prerelease 标记——它必须为 true                                                                                               |
 | bundle 阶段报 `failed to import keychain certificate` | 说明空的 `APPLE_CERTIFICATE` 被传进了构建步骤。GitHub Actions 无法条件性地不设置 env，所以必须走两个互斥步骤，而不是靠 tauri-action 自己判空 |

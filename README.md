@@ -40,10 +40,11 @@ docs/                 项目管理文档、ADR、设计图纸与参考资料
 
 ```bash
 pnpm install          # Node 侧依赖（需要 pnpm 11+、Node 22+）
-pnpm test             # 全部 TS 测试
-pnpm rs:test          # 全部 Rust 测试（需要 rustup stable）
+pnpm env:check        # 环境检查：缺什么、怎么装
 pnpm verify           # 提交前跑一遍完整门禁
 ```
+
+装应用、跑开发环境、自动更新怎么用 → [docs/INSTALL.md](docs/INSTALL.md)
 
 常用命令：
 

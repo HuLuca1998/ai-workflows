@@ -9,6 +9,7 @@
   },
   "scripts": {
     "dev": "pnpm --filter @aiwf/web dev",
+    "env:check": "node scripts/doctor.mjs",
     "build": "pnpm -r --sequential build",
     "test": "vitest run",
     "test:watch": "vitest",
