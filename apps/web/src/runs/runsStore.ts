@@ -27,6 +27,17 @@ export type RunFilter = 'all' | 'running' | 'waiting_approval' | 'failed';
 /** 「进行中」= 还没结束的：等待审批也算，它只是在等人。 */
 const ACTIVE_STATUSES = new Set(['created', 'queued', 'running', 'waiting_approval']);
 
+/** 每页事件数。与后端的默认 limit 对齐。 */
+const EVENT_PAGE_SIZE = 200;
+
+/**
+ * 最多翻多少页。
+ *
+ * 5000 条事件已经远超人能读完的量，而再多就会让界面明显卡顿。
+ * 到顶时明确标出来，让用户知道自己看到的不是全部。
+ */
+const EVENT_PAGE_MAX = 25;
+
 const FILTER_STATUSES: Record<RunFilter, string[]> = {
   all: [],
   running: ['running'],
@@ -46,6 +57,8 @@ interface RunsState {
   events: RunEvent[];
   /** 增量拉取的游标。 */
   nextSeq: number;
+  /** 事件太多、翻页到上限了。界面据此提示「还有更多没显示」。 */
+  truncated: boolean;
   loading: boolean;
   error: string | null;
   filter: RunFilter;
@@ -72,6 +85,7 @@ export const useRuns = create<RunsState>((set, get) => ({
   selectedId: null,
   events: [],
   nextSeq: 0,
+  truncated: false,
   loading: false,
   error: null,
   filter: 'all',
@@ -97,34 +111,56 @@ export const useRuns = create<RunsState>((set, get) => ({
 
   select: async (runId: string) => {
     // 先清空再拉：留着上一个运行的事件会让用户看到别的运行的记录
-    set({ selectedId: runId, events: [], nextSeq: 0, error: null });
+    set({ selectedId: runId, events: [], nextSeq: 0, truncated: false, error: null });
     await get().pollEvents();
   },
 
+  /**
+   * 拉事件，**一页拉不完就接着拉**。
+   *
+   * 只拉一页的话，217 条事件的运行在界面上永远停在第 200 条 ——
+   * 缺的正是「它最后怎么结束的」，而运行记录的价值就在于完整。
+   *
+   * 上限 EVENT_PAGE_MAX 页：后端如果一直说 hasMore，翻页会变成死循环，
+   * 界面卡死而根因在后端。到顶时把 truncated 标出来 ——
+   * 静默截断会让用户以为那就是全部。
+   */
   pollEvents: async () => {
-    const { selectedId, nextSeq } = get();
+    const { selectedId } = get();
     if (!selectedId) return;
+
     try {
-      const page = (await coreClient.call('run.events', {
-        runId: selectedId,
-        fromSeq: nextSeq,
-        limit: 200,
-      })) as { events: RunEvent[]; nextSeq: number };
+      for (let page = 0; page < EVENT_PAGE_MAX; page += 1) {
+        const from = get().nextSeq;
+        const result = (await coreClient.call('run.events', {
+          runId: selectedId,
+          fromSeq: from,
+          limit: EVENT_PAGE_SIZE,
+        })) as { events: RunEvent[]; hasMore?: boolean; nextSeq: number };
 
-      if (page.events.length === 0) return;
+        // 一条都没给就停：说 hasMore 却不给新事件是后端的问题，
+        // 我们不能因此转圈
+        if (result.events.length === 0) return;
 
-      // 按 seq 去重：select() 与轮询可能同时在拉，两者都读到同一个
-      // fromSeq 就会把同一批事件追加两次 —— 界面上一条事件出现两遍。
-      // seq 在存储层唯一，去重是天然正确的做法
-      set((state) => {
-        const known = new Set(state.events.map((event) => event.seq));
-        const fresh = page.events.filter((event) => !known.has(event.seq));
-        if (fresh.length === 0) return state;
-        return {
-          events: [...state.events, ...fresh].sort((a, b) => a.seq - b.seq),
-          nextSeq: Math.max(state.nextSeq, page.nextSeq),
-        };
-      });
+        // 按 seq 去重：select() 与轮询可能同时在拉，两者都读到同一个
+        // fromSeq 就会把同一批事件追加两次 —— 界面上一条事件出现两遍。
+        // seq 在存储层唯一，去重是天然正确的做法
+        set((state) => {
+          const known = new Set(state.events.map((event) => event.seq));
+          const fresh = result.events.filter((event) => !known.has(event.seq));
+          if (fresh.length === 0) return state;
+          return {
+            events: [...state.events, ...fresh].sort((a, b) => a.seq - b.seq),
+            nextSeq: Math.max(state.nextSeq, result.nextSeq),
+          };
+        });
+
+        // 一页都没推进 nextSeq 也停 —— 同样是转不下去的信号
+        if (get().nextSeq === from) return;
+        if (!result.hasMore) return;
+      }
+
+      set({ truncated: true });
     } catch (error) {
       set({ error: describe(error) });
     }

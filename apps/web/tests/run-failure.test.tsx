@@ -179,3 +179,72 @@ describe('重试', () => {
     expect(screen.queryByRole('button', { name: '从失败节点重试' })).toBeNull();
   });
 });
+
+describe('内部 ID 不该出现在界面上', () => {
+  const LABELED = [
+    event(1, 'run.created', { summary: '运行已创建' }),
+    event(2, 'node.started', {
+      nodeId: 'internal_shell_77',
+      nodeLabel: '用户看到的名字',
+      attempt: 1,
+      summary: '用户看到的名字 开始',
+    }),
+    event(3, 'node.succeeded', {
+      nodeId: 'internal_shell_77',
+      nodeLabel: '用户看到的名字',
+      attempt: 1,
+      summary: '完成',
+    }),
+  ];
+
+  const open = () => {
+    useRuns.setState({
+      items: [{ ...RUN, status: 'succeeded' }] as never,
+      selectedId: 'run_1',
+      events: LABELED as never,
+      error: null,
+      loading: false,
+    });
+    render(
+      <MemoryRouter initialEntries={['/runs/run_1']}>
+        <RunsPage />
+      </MemoryRouter>,
+    );
+  };
+
+  it('节点进度显示标题 —— codex 复测时那一栏还是 internal_long_0', async () => {
+    open();
+    const progress = await screen.findByRole('region', { name: '节点进度' });
+    expect(progress.textContent).toContain('用户看到的名字');
+    expect(progress.textContent).not.toContain('internal_shell_77');
+  });
+
+  it('事件流也显示标题', async () => {
+    open();
+    const user = userEvent.setup();
+    await user.click(screen.getByRole('tab', { name: /事件/u }));
+
+    const stream = await screen.findByRole('list');
+    expect(stream.textContent).toContain('用户看到的名字');
+    expect(stream.textContent).not.toContain('internal_shell_77');
+  });
+
+  it('老事件没有标题时退回 id —— 显示 id 也好过什么都不显示', async () => {
+    useRuns.setState({
+      items: [{ ...RUN, status: 'succeeded' }] as never,
+      selectedId: 'run_1',
+      events: [
+        event(1, 'node.started', { nodeId: 'legacy_node', attempt: 1, summary: '开始' }),
+      ] as never,
+      error: null,
+      loading: false,
+    });
+    render(
+      <MemoryRouter initialEntries={['/runs/run_1']}>
+        <RunsPage />
+      </MemoryRouter>,
+    );
+    const progress = await screen.findByRole('region', { name: '节点进度' });
+    expect(progress.textContent).toContain('legacy_node');
+  });
+});

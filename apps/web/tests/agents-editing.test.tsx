@@ -194,3 +194,50 @@ describe('新建角色', () => {
     expect(screen.getByText('先去「模型」页登记一个')).toBeTruthy();
   });
 });
+
+describe('加载竞态', () => {
+  it('模型晚到时表单要吸收它 —— 而不是永远卡在空下拉', async () => {
+    // codex 复测报的：fresh load 后立刻点「新建角色」，
+    // model.list 明明返回 200 且有多条，表单的下拉却一直是空的、
+    // 创建按钮一直 disabled。根因是 useState 只在首次渲染时取一次 models[0]，
+    // 而那时它还是空数组
+    let resolveModels: (value: unknown) => void = () => {};
+    const slow = new Promise((resolve) => {
+      resolveModels = resolve;
+    });
+    respond({
+      'model.list': async () => {
+        await slow;
+        return { items: MODELS.map(full) };
+      },
+    });
+
+    const user = userEvent.setup();
+    render(<AgentsPage />);
+
+    // 模型还没回来就点新建 —— 真实用户手快时就是这样
+    await user.click(screen.getByRole('button', { name: '新建角色' }));
+    expect(screen.getByRole('button', { name: '创建' })).toBeDisabled();
+
+    resolveModels({});
+    await waitFor(() => {
+      expect(screen.getByLabelText('模型')).toHaveValue('model_1');
+    });
+
+    await user.type(screen.getByLabelText('名称'), '审查');
+    await user.type(screen.getByLabelText('角色'), '代码审查');
+    expect(screen.getByRole('button', { name: '创建' })).toBeEnabled();
+  });
+
+  it('模型还在读时说明在读，而不是显示「先去登记一个」', async () => {
+    // 「先去「模型」页登记一个」是「确实没有模型」时说的话。
+    // 加载中显示它会让用户跑去登记一个他本来就有的模型
+    respond({ 'model.list': () => new Promise(() => {}) });
+    const user = userEvent.setup();
+    render(<AgentsPage />);
+
+    await user.click(screen.getByRole('button', { name: '新建角色' }));
+    expect(screen.getByText('正在读取模型…')).toBeTruthy();
+    expect(screen.queryByText('先去「模型」页登记一个')).toBeNull();
+  });
+});

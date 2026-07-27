@@ -334,3 +334,78 @@ describe('事件拉取的并发安全', () => {
     expect(useRuns.getState().nextSeq).toBe(5);
   });
 });
+
+describe('长事件流要拉完', () => {
+  it('一页拉不完时接着拉 —— 缺的那几条正是运行怎么结束的', async () => {
+    // codex 复测报的：217 条事件的运行，页面固定显示 200 条，
+    // 最后一条停在「节点 96」，节点 97–104 与 run.succeeded 全部缺失。
+    // 运行记录的价值就在于完整 —— 少了结尾等于不知道它是怎么结束的
+    const pages = new Map<number, unknown>([
+      [0, { events: makeEvents(1, 200), hasMore: true, nextSeq: 200 }],
+      [200, { events: makeEvents(201, 217), hasMore: false, nextSeq: 217 }],
+    ]);
+    call.mockImplementation((method: string, input: unknown) => {
+      if (method === 'run.get') return Promise.resolve({ run: RUN });
+      if (method === 'run.events') {
+        const { fromSeq } = input as { fromSeq: number };
+        return Promise.resolve(
+          pages.get(fromSeq) ?? { events: [], hasMore: false, nextSeq: fromSeq },
+        );
+      }
+      return Promise.resolve({ items: [] });
+    });
+
+    await useRuns.getState().select('run_1');
+
+    const { events } = useRuns.getState();
+    expect(events).toHaveLength(217);
+    expect(events.at(-1)?.seq).toBe(217);
+  });
+
+  it('拉不动时停下来，而不是无限翻页', async () => {
+    // 后端如果一直说 hasMore 却不给新事件，翻页会变成死循环 ——
+    // 界面卡死，而根因在后端
+    call.mockImplementation((method: string) =>
+      Promise.resolve(
+        method === 'run.get' ? { run: RUN } : { events: [], hasMore: true, nextSeq: 0 },
+      ),
+    );
+
+    await useRuns.getState().select('run_1');
+    expect(useRuns.getState().events).toHaveLength(0);
+  });
+
+  it('翻页有上限 —— 十万条事件不该把界面拖死', async () => {
+    call.mockImplementation((method: string, input: unknown) => {
+      if (method === 'run.get') return Promise.resolve({ run: RUN });
+      const { fromSeq } = input as { fromSeq: number };
+      return Promise.resolve({
+        events: makeEvents(fromSeq + 1, fromSeq + 200),
+        hasMore: true,
+        nextSeq: fromSeq + 200,
+      });
+    });
+
+    await useRuns.getState().select('run_1');
+    const { events, truncated } = useRuns.getState();
+    expect(events.length).toBeLessThanOrEqual(5000);
+    // 截断了就要说 —— 静默截断会让用户以为那就是全部
+    expect(truncated).toBe(true);
+  });
+});
+
+function makeEvents(from: number, to: number) {
+  return Array.from({ length: to - from + 1 }, (_, i) => ({
+    id: `ev_${from + i}`,
+    runId: 'run_1',
+    seq: from + i,
+    ts: '2026-07-28T10:00:00.000Z',
+    type: 'node.succeeded',
+    nodeId: `n${from + i}`,
+    attempt: 1,
+    actor: 'engine',
+    summary: `第 ${from + i} 条`,
+    sensitivity: 'internal',
+    schemaVer: 1,
+  }));
+}

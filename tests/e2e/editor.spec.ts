@@ -197,3 +197,54 @@ test.describe('画布缩放', () => {
     expect(percent, `实际缩放 ${zoom}`).toBeLessThan(100);
   });
 });
+
+test.describe('键盘', () => {
+  test('⌘A 全选 —— 状态栏写着它就该能用', async ({ page }) => {
+    // codex 复测报的：底部明确写「Shift 框选 · ⌘A 全选」，
+    // 但按下去没有任何反馈。界面上承诺的东西必须存在，
+    // 否则用户会以为是自己按错了
+    const { id } = await seedGraph(page, `全选验证 ${Date.now()}`, {
+      nodes: [
+        {
+          id: 'entry',
+          type: 'entry',
+          title: '入口',
+          position: { x: 40, y: 40 },
+          config: { trigger: 'manual', inputSchema: { type: 'object', properties: {} } },
+        },
+        {
+          id: 'sh',
+          type: 'script.shell',
+          title: '脚本',
+          position: { x: 300, y: 40 },
+          config: { interpreter: 'bash', script: 'echo hi', timeoutMs: 10_000 },
+        },
+      ],
+      edges: [],
+      groups: [],
+    });
+
+    await page.goto(`/editor/${id}`);
+    await expect(page.locator('.react-flow__node')).toHaveCount(2);
+
+    await page.locator('.react-flow__pane').click();
+    await page.keyboard.press('Meta+a');
+
+    await expect(page.locator('.react-flow__node.selected')).toHaveCount(2);
+  });
+
+  test('在输入框里按 ⌘A 仍然是选中文本', async ({ page }) => {
+    // 全选节点抢了输入框的 ⌘A 的话，改节点标题时想全选文本
+    // 会变成选中整张图 —— 那比没有快捷键更糟
+    const { id } = await seedGraph(page, `输入框 ⌘A ${Date.now()}`, MINIMAL_GRAPH);
+    await page.goto(`/editor/${id}`);
+
+    // 标题是双击才变输入框的 —— 先双击
+    await page.locator('h1, .editor__title').first().dblclick();
+    const title = page.getByLabel('工作流名称');
+    await expect(title).toBeVisible();
+    await title.click();
+    await page.keyboard.press('Meta+a');
+    await expect(page.locator('.react-flow__node.selected')).toHaveCount(0);
+  });
+});

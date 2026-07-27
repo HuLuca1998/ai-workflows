@@ -162,7 +162,9 @@ export function RunsPage() {
               <p className="runs__nodes-meta">
                 <span>{progress.done} 个节点已完成</span>
               </p>
-              {progress.current ? <p className="runs__nodes-cur">{progress.current}</p> : null}
+              {progress.current ? (
+                <p className="runs__nodes-cur">{nodeLabelOf(runs.events, progress.current)}</p>
+              ) : null}
             </>
           ) : null}
         </div>
@@ -173,7 +175,7 @@ export function RunsPage() {
               <div key={row.nodeId} className="runs__node" data-state={row.state}>
                 <i className={`ph ${nodeIcon(row.state)}`} aria-hidden="true" />
                 <div className="runs__node-main">
-                  <span className="runs__node-title">{row.nodeId}</span>
+                  <span className="runs__node-title">{row.label}</span>
                   <span className="runs__node-sub">{row.summary}</span>
                 </div>
                 <span className="runs__node-state">{stateLabel(row.state)}</span>
@@ -235,7 +237,7 @@ export function RunsPage() {
               <div className="runs__failed" role="alert">
                 <p className="runs__failed-title">
                   <i className="ph-fill ph-x-circle" aria-hidden="true" />
-                  <span>节点「{failedNodeLabel(runs.events, progress.failed)}」失败</span>
+                  <span>节点「{nodeLabelOf(runs.events, progress.failed)}」失败</span>
                   <span className="runs__grow" />
                   <span className="runs__failed-meta">
                     {attemptOf(runs.events, progress.failed)}
@@ -361,7 +363,10 @@ function EventList({ events }: { events: readonly RunEvent[] }) {
               <span className="runs__event-time">{formatClock(event.ts)}</span>
               <span className="runs__event-cat">{category(event.type)}</span>
               <span className="runs__event-type">{event.type}</span>
-              {event.nodeId ? <span className="runs__event-node">{event.nodeId}</span> : null}
+              {event.nodeId ? (
+                // 同上：显示标题，没有才退回 id
+                <span className="runs__event-node">{event.nodeLabel ?? event.nodeId}</span>
+              ) : null}
             </span>
             <span className="runs__event-title">{event.summary}</span>
           </li>
@@ -570,18 +575,32 @@ type NodeState = 'succeeded' | 'failed' | 'running' | 'waiting';
 
 interface NodeRow {
   nodeId: string;
+  /** 用户看得懂的名字。事件里没有标题时退回 id。 */
+  label: string;
   state: NodeState;
   summary: string;
 }
 
-/** 节点列表按事件里第一次出现的顺序排，与实际执行顺序一致。 */
+/**
+ * 节点列表按事件里第一次出现的顺序排，与实际执行顺序一致。
+ *
+ * 显示的是**标题**而不是 nodeId：用户从没见过 `internal_shell_77`，
+ * 他看到的是自己在画布上起的名字。老事件没有标题时退回 id ——
+ * 显示一个 id 也好过什么都不显示。
+ */
 function nodeRows(events: readonly RunEvent[]): NodeRow[] {
   const rows = new Map<string, NodeRow>();
   for (const event of events) {
     if (!event.nodeId) continue;
     const state = stateOf(event.type);
     if (!state) continue;
-    rows.set(event.nodeId, { nodeId: event.nodeId, state, summary: event.summary });
+    rows.set(event.nodeId, {
+      nodeId: event.nodeId,
+      // 后来的事件可能带标题而先前那条没有，所以只在有值时覆盖
+      label: event.nodeLabel ?? rows.get(event.nodeId)?.label ?? event.nodeId,
+      state,
+      summary: event.summary,
+    });
   }
   return [...rows.values()];
 }
@@ -626,13 +645,13 @@ function pendingApprovalSummary(events: readonly RunEvent[]): string {
 }
 
 /**
- * 失败节点的标题。
+ * 节点的标题。界面上凡是要显示节点的地方都走它。
  *
  * 事件里记着节点**当时**的名字，草稿改名不影响历史。
  * 老事件没有 nodeLabel（那个字段是后加的），退回 id ——
  * 显示一个 id 也好过什么都不显示。
  */
-function failedNodeLabel(events: readonly RunEvent[], nodeId: string): string {
+function nodeLabelOf(events: readonly RunEvent[], nodeId: string): string {
   const labeled = [...events].reverse().find((e) => e.nodeId === nodeId && e.nodeLabel);
   return labeled?.nodeLabel ?? nodeId;
 }

@@ -66,6 +66,13 @@ export interface ToFlowOptions {
   issues?: readonly ValidationIssue[];
   /** M1 还没有运行数据，节点一律是 idle；M2 起按运行状态给 tone。 */
   toneOf?: (nodeId: string) => NodeTone;
+  /**
+   * 选中的节点。
+   *
+   * 节点是受控的（nodes prop 来自这个函数），所以 React Flow 内部的
+   * `setNodes({selected})` 会被下一次渲染覆盖 —— 选中状态必须从这里进去。
+   */
+  selected?: ReadonlySet<string>;
 }
 
 export function toFlowNodes(graph: WorkflowGraph, options: ToFlowOptions = {}): Node[] {
@@ -86,6 +93,7 @@ export function toFlowNodes(graph: WorkflowGraph, options: ToFlowOptions = {}): 
       id: node.id,
       type: 'workflow',
       position: node.position,
+      ...(options.selected?.has(node.id) ? { selected: true } : {}),
       data: data as unknown as Record<string, unknown>,
     };
   });

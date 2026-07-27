@@ -57,7 +57,7 @@ const CAPABILITY_LABELS: Record<string, string> = {
 
 export function AgentsPage() {
   const [items, setItems] = useState<Agent[] | null>(null);
-  const [models, setModels] = useState<ModelOption[]>([]);
+  const [models, setModels] = useState<ModelOption[] | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [creating, setCreating] = useState(false);
@@ -86,6 +86,7 @@ export function AgentsPage() {
     void coreClient
       .call('model.list', { enabledOnly: true })
       .then((result) => setModels((result as { items: ModelOption[] }).items))
+      // 读失败也要落地成空数组：留在 null 的话表单会永远显示「正在读取」
       .catch(() => setModels([]));
   }, []);
 
@@ -334,12 +335,14 @@ export function AgentsPage() {
                   >
                     {/* 引用的模型可能已被停用 —— 保留它并标出来，
                         而不是让下拉悄悄跳到第一项：那会让用户以为已经改绑 */}
-                    {models.some((m) => m.id === (draft.modelRef ?? selected.modelRef)) ? null : (
+                    {(models ?? []).some(
+                      (m) => m.id === (draft.modelRef ?? selected.modelRef),
+                    ) ? null : (
                       <option value={draft.modelRef ?? selected.modelRef}>
                         {selected.modelRef}（已停用或已删除）
                       </option>
                     )}
-                    {models.map((model) => (
+                    {(models ?? []).map((model) => (
                       <option key={model.id} value={model.id}>
                         {model.name}
                       </option>
@@ -357,7 +360,7 @@ export function AgentsPage() {
                     }
                   >
                     <option value="">不降级</option>
-                    {models.map((model) => (
+                    {(models ?? []).map((model) => (
                       <option key={model.id} value={model.id}>
                         {model.name}
                       </option>
@@ -438,7 +441,8 @@ function AgentForm({
   onSubmit,
   onCancel,
 }: {
-  models: ModelOption[];
+  /** null 表示还在读。空数组才是「一个都没有」。 */
+  models: ModelOption[] | null;
   onSubmit: (input: NewAgentInput) => void;
   onCancel: () => void;
 }) {
@@ -447,9 +451,25 @@ function AgentForm({
   const [goal, setGoal] = useState('');
   const [persona, setPersona] = useState('');
   const [runtime, setRuntime] = useState('acp.claude');
-  const [modelRef, setModelRef] = useState(models[0]?.id ?? '');
+  const [modelRef, setModelRef] = useState('');
 
-  const ready = name.trim() !== '' && role.trim() !== '' && modelRef !== '';
+  /**
+   * 模型晚到时补上默认选择。
+   *
+   * useState 的初值只在首次渲染时算一次 —— 用户手快、在 model.list
+   * 回来之前就点了「新建角色」的话，那次算的是空数组，
+   * 于是下拉永远是空的、创建按钮永远 disabled。
+   *
+   * 只在用户还没选过时补：他选过之后数据再到也不该覆盖他的选择。
+   */
+  useEffect(() => {
+    if (modelRef === '' && models && models.length > 0) {
+      setModelRef(models[0]?.id ?? '');
+    }
+  }, [models, modelRef]);
+
+  const loading = models === null;
+  const ready = !loading && name.trim() !== '' && role.trim() !== '' && modelRef !== '';
 
   return (
     <form
@@ -502,8 +522,13 @@ function AgentForm({
       <label className="models__field">
         <span>模型</span>
         <select value={modelRef} onChange={(e) => setModelRef(e.target.value)} required>
-          {models.length === 0 ? <option value="">先去「模型」页登记一个</option> : null}
-          {models.map((model) => (
+          {/* 「先去登记一个」是「确实没有」时说的话。
+              加载中显示它会让用户跑去登记一个他本来就有的模型 */}
+          {loading ? <option value="">正在读取模型…</option> : null}
+          {!loading && models.length === 0 ? (
+            <option value="">先去「模型」页登记一个</option>
+          ) : null}
+          {(models ?? []).map((model) => (
             <option key={model.id} value={model.id}>
               {model.name}
             </option>

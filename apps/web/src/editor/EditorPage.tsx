@@ -107,9 +107,37 @@ function EditorCanvas() {
     return () => clear();
   }, [workflowId, load, clear]);
 
+  /**
+   * ⌘A 全选 —— 底部状态栏写着它，那它就必须能用。
+   *
+   * 界面上承诺了却不存在的功能比没有更糟：用户会以为是自己按错了，
+   * 反复试几次才放弃，然后开始怀疑别的提示是不是也是假的。
+   *
+   * 焦点在输入框里时不接管：那时 ⌘A 该是「全选文本」——
+   * 改节点标题时想全选却选中整张图，比没有快捷键更让人恼火。
+   */
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== 'a' || !(event.metaKey || event.ctrlKey)) return;
+
+      const target = event.target as HTMLElement | null;
+      const tag = target?.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || target?.isContentEditable) return;
+
+      event.preventDefault();
+      // 走 store 而不是 flow.setNodes：节点是受控的，
+      // React Flow 内部改的 selected 会被下一次渲染覆盖
+      setSelection(useEditor.getState().graph.nodes.map((node) => node.id));
+    };
+
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [setSelection]);
+
+  const selectedIds = useMemo(() => new Set(selection), [selection]);
   const nodes = useMemo(
-    () => toFlowNodes(graph, { issues: validation.issues }),
-    [graph, validation],
+    () => toFlowNodes(graph, { issues: validation.issues, selected: selectedIds }),
+    [graph, validation, selectedIds],
   );
   const edges = useMemo(() => toFlowEdges(graph), [graph]);
   const groups = useMemo(() => groupBoxes(graph), [graph]);
