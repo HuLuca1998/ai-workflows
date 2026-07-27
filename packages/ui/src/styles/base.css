@@ -1,0 +1,87 @@
+/*
+ * 基础层：重置、排版基线与交互状态。
+ * 交互状态一律主题化，绝不留浏览器默认样式（Nocturne readme「Interaction states」）。
+ */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-family: var(--font-body);
+  font-size: 13px;
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+}
+
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
+  margin: 0 0 var(--space-2);
+  font-family: var(--font-heading);
+  /* 层级靠尺寸与留白，不靠继续加粗 */
+  font-weight: var(--font-heading-weight);
+  line-height: 1.12;
+  letter-spacing: -0.015em;
+}
+
+a {
+  color: var(--color-accent-300);
+  text-underline-offset: 3px;
+}
+
+code,
+kbd,
+pre {
+  font-family: var(--font-mono);
+}
+
+:focus {
+  outline: none;
+}
+
+/* 键盘焦点必须始终可见，且用主题色而不是系统蓝 */
+:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}
+
+::selection {
+  background: color-mix(in srgb, var(--color-accent) 35%, transparent);
+}
+
+[disabled],
+[aria-disabled='true'] {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+/*
+ * Reduce Motion：把动画关掉，而不是缩短。
+ * 保留 1ms 而非 0 是为了让依赖 animationend 的逻辑仍会触发。
+ */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

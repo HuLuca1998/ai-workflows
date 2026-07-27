@@ -1,0 +1,4 @@
+/* 一次性引入设计系统：令牌 → 基础层 → 组件层，顺序不能变。 */
+@import './tokens.css';
+@import './base.css';
+@import './components.css';

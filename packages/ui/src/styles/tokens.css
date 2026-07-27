@@ -1,0 +1,121 @@
+/*
+ * Nocturne 设计令牌。
+ *
+ * 来源：docs/design/client/_ds/nocturne-*/styles.css（设计系统给定值）。
+ * 规则：业务代码只用 var(--…)，永远不写死十六进制、字号或 px 间距。
+ * 改外观改这里，不要在组件里覆盖。
+ */
+
+:root {
+  /* ── 角色色 ─────────────────────────────────────────────────────────── */
+  --nocturne-bg: #161826;
+  --nocturne-surface: #232532;
+  --nocturne-text: #e9e9ed;
+  --nocturne-accent: #9184d9;
+  --nocturne-divider: color-mix(in srgb, #e9e9ed 16%, transparent);
+
+  --color-bg: var(--nocturne-bg);
+  --color-surface: var(--nocturne-surface);
+  --color-text: var(--nocturne-text);
+  --color-accent: var(--nocturne-accent);
+  --color-divider: var(--nocturne-divider);
+  --color-text-muted: color-mix(in srgb, var(--color-text) 55%, transparent);
+
+  /* ── 色阶：OKLCH 同一明度尺度生成，同一档在视觉上等重 ─────────────── */
+  --color-neutral-100: #f3f5fe;
+  --color-neutral-200: #e4e7f5;
+  --color-neutral-300: #cfd3e5;
+  --color-neutral-400: #b2b6ca;
+  --color-neutral-500: #9397ab;
+  --color-neutral-600: #75798c;
+  --color-neutral-700: #595d6c;
+  --color-neutral-800: #3f424d;
+  --color-neutral-900: #292b31;
+
+  --color-accent-100: #f5f4ff;
+  --color-accent-200: #e7e5fe;
+  --color-accent-300: #d2cefd;
+  --color-accent-400: #b5abfc;
+  --color-accent-500: #968ae0;
+  --color-accent-600: #796cbf;
+  --color-accent-700: #5d5294;
+  --color-accent-800: #423a6a;
+  --color-accent-900: #2b2741;
+
+  /* ── 状态语义色 ───────────────────────────────────────────────────────
+   * 只是「辅助」标识：重要状态一律同时给文字与形状，绝不只靠颜色区分。 */
+  --color-status-idle: var(--color-neutral-600);
+  --color-status-queued: var(--color-neutral-400);
+  --color-status-running: #6ea8fe;
+  --color-status-waiting: #e0b355;
+  --color-status-success: #5cbf8a;
+  --color-status-failed: #e5715f;
+  --color-status-cancelled: var(--color-neutral-500);
+
+  /* ── 字体 ─────────────────────────────────────────────────────────── */
+  --font-heading: Inter, -apple-system, 'PingFang SC', 'Hiragino Sans GB', system-ui, sans-serif;
+  --font-body: Inter, -apple-system, 'PingFang SC', 'Hiragino Sans GB', system-ui, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+  --font-heading-weight: 500;
+
+  /* ── 间距（密度 0.70×，这套界面是刻意密的）─────────────────────────── */
+  --space-1: 2.8px;
+  --space-2: 5.6px;
+  --space-3: 8.4px;
+  --space-4: 11.2px;
+  --space-6: 16.8px;
+  --space-8: 22.4px;
+
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 14px;
+
+  /* 暗底上的高度 = 一条描边 + 环境暗度，不叠重阴影 */
+  --shadow-sm: 0 0 0 1px #3f424d;
+  --shadow-md:
+    0 0 0 1px #595d6c,
+    0 6px 18px rgb(0 0 0 / 55%);
+  --shadow-lg:
+    0 0 0 1px #9397ab,
+    0 16px 40px rgb(0 0 0 / 65%);
+
+  /* ── 布局尺寸（屏幕清单 §11）───────────────────────────────────────── */
+  --layout-titlebar-h: 44px;
+  --layout-nav-w: 216px;
+  --layout-nav-collapsed-w: 56px;
+  --layout-nav-collapse-at: 1360px;
+  --layout-drawer-w: 468px;
+  --layout-node-library-w: 186px;
+}
+
+/*
+ * Increase Contrast：把文本提到纯度更高的档位、描边实体化。
+ * 不是简单加粗——加粗会破坏「层级靠尺寸与留白」的排版原则。
+ */
+@media (prefers-contrast: more) {
+  :root {
+    --color-text: #ffffff;
+    --color-text-muted: var(--color-neutral-200);
+    --color-divider: var(--color-neutral-400);
+    --color-accent: var(--color-accent-300);
+    --shadow-sm: 0 0 0 1px var(--color-neutral-400);
+  }
+}
+
+/*
+ * Tailwind 4 的 CSS-first 主题映射：utility 类直接读上面的令牌，
+ * 因此设计系统改一处，utility 与组件同时跟着变。
+ */
+@theme inline {
+  --color-bg: var(--nocturne-bg);
+  --color-surface: var(--nocturne-surface);
+  --color-text: var(--nocturne-text);
+  --color-accent: var(--nocturne-accent);
+
+  --font-sans: var(--font-body);
+  --font-mono: var(--font-mono);
+
+  --radius-sm: var(--radius-sm);
+  --radius-md: var(--radius-md);
+  --radius-lg: var(--radius-lg);
+}

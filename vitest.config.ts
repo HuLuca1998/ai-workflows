@@ -14,7 +14,15 @@ export default defineConfig({
         branches: 70,
         statements: 70,
       },
-      exclude: ['**/dist/**', '**/*.config.ts', '**/generated/**', '**/*.test.ts'],
+      exclude: [
+        '**/dist/**',
+        '**/*.config.ts',
+        '**/generated/**',
+        '**/*.test.ts',
+        // 预览用例是活文档，不算被测代码
+        '**/*.stories.tsx',
+        '**/__previewjs__/**',
+      ],
     },
   },
 });

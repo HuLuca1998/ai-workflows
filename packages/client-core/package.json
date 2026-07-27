@@ -1,0 +1,22 @@
+{
+  "name": "@aiwf/client-core",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "事件订阅与投影、草稿 store、传输适配、Schema 表单描述",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@aiwf/contracts": "workspace:*",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.3",
+    "vitest": "^4.1.10"
+  }
+}
