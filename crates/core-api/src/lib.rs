@@ -156,6 +156,7 @@ pub const COMMANDS: &[&str] = &[
     "approval_decide",
     "workflow_list",
     "workspace_stats",
+    "run_artifact_content",
     "workflow_create",
     "workflow_get",
     "workflow_save_draft",
@@ -364,9 +365,23 @@ pub struct ArtifactDto {
     node_id: String,
     kind: String,
     name: String,
+    /// 磁盘上的绝对路径。图纸列表底部显示的是它的父目录。
     path: String,
+    /// 相对运行目录的路径，预览接口收的就是它。
+    rel_path: String,
     bytes: u64,
     sha256: String,
+}
+
+/// 一次产物预览的结果。
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ArtifactContentDto {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    text: Option<String>,
+    binary: bool,
+    truncated: bool,
+    bytes: u64,
 }
 
 #[derive(Serialize)]
@@ -702,6 +717,9 @@ pub fn run_artifacts(store: &Store, run_id: String) -> ApiResult<ArtifactsDto> {
         items: items
             .into_iter()
             .map(|item| ArtifactDto {
+                // 预览用相对路径 —— 绝对路径进了界面就等于让前端拼任意路径，
+                // 而 run.artifactContent 的第一道防线正是「只收相对路径」
+                rel_path: format!("{}/{}", item.node_id, item.name),
                 node_id: item.node_id,
                 kind: item.kind,
                 name: item.name,
@@ -710,6 +728,36 @@ pub fn run_artifacts(store: &Store, run_id: String) -> ApiResult<ArtifactsDto> {
                 sha256: item.sha256,
             })
             .collect(),
+    })
+}
+
+/// 读一个产物的内容用于预览。
+///
+/// 路径穿越由引擎侧的 ArtifactStore::read 挡 —— 那是真正的边界，
+/// 因为 HTTP 桥接与 MCP 都绕得过契约层的 Zod。
+pub fn run_artifact_content(
+    store: &Store,
+    run_id: String,
+    path: String,
+    max_bytes: Option<i64>,
+) -> ApiResult<ArtifactContentDto> {
+    let workdir = store
+        .run_workdir(&run_id)?
+        .filter(|dir| !dir.is_empty())
+        .map_or_else(std::env::temp_dir, std::path::PathBuf::from);
+
+    let artifacts = aiwf_engine::artifacts::ArtifactStore::new(workdir.join(".aiwf-artifacts"));
+    let limit = max_bytes.unwrap_or(65_536).clamp(1, 1_000_000) as usize;
+
+    let content = artifacts
+        .read(&run_id, &path, limit)
+        .map_err(|error| ApiError::validation(format!("读取产物失败：{error}")))?;
+
+    Ok(ArtifactContentDto {
+        text: content.text,
+        binary: content.binary,
+        truncated: content.truncated,
+        bytes: content.bytes,
     })
 }
 

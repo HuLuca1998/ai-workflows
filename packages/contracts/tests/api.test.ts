@@ -286,3 +286,44 @@ describe('工作流列表带运行态投影', () => {
     expect(parsed.success).toBe(false);
   });
 });
+
+describe('run.artifactContent', () => {
+  const spec = () => getMethodSpec('run.artifactContent');
+
+  it('按 runId + path 定位，不接受绝对路径 —— 那是任意文件读', () => {
+    // 产物读取是唯一一个「按用户给的路径读文件」的接口。
+    // 接受绝对路径的话，界面上一个输入框就变成了任意文件读取器
+    expect(spec().input.safeParse({ runId: 'run_1', path: 'node_1/stdout.log' }).success).toBe(
+      true,
+    );
+    expect(spec().input.safeParse({ runId: 'run_1', path: '/etc/passwd' }).success).toBe(false);
+    expect(spec().input.safeParse({ runId: 'run_1', path: '../../../etc/passwd' }).success).toBe(
+      false,
+    );
+  });
+
+  it('文本内容与「太大或不是文本」两种结果都能表达', () => {
+    expect(spec().output.safeParse({ text: 'hello', truncated: false, bytes: 5 }).success).toBe(
+      true,
+    );
+    // 截断也是正常结果：18KB 的日志不该整个塞进事件流去渲染
+    expect(
+      spec().output.safeParse({ text: '前 64KB…', truncated: true, bytes: 18_432 }).success,
+    ).toBe(true);
+  });
+
+  it('二进制产物不给 text，只说明它是二进制', () => {
+    // 给一段乱码比不给更糟：用户会以为文件坏了
+    expect(spec().output.safeParse({ binary: true, bytes: 1024, truncated: false }).success).toBe(
+      true,
+    );
+  });
+
+  it('读取是只读操作 —— 不该被记成变更', () => {
+    expect(spec().mutates).toBe(false);
+  });
+
+  it('要 workflow:read 权限 —— 产物里可能有敏感输出', () => {
+    expect(requiredScope('run.artifactContent')).toBe('workflow:read');
+  });
+});

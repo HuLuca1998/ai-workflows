@@ -311,6 +311,43 @@ const SPECS = {
     scope: 'workflow:read',
     summary: '游标分页拉事件；订阅版为 SSE / channel 推送',
   },
+  'run.artifactContent': {
+    // 图纸「03 执行记录」的产物列表每条右边都有「预览」与「导出」。
+    // 没有它的话，一条 33 字节的 stderr.log 也只能显示大小和磁盘路径 ——
+    // 用户得自己去 Finder 里翻。
+    input: z.object({
+      runId: z.string().min(1),
+      /**
+       * 相对产物根目录的路径。
+       *
+       * 这是唯一一个「按用户给的路径读文件」的接口 —— 接受绝对路径
+       * 或 `..` 的话，界面上一个输入框就变成了任意文件读取器。
+       * 引擎侧还会再挡一道（PathGuard），这里是第一道。
+       */
+      path: z
+        .string()
+        .min(1)
+        .refine((value) => !value.startsWith('/') && !value.split('/').includes('..'), {
+          message: '产物路径必须相对产物根目录，且不能包含 ..',
+        }),
+      /** 最多读多少字节。超出的部分截断，并在返回里标出来。 */
+      maxBytes: z.number().int().positive().max(1_000_000).default(65_536),
+    }),
+    output: z.object({
+      /** 文本产物的内容。二进制时缺席。 */
+      text: z.string().optional(),
+      /** 二进制产物给一段乱码比不给更糟 —— 用户会以为文件坏了。 */
+      binary: z.boolean().default(false),
+      /** 是否被 maxBytes 截断。18KB 的日志不该整个塞进界面渲染。 */
+      truncated: z.boolean(),
+      /** 文件的完整大小，不是本次读到的字节数。 */
+      bytes: z.number().int().min(0),
+    }),
+    mutates: false,
+    audited: true,
+    scope: 'workflow:read',
+    summary: '读产物内容用于预览',
+  },
   'run.artifacts': {
     input: z.object({ runId: z.string().min(1) }),
     output: z.object({

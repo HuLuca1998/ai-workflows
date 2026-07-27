@@ -379,15 +379,51 @@ interface Artifact {
   nodeId: string;
   kind: string;
   name: string;
+  /** 磁盘上的绝对路径。图纸列表底部显示的是它的父目录。 */
   path: string;
+  /** 相对运行目录的路径，预览接口收的就是它。 */
+  relPath: string;
   bytes: number;
   sha256: string;
+}
+
+interface Preview {
+  text?: string;
+  binary: boolean;
+  truncated: boolean;
+  bytes: number;
 }
 
 function ArtifactList({ runId }: { runId: string }) {
   const [items, setItems] = useState<Artifact[] | null>(null);
   const [root, setRoot] = useState('');
   const [error, setError] = useState<string | null>(null);
+  /** 展开中的那一条的相对路径。同时只展开一条 —— 图纸是就地展开，不是弹层。 */
+  const [openPath, setOpenPath] = useState<string | null>(null);
+  const [preview, setPreview] = useState<Preview | null>(null);
+
+  const togglePreview = async (relPath: string) => {
+    if (openPath === relPath) {
+      setOpenPath(null);
+      setPreview(null);
+      return;
+    }
+
+    setOpenPath(relPath);
+    setPreview(null);
+    setError(null);
+    try {
+      const result = (await coreClient.call('run.artifactContent', {
+        runId,
+        // 相对路径：绝对路径进了这个接口就等于任意文件读
+        path: relPath,
+      })) as Preview;
+      setPreview(result);
+    } catch (err) {
+      setOpenPath(null);
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -424,13 +460,46 @@ function ArtifactList({ runId }: { runId: string }) {
         <ul className="runs__artifacts">
           {items.map((item) => (
             <li key={item.path} className="runs__artifact">
-              <i className={`ph ${artifactIcon(item.kind)}`} aria-hidden="true" />
-              <span className="runs__artifact-main">
-                <span className="runs__artifact-name">{item.name}</span>
-                <span className="runs__artifact-meta">
-                  {formatBytes(item.bytes)} · {item.nodeId}
+              <div className="runs__artifact-row">
+                <i className={`ph ${artifactIcon(item.kind)}`} aria-hidden="true" />
+                <span className="runs__artifact-main">
+                  <span className="runs__artifact-name">{item.name}</span>
+                  <span className="runs__artifact-meta">
+                    {formatBytes(item.bytes)} · {item.nodeId}
+                  </span>
                 </span>
-              </span>
+                <button
+                  type="button"
+                  className="runs__action"
+                  aria-label={`预览 ${item.name}`}
+                  aria-expanded={openPath === item.relPath}
+                  onClick={() => void togglePreview(item.relPath)}
+                >
+                  预览
+                </button>
+              </div>
+
+              {openPath === item.relPath ? (
+                <div className="runs__artifact-preview">
+                  {preview === null ? (
+                    <p className="runs__empty">正在读取…</p>
+                  ) : preview.binary ? (
+                    // 显示一段乱码比不显示更糟 —— 用户会以为文件坏了
+                    <p className="runs__empty">
+                      这是二进制文件（{formatBytes(preview.bytes)}），没法在这里预览。
+                    </p>
+                  ) : (
+                    <>
+                      <pre>{preview.text}</pre>
+                      {preview.truncated ? (
+                        <p className="runs__artifact-truncated">
+                          只显示了前一部分，完整内容共 {formatBytes(preview.bytes)}。
+                        </p>
+                      ) : null}
+                    </>
+                  )}
+                </div>
+              ) : null}
             </li>
           ))}
         </ul>

@@ -18,6 +18,7 @@ import {
 const COMMANDS: Partial<Record<CoreApiMethod, string>> = {
   'workflow.list': 'workflow_list',
   'workspace.stats': 'workspace_stats',
+  'run.artifactContent': 'run_artifact_content',
   'workflow.get': 'workflow_get',
   'workflow.create': 'workflow_create',
   // patch 的结构化操作在客户端应用并生成 Diff（contracts 的 applyPatch），
@@ -319,6 +320,7 @@ export function fromIpcResult(method: CoreApiMethod, raw: unknown): unknown {
     case 'run.events':
     case 'run.dryRun':
     case 'run.artifacts':
+    case 'run.artifactContent':
       return raw;
 
     case 'run.cancel':

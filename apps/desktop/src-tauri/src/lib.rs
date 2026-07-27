@@ -397,6 +397,17 @@ fn workspace_stats(state: State<'_, AppState>) -> IpcResult<api::WorkspaceStatsD
 }
 
 #[tauri::command]
+fn run_artifact_content(
+    state: State<'_, AppState>,
+    run_id: String,
+    path: String,
+    max_bytes: Option<i64>,
+) -> IpcResult<api::ArtifactContentDto> {
+    let store = lock(&state)?;
+    api::run_artifact_content(&store, run_id, path, max_bytes)
+}
+
+#[tauri::command]
 fn workflow_create(
     state: State<'_, AppState>,
     name: String,
@@ -590,6 +601,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             workflow_list,
             workspace_stats,
+            run_artifact_content,
             workflow_create,
             workflow_get,
             workflow_save_draft,

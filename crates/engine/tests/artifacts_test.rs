@@ -207,3 +207,147 @@ fn 节点_id_清洗后不能互相碰撞() {
         assert_eq!(std::fs::read(&a.path).unwrap(), b"aaa", "先写的被覆盖了");
     }
 }
+
+// ── 读产物内容（预览）────────────────────────────────────────────────────
+//
+// 这是唯一一个「按调用方给的路径读文件」的接口。契约层已经挡了绝对路径
+// 与 `..`，但 HTTP 桥接和 MCP 都能绕过 Zod —— 引擎这一道才是真正的边界。
+
+#[test]
+fn 读得到自己写下的产物() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = ArtifactStore::new(dir.path().to_path_buf());
+    store
+        .save("run_1", "node_1", ArtifactKind::Log, "stdout.log", b"hello")
+        .unwrap();
+
+    let read = store.read("run_1", "node_1/stdout.log", 1024).unwrap();
+    assert_eq!(read.text.as_deref(), Some("hello"));
+    assert!(!read.truncated);
+    assert_eq!(read.bytes, 5);
+}
+
+#[test]
+fn 超过上限时截断并标出来() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = ArtifactStore::new(dir.path().to_path_buf());
+    let big = "x".repeat(5000);
+    store
+        .save(
+            "run_1",
+            "node_1",
+            ArtifactKind::Log,
+            "big.log",
+            big.as_bytes(),
+        )
+        .unwrap();
+
+    let read = store.read("run_1", "node_1/big.log", 100).unwrap();
+    assert!(read.truncated, "截断了就要说");
+    assert_eq!(read.bytes, 5000, "bytes 是文件全长，不是这次读到的");
+    assert_eq!(read.text.unwrap().len(), 100);
+}
+
+#[test]
+fn 二进制产物不返回乱码() {
+    // 给一段乱码比不给更糟：用户会以为文件坏了
+    let dir = tempfile::tempdir().unwrap();
+    let store = ArtifactStore::new(dir.path().to_path_buf());
+    store
+        .save(
+            "run_1",
+            "node_1",
+            ArtifactKind::Log,
+            "a.bin",
+            &[0xff, 0xfe, 0x00, 0x01],
+        )
+        .unwrap();
+
+    let read = store.read("run_1", "node_1/a.bin", 1024).unwrap();
+    assert!(read.binary);
+    assert!(read.text.is_none());
+}
+
+#[test]
+fn 截断不会把多字节字符切成半个() {
+    // 按字节截断会把 UTF-8 汉字切开，得到的不是「截断的中文」而是乱码
+    let dir = tempfile::tempdir().unwrap();
+    let store = ArtifactStore::new(dir.path().to_path_buf());
+    store
+        .save(
+            "run_1",
+            "node_1",
+            ArtifactKind::Log,
+            "cn.log",
+            "中文日志内容".as_bytes(),
+        )
+        .unwrap();
+
+    // 「中」占 3 字节，从第 4 字节切正好落在「文」中间
+    let read = store.read("run_1", "node_1/cn.log", 4).unwrap();
+    assert!(!read.binary, "汉字文件不该被当成二进制");
+    assert_eq!(read.text.as_deref(), Some("中"), "只保留完整的字符");
+}
+
+#[test]
+fn 路径穿越读不到产物目录之外() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("secret.txt"), "机密").unwrap();
+    let root = dir.path().join("artifacts");
+    std::fs::create_dir_all(&root).unwrap();
+    let store = ArtifactStore::new(root);
+
+    for evil in [
+        "../secret.txt",
+        "node_1/../../secret.txt",
+        "/etc/passwd",
+        "node_1/./../../secret.txt",
+    ] {
+        assert!(store.read("run_1", evil, 1024).is_err(), "{evil} 应当被拒");
+    }
+}
+
+#[test]
+fn 软链指向外面时也拒绝() {
+    // 攻击者能写进 worktree 的话就能造一个软链指向 ~/.ssh/id_rsa。
+    // 路径字符串本身完全正常，只有 canonicalize 之后才看得出来
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("secret.txt"), "机密").unwrap();
+    let root = dir.path().join("artifacts");
+    std::fs::create_dir_all(root.join("run_1").join("node_1")).unwrap();
+    let store = ArtifactStore::new(root.clone());
+
+    #[cfg(unix)]
+    std::os::unix::fs::symlink(
+        dir.path().join("secret.txt"),
+        root.join("run_1").join("node_1").join("link.txt"),
+    )
+    .unwrap();
+
+    #[cfg(unix)]
+    assert!(store.read("run_1", "node_1/link.txt", 1024).is_err());
+}
+
+#[test]
+fn 读不存在的产物报错而不是给空内容() {
+    // 空内容会被读成「这个日志是空的」，而真相是文件不在
+    let dir = tempfile::tempdir().unwrap();
+    let store = ArtifactStore::new(dir.path().to_path_buf());
+    assert!(store.read("run_1", "node_1/nope.log", 1024).is_err());
+}
+
+#[test]
+fn 路径穿越的报错要说清是路径问题() {
+    // 只靠 safe_leaf 的话 `..` 报的是「产物文件名不能为空」——
+    // 安全上没问题，但调用方看到这句完全不知道自己错在哪
+    let dir = tempfile::tempdir().unwrap();
+    let store = ArtifactStore::new(dir.path().to_path_buf());
+
+    for evil in ["../secret.txt", "/etc/passwd", "a/../../b"] {
+        let message = store.read("run_1", evil, 1024).unwrap_err().to_string();
+        assert!(
+            message.contains("不在产物目录内"),
+            "{evil} 的报错说不清问题：{message}"
+        );
+    }
+}

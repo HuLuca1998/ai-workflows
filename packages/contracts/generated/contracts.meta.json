@@ -99,6 +99,7 @@
     "run.list",
     "run.get",
     "run.events",
+    "run.artifactContent",
     "run.artifacts",
     "run.resume",
     "run.cancel",

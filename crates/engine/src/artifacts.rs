@@ -20,6 +20,9 @@ pub enum ArtifactError {
     OutsideRoot { path: String },
     #[error("{path} 是符号链接，产物目录里不接受")]
     SymlinkInPath { path: String },
+    /// 空内容会被读成「这个日志是空的」，而真相是文件不在。
+    #[error("找不到产物：{0}")]
+    NotFound(String),
     #[error("文件系统错误：{0}")]
     Io(#[from] std::io::Error),
 }
@@ -45,6 +48,17 @@ impl ArtifactKind {
             Self::Binary => "binary",
         }
     }
+}
+
+/// 一次产物预览的结果。
+#[derive(Debug, Clone)]
+pub struct ArtifactContent {
+    /// 文本内容。二进制时为 None。
+    pub text: Option<String>,
+    pub binary: bool,
+    pub truncated: bool,
+    /// 文件全长，不是这次读到的字节数。
+    pub bytes: u64,
 }
 
 #[derive(Debug, Clone)]
@@ -113,6 +127,70 @@ impl ArtifactStore {
     }
 
     /// 列出一次运行的全部产物。运行没有产物时返回空，不是错误。
+    /// 读一个产物的内容，用于界面预览。
+    ///
+    /// 这是唯一一个「按调用方给的路径读文件」的接口。契约层挡了绝对路径与
+    /// `..`，但 HTTP 桥接和 MCP 都能绕过 Zod —— 这里才是真正的边界。
+    ///
+    /// `rel` 是相对**运行目录**的路径（如 `node_1/stdout.log`）。
+    pub fn read(&self, run_id: &str, rel: &str, max_bytes: usize) -> Result<ArtifactContent> {
+        let run_dir = self.root.join(safe_segment(run_id)?);
+
+        // 先显式拒绝，再逐段清洗。
+        //
+        // 只靠 safe_leaf 的话 `..` 会被当成「去掉点之后是空文件名」，
+        // 报出来的是「产物文件名不能为空」—— 安全上没问题，
+        // 但调用方看到这句话完全不知道自己错在哪。
+        if rel.starts_with('/') || rel.split('/').any(|seg| seg == "..") {
+            return Err(ArtifactError::OutsideRoot {
+                path: rel.to_string(),
+            });
+        }
+
+        // 逐段过 safe_leaf：一次性 join 整个 rel 的话，
+        // `..` 会被 PathBuf 直接当成上级目录处理掉，而那正是要挡的
+        let mut path = run_dir.clone();
+        for segment in rel.split('/') {
+            if segment.is_empty() || segment == "." {
+                continue;
+            }
+            path.push(safe_leaf(segment)?);
+        }
+
+        if !path.is_file() {
+            return Err(ArtifactError::NotFound(rel.to_string()));
+        }
+        // 路径字符串本身可以完全正常 —— 只有 canonicalize 之后
+        // 才看得出某一段是指向 ~/.ssh 的软链
+        reject_symlinks(&self.root, &path)?;
+
+        let bytes = std::fs::metadata(&path)?.len();
+        let raw = std::fs::read(&path)?;
+        let head = &raw[..raw.len().min(max_bytes)];
+        let truncated = raw.len() > head.len();
+
+        // 按字节截断会把 UTF-8 汉字切开，得到的不是「截断的中文」而是乱码。
+        // from_utf8 失败时退一步：截到最后一个完整字符
+        let text = match std::str::from_utf8(head) {
+            Ok(text) => Some(text.to_string()),
+            Err(error) if truncated || error.error_len().is_none() => {
+                // error_len() 为 None 表示「结尾是个不完整的字符」——
+                // 那是截断造成的，不是文件本身是二进制
+                std::str::from_utf8(&head[..error.valid_up_to()])
+                    .ok()
+                    .map(str::to_string)
+            }
+            Err(_) => None,
+        };
+
+        Ok(ArtifactContent {
+            binary: text.is_none(),
+            text,
+            truncated,
+            bytes,
+        })
+    }
+
     pub fn list(&self, run_id: &str) -> Result<Vec<SavedArtifact>> {
         let run_dir = self.root.join(safe_segment(run_id)?);
         if !run_dir.is_dir() {
