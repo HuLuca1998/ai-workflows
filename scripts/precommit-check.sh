@@ -12,6 +12,10 @@ echo "▸ 单元与契约门禁"
 pnpm verify
 
 echo
+echo "▸ 真实 ACP adapter（没装就跳过）"
+node tests/e2e/acp-real.mjs
+
+echo
 echo "▸ 端到端（需要本地服务）"
 ./scripts/local-test-env.sh start > /dev/null
 node scripts/seed-test-data.mjs > /dev/null

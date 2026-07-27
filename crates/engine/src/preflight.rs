@@ -47,6 +47,13 @@ const IMPLEMENTED: &[&str] = &[
     "approval",
     "script.shell",
     "git.worktree",
+    // M3 起 AI 四类节点走 ACP。adapter 装没装是另一回事 ——
+    // 那由下面的 check_acp 单独报，说的话也不一样：
+    // 「类型没实现」是我们的问题，「adapter 没装」是用户能自己解决的
+    "ai.analyze",
+    "ai.execute",
+    "ai.review",
+    "ai.decide",
 ];
 
 pub fn dry_run(graph: &WorkflowGraph, workdir: &Path) -> DryRunReport {
@@ -56,6 +63,7 @@ pub fn dry_run(graph: &WorkflowGraph, workdir: &Path) -> DryRunReport {
     checks.push(check_workdir(workdir));
     checks.extend(check_interpreters(graph));
     checks.extend(check_git(graph));
+    checks.extend(check_acp(graph));
     checks.extend(check_unimplemented(graph));
 
     let passed = checks
@@ -158,6 +166,44 @@ fn check_git(graph: &WorkflowGraph) -> Vec<Check> {
             detail: "PATH 里找不到 git，worktree 节点无法执行".to_string(),
         },
     }]
+}
+
+/// 图里有 AI 节点时，检查对应的 adapter 装没装。
+///
+/// 与「节点类型没实现」分开报：那是我们的问题，这是用户能自己解决的 ——
+/// 错误信息也就该长得不一样（一个说「运行会停在这里」，
+/// 一个说「装上它就能跑」）。
+fn check_acp(graph: &WorkflowGraph) -> Vec<Check> {
+    let runtimes: BTreeSet<&str> = graph
+        .nodes
+        .iter()
+        .filter(|node| node.node_type.starts_with("ai."))
+        .map(|node| {
+            node.config
+                .get("runtime")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or("acp.claude")
+        })
+        .collect();
+
+    runtimes
+        .into_iter()
+        .map(|runtime| match crate::acp::adapter_installed(runtime) {
+            Some(path) => Check {
+                label: format!("ACP adapter {runtime}"),
+                status: CheckStatus::Passed,
+                detail: path,
+            },
+            None => Check {
+                label: format!("ACP adapter {runtime}"),
+                status: CheckStatus::Failed,
+                detail: format!(
+                    "{} 没有安装。装上它才能跑 AI 节点",
+                    crate::acp::adapter_command(runtime).map_or("adapter", |(cmd, _)| cmd)
+                ),
+            },
+        })
+        .collect()
 }
 
 fn check_unimplemented(graph: &WorkflowGraph) -> Vec<Check> {

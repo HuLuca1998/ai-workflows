@@ -186,11 +186,36 @@ fn 没有_git_节点时不检查_git_不列无关条目() {
 
 #[test]
 fn 尚未实现的节点类型在_dry_run_就说清楚() {
-    // 跑到一半才说「ai.execute 尚未实现」太晚了，那时已经产生了副作用
+    // 跑到一半才说「这个类型没实现」太晚了，那时已经产生了副作用
+    let with_sub = serde_json::json!({
+        "nodes": [
+            {"id": "entry", "type": "entry", "title": "入口", "config": {}},
+            {"id": "sub", "type": "subworkflow", "title": "子流程", "config": {"workflowId": "wf_1"}}
+        ],
+        "edges": [
+            {"id": "e1", "source": {"nodeId": "entry", "port": "success"}, "target": {"nodeId": "sub", "port": "input"}}
+        ],
+        "groups": []
+    });
+    let report = dry_run(&graph(with_sub), &std::env::temp_dir());
+    let unimplemented = report
+        .checks
+        .iter()
+        .find(|c| c.label.contains("subworkflow"))
+        .expect("应当指出未实现的节点类型");
+    assert_eq!(unimplemented.status, CheckStatus::Failed);
+    assert!(!report.ok);
+}
+
+#[test]
+fn ai_节点检查的是_adapter_装没装_而不是类型没实现() {
+    // 两件事说的话不一样：「类型没实现」是我们的问题，
+    // 「adapter 没装」是用户能自己解决的
     let with_ai = serde_json::json!({
         "nodes": [
             {"id": "entry", "type": "entry", "title": "入口", "config": {}},
-            {"id": "ai", "type": "ai.execute", "title": "修复", "config": {"instruction": "修"}}
+            {"id": "ai", "type": "ai.execute", "title": "修复",
+             "config": {"instruction": "修", "runtime": "acp.claude"}}
         ],
         "edges": [
             {"id": "e1", "source": {"nodeId": "entry", "port": "success"}, "target": {"nodeId": "ai", "port": "input"}}
@@ -198,13 +223,22 @@ fn 尚未实现的节点类型在_dry_run_就说清楚() {
         "groups": []
     });
     let report = dry_run(&graph(with_ai), &std::env::temp_dir());
-    let unimplemented = report
-        .checks
-        .iter()
-        .find(|c| c.label.contains("ai.execute"))
-        .expect("应当指出未实现的节点类型");
-    assert_eq!(unimplemented.status, CheckStatus::Failed);
-    assert!(!report.ok);
+
+    // 不该再报「ai.execute 尚未实现」
+    assert!(
+        !report.checks.iter().any(|c| c.detail.contains("尚未实现")),
+        "检查项：{:?}",
+        report.checks
+    );
+    // 该有一条关于 adapter 的检查
+    assert!(
+        report
+            .checks
+            .iter()
+            .any(|c| c.label.contains("ACP adapter")),
+        "检查项：{:?}",
+        report.checks
+    );
 }
 
 #[test]

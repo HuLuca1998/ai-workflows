@@ -12,6 +12,7 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@agentclientprotocol/claude-agent-acp": "^0.62.0",
     "@aiwf/contracts": "workspace:*"
   },
   "devDependencies": {

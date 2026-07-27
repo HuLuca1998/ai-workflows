@@ -5,6 +5,7 @@
 //!
 //! M0 只落地两块安全基元与状态机骨架；调度器在 M2 补齐。
 
+pub mod acp;
 pub mod artifacts;
 pub mod exec;
 pub mod executor;

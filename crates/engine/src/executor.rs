@@ -7,6 +7,7 @@
 use std::path::PathBuf;
 use std::time::Duration;
 
+use crate::acp::{AcpClient, SessionUpdate, adapter_command, adapter_installed, env_to_remove};
 use crate::artifacts::{ArtifactKind, ArtifactStore};
 use crate::exec::{ExecOutcome, ScriptRequest, run_script};
 use crate::graph::GraphNode;
@@ -31,6 +32,8 @@ pub struct NodeExecutor {
     worktree_parent: PathBuf,
     artifacts: ArtifactStore,
     run_id: String,
+    /// 覆盖 ACP adapter 的命令。测试用 mock，生产走注册表。
+    acp_override: Option<(String, Vec<String>)>,
 }
 
 impl NodeExecutor {
@@ -42,7 +45,16 @@ impl NodeExecutor {
             worktree_parent,
             artifacts,
             run_id: "run".to_string(),
+            acp_override: None,
         }
+    }
+
+    /// 指定 ACP adapter 的命令。测试用它挂 mock；
+    /// 生产不调，走 `adapter_command` 的注册表。
+    #[must_use]
+    pub fn with_acp_command(mut self, command: &str, args: &[String]) -> Self {
+        self.acp_override = Some((command.to_string(), args.to_vec()));
+        self
     }
 
     /// 产物按运行分目录，得知道自己在跑哪个运行。
@@ -79,6 +91,8 @@ impl NodeExecutor {
 
             "script.shell" => self.run_shell(node, scope),
             "git.worktree" => self.run_worktree(node, scope),
+
+            "ai.analyze" | "ai.execute" | "ai.review" | "ai.decide" => self.run_ai(node, scope),
 
             other => Ok(NodeOutcome::Failed {
                 message: format!("节点类型 {other} 尚未实现。这个节点不会被执行，运行到此为止"),
@@ -243,6 +257,123 @@ impl NodeExecutor {
             name,
             content.as_bytes(),
         );
+    }
+
+    /// 跑一个 AI 节点：起 adapter → 建会话 → 发提示词 → 收流式回答。
+    ///
+    /// 会话是**一次性**的：每个节点起一个 adapter 进程，跑完就收掉。
+    /// 复用会话能省启动时间，但也让「这个节点看到了什么上下文」
+    /// 变得说不清 —— 而可解释性是这个产品的核心。
+    fn run_ai(&self, node: &GraphNode, scope: &mut Scope) -> Result<NodeOutcome> {
+        let instruction_raw = self.require_str(node, "instruction")?;
+        let instruction = match interpolate(&instruction_raw, scope) {
+            Ok(text) => text,
+            // 把 `${input.nope}` 原样发过去，agent 会当成字面量去理解，
+            // 得到的分析基于一个根本不存在的东西
+            Err(error) => {
+                return Ok(NodeOutcome::Failed {
+                    message: error.to_string(),
+                });
+            }
+        };
+
+        let runtime = node
+            .config
+            .get("runtime")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("acp.claude");
+
+        let (command, args) = match &self.acp_override {
+            Some((command, args)) => (command.clone(), args.clone()),
+            None => match adapter_command(runtime) {
+                Some((command, args)) => match adapter_installed(runtime) {
+                    Some(path) => (path, args),
+                    None => {
+                        return Ok(NodeOutcome::Failed {
+                            message: format!(
+                                "{runtime} 的 adapter（{command}）没有安装。\
+                                 装上它才能跑 AI 节点：pnpm --filter @aiwf/acp-sidecar add {command}"
+                            ),
+                        });
+                    }
+                },
+                None => {
+                    return Ok(NodeOutcome::Failed {
+                        message: format!("不认识的 runtime {runtime}"),
+                    });
+                }
+            },
+        };
+
+        let timeout_ms = node
+            .config
+            .get("timeoutMs")
+            .and_then(serde_json::Value::as_u64)
+            .unwrap_or(900_000);
+
+        let mut client = match AcpClient::connect(
+            &command,
+            &args,
+            &env_to_remove(runtime),
+            Duration::from_millis(timeout_ms),
+        ) {
+            Ok(client) => client,
+            Err(error) => {
+                return Ok(NodeOutcome::Failed {
+                    message: format!("连不上 adapter：{error}"),
+                });
+            }
+        };
+
+        let session = match client.new_session(&self.workdir.display().to_string()) {
+            Ok(session) => session,
+            Err(error) => {
+                return Ok(NodeOutcome::Failed {
+                    message: format!("建会话失败：{error}"),
+                });
+            }
+        };
+
+        let mut text = String::new();
+        let mut reasoning = String::new();
+        let mut tool_calls = 0_u32;
+
+        let outcome = client.prompt(&session.id, &instruction, |update| match update {
+            SessionUpdate::AgentText { text: chunk } => text.push_str(chunk),
+            SessionUpdate::Reasoning { text: chunk } => reasoning.push_str(chunk),
+            SessionUpdate::ToolCall { .. } => tool_calls += 1,
+            SessionUpdate::Other { .. } => {}
+        });
+
+        match outcome {
+            Ok(stop) => {
+                // 回答落产物：几十 KB 的分析不该进事件表
+                self.save_output(&node.id, "agent.md", &text);
+                if !reasoning.is_empty() {
+                    self.save_output(&node.id, "reasoning.md", &reasoning);
+                }
+
+                scope.set_node_output(
+                    &node.id,
+                    "success",
+                    serde_json::json!({
+                        "text": text,
+                        "reasoning": reasoning,
+                        "toolCalls": tool_calls,
+                        "stopReason": format!("{stop:?}"),
+                        "sessionId": session.id,
+                        "mode": session.current_mode,
+                    }),
+                );
+
+                Ok(NodeOutcome::Succeeded {
+                    port: "success".to_string(),
+                })
+            }
+            Err(error) => Ok(NodeOutcome::Failed {
+                message: format!("AI 节点失败：{error}"),
+            }),
+        }
     }
 
     fn require_str(&self, node: &GraphNode, field: &str) -> Result<String> {

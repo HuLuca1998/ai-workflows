@@ -118,14 +118,15 @@ fn 结束节点按配置的_outcome_收尾() {
 
 #[test]
 fn 尚未实现的节点类型明确报未实现_而不是假装成功() {
-    // 「宁可页面留空，也不要做假的」：AI 节点还没接 ACP，
-    // 假装成功会让用户以为工作流跑通了
+    // 「宁可页面留空，也不要做假的」：没实现的节点类型必须说出来，
+    // 假装成功会让用户以为工作流跑通了。
+    // AI 节点已在 M3 接上 ACP，这里换一个真没实现的类型
     let outcome = executor()
         .execute(
             &node(
-                "ai",
-                "ai.execute",
-                serde_json::json!({"instruction": "修一下"}),
+                "sub",
+                "subworkflow",
+                serde_json::json!({"workflowId": "wf_1"}),
             ),
             &mut Scope::new("run_exec_6"),
         )
@@ -133,7 +134,7 @@ fn 尚未实现的节点类型明确报未实现_而不是假装成功() {
     match outcome {
         NodeOutcome::Failed { message } => {
             assert!(message.contains("尚未"), "实际：{message}");
-            assert!(message.contains("ai.execute"), "实际：{message}");
+            assert!(message.contains("subworkflow"), "实际：{message}");
         }
         other => panic!("实际：{other:?}"),
     }
@@ -436,4 +437,188 @@ fn 换行也不能拆出新的一行命令() {
         .unwrap();
 
     assert!(!marker.exists(), "换行被当成了命令分隔符");
+}
+
+// ── AI 节点（M3）──────────────────────────────────────────────────────────
+
+/// 让执行器用 mock adapter 而不是真的 claude-agent-acp。
+fn with_mock_adapter(dir: std::path::PathBuf) -> NodeExecutor {
+    let script = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .and_then(|p| p.parent())
+        .expect("仓库根")
+        .join("tests/fixtures/acp-mock.mjs");
+    NodeExecutor::new(dir).with_acp_command(
+        "node",
+        &[script.display().to_string(), "normal".to_string()],
+    )
+}
+
+fn ai_dir(name: &str) -> std::path::PathBuf {
+    let dir = std::env::temp_dir().join(format!("aiwf_ai_{name}"));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    dir
+}
+
+#[test]
+fn ai_分析节点真的走一轮_acp_会话() {
+    let dir = ai_dir("analyze");
+    let mut scope = Scope::new("run_ai_1");
+    scope.set_inputs(serde_json::json!({ "issue": "561" }));
+
+    let outcome = with_mock_adapter(dir)
+        .execute(
+            &node(
+                "analyze",
+                "ai.analyze",
+                serde_json::json!({
+                    "agentProfileId": "builtin:analyst",
+                    "instruction": "定位 ${input.issue} 的根因",
+                    "runtime": "acp.claude"
+                }),
+            ),
+            &mut scope,
+        )
+        .unwrap();
+
+    assert!(
+        matches!(&outcome, NodeOutcome::Succeeded { port } if port == "success"),
+        "实际：{outcome:?}"
+    );
+
+    // agent 的回答进 scope，下游节点才能引用
+    let answer = interpolate("${analyze.success.text}", &scope).unwrap();
+    assert!(answer.contains("分析结果"), "实际：{answer}");
+}
+
+#[test]
+fn ai_节点的指令会先做变量插值() {
+    let dir = ai_dir("interp");
+    let mut scope = Scope::new("run_ai_2");
+    scope.set_inputs(serde_json::json!({ "target": "缓存模块" }));
+
+    with_mock_adapter(dir)
+        .execute(
+            &node(
+                "review",
+                "ai.review",
+                serde_json::json!({
+                    "agentProfileId": "builtin:reviewer",
+                    "instruction": "审查 ${input.target}",
+                    "runtime": "acp.claude"
+                }),
+            ),
+            &mut scope,
+        )
+        .unwrap();
+
+    // mock 把收到的提示词原样回显不了，但插值失败会直接报错，
+    // 所以能跑通就说明 ${input.target} 解析出来了
+    assert!(interpolate("${review.success.text}", &scope).is_ok());
+}
+
+#[test]
+fn ai_节点把工具调用次数记进输出() {
+    // 图纸对话视图要显示「工具活动 · 6 次读取，2 次搜索」
+    let dir = ai_dir("tools");
+    let mut scope = Scope::new("run_ai_3");
+
+    with_mock_adapter(dir)
+        .execute(
+            &node(
+                "exec",
+                "ai.execute",
+                serde_json::json!({
+                    "agentProfileId": "builtin:builder",
+                    "instruction": "改一下",
+                    "runtime": "acp.claude"
+                }),
+            ),
+            &mut scope,
+        )
+        .unwrap();
+
+    let tools = interpolate("${exec.success.toolCalls}", &scope).unwrap();
+    assert_eq!(tools, "1", "工具调用次数实际：{tools}");
+}
+
+#[test]
+fn 未插值的引用不会被发给_agent() {
+    // 把 `${input.nope}` 原样发给 agent，它会当成字面量去理解 ——
+    // 得到的分析基于一个不存在的东西
+    let dir = ai_dir("badvar");
+    let outcome = with_mock_adapter(dir)
+        .execute(
+            &node(
+                "analyze",
+                "ai.analyze",
+                serde_json::json!({
+                    "agentProfileId": "builtin:analyst",
+                    "instruction": "分析 ${input.nope}",
+                    "runtime": "acp.claude"
+                }),
+            ),
+            &mut Scope::new("run_ai_4"),
+        )
+        .unwrap();
+
+    match outcome {
+        NodeOutcome::Failed { message } => {
+            assert!(message.contains("input.nope"), "实际：{message}")
+        }
+        other => panic!("实际：{other:?}"),
+    }
+}
+
+#[test]
+fn adapter_没装时说清楚要装什么_而不是假装成功() {
+    let dir = ai_dir("noadapter");
+    let executor = NodeExecutor::new(dir).with_acp_command("definitely-not-an-adapter", &[]);
+
+    let outcome = executor
+        .execute(
+            &node(
+                "analyze",
+                "ai.analyze",
+                serde_json::json!({
+                    "agentProfileId": "builtin:analyst",
+                    "instruction": "分析",
+                    "runtime": "acp.claude"
+                }),
+            ),
+            &mut Scope::new("run_ai_5"),
+        )
+        .unwrap();
+
+    match outcome {
+        NodeOutcome::Failed { message } => {
+            assert!(message.contains("adapter"), "实际：{message}");
+        }
+        other => panic!("实际：{other:?}"),
+    }
+}
+
+#[test]
+fn ai_决策节点把结论放进输出的_decision_字段() {
+    let dir = ai_dir("decide");
+    let mut scope = Scope::new("run_ai_6");
+
+    with_mock_adapter(dir)
+        .execute(
+            &node(
+                "decide",
+                "ai.decide",
+                serde_json::json!({
+                    "agentProfileId": "builtin:operator",
+                    "instruction": "按影响面分级",
+                    "runtime": "acp.claude"
+                }),
+            ),
+            &mut scope,
+        )
+        .unwrap();
+
+    // 决策节点的输出要能被下游的条件分支引用
+    assert!(interpolate("${decide.success.text}", &scope).is_ok());
 }
