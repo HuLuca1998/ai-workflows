@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Route, Routes } from 'react-router';
+
 import { SideNav } from './layout/SideNav.js';
 import { SupervisorDrawer } from './layout/SupervisorDrawer.js';
 import { TitleBar } from './layout/TitleBar.js';
@@ -33,7 +34,8 @@ export function AppShell() {
     <div className="app-shell">
       <TitleBar onAskAi={() => setDrawerOpen((open) => !open)} />
       <div className="app-shell__body">
-        <SideNav />
+        {/* 计数与权限档等引擎接上后才有真实值；现在传空，界面会显示「尚未…」而不是假状态 */}
+        <SideNav counts={{}} />
         <main className="app-shell__content">
           <Routes>
             {PAGES.map(({ path, element }) => (

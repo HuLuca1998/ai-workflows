@@ -19,7 +19,12 @@
         "minHeight": 800,
         "titleBarStyle": "Overlay",
         "hiddenTitle": true,
-        "theme": "Dark"
+        "theme": "Dark",
+        "resizable": true,
+        "decorations": true,
+        "minimizable": true,
+        "maximizable": true,
+        "dragDropEnabled": false
       }
     ],
     "security": {

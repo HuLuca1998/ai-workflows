@@ -1,8 +1,8 @@
 import type { ReactElement, ReactNode } from 'react';
 import { NAV_ITEMS } from '../navigation.js';
-import { createUpdaterBackend } from '../updater/backend.js';
-import { UpdateCard } from '../updater/UpdateCard.js';
+import { OverviewPage } from './OverviewPage.js';
 import { PlaceholderPage } from './PlaceholderPage.js';
+import { SettingsPage } from './SettingsPage.js';
 
 /**
  * 路由表。
@@ -27,18 +27,20 @@ export interface PageRoute {
   element: ReactElement;
 }
 
-/** 版本号在构建时注入；本地开发是 dev，更新检查会自动跳过。 */
-const APP_VERSION = import.meta.env.VITE_APP_VERSION ?? 'dev';
-
 /** 已经有真实内容的屏：其余仍是骨架。 */
 const REAL_CONTENT: Record<string, ReactNode> = {
-  '/settings': <UpdateCard currentVersion={APP_VERSION} backend={createUpdaterBackend()} />,
+  '/settings': <SettingsPage />,
+};
+
+/** 整屏自绘（不套 PlaceholderPage 的标题结构）。 */
+const FULL_SCREENS: Record<string, ReactElement> = {
+  '/': <OverviewPage />,
 };
 
 export const PAGES: readonly PageRoute[] = NAV_ITEMS.map((item) => ({
   // 除首页外都按前缀匹配，方便后续挂子路由（/runs/:runId 等）
   path: item.path === '/' ? '/' : `${item.path}/*`,
-  element: (
+  element: FULL_SCREENS[item.path] ?? (
     <PlaceholderPage
       title={item.label}
       summary={item.summary}

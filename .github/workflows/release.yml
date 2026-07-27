@@ -1,13 +1,15 @@
 name: Release
 
+# 刻意**不**在 push main 时触发：macOS runner 按 10 倍计费，
+# 每次提交都出一个快照会很快吃掉 Actions 额度，而绝大多数提交没人会去装。
+# 发布一律是主动行为：打 tag，或在 Actions 页面手动点 Run workflow。
 on:
   push:
-    branches: [main]
     tags: ['v*']
   workflow_dispatch:
     inputs:
       dry_run:
-        description: '只构建不发布'
+        description: '只构建不发布（验证流水线本身）'
         type: boolean
         default: false
 
@@ -19,18 +21,24 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  release:
-    name: macOS arm64
-    runs-on: macos-15
-    timeout-minutes: 45
+  # 版本解析与幂等检查都放在 Linux 上（1 倍计费）。
+  # 重跑一个已发布的 tag 时，macOS runner 根本不会启动。
+  plan:
+    name: 解析版本
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
     env:
       GH_TOKEN: ${{ github.token }}
-
+    outputs:
+      version: ${{ steps.meta.outputs.version }}
+      tag: ${{ steps.meta.outputs.tag }}
+      prerelease: ${{ steps.meta.outputs.prerelease }}
+      channel: ${{ steps.meta.outputs.channel }}
+      exists: ${{ steps.existing.outputs.exists }}
     steps:
       # 版本策略：
-      #   tag v1.2.3  → 正式版 1.2.3，标记为 latest，更新通道指向它
-      #   push main   → nightly 预发布，版本 0.0.0-nightly.<日期>.<短 sha>
-      # 预发布不会成为 latest，所以已安装的稳定版用户不会被自动推到 nightly。
+      #   tag v1.2.3 → 正式版 1.2.3，标记 latest，成为已安装用户的更新目标
+      #   手动触发   → 预发布快照，不会成为 latest
       - name: 解析版本
         id: meta
         shell: bash
@@ -43,10 +51,10 @@ jobs:
             prerelease=false
             channel=stable
           else
-            version="0.0.0-nightly.$(date -u +%Y%m%d).${sha}"
-            tag="nightly-$(date -u +%Y%m%d)-${sha}"
+            version="0.0.0-snapshot.$(date -u +%Y%m%d).${sha}"
+            tag="snapshot-$(date -u +%Y%m%d)-${sha}"
             prerelease=true
-            channel=nightly
+            channel=snapshot
           fi
           {
             echo "version=$version"
@@ -55,7 +63,6 @@ jobs:
             echo "channel=$channel"
           } >> "$GITHUB_OUTPUT"
 
-      # 幂等：同一个 tag 重跑不会产生第二份 release
       - name: 检查是否已发布
         id: existing
         shell: bash
@@ -66,38 +73,39 @@ jobs:
           exists=false
           if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             exists=true
-            echo "::notice::$TAG 已存在，跳过本次发布"
+            echo "::notice::$TAG 已存在，跳过构建（未启动 macOS runner）"
           fi
           echo "exists=$exists" >> "$GITHUB_OUTPUT"
 
+  build:
+    name: macOS arm64
+    needs: plan
+    if: needs.plan.outputs.exists != 'true'
+    runs-on: macos-15
+    timeout-minutes: 45
+    steps:
       - uses: actions/checkout@v6
-        if: steps.existing.outputs.exists != 'true'
 
       - uses: pnpm/action-setup@v4
-        if: steps.existing.outputs.exists != 'true'
         with:
           version: 11.17.0
 
       - uses: actions/setup-node@v6
-        if: steps.existing.outputs.exists != 'true'
         with:
           node-version: 22
           cache: pnpm
 
       - name: 安装 Rust 工具链
-        if: steps.existing.outputs.exists != 'true'
         run: rustup toolchain install stable --profile minimal --target aarch64-apple-darwin
 
       - uses: Swatinem/rust-cache@v2
-        if: steps.existing.outputs.exists != 'true'
 
       - name: 安装依赖
-        if: steps.existing.outputs.exists != 'true'
         run: pnpm install --frozen-lockfile
 
-      # 发布前最后一道门禁：不把坏版本推给用户
+      # 发布前最后一道门禁：不把坏版本推给用户。
+      # CI 已经跑过一遍，但 tag 可能指向一个没跑过 CI 的提交。
       - name: 门禁
-        if: steps.existing.outputs.exists != 'true'
         run: |
           pnpm test
           pnpm contracts:check
@@ -105,10 +113,9 @@ jobs:
           cargo test -p aiwf-engine -p aiwf-store
 
       - name: 写入版本号
-        if: steps.existing.outputs.exists != 'true'
         shell: bash
         env:
-          VERSION: ${{ steps.meta.outputs.version }}
+          VERSION: ${{ needs.plan.outputs.version }}
         run: |
           set -euo pipefail
           conf=apps/desktop/src-tauri/tauri.conf.json
@@ -122,7 +129,6 @@ jobs:
       # `security import` 一个空证书然后失败。所以拆成两个互斥的构建步骤。
       - name: 检测是否具备 Apple 签名能力
         id: signing
-        if: steps.existing.outputs.exists != 'true'
         shell: bash
         env:
           CERT: ${{ secrets.APPLE_CERTIFICATE }}
@@ -131,11 +137,11 @@ jobs:
             echo "apple=true" >> "$GITHUB_OUTPUT"
           else
             echo "apple=false" >> "$GITHUB_OUTPUT"
-            echo "::notice::未配置 Apple 证书，产物不签名不公证：用户首次打开需右键 → 打开"
+            echo "::notice::未配置 Apple 证书：产物做 ad-hoc 签名，用户首次打开需右键 → 打开"
           fi
 
       - name: 构建并发布（含 Apple 签名与公证）
-        if: steps.existing.outputs.exists != 'true' && !inputs.dry_run && steps.signing.outputs.apple == 'true'
+        if: ${{ !inputs.dry_run && steps.signing.outputs.apple == 'true' }}
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ github.token }}
@@ -149,43 +155,48 @@ jobs:
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         with:
           projectPath: apps/desktop
-          tagName: ${{ steps.meta.outputs.tag }}
-          releaseName: ${{ steps.meta.outputs.tag }}
+          tagName: ${{ needs.plan.outputs.tag }}
+          releaseName: ${{ needs.plan.outputs.tag }}
           releaseBody: |
-            通道：${{ steps.meta.outputs.channel }} · 提交 ${{ github.sha }}
+            通道：${{ needs.plan.outputs.channel }} · 提交 ${{ github.sha }}
 
             应用内「设置与环境 → 检查更新」可一键更新；更新包经签名校验后才安装。
           releaseDraft: false
-          prerelease: ${{ steps.meta.outputs.prerelease }}
+          prerelease: ${{ needs.plan.outputs.prerelease }}
           includeUpdaterJson: true
           args: --target aarch64-apple-darwin
 
-      - name: 构建并发布（未公证）
-        if: steps.existing.outputs.exists != 'true' && !inputs.dry_run && steps.signing.outputs.apple != 'true'
+      - name: 构建并发布（ad-hoc 签名，未公证）
+        if: ${{ !inputs.dry_run && steps.signing.outputs.apple != 'true' }}
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ github.token }}
           # 更新包仍然签名——那用的是自己的 minisign 密钥，与 Apple 证书无关。
-          # 少了的只是 macOS 的 Gatekeeper 认可。
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          # ad-hoc 签名（identity "-"）：Apple Silicon 要求 arm64 可执行文件必须有签名。
+          # 只靠链接器那份 linker-signed 签名不覆盖 bundle，Gatekeeper 会直接判「已损坏」，
+          # 连右键打开都绕不过。加上这行才退化成正常的「未认证开发者」提示。
+          APPLE_SIGNING_IDENTITY: '-'
         with:
           projectPath: apps/desktop
-          tagName: ${{ steps.meta.outputs.tag }}
-          releaseName: ${{ steps.meta.outputs.tag }}
+          tagName: ${{ needs.plan.outputs.tag }}
+          releaseName: ${{ needs.plan.outputs.tag }}
           releaseBody: |
-            通道：${{ steps.meta.outputs.channel }} · 提交 ${{ github.sha }}
+            通道：${{ needs.plan.outputs.channel }} · 提交 ${{ github.sha }}
 
             ⚠️ 未经 Apple 公证：首次打开请右键 → 打开。
 
             应用内「设置与环境 → 检查更新」可一键更新；更新包经签名校验后才安装。
           releaseDraft: false
-          prerelease: ${{ steps.meta.outputs.prerelease }}
+          prerelease: ${{ needs.plan.outputs.prerelease }}
           includeUpdaterJson: true
           args: --target aarch64-apple-darwin
 
       - name: 只构建不发布
-        if: steps.existing.outputs.exists != 'true' && inputs.dry_run
+        if: ${{ inputs.dry_run }}
+        env:
+          APPLE_SIGNING_IDENTITY: '-'
         run: pnpm --filter @aiwf/desktop build -- --target aarch64-apple-darwin
 
       - name: 摘要
@@ -195,12 +206,8 @@ jobs:
           {
             echo "## Release"
             echo
-            echo "- 版本：\`${{ steps.meta.outputs.version }}\`"
-            echo "- Tag：\`${{ steps.meta.outputs.tag }}\`"
-            echo "- 通道：${{ steps.meta.outputs.channel }}"
-            if [[ "${{ steps.existing.outputs.exists }}" == "true" ]]; then
-              echo "- 结果：已存在，跳过"
-            else
-              echo "- 结果：${{ job.status }}"
-            fi
+            echo "- 版本：\`${{ needs.plan.outputs.version }}\`"
+            echo "- Tag：\`${{ needs.plan.outputs.tag }}\`"
+            echo "- 通道：${{ needs.plan.outputs.channel }}"
+            echo "- 结果：${{ job.status }}"
           } >> "$GITHUB_STEP_SUMMARY"

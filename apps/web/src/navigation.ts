@@ -1,30 +1,47 @@
 /**
  * 主导航条目。顺序与功能文档 §2「菜单总览」一致——
  * 这既是信息架构，也是新人理解产品的顺序：先找得到工作流，再设计、再看执行。
+ *
+ * 图标用 Phosphor（设计系统指定），本地打包引入而不是 CDN：
+ * 桌面形态的 CSP 只放行同源，外链字体会被拦掉。
  */
 export interface NavItem {
   path: string;
   label: string;
-  /** 收成图标栏时显示的符号（正式图标在 M1 换成 Phosphor）。 */
-  glyph: string;
+  /** Phosphor 图标类名。 */
+  icon: string;
   summary: string;
+  /** 徽标读哪种计数；由真实数据填充，为 0 时不显示。 */
+  badge?: 'waitingApproval' | 'activeRuns';
 }
 
 export const NAV_ITEMS: readonly NavItem[] = [
-  { path: '/', label: '概览与工作流', glyph: '◲', summary: '找到、创建、了解全部工作流的当前状态' },
-  { path: '/editor', label: '工作流编辑器', glyph: '⌗', summary: '设计与维护流程' },
-  { path: '/runs', label: '执行记录', glyph: '≡', summary: '看清每一次运行发生了什么' },
-  { path: '/memory', label: '记忆', glyph: '◈', summary: '管理长期上下文' },
-  { path: '/agents', label: 'Agent 角色', glyph: '◐', summary: '复用 AI 人格与权限' },
+  {
+    path: '/',
+    label: '概览与工作流',
+    icon: 'ph-squares-four',
+    summary: '找到、创建、了解全部工作流的当前状态',
+    badge: 'waitingApproval',
+  },
+  { path: '/editor', label: '工作流编辑器', icon: 'ph-flow-arrow', summary: '设计与维护流程' },
+  {
+    path: '/runs',
+    label: '执行记录',
+    icon: 'ph-list-checks',
+    summary: '看清每一次运行发生了什么',
+    badge: 'activeRuns',
+  },
+  { path: '/memory', label: '记忆', icon: 'ph-brain', summary: '管理长期上下文' },
+  { path: '/agents', label: 'Agent 角色', icon: 'ph-robot', summary: '复用 AI 人格与权限' },
   {
     path: '/prompts',
     label: '提示词库',
-    glyph: '❝',
+    icon: 'ph-quotes',
     summary: '系统调用 AI 的每一处提示词都可见可改',
   },
-  { path: '/models', label: '模型', glyph: '◇', summary: '统一登记可用模型' },
-  { path: '/settings', label: '设置与环境', glyph: '⚙', summary: '运行环境健康与权限策略' },
-  { path: '/onboarding', label: '首次配置', glyph: '◔', summary: '装好即可用' },
+  { path: '/models', label: '模型', icon: 'ph-cpu', summary: '统一登记可用模型' },
+  { path: '/settings', label: '设置与环境', icon: 'ph-gear', summary: '运行环境健康与权限策略' },
+  { path: '/onboarding', label: '首次配置', icon: 'ph-rocket-launch', summary: '装好即可用' },
 ] as const;
 
 /** 主导航在窗口窄于这个宽度时收成图标栏（屏幕清单 §11）。 */

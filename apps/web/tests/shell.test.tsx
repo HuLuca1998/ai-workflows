@@ -117,7 +117,8 @@ describe('主管 AI 抽屉', () => {
 describe('路由', () => {
   it('根路径渲染概览页', () => {
     renderShell('/');
-    expect(screen.getByRole('heading', { name: '概览与工作流', level: 1 })).toBeInTheDocument();
+    // 图纸里首页的大标题是「工作流」，「概览与工作流」是菜单名
+    expect(screen.getByRole('heading', { name: '工作流', level: 1 })).toBeInTheDocument();
   });
 
   it('未知路径给出可返回的空态，而不是白屏', () => {
@@ -126,10 +127,12 @@ describe('路由', () => {
     expect(screen.getByRole('link', { name: /回到概览/u })).toBeInTheDocument();
   });
 
-  it('每个菜单项都能渲染出对应页面的标题', () => {
+  it('每个菜单项都能渲染出一级标题', () => {
     for (const item of NAV_ITEMS) {
       const { unmount } = renderShell(item.path);
-      expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent(item.label);
+      const heading = screen.getByRole('heading', { level: 1 });
+      // 首页是自绘整屏（标题「工作流」），其余骨架页的标题等于菜单名
+      expect(heading.textContent?.trim()).toBe(item.path === '/' ? '工作流' : item.label);
       unmount();
     }
   });
