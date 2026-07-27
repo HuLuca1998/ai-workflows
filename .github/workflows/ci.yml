@@ -127,8 +127,11 @@ jobs:
           mkdir -p /tmp/aiwf-ci
           ./target/debug/aiwf-devserver --port 5177 --db /tmp/aiwf-ci/aiwf.sqlite &
           VITE_AIWF_SERVER=http://127.0.0.1:5177 pnpm dev &
-          # 两个服务都起来了才往下走，否则第一条用例会因为连不上而失败
-          npx wait-on http://127.0.0.1:5173 -t 60000
+
+          # 两个服务都起来了才往下走，否则第一条用例会因为连不上而失败。
+          # 等的是 localhost 而不是 127.0.0.1：Vite 绑在 localhost 上，
+          # 而 CI 的 localhost 会解析到 ::1，用 IP 等会一直超时
+          npx wait-on http://localhost:5173 -t 90000
           curl -sf -X POST http://127.0.0.1:5177/ipc/workflow_list -d '{}' > /dev/null
 
       - name: API 层端到端
