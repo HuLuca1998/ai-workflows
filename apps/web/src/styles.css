@@ -4037,3 +4037,23 @@
   background: color-mix(in srgb, var(--color-bg) 70%, #000);
   color: var(--color-neutral-200);
 }
+
+/* 失败横幅的右侧元信息与按钮行 —— 图纸「03 执行记录」：
+   标题行右端是「attempt 2 / 2 · 48s」，下面一排操作 */
+.runs__failed-title {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.runs__failed-meta {
+  font-size: 11px;
+  color: var(--color-neutral-500);
+  font-weight: 400;
+}
+
+.runs__failed-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 11px;
+}

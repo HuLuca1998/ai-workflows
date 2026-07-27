@@ -207,3 +207,41 @@ fn 存储层的终态集合与状态机一致() {
         );
     }
 }
+
+#[test]
+fn 启动运行必须指定跑哪个版本() {
+    // 契约写的是「versionId 与 draftRev 必须且只能提供一个」，但这条约束
+    // 原来只活在 Zod 里 —— HTTP 桥接与 MCP 都能绕过去。
+    //
+    // 绕过去的后果不是报错：run_graph 找不到图就返回 None，
+    // 引擎拿一张空图跑，preflight 报「缺少入口节点」。
+    // 用户看到的是「我的工作流明明有入口节点」，而真正的原因是调用方少传了参数。
+    let dir = tempfile::tempdir().unwrap();
+    let store = Store::open_in_memory().unwrap();
+    let supervisor = aiwf_engine::supervisor::Supervisor::new(dir.path().join("db.sqlite"));
+    let wf = store.create_workflow("要跑的", None).unwrap();
+
+    let both = aiwf_core_api::run_start(
+        &store,
+        &supervisor,
+        dir.path(),
+        wf.clone(),
+        Some("ver_1".to_string()),
+        Some(1),
+        "{}".to_string(),
+        None,
+    );
+    assert!(both.is_err(), "同时给两个应当被拒");
+
+    let neither = aiwf_core_api::run_start(
+        &store,
+        &supervisor,
+        dir.path(),
+        wf,
+        None,
+        None,
+        "{}".to_string(),
+        None,
+    );
+    assert!(neither.is_err(), "一个都不给应当被拒");
+}

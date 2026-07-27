@@ -153,3 +153,38 @@ describe('事件流不变量', () => {
     expect(validateEventStream([ev(41), ev(42)], { fromSeq: 41 })).toEqual([]);
   });
 });
+
+describe('节点标题随事件一起记下', () => {
+  const nodeEvent = (extra: Record<string, unknown> = {}) => ({
+    id: 'ev_1',
+    runId: 'run_1',
+    seq: 1,
+    ts: '2026-07-28T10:00:00.000Z',
+    type: 'node.failed',
+    nodeId: 'script_shell_2',
+    attempt: 1,
+    actor: 'engine',
+    summary: '脚本以退出码 7 结束',
+    sensitivity: 'internal',
+    schemaVer: 1,
+    ...extra,
+  });
+
+  it('node.* 事件可以带节点标题', () => {
+    const parsed = RunEventSchema.safeParse(nodeEvent({ nodeLabel: '解析日志' }));
+    expect(parsed.success).toBe(true);
+  });
+
+  it('标题缺席也合法 —— 老事件没有它，不能因此读不出来', () => {
+    // 事件是不可变的历史，加字段时必须向后兼容：
+    // 设成必填的话，这个改动之前写下的每一条运行记录都会读不出来
+    expect(RunEventSchema.safeParse(nodeEvent()).success).toBe(true);
+  });
+
+  it('标题记在事件里而不是现查图 —— 草稿改了历史也不该跟着变', () => {
+    // 这条用例记的是决定本身：节点标题可以在事件之后被改掉，
+    // 那时再去读图会显示新标题，而运行记录说的是「当时」发生了什么
+    const parsed = RunEventSchema.parse(nodeEvent({ nodeLabel: '解析日志' }));
+    expect(parsed.nodeLabel).toBe('解析日志');
+  });
+});

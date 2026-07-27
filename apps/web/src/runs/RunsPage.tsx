@@ -235,9 +235,39 @@ export function RunsPage() {
               <div className="runs__failed" role="alert">
                 <p className="runs__failed-title">
                   <i className="ph-fill ph-x-circle" aria-hidden="true" />
-                  节点「{progress.failed}」失败
+                  <span>节点「{failedNodeLabel(runs.events, progress.failed)}」失败</span>
+                  <span className="runs__grow" />
+                  <span className="runs__failed-meta">
+                    {attemptOf(runs.events, progress.failed)}
+                    {/* 两头都得有：排队中被取消的运行没有 startedAt，
+                        那时算出来的「时长」会是从 1970 年起 */}
+                    {selected.startedAt && selected.endedAt
+                      ? ` · ${formatDuration(selected.startedAt, selected.endedAt)}`
+                      : ''}
+                  </span>
                 </p>
                 <p className="runs__failed-body">{failureDetail(runs.events, progress.failed)}</p>
+                <div className="runs__failed-actions">
+                  {/* 「从失败节点重试」就是 run.resume：引擎从事件流算出
+                      哪些节点已完成，只从没完成的往下推 —— 成功的不会重跑 */}
+                  <button
+                    type="button"
+                    className="runs__action runs__action--primary"
+                    onClick={() => void runs.resume(selected.id)}
+                  >
+                    <i className="ph ph-arrow-counter-clockwise" aria-hidden="true" />
+                    从失败节点重试
+                  </button>
+                  {/* 重跑是一次**全新的运行**：原来那条留在记录里，
+                      两次的事件流可以对照着看，这正是可解释性要的 */}
+                  <button
+                    type="button"
+                    className="runs__action"
+                    onClick={() => void runs.rerun(selected.id)}
+                  >
+                    用相同参数重跑
+                  </button>
+                </div>
               </div>
             ) : null}
 
@@ -524,6 +554,36 @@ function pendingApprovalSummary(events: readonly RunEvent[]): string {
     .reverse()
     .find((e) => e.type === 'approval.requested' && e.nodeId === node);
   return request?.summary ?? node;
+}
+
+/**
+ * 失败节点的标题。
+ *
+ * 事件里记着节点**当时**的名字，草稿改名不影响历史。
+ * 老事件没有 nodeLabel（那个字段是后加的），退回 id ——
+ * 显示一个 id 也好过什么都不显示。
+ */
+function failedNodeLabel(events: readonly RunEvent[], nodeId: string): string {
+  const labeled = [...events].reverse().find((e) => e.nodeId === nodeId && e.nodeLabel);
+  return labeled?.nodeLabel ?? nodeId;
+}
+
+/** 图纸写的是「attempt 2 / 2」。只有一次尝试时也照样写出来。 */
+function attemptOf(events: readonly RunEvent[], nodeId: string): string {
+  const failure = [...events]
+    .reverse()
+    .find((e) => e.type === 'node.failed' && e.nodeId === nodeId);
+  return failure?.attempt === undefined ? '' : `attempt ${failure.attempt}`;
+}
+
+/** 图纸写的是「48s」「4m18s」。 */
+function formatDuration(started: string, ended: string): string {
+  const ms = new Date(ended).getTime() - new Date(started).getTime();
+  if (Number.isNaN(ms) || ms < 0) return '';
+  const total = Math.round(ms / 1000);
+  const minutes = Math.floor(total / 60);
+  const seconds = total % 60;
+  return minutes === 0 ? `${seconds}s` : `${minutes}m${String(seconds).padStart(2, '0')}s`;
 }
 
 function failureDetail(events: readonly RunEvent[], nodeId: string): string {

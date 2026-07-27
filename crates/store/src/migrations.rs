@@ -8,7 +8,7 @@ use rusqlite::Connection;
 use crate::Result;
 
 /// 当前 schema 版本。新增迁移时同时更新这里与 `MIGRATIONS`。
-pub const EXPECTED_SCHEMA_VERSION: i64 = 4;
+pub const EXPECTED_SCHEMA_VERSION: i64 = 5;
 
 /// (版本号, 说明, SQL)
 const MIGRATIONS: &[(i64, &str, &str)] = &[
@@ -27,6 +27,11 @@ const MIGRATIONS: &[(i64, &str, &str)] = &[
         4,
         "agent_profile 补齐契约字段",
         include_str!("sql/004_agent_profile.sql"),
+    ),
+    (
+        5,
+        "run_event 记下节点当时的标题",
+        include_str!("sql/005_event_node_label.sql"),
     ),
 ];
 

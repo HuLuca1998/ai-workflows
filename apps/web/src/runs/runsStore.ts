@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import type { Run, RunEvent as ContractRunEvent } from '@aiwf/contracts';
 import { coreClient } from '../data/workspace.js';
 
 /**
@@ -9,33 +10,16 @@ import { coreClient } from '../data/workspace.js';
  * 与运行记录里写的会对不上，那是最难解释给用户听的一类 bug。
  */
 
-export interface RunSummary {
-  id: string;
-  workflowId: string;
-  workflowName: string;
-  status: string;
-  inputs: Record<string, unknown>;
-  currentNode?: string;
-  workdir?: string;
-  startedAt?: string;
-  endedAt?: string;
-}
-
-/** 字段名跟着契约的 RunEventSchema 走，不另起一套。 */
-export interface RunEvent {
-  id: string;
-  runId: string;
-  seq: number;
-  ts: string;
-  type: string;
-  nodeId?: string;
-  attempt?: number;
-  actor: string;
-  summary: string;
-  payloadRef?: string;
-  sensitivity: string;
-  schemaVer: number;
-}
+/**
+ * 形状**直接取自契约**，不手写一份。
+ *
+ * 手写的那两份漏了 versionId / draftRev / nodeLabel，于是后端明明发了，
+ * TypeScript 却说字段不存在。这类分家已经栽过三次
+ * （WorkflowSummary 漏 lastRun、RunSchema 漏 workflowName），
+ * 症状一律是「界面上那块永远空着，一条错误都没有」。
+ */
+export type RunSummary = Run;
+export type RunEvent = ContractRunEvent;
 
 /** 图纸左栏的筛选 chips。 */
 export type RunFilter = 'all' | 'running' | 'waiting_approval' | 'failed';
@@ -74,6 +58,8 @@ interface RunsState {
   setQuery: (query: string) => void;
   cancel: (runId: string) => Promise<void>;
   resume: (runId: string) => Promise<void>;
+  /** 用同样的参数再起一次运行，返回新运行的 id。 */
+  rerun: (runId: string) => Promise<string | null>;
   decide: (nodeId: string, decision: string) => Promise<void>;
 
   grouped: () => { active: RunSummary[]; past: RunSummary[] };
@@ -167,6 +153,33 @@ export const useRuns = create<RunsState>((set, get) => ({
       set({ error: describe(error) });
     }
     await get().load();
+  },
+
+  /**
+   * 用相同参数重跑。
+   *
+   * 这是一次**全新的运行**，不动原来那条 —— 两次的事件流可以对照着看，
+   * 而这正是可解释性要的：「上次哪里不一样」得有个参照物。
+   */
+  rerun: async (runId: string) => {
+    const run = get().items.find((item) => item.id === runId);
+    if (!run) return null;
+
+    try {
+      const result = (await coreClient.call('run.start', {
+        workflowId: run.workflowId,
+        // 沿用原运行的版本：不带的话会跑当前草稿，
+        // 而草稿可能已经改过 —— 那就不是「相同参数」重跑了
+        ...(run.versionId ? { versionId: run.versionId } : { draftRev: run.draftRev ?? 0 }),
+        inputs: run.inputs ?? {},
+      })) as { runId: string };
+      await get().load();
+      await get().select(result.runId);
+      return result.runId;
+    } catch (error) {
+      set({ error: describe(error) });
+      return null;
+    }
   },
 
   decide: async (nodeId: string, decision: string) => {

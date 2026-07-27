@@ -71,6 +71,17 @@ pub struct ApiError {
 
 pub type ApiResult<T> = Result<T, ApiError>;
 
+impl ApiError {
+    /// 入参不合法。与契约的 ERROR_CODES 对齐，界面只处理一种错误形状。
+    pub fn validation(message: impl Into<String>) -> Self {
+        Self {
+            code: "VALIDATION".to_string(),
+            message: message.into(),
+            retriable: false,
+        }
+    }
+}
+
 impl From<aiwf_store::StoreError> for ApiError {
     fn from(error: aiwf_store::StoreError) -> Self {
         // 错误码与 @aiwf/contracts 的 ERROR_CODES 对齐，界面只处理一种错误形状
@@ -188,6 +199,9 @@ pub struct RunEventDto {
     kind: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     node_id: Option<String>,
+    /// 节点在**当时**的标题。界面显示的是它，不是 node_id。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    node_label: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     attempt: Option<i64>,
     actor: String,
@@ -556,6 +570,18 @@ pub fn run_start(
     inputs_json: String,
     workdir: Option<String>,
 ) -> ApiResult<String> {
+    // 契约写的是「versionId 与 draftRev 必须且只能提供一个」，但那条约束
+    // 原来只活在 Zod 里 —— HTTP 桥接与 MCP 都能绕过去。
+    //
+    // 绕过去的后果不是报错：run_graph 找不到图就返回 None，引擎拿一张空图跑，
+    // preflight 报「缺少入口节点」。用户看到的是「我的工作流明明有入口节点」，
+    // 而真正的原因是调用方少传了参数
+    if version_id.is_some() == draft_rev.is_some() {
+        return Err(ApiError::validation(
+            "versionId 与 draftRev 必须且只能提供一个：运行引用的是某个确定的图",
+        ));
+    }
+
     let workdir = resolve_workdir(workdir.as_deref(), data_dir);
     let run_id = supervisor.start(
         store,
@@ -643,6 +669,7 @@ pub fn run_events(
                 ts: row.ts,
                 kind: row.kind,
                 node_id: row.node_id,
+                node_label: row.node_label,
                 attempt: row.attempt,
                 actor: row.actor,
                 summary: row.summary,

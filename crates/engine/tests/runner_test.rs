@@ -171,7 +171,24 @@ fn 节点失败时运行失败_并记下是哪个节点() {
         .find(|e| e.kind == "node.failed")
         .expect("应有 node.failed 事件");
     assert_eq!(failed.node_id.as_deref(), Some("work"));
+    // 标题一并记下：界面显示的是它。只有 id 的话失败横幅写的是
+    // 「节点『work』失败」，而用户从没见过那个 id
+    assert!(
+        failed.node_label.is_some(),
+        "node.* 事件要带上节点当时的标题"
+    );
     assert!(failed.summary.contains("exitCode 1"), "失败原因要写进事件");
+
+    // run.failed 的摘要也要用标题，它是失败横幅的第一行
+    let run_failed = events
+        .iter()
+        .find(|e| e.kind == "run.failed")
+        .expect("应有 run.failed 事件");
+    assert!(
+        !run_failed.summary.contains("节点 work 失败"),
+        "run.failed 不该用内部 id：{}",
+        run_failed.summary
+    );
     assert_eq!(runner.status(&store, &run_id).unwrap(), "failed");
 
     // 失败后不再往下跑

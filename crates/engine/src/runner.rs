@@ -224,6 +224,7 @@ impl Runner {
             run_id,
             "node.started",
             &node_id,
+            &node.title,
             "engine",
             &format!("{} 开始", node.title),
         )?;
@@ -243,6 +244,7 @@ impl Runner {
                     run_id,
                     "node.succeeded",
                     &node_id,
+                    &node.title,
                     "engine",
                     &format!("{} 完成 · 走 {port} 分支", node.title),
                 )?;
@@ -251,14 +253,22 @@ impl Runner {
             }
 
             NodeOutcome::Failed { message } => {
-                self.emit_node(store, run_id, "node.failed", &node_id, "engine", &message)?;
+                self.emit_node(
+                    store,
+                    run_id,
+                    "node.failed",
+                    &node_id,
+                    &node.title,
+                    "engine",
+                    &message,
+                )?;
                 self.emit(
                     store,
                     run_id,
                     "run.failed",
                     None,
                     "engine",
-                    &format!("节点 {node_id} 失败"),
+                    &format!("节点「{}」失败", node.title),
                 )?;
                 let _ = store.advance_run_status(run_id, "failed", Some(&node_id))?;
                 Ok(StepResult::Finished {
@@ -273,6 +283,7 @@ impl Runner {
                     run_id,
                     "node.waiting",
                     &node_id,
+                    &node.title,
                     "engine",
                     &format!("{} 等待人工决定", node.title),
                 )?;
@@ -281,6 +292,7 @@ impl Runner {
                     run_id,
                     "approval.requested",
                     &node_id,
+                    &node.title,
                     "engine",
                     &node.title,
                 )?;
@@ -358,11 +370,16 @@ impl Runner {
             });
         }
 
+        // 标题从图里查一次：审批事件也要能自解释，
+        // 而这条路径上没有 node 对象（决定是用户从界面发来的）
+        let label = self.node_title(store, run_id, node_id)?;
+
         self.emit_node(
             store,
             run_id,
             "approval.decided",
             node_id,
+            &label,
             "user",
             &format!("决定：{decision}"),
         )?;
@@ -373,6 +390,7 @@ impl Runner {
                 run_id,
                 "node.succeeded",
                 node_id,
+                &label,
                 "engine",
                 "审批通过",
             )?;
@@ -383,6 +401,7 @@ impl Runner {
                 run_id,
                 "node.failed",
                 node_id,
+                &label,
                 "engine",
                 &format!("审批未通过：{decision}"),
             )?;
@@ -562,10 +581,25 @@ impl Runner {
         actor: &str,
         summary: &str,
     ) -> Result<()> {
+        self.emit_labeled(store, run_id, kind, node_id, None, actor, summary)
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn emit_labeled(
+        &self,
+        store: &Store,
+        run_id: &str,
+        kind: &str,
+        node_id: Option<&str>,
+        node_label: Option<&str>,
+        actor: &str,
+        summary: &str,
+    ) -> Result<()> {
         store.append_event(&NewRunEvent {
             run_id: run_id.to_string(),
             kind: kind.to_string(),
             node_id: node_id.map(str::to_string),
+            node_label: node_label.map(str::to_string),
             attempt: node_id.map(|_| 1),
             actor: actor.to_string(),
             status: None,
@@ -579,16 +613,42 @@ impl Runner {
         Ok(())
     }
 
+    /// 从运行引用的图里查节点标题。查不到就退回 id ——
+    /// 显示一个 id 总好过让审批决定写不进事件。
+    fn node_title(&self, store: &Store, run_id: &str, node_id: &str) -> Result<String> {
+        let Some(graph_json) = store.run_graph(run_id)? else {
+            return Ok(node_id.to_string());
+        };
+        let graph: WorkflowGraph =
+            serde_json::from_str(&graph_json).map_err(|e| RunError::GraphInvalid(e.to_string()))?;
+        Ok(graph
+            .nodes
+            .iter()
+            .find(|n| n.id == node_id)
+            .map_or_else(|| node_id.to_string(), |n| n.title.clone()))
+    }
+
+    /// 节点事件。**标题一并记下** —— 界面显示的是它，不是内部 id。
+    #[allow(clippy::too_many_arguments)]
     fn emit_node(
         &self,
         store: &Store,
         run_id: &str,
         kind: &str,
         node_id: &str,
+        node_label: &str,
         actor: &str,
         summary: &str,
     ) -> Result<()> {
-        self.emit(store, run_id, kind, Some(node_id), actor, summary)
+        self.emit_labeled(
+            store,
+            run_id,
+            kind,
+            Some(node_id),
+            Some(node_label),
+            actor,
+            summary,
+        )
     }
 }
 

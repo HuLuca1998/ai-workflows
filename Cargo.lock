@@ -25,6 +25,7 @@ dependencies = [
  "aiwf-store",
  "serde",
  "serde_json",
+ "tempfile",
 ]
 
 [[package]]

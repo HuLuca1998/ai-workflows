@@ -2538,6 +2538,10 @@
                 "type": "string",
                 "minLength": 1
               },
+              "nodeLabel": {
+                "type": "string",
+                "minLength": 1
+              },
               "attempt": {
                 "type": "integer",
                 "minimum": 1,

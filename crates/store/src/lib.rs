@@ -130,6 +130,8 @@ pub struct NewRunEvent {
     /// 对应契约里的 `RunEventType`，如 `node.started`。
     pub kind: String,
     pub node_id: Option<String>,
+    /// 节点在**当时**的标题。草稿改名不影响已写下的运行记录。
+    pub node_label: Option<String>,
     pub attempt: Option<i64>,
     pub actor: String,
     pub status: Option<String>,
@@ -155,6 +157,7 @@ pub struct RunEventRow {
     pub ts: String,
     pub kind: String,
     pub node_id: Option<String>,
+    pub node_label: Option<String>,
     pub attempt: Option<i64>,
     pub actor: String,
     pub summary: String,
@@ -1613,12 +1616,12 @@ impl Store {
         // 因为那正是主线程与执行线程同时写事件的时刻。
         // 单条语句由 SQLite 的写锁串行化，是原子的。
         let next_seq: i64 = self.conn.query_row(
-            "INSERT INTO run_event(id, run_id, seq, ts, type, node_id, attempt, actor, status,
-                                   summary, payload_ref, artifact_refs, parent_event_id,
-                                   sensitivity, schema_ver)
+            "INSERT INTO run_event(id, run_id, seq, ts, type, node_id, node_label, attempt,
+                                   actor, status, summary, payload_ref, artifact_refs,
+                                   parent_event_id, sensitivity, schema_ver)
              VALUES (?1, ?2,
                      (SELECT COALESCE(MAX(seq), 0) + 1 FROM run_event WHERE run_id = ?2),
-                     ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)
+                     ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)
              RETURNING seq",
             params![
                 id,
@@ -1626,6 +1629,7 @@ impl Store {
                 now_iso(),
                 event.kind,
                 event.node_id,
+                event.node_label,
                 event.attempt,
                 event.actor,
                 event.status,
@@ -1657,7 +1661,8 @@ impl Store {
     /// 游标分页：返回 seq 大于 `from_seq` 的最多 `limit` 条事件。
     pub fn events(&self, run_id: &str, from_seq: i64, limit: i64) -> Result<Vec<RunEventRow>> {
         let mut stmt = self.conn.prepare(
-            "SELECT id, run_id, seq, ts, type, node_id, attempt, actor, summary, payload_ref, sensitivity
+            "SELECT id, run_id, seq, ts, type, node_id, node_label, attempt, actor, summary,
+                    payload_ref, sensitivity
              FROM run_event WHERE run_id = ?1 AND seq > ?2 ORDER BY seq ASC LIMIT ?3",
         )?;
         let rows = stmt.query_map(params![run_id, from_seq, limit], |row| {
@@ -1668,11 +1673,12 @@ impl Store {
                 ts: row.get(3)?,
                 kind: row.get(4)?,
                 node_id: row.get(5)?,
-                attempt: row.get(6)?,
-                actor: row.get(7)?,
-                summary: row.get(8)?,
-                payload_ref: row.get(9)?,
-                sensitivity: row.get(10)?,
+                node_label: row.get(6)?,
+                attempt: row.get(7)?,
+                actor: row.get(8)?,
+                summary: row.get(9)?,
+                payload_ref: row.get(10)?,
+                sensitivity: row.get(11)?,
             })
         })?;
         Ok(rows.collect::<std::result::Result<Vec<_>, _>>()?)

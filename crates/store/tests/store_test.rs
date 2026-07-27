@@ -146,6 +146,7 @@ fn event(run_id: &str, kind: &str, summary: &str) -> NewRunEvent {
         run_id: run_id.to_string(),
         kind: kind.to_string(),
         node_id: None,
+        node_label: None,
         attempt: None,
         actor: "engine".to_string(),
         status: None,
@@ -683,6 +684,7 @@ fn 多个连接并发写同一个运行的事件_seq_不冲突() {
                             run_id: run.clone(),
                             kind: "node.started".to_string(),
                             node_id: Some(format!("n{thread}")),
+                            node_label: None,
                             attempt: Some(1),
                             actor: "engine".to_string(),
                             status: None,
@@ -1640,4 +1642,63 @@ fn 等待审批不算结束() {
         .advance_run_status(&run, "waiting_approval", None)
         .unwrap();
     assert!(store.get_run(&run).unwrap().unwrap().ended_at.is_none());
+}
+
+#[test]
+fn 事件记下节点当时的标题() {
+    // 失败横幅原来显示的是内部 id（「节点『script_shell_2』失败」），
+    // 而用户从没见过那个 id —— 他看到的是自己起的名字。
+    let store = Store::open_in_memory().unwrap();
+    let wf = store.create_workflow("有标题的", None).unwrap();
+    let run = store.create_run(&wf, None, Some(1), "{}").unwrap();
+
+    store
+        .append_event(&NewRunEvent {
+            run_id: run.clone(),
+            kind: "node.failed".to_string(),
+            node_id: Some("script_shell_2".to_string()),
+            node_label: Some("解析日志".to_string()),
+            attempt: Some(1),
+            actor: "engine".to_string(),
+            status: None,
+            summary: "脚本以退出码 7 结束".to_string(),
+            payload_ref: None,
+            artifact_refs: vec![],
+            parent_event_id: None,
+            sensitivity: "internal".to_string(),
+            schema_ver: 1,
+        })
+        .unwrap();
+
+    let events = store.events(&run, 0, 10).unwrap();
+    assert_eq!(events[0].node_label.as_deref(), Some("解析日志"));
+}
+
+#[test]
+fn 没有标题的事件照样读得出来() {
+    // 加 node_label 之前写下的每一条事件都没有它。
+    // 事件是不可变的历史，读不出来等于丢了运行记录
+    let store = Store::open_in_memory().unwrap();
+    let wf = store.create_workflow("旧事件", None).unwrap();
+    let run = store.create_run(&wf, None, Some(1), "{}").unwrap();
+
+    store
+        .append_event(&NewRunEvent {
+            run_id: run.clone(),
+            kind: "run.created".to_string(),
+            node_id: None,
+            node_label: None,
+            attempt: None,
+            actor: "engine".to_string(),
+            status: None,
+            summary: "运行已创建".to_string(),
+            payload_ref: None,
+            artifact_refs: vec![],
+            parent_event_id: None,
+            sensitivity: "internal".to_string(),
+            schema_ver: 1,
+        })
+        .unwrap();
+
+    assert!(store.events(&run, 0, 10).unwrap()[0].node_label.is_none());
 }

@@ -296,8 +296,15 @@ test.describe('运行一个真实工作流', () => {
 
     const banner = page.getByRole('alert');
     await expect(banner).toBeVisible({ timeout: 20_000 });
-    await expect(banner).toContainText('boom');
+    // 显示节点标题而不是内部 id：用户从没见过 'boom'，
+    // 他看到的是自己在画布上起的名字
+    await expect(banner).toContainText('会失败的脚本');
+    await expect(banner).not.toContainText('boom');
     await expect(banner).toContainText('7');
+
+    // 失败的运行必须有重试入口 —— 图纸的失败横幅底部就是这一排
+    await expect(page.getByRole('button', { name: '从失败节点重试' })).toBeVisible();
+    await expect(page.getByRole('button', { name: '用相同参数重跑' })).toBeVisible();
   });
 });
 

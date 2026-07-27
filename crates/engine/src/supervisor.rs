@@ -196,6 +196,7 @@ fn record_background_failure(store: &Store, run_id: &str, message: &str) {
         run_id: run_id.to_string(),
         kind: "run.failed".to_string(),
         node_id: None,
+        node_label: None,
         attempt: None,
         actor: "engine".to_string(),
         status: None,

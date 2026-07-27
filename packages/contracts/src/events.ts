@@ -131,6 +131,16 @@ export const RunEventSchema = z
     ts: z.iso.datetime(),
     type: z.enum(RUN_EVENT_TYPES),
     nodeId: z.string().min(1).optional(),
+    /**
+     * 节点在**当时**的标题。
+     *
+     * 记在事件里而不是让界面现查图：草稿随时可能改名，
+     * 而运行记录说的是当时发生了什么。没有它的话失败横幅只能显示
+     * 内部 id（「节点『script_shell_2』失败」）—— 那对用户毫无意义。
+     *
+     * 可选是为了向后兼容：这个改动之前的事件没有它。
+     */
+    nodeLabel: z.string().min(1).optional(),
     /** 每次重试产生新 attempt，从 1 起。 */
     attempt: z.number().int().min(1).optional(),
     actor: z.enum(RUN_EVENT_ACTORS),
