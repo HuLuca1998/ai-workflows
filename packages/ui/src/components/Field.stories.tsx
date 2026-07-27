@@ -1,6 +1,11 @@
 import { Field } from './Field.js';
 import { Frame } from './_frame.js';
 
+export default {
+  title: 'Components/Field',
+  component: Field,
+};
+
 export const Basic = () => (
   <Frame>
     <Field label="Issue 编号" name="issue" defaultValue="548" />
@@ -37,7 +42,12 @@ export const LaunchForm = () => (
       <Field label="Issue 编号" name="issue" required defaultValue="561" />
       <Field label="仓库" name="repo" defaultValue="atlas-api" />
       <Field label="基础分支" name="branch" defaultValue="main" />
-      <Field label="GitHub Token" name="token" defaultValue="keychain://gh-cli" hint="引用，不展开明文" />
+      <Field
+        label="GitHub Token"
+        name="token"
+        defaultValue="keychain://gh-cli"
+        hint="引用，不展开明文"
+      />
     </div>
   </Frame>
 );

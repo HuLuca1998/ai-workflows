@@ -1,0 +1,24 @@
+{
+  "name": "@aiwf/mcp-server",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "对外 MCP 工具层：只调用 Core API，不碰数据库",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@aiwf/client-core": "workspace:*",
+    "@aiwf/contracts": "workspace:*",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@types/node": "^24.13.3",
+    "typescript": "^5.9.3",
+    "vitest": "^4.1.10"
+  }
+}

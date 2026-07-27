@@ -1,6 +1,11 @@
 import { StatusBadge, type RunStatusName } from './StatusBadge.js';
 import { Frame } from './_frame.js';
 
+export default {
+  title: 'Components/StatusBadge',
+  component: StatusBadge,
+};
+
 export const Running = () => (
   <Frame>
     <StatusBadge status="running" />

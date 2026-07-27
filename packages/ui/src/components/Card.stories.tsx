@@ -1,6 +1,11 @@
 import { Card } from './Card.js';
 import { Frame } from './_frame.js';
 
+export default {
+  title: 'Components/Card',
+  component: Card,
+};
+
 export const Basic = () => (
   <Frame>
     <Card title="今日运行">120 成功</Card>

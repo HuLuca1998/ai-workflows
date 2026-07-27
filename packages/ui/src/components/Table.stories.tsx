@@ -3,6 +3,11 @@ import { Table } from './Table.js';
 import { Tag } from './Tag.js';
 import { Frame } from './_frame.js';
 
+export default {
+  title: 'Components/Table',
+  component: Table,
+};
+
 interface Row {
   id: string;
   name: string;

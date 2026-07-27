@@ -1,6 +1,11 @@
 import { Button } from './Button.js';
 import { Frame } from './_frame.js';
 
+export default {
+  title: 'Components/Button',
+  component: Button,
+};
+
 /**
  * 预览用例。一律写成函数形式：Preview.js 不解析 CSF 的 args，
  * 对象形式会被它用空 props 渲染，看到的是个空组件。

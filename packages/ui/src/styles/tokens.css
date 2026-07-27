@@ -1,7 +1,7 @@
 /*
  * Nocturne 设计令牌。
  *
- * 来源：docs/design/client/_ds/nocturne-*/styles.css（设计系统给定值）。
+ * 来源：docs/design/client/_ds/ 下各 Nocturne 主题的 styles.css（设计系统给定值）。
  * 规则：业务代码只用 var(--…)，永远不写死十六进制、字号或 px 间距。
  * 改外观改这里，不要在组件里覆盖。
  */
@@ -72,12 +72,8 @@
 
   /* 暗底上的高度 = 一条描边 + 环境暗度，不叠重阴影 */
   --shadow-sm: 0 0 0 1px #3f424d;
-  --shadow-md:
-    0 0 0 1px #595d6c,
-    0 6px 18px rgb(0 0 0 / 55%);
-  --shadow-lg:
-    0 0 0 1px #9397ab,
-    0 16px 40px rgb(0 0 0 / 65%);
+  --shadow-md: 0 0 0 1px #595d6c, 0 6px 18px rgb(0 0 0 / 55%);
+  --shadow-lg: 0 0 0 1px #9397ab, 0 16px 40px rgb(0 0 0 / 65%);
 
   /* ── 布局尺寸（屏幕清单 §11）───────────────────────────────────────── */
   --layout-titlebar-h: 44px;

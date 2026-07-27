@@ -1,6 +1,11 @@
 import { Tag } from './Tag.js';
 import { Frame } from './_frame.js';
 
+export default {
+  title: 'Components/Tag',
+  component: Tag,
+};
+
 export const Accent = () => (
   <Frame>
     <Tag tone="accent">v7</Tag>

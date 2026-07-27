@@ -1,0 +1,21 @@
+{
+  "name": "@aiwf/desktop",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "macOS 桌面壳（Tauri 2）：打包、签名、自动更新",
+  "scripts": {
+    "dev": "tauri dev",
+    "build": "tauri build",
+    "tauri": "tauri",
+    "typecheck": "echo '桌面壳的前端来自 @aiwf/web，类型检查在那里做'"
+  },
+  "dependencies": {
+    "@tauri-apps/api": "^2.11.1",
+    "@tauri-apps/plugin-process": "^2.3.0",
+    "@tauri-apps/plugin-updater": "^2.9.0"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.11.4"
+  }
+}

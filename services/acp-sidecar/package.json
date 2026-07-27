@@ -1,0 +1,20 @@
+{
+  "name": "@aiwf/acp-sidecar",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Node sidecar：把 Claude Code / Codex 当作可编程子进程调用（ACP）",
+  "exports": { ".": "./src/index.ts" },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@aiwf/contracts": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^24.13.3",
+    "typescript": "^5.9.3",
+    "vitest": "^4.1.10"
+  }
+}

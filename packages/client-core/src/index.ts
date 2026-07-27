@@ -19,3 +19,12 @@ export {
   type Provenance,
 } from './event-store.js';
 export { MemoryTransport, type Transport } from './transport.js';
+export {
+  UpdateController,
+  isDevVersion,
+  type UpdateBlocker,
+  type UpdateControllerOptions,
+  type UpdateState,
+  type UpdateStatus,
+  type UpdaterBackend,
+} from './updater.js';

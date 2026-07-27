@@ -3,6 +3,11 @@ import { Dialog } from './Dialog.js';
 import { Field } from './Field.js';
 import { Frame } from './_frame.js';
 
+export default {
+  title: 'Components/Dialog',
+  component: Dialog,
+};
+
 export const NodeConfig = () => (
   <Frame>
     <Dialog
