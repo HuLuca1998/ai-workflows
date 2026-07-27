@@ -20,9 +20,10 @@ describe('方法名映射', () => {
   });
 
   it('尚未接通的方法返回 null，由调用方报明确的未实现错误', () => {
-    // run.retryNode 属于 M2 后半段，env.health 属于 M5
+    // run.retryNode 属于 M2 后半段，env.install 属于 M5 的安装那一半
+    //（检测已经接通，安装还没有）
     expect(ipcCommandFor('run.retryNode')).toBeNull();
-    expect(ipcCommandFor('env.health')).toBeNull();
+    expect(ipcCommandFor('env.install')).toBeNull();
   });
 });
 
@@ -135,7 +136,9 @@ describe('未接通的方法', () => {
     const { createTauriTransport } = await import('@aiwf/client-core');
     const invoke = vi.fn();
     const transport = createTauriTransport(async (cmd, args) => invoke(cmd, args));
-    await expect(transport.call('env.health', {})).rejects.toThrow(/尚未接通|ROADMAP/u);
+    await expect(transport.call('env.install', { tools: ['node'] })).rejects.toThrow(
+      /尚未接通|ROADMAP/u,
+    );
     expect(invoke).not.toHaveBeenCalled();
   });
 });

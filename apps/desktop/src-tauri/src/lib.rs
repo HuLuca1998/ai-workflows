@@ -408,6 +408,12 @@ fn run_artifact_content(
 }
 
 #[tauri::command]
+fn env_health(recheck: Option<bool>) -> IpcResult<api::EnvHealthReport> {
+    // 只读探测，不需要 store —— 它问的是这台机器上有什么
+    api::env_health(recheck.unwrap_or(false))
+}
+
+#[tauri::command]
 fn workflow_create(
     state: State<'_, AppState>,
     name: String,
@@ -601,6 +607,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             workflow_list,
             workspace_stats,
+            env_health,
             run_artifact_content,
             workflow_create,
             workflow_get,

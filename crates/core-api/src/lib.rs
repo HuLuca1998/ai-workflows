@@ -10,6 +10,10 @@
 //! 「返回值不合契约」。JSON 里表达「没有这个值」的方式是字段缺席。
 //! 这个坑是浏览器端到端测试抓到的。
 
+pub mod env;
+
+pub use env::{EnvHealthItem, EnvHealthReport, EnvSource, EnvStatus, env_health};
+
 use std::path::Path;
 
 use aiwf_engine::runner::RunRequest;
@@ -156,6 +160,7 @@ pub const COMMANDS: &[&str] = &[
     "approval_decide",
     "workflow_list",
     "workspace_stats",
+    "env_health",
     "run_artifact_content",
     "workflow_create",
     "workflow_get",

@@ -36,12 +36,12 @@ pnpm dev:api          # 或 scripts/local-test-env.sh start
 
 首版 16 个工具，全部从 `MCP_FIRST_RELEASE_TOOLS` 派生：
 
-| 类别 | 工具 |
-| --- | --- |
-| 工作流 | `workflow.list` / `get` / `create` / `patch` / `validate` / `diff` |
-| 运行（只读） | `run.list` / `get` / `events` / `artifacts` |
-| 记忆 | `memory.list` / `create` / `update` / `delete` |
-| 参考 | `prompt.list` / `model.list` / `agent.list` |
+| 类别         | 工具                                                               |
+| ------------ | ------------------------------------------------------------------ |
+| 工作流       | `workflow.list` / `get` / `create` / `patch` / `validate` / `diff` |
+| 运行（只读） | `run.list` / `get` / `events` / `artifacts`                        |
+| 记忆         | `memory.list` / `create` / `update` / `delete`                     |
+| 参考         | `prompt.list` / `model.list` / `agent.list`                        |
 
 **不开放**发布与运行（`workflow.publish`、`run.start`、`run.cancel`…）。
 那些能直接产生副作用 —— 起一个真实进程、动真实的仓库。首版让 AI 提议，
