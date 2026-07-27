@@ -400,6 +400,15 @@ const SPECS = {
     scope: 'workflow:write-draft',
     summary: '保存为新版本（运行记录引用具体版本号）',
   },
+  'prompt.duplicate': {
+    // 图纸详情区有「复制」：内置提示词不能改，但可以复制一份自己的
+    input: z.object({ id: z.string().min(1), name: z.string().min(1) }),
+    output: idOnly,
+    mutates: true,
+    audited: true,
+    scope: 'workflow:write-draft',
+    summary: '复制提示词为可编辑的副本',
+  },
   'prompt.delete': {
     input: idOnly,
     output: ok,

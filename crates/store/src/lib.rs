@@ -228,6 +228,47 @@ fn map_agent_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<AgentRow> {
     })
 }
 
+/// 登记一条提示词。
+///
+/// 「系统调用 AI 的每一处都在这里：节点、⌘K 协作、记忆提议、通知与失败归因。」
+/// 所以提示词是一等实体，有分组、有版本、有变量清单。
+pub struct NewPrompt {
+    pub group: String,
+    pub name: String,
+    /// 框架分段：Role / Task / Context / Constraints / Output contract。
+    /// 存 JSON 数组，因为分段是有序的且数量不定。
+    pub sections_json: String,
+    pub vars_json: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct PromptRow {
+    pub id: String,
+    pub group: String,
+    pub name: String,
+    pub sections_json: String,
+    pub vars_json: String,
+    pub ver: i64,
+    pub builtin: bool,
+    pub updated_at: String,
+}
+
+const PROMPT_COLUMNS: &str =
+    "id, \"group\", name, sections_json, vars_json, ver, builtin, updated_at";
+
+fn map_prompt_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<PromptRow> {
+    Ok(PromptRow {
+        id: row.get(0)?,
+        group: row.get(1)?,
+        name: row.get(2)?,
+        sections_json: row.get(3)?,
+        vars_json: row.get(4)?,
+        ver: row.get(5)?,
+        builtin: row.get::<_, i64>(6)? != 0,
+        updated_at: row.get(7)?,
+    })
+}
+
 /// 一次运行，带上工作流名。
 #[derive(Debug, Clone)]
 pub struct RunRow {
@@ -679,6 +720,128 @@ impl Store {
         let rows = stmt.query_map(params.as_slice(), map_run_row)?;
         rows.collect::<std::result::Result<Vec<_>, _>>()
             .map_err(StoreError::from)
+    }
+
+    // ── 提示词库 ─────────────────────────────────────────────────────────
+
+    pub fn create_prompt(&self, prompt: &NewPrompt) -> Result<String> {
+        self.insert_prompt(prompt, false)
+    }
+
+    pub fn create_builtin_prompt(&self, prompt: &NewPrompt) -> Result<String> {
+        self.insert_prompt(prompt, true)
+    }
+
+    fn insert_prompt(&self, prompt: &NewPrompt, builtin: bool) -> Result<String> {
+        validate_sections(&prompt.sections_json)?;
+
+        let id = new_id("prompt");
+        self.conn.execute(
+            "INSERT INTO prompt(id, \"group\", name, sections_json, vars_json, ver, builtin, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, 1, ?6, ?7)",
+            params![
+                id,
+                prompt.group,
+                prompt.name,
+                prompt.sections_json,
+                prompt.vars_json,
+                i64::from(builtin),
+                now_iso(),
+            ],
+        )?;
+        self.index_text(
+            "prompt",
+            &id,
+            &format!("{} {}", prompt.name, prompt.sections_json),
+        )?;
+        Ok(id)
+    }
+
+    pub fn get_prompt(&self, id: &str) -> Result<Option<PromptRow>> {
+        let sql = format!("SELECT {PROMPT_COLUMNS} FROM prompt WHERE id = ?1");
+        let row = self
+            .conn
+            .query_row(&sql, params![id], map_prompt_row)
+            .optional()?;
+        Ok(row)
+    }
+
+    /// 列出提示词。同一分组的排在一起 —— 图纸左栏按分组显示，
+    /// 交错的话用户会以为列表坏了。
+    ///
+    /// `query` 同时匹配名称与正文（图纸的搜索框写的是「搜索名称、变量或正文」）。
+    pub fn list_prompts(&self, query: Option<&str>) -> Result<Vec<PromptRow>> {
+        let sql = format!(
+            "SELECT {PROMPT_COLUMNS} FROM prompt
+             WHERE (?1 IS NULL OR name LIKE ?1 OR sections_json LIKE ?1 OR vars_json LIKE ?1)
+             ORDER BY \"group\" ASC, name ASC"
+        );
+        let like = query.map(|q| format!("%{q}%"));
+        let mut stmt = self.conn.prepare(&sql)?;
+        let rows = stmt.query_map(params![like], map_prompt_row)?;
+        rows.collect::<std::result::Result<Vec<_>, _>>()
+            .map_err(StoreError::from)
+    }
+
+    /// 更新提示词，版本号递增。
+    ///
+    /// 「运行记录会引用当时的提示词版本，历史结果始终可解释」——
+    /// 版本号必须往前走，否则没法回答「那次运行用的是哪一版」。
+    pub fn update_prompt(
+        &self,
+        id: &str,
+        name: Option<&str>,
+        sections_json: Option<&str>,
+        vars_json: Option<&str>,
+    ) -> Result<()> {
+        if let Some(sections) = sections_json {
+            validate_sections(sections)?;
+        }
+        self.conn.execute(
+            "UPDATE prompt SET
+                name          = COALESCE(?2, name),
+                sections_json = COALESCE(?3, sections_json),
+                vars_json     = COALESCE(?4, vars_json),
+                ver           = ver + 1,
+                updated_at    = ?5
+             WHERE id = ?1",
+            params![id, name, sections_json, vars_json, now_iso()],
+        )?;
+        Ok(())
+    }
+
+    pub fn duplicate_prompt(&self, id: &str, new_name: &str) -> Result<String> {
+        let source = self.get_prompt(id)?.ok_or(StoreError::NotFound {
+            kind: "提示词",
+            id: id.to_string(),
+        })?;
+        self.insert_prompt(
+            &NewPrompt {
+                group: source.group,
+                name: new_name.to_string(),
+                sections_json: source.sections_json,
+                vars_json: source.vars_json,
+            },
+            false,
+        )
+    }
+
+    /// 删除提示词。内置的不能删 —— 「系统调用 AI 的每一处都在这里」，
+    /// 删掉内置的会让某处调用没有提示词可用。
+    pub fn delete_prompt(&self, id: &str) -> Result<()> {
+        let prompt = self.get_prompt(id)?.ok_or(StoreError::NotFound {
+            kind: "提示词",
+            id: id.to_string(),
+        })?;
+        if prompt.builtin {
+            return Err(StoreError::Invalid(format!(
+                "{} 是内置提示词，不能删除。可以复制一份再改",
+                prompt.name
+            )));
+        }
+        self.conn
+            .execute("DELETE FROM prompt WHERE id = ?1", params![id])?;
+        Ok(())
     }
 
     // ── Agent 角色 ───────────────────────────────────────────────────────
@@ -1330,6 +1493,21 @@ fn segment_cjk(text: &str) -> String {
         }
     }
     out
+}
+
+/// 分段必须是非空的 JSON 数组。
+///
+/// 一条没有任何分段的提示词等于没有提示词，让它存进去只会在
+/// 真正调用 AI 的时候才发现 —— 那时已经在一次运行中间了。
+fn validate_sections(sections_json: &str) -> Result<()> {
+    let parsed: serde_json::Value = serde_json::from_str(sections_json)
+        .map_err(|error| StoreError::Invalid(format!("分段不是合法 JSON：{error}")))?;
+
+    match parsed.as_array() {
+        Some(items) if !items.is_empty() => Ok(()),
+        Some(_) => Err(StoreError::Invalid("提示词至少要有一个分段".to_string())),
+        None => Err(StoreError::Invalid("分段必须是数组".to_string())),
+    }
 }
 
 /// 契约里的接入方式枚举（`AGENT_RUNTIMES`）。

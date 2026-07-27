@@ -69,10 +69,58 @@ test.describe('Agent 角色（图纸「05 Agent 角色」）', () => {
   });
 });
 
+test.describe('提示词库（图纸「06 提示词库」）', () => {
+  test.beforeEach(async ({ page }) => {
+    await page.goto('/prompts');
+    await expect(page.getByRole('region', { name: '提示词详情' })).toBeVisible();
+  });
+
+  test('左栏 266px，搜索占位文案照图纸', async ({ page }) => {
+    const width = await page.evaluate(() => {
+      const el = document.querySelector('.prompts__list');
+      return el ? Number.parseFloat(getComputedStyle(el).width) : -1;
+    });
+    expect(width).toBe(266);
+    await expect(page.getByPlaceholder('搜索名称、变量或正文')).toBeVisible();
+  });
+
+  test('底部常驻说明照图纸', async ({ page }) => {
+    await expect(
+      page.getByText('系统调用 AI 的每一处都在这里：节点、⌘K 协作、记忆提议、通知与失败归因。'),
+    ).toBeVisible();
+  });
+
+  test('选中后四个 tab 都能切，变量与版本各有那句说明', async ({ page }) => {
+    const first = page.locator('.prompts__item').first();
+    if ((await first.count()) === 0) test.skip();
+    await first.click();
+
+    await expect(page.getByText('框架分段可见可改 · 保存后新运行生效')).toBeVisible();
+
+    await page.getByRole('tab', { name: '变量' }).click();
+    await expect(
+      page.getByText('Secret 只能以引用形式出现，预览与日志中永不展开明文。'),
+    ).toBeVisible();
+
+    await page.getByRole('tab', { name: '版本' }).click();
+    await expect(
+      page.getByText('运行记录会引用当时的提示词版本，历史结果始终可解释。'),
+    ).toBeVisible();
+  });
+
+  test('搜索发给后端：搜一个不存在的词列表变空', async ({ page }) => {
+    const items = page.locator('.prompts__item');
+    if ((await items.count()) === 0) test.skip();
+
+    await page.getByPlaceholder('搜索名称、变量或正文').fill('绝不可能存在的词abcxyz');
+    await page.keyboard.press('Enter');
+    await expect(items).toHaveCount(0);
+  });
+});
+
 test.describe('尚未实现的屏', () => {
   for (const [path, label] of [
     ['/memory', '记忆'],
-    ['/prompts', '提示词库'],
     ['/onboarding', '首次配置'],
   ] as const) {
     test(`${label} 说明自己在等哪个里程碑，而不是白屏`, async ({ page }) => {

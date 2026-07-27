@@ -111,6 +111,11 @@ impl From<aiwf_engine::supervisor::SupervisorError> for ApiError {
 
 /// 已接通的方法名清单。HTTP 侧按它分派，测试按它守住两端一致。
 pub const COMMANDS: &[&str] = &[
+    "prompt_list",
+    "prompt_create",
+    "prompt_update",
+    "prompt_duplicate",
+    "prompt_delete",
     "agent_list",
     "agent_create",
     "agent_update",
@@ -188,6 +193,37 @@ pub struct RunEventsPage {
     events: Vec<RunEventDto>,
     next_seq: i64,
     has_more: bool,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PromptDto {
+    pub id: String,
+    pub group: String,
+    pub name: String,
+    pub sections: serde_json::Value,
+    pub vars: serde_json::Value,
+    pub ver: i64,
+    pub builtin: bool,
+    pub updated_at: String,
+}
+
+impl From<aiwf_store::PromptRow> for PromptDto {
+    fn from(row: aiwf_store::PromptRow) -> Self {
+        Self {
+            id: row.id,
+            group: row.group,
+            name: row.name,
+            // 存的是 JSON 文本，给界面的是结构化值。
+            // 解析不出来时给空数组：一条坏记录不该让整个提示词库打不开
+            sections: serde_json::from_str(&row.sections_json)
+                .unwrap_or_else(|_| serde_json::json!([])),
+            vars: serde_json::from_str(&row.vars_json).unwrap_or_else(|_| serde_json::json!([])),
+            ver: row.ver,
+            builtin: row.builtin,
+            updated_at: row.updated_at,
+        }
+    }
 }
 
 #[derive(Serialize)]
@@ -765,5 +801,56 @@ pub fn agent_duplicate(store: &Store, id: String, name: String) -> ApiResult<Str
 
 pub fn agent_delete(store: &Store, id: String) -> ApiResult<()> {
     store.delete_agent(&id)?;
+    Ok(())
+}
+
+// ── 提示词库 ────────────────────────────────────────────────────────────────
+
+pub fn prompt_list(store: &Store, query: Option<String>) -> ApiResult<Vec<PromptDto>> {
+    Ok(store
+        .list_prompts(query.as_deref())?
+        .into_iter()
+        .map(PromptDto::from)
+        .collect())
+}
+
+pub fn prompt_create(
+    store: &Store,
+    group: String,
+    name: String,
+    sections_json: String,
+    vars_json: Option<String>,
+) -> ApiResult<String> {
+    Ok(store.create_prompt(&aiwf_store::NewPrompt {
+        group,
+        name,
+        sections_json,
+        vars_json: vars_json.unwrap_or_else(|| "[]".to_string()),
+    })?)
+}
+
+/// 更新提示词。版本号由存储层递增 —— 运行记录引用的是具体版本。
+pub fn prompt_update(
+    store: &Store,
+    id: String,
+    name: Option<String>,
+    sections_json: Option<String>,
+    vars_json: Option<String>,
+) -> ApiResult<()> {
+    store.update_prompt(
+        &id,
+        name.as_deref(),
+        sections_json.as_deref(),
+        vars_json.as_deref(),
+    )?;
+    Ok(())
+}
+
+pub fn prompt_duplicate(store: &Store, id: String, name: String) -> ApiResult<String> {
+    Ok(store.duplicate_prompt(&id, &name)?)
+}
+
+pub fn prompt_delete(store: &Store, id: String) -> ApiResult<()> {
+    store.delete_prompt(&id)?;
     Ok(())
 }

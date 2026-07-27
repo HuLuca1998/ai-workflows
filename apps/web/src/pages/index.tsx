@@ -5,6 +5,7 @@ import { OverviewPage } from './OverviewPage.js';
 import { RunsPage } from '../runs/RunsPage.js';
 import { ModelsPage } from '../models/ModelsPage.js';
 import { AgentsPage } from '../agents/AgentsPage.js';
+import { PromptsPage } from '../prompts/PromptsPage.js';
 import { PlaceholderPage } from './PlaceholderPage.js';
 import { SettingsPage } from './SettingsPage.js';
 
@@ -43,6 +44,7 @@ const FULL_SCREENS: Record<string, ReactElement> = {
   '/runs': <RunsPage />,
   '/models': <ModelsPage />,
   '/agents': <AgentsPage />,
+  '/prompts': <PromptsPage />,
 };
 
 /** 需要额外注册带参数的子路由的屏。 */

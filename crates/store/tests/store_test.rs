@@ -6,7 +6,7 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
-use aiwf_store::{EXPECTED_SCHEMA_VERSION, NewAgent, NewModel, NewRunEvent, Store};
+use aiwf_store::{EXPECTED_SCHEMA_VERSION, NewAgent, NewModel, NewPrompt, NewRunEvent, Store};
 
 fn store() -> Store {
     Store::open_in_memory().expect("打开内存库")
@@ -938,4 +938,137 @@ fn 轮次上限与超时必须为正() {
     let mut no_timeout = agent("零超时");
     no_timeout.timeout_ms = 0;
     assert!(store.create_agent(&no_timeout).is_err());
+}
+
+// ── 提示词库（M3）──────────────────────────────────────────────────────────
+
+fn prompt(name: &str) -> NewPrompt {
+    NewPrompt {
+        group: "系统内建 · 节点".to_string(),
+        name: name.to_string(),
+        sections_json: r#"[{"title":"Role","body":"你是一名代码分析师。"},
+                           {"title":"Task","body":"定位 ${input.issue} 的根因。"}]"#
+            .to_string(),
+        vars_json: r#"[{"name":"${input.issue}","source":"启动表单","onMissing":"empty_and_log"}]"#
+            .to_string(),
+    }
+}
+
+#[test]
+fn 登记提示词后能读回分段与变量() {
+    let store = Store::open_in_memory().unwrap();
+    let id = store.create_prompt(&prompt("分析 · 根因")).unwrap();
+
+    let found = store.get_prompt(&id).unwrap().expect("应当能读到");
+    assert_eq!(found.name, "分析 · 根因");
+    assert_eq!(found.group, "系统内建 · 节点");
+    assert!(found.sections_json.contains("代码分析师"));
+    assert_eq!(found.ver, 1);
+}
+
+#[test]
+fn 保存新版本让版本号递增() {
+    // 「运行记录会引用当时的提示词版本，历史结果始终可解释」——
+    // 版本号必须往前走，否则没法回答「那次运行用的是哪一版」
+    let store = Store::open_in_memory().unwrap();
+    let id = store.create_prompt(&prompt("会升级的")).unwrap();
+
+    store
+        .update_prompt(
+            &id,
+            None,
+            Some(r#"[{"title":"Role","body":"改过了"}]"#),
+            None,
+        )
+        .unwrap();
+    let after = store.get_prompt(&id).unwrap().unwrap();
+    assert_eq!(after.ver, 2);
+    assert!(after.sections_json.contains("改过了"));
+}
+
+#[test]
+fn 按分组列出_同组的排在一起() {
+    // 图纸左栏按 group 分组显示
+    let store = Store::open_in_memory().unwrap();
+    let mut memory = prompt("记忆提议");
+    memory.group = "系统内建 · 记忆".to_string();
+    store.create_prompt(&prompt("节点 A")).unwrap();
+    store.create_prompt(&memory).unwrap();
+    store.create_prompt(&prompt("节点 B")).unwrap();
+
+    let items = store.list_prompts(None).unwrap();
+    assert_eq!(items.len(), 3);
+    let groups: Vec<&str> = items.iter().map(|p| p.group.as_str()).collect();
+    // 同组连续出现，不能交错
+    let mut seen = std::collections::HashSet::new();
+    let mut previous = "";
+    for group in &groups {
+        if *group != previous {
+            assert!(seen.insert(*group), "分组 {group} 被拆开了：{groups:?}");
+            previous = group;
+        }
+    }
+}
+
+#[test]
+fn 搜索命中名称与正文() {
+    // 图纸的搜索框写的是「搜索名称、变量或正文」
+    let store = Store::open_in_memory().unwrap();
+    store.create_prompt(&prompt("根因分析")).unwrap();
+
+    let mut review = prompt("代码审查");
+    review.sections_json = r#"[{"title":"Role","body":"你是一名审查者，只读不改。"}]"#.to_string();
+    store.create_prompt(&review).unwrap();
+
+    // 名称命中
+    assert_eq!(store.list_prompts(Some("根因")).unwrap().len(), 1);
+    // 正文命中：只有审查那条写了「只读不改」
+    assert_eq!(store.list_prompts(Some("只读不改")).unwrap().len(), 1);
+    // 两条正文都有的词，两条都命中
+    assert_eq!(store.list_prompts(Some("你是一名")).unwrap().len(), 2);
+    assert_eq!(store.list_prompts(Some("不存在的词")).unwrap().len(), 0);
+}
+
+#[test]
+fn 内置提示词不能删_但能复制() {
+    // 「系统调用 AI 的每一处都在这里」——删掉内置的会让某处调用没有提示词
+    let store = Store::open_in_memory().unwrap();
+    let id = store.create_builtin_prompt(&prompt("内置的")).unwrap();
+
+    assert!(store.delete_prompt(&id).is_err());
+
+    let copy_id = store.duplicate_prompt(&id, "我的版本").unwrap();
+    let copy = store.get_prompt(&copy_id).unwrap().unwrap();
+    assert!(!copy.builtin);
+    assert_eq!(copy.ver, 1);
+    assert_eq!(
+        copy.sections_json,
+        store.get_prompt(&id).unwrap().unwrap().sections_json
+    );
+}
+
+#[test]
+fn 分段不能是空数组() {
+    // 一条没有任何分段的提示词等于没有提示词，
+    // 让它存进去只会在运行时才发现
+    let store = Store::open_in_memory().unwrap();
+    let mut empty = prompt("空的");
+    empty.sections_json = "[]".to_string();
+    assert!(store.create_prompt(&empty).is_err());
+}
+
+#[test]
+fn 分段必须是合法_json() {
+    let store = Store::open_in_memory().unwrap();
+    let mut bad = prompt("坏的");
+    bad.sections_json = "{不是 JSON".to_string();
+    assert!(store.create_prompt(&bad).is_err());
+}
+
+#[test]
+fn 删除自建提示词后读不到() {
+    let store = Store::open_in_memory().unwrap();
+    let id = store.create_prompt(&prompt("待删")).unwrap();
+    store.delete_prompt(&id).unwrap();
+    assert!(store.get_prompt(&id).unwrap().is_none());
 }

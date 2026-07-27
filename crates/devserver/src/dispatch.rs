@@ -25,6 +25,27 @@ pub fn dispatch(
     })?;
 
     match command {
+        "prompt_list" => to_value(api::prompt_list(&store, opt_string(input, "query"))?),
+        "prompt_create" => to_value(api::prompt_create(
+            &store,
+            string(input, "group")?,
+            string(input, "name")?,
+            string(input, "sectionsJson")?,
+            opt_string(input, "varsJson"),
+        )?),
+        "prompt_update" => to_value(api::prompt_update(
+            &store,
+            string(input, "id")?,
+            opt_string(input, "name"),
+            opt_string(input, "sectionsJson"),
+            opt_string(input, "varsJson"),
+        )?),
+        "prompt_duplicate" => to_value(api::prompt_duplicate(
+            &store,
+            string(input, "id")?,
+            string(input, "name")?,
+        )?),
+        "prompt_delete" => to_value(api::prompt_delete(&store, string(input, "id")?)?),
         "agent_list" => to_value(api::agent_list(&store)?),
         "agent_create" => to_value(api::agent_create(
             &store,

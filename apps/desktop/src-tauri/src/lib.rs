@@ -28,6 +28,51 @@ pub mod tray;
 type IpcResult<T> = Result<T, ApiError>;
 
 #[tauri::command]
+fn prompt_list(
+    state: State<'_, AppState>,
+    query: Option<String>,
+) -> IpcResult<Vec<api::PromptDto>> {
+    let store = lock(&state)?;
+    api::prompt_list(&store, query)
+}
+
+#[tauri::command]
+fn prompt_create(
+    state: State<'_, AppState>,
+    group: String,
+    name: String,
+    sections_json: String,
+    vars_json: Option<String>,
+) -> IpcResult<String> {
+    let store = lock(&state)?;
+    api::prompt_create(&store, group, name, sections_json, vars_json)
+}
+
+#[tauri::command]
+fn prompt_update(
+    state: State<'_, AppState>,
+    id: String,
+    name: Option<String>,
+    sections_json: Option<String>,
+    vars_json: Option<String>,
+) -> IpcResult<()> {
+    let store = lock(&state)?;
+    api::prompt_update(&store, id, name, sections_json, vars_json)
+}
+
+#[tauri::command]
+fn prompt_duplicate(state: State<'_, AppState>, id: String, name: String) -> IpcResult<String> {
+    let store = lock(&state)?;
+    api::prompt_duplicate(&store, id, name)
+}
+
+#[tauri::command]
+fn prompt_delete(state: State<'_, AppState>, id: String) -> IpcResult<()> {
+    let store = lock(&state)?;
+    api::prompt_delete(&store, id)
+}
+
+#[tauri::command]
 fn agent_list(state: State<'_, AppState>) -> IpcResult<Vec<api::AgentDto>> {
     let store = lock(&state)?;
     api::agent_list(&store)
@@ -468,6 +513,11 @@ pub fn run() {
             run_cancel,
             run_resume,
             approval_decide,
+            prompt_list,
+            prompt_create,
+            prompt_update,
+            prompt_duplicate,
+            prompt_delete,
             agent_list,
             agent_create,
             agent_update,

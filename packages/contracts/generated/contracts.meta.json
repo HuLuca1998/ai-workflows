@@ -109,6 +109,7 @@
     "prompt.list",
     "prompt.create",
     "prompt.update",
+    "prompt.duplicate",
     "prompt.delete",
     "model.list",
     "model.create",

@@ -35,6 +35,11 @@ const COMMANDS: Partial<Record<CoreApiMethod, string>> = {
   'run.cancel': 'run_cancel',
   'run.resume': 'run_resume',
   'approval.decide': 'approval_decide',
+  'prompt.list': 'prompt_list',
+  'prompt.create': 'prompt_create',
+  'prompt.update': 'prompt_update',
+  'prompt.duplicate': 'prompt_duplicate',
+  'prompt.delete': 'prompt_delete',
   'agent.list': 'agent_list',
   'agent.create': 'agent_create',
   'agent.update': 'agent_update',
@@ -95,6 +100,18 @@ export function toIpcInput(method: CoreApiMethod, input: unknown): Record<string
       ...(record.workflowId ? { workflowId: record.workflowId } : {}),
       statuses: Array.isArray(record.status) ? record.status : [],
       ...(record.query ? { query: record.query } : {}),
+    };
+  }
+
+  if (method === 'prompt.create' || method === 'prompt.update') {
+    // Rust 侧收 JSON 字符串：分段是有序数组，让 serde 解任意 Value
+    // 会把「分段长什么样」这件事从契约里糊掉
+    return {
+      ...(record.id ? { id: record.id } : {}),
+      ...(record.group ? { group: record.group } : {}),
+      ...(record.name ? { name: record.name } : {}),
+      ...(record.sections ? { sectionsJson: JSON.stringify(record.sections) } : {}),
+      ...(record.vars ? { varsJson: JSON.stringify(record.vars) } : {}),
     };
   }
 
@@ -280,16 +297,21 @@ export function fromIpcResult(method: CoreApiMethod, raw: unknown): unknown {
     case 'run.resume':
       return { ok: true };
 
+    case 'prompt.list':
     case 'agent.list':
     case 'model.list':
       return { items: raw ?? [] };
 
     case 'agent.create':
     case 'agent.duplicate':
+    case 'prompt.create':
+    case 'prompt.duplicate':
       return { id: raw as string };
 
     case 'agent.update':
     case 'agent.delete':
+    case 'prompt.update':
+    case 'prompt.delete':
       return { ok: true };
 
     case 'model.create':

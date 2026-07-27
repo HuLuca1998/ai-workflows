@@ -190,6 +190,54 @@ async function main() {
     console.log(`  + 模型 ${model.name}`);
   }
 
+  // ── Agent 角色 ──────────────────────────────────────────────────────────
+  const agents = await call('agent_list');
+  if (!agents.some((a) => a.name === `${TAG} 分析 Agent`)) {
+    await call('agent_create', {
+      name: `${TAG} 分析 Agent`,
+      role: '分析师',
+      goal: '定位根因，给出可验证的方案',
+      persona: '先读代码再下结论；不确定时说不确定。',
+      runtime: 'acp.claude',
+      modelRef: 'model_baseline',
+      tools: ['read', 'grep'],
+      capabilities: { fileRead: true, fileWrite: false, network: 'none' },
+      outputContract: '结构化 JSON',
+    });
+    console.log(`  + Agent ${TAG} 分析 Agent`);
+  }
+
+  // ── 提示词 ──────────────────────────────────────────────────────────────
+  const prompts = await call('prompt_list');
+  const promptSeeds = [
+    {
+      group: '系统内建 · 节点',
+      name: `${TAG} 分析 · 根因`,
+      sections: [
+        { title: 'Role', body: '你是一名代码分析师。' },
+        { title: 'Task', body: '定位 ${input.issue} 的根因，给出 2–3 个可选方案。' },
+        { title: 'Constraints', body: '信息不足时列出还缺什么，不要猜。' },
+      ],
+      vars: [{ name: '${input.issue}', source: '启动表单', onMissing: 'empty_and_log' }],
+    },
+    {
+      group: '系统内建 · 记忆',
+      name: `${TAG} 记忆提议`,
+      sections: [{ title: 'Task', body: '从这次运行里挑出值得长期记住的事实。' }],
+      vars: [],
+    },
+  ];
+  for (const seed of promptSeeds) {
+    if (prompts.some((p) => p.name === seed.name)) continue;
+    await call('prompt_create', {
+      group: seed.group,
+      name: seed.name,
+      sectionsJson: JSON.stringify(seed.sections),
+      varsJson: JSON.stringify(seed.vars),
+    });
+    console.log(`  + 提示词 ${seed.name}`);
+  }
+
   // ── 成功的运行（含审批走完）────────────────────────────────────────────
   const ok = await ensureWorkflow(`${TAG} 带审批的流程`, graph());
   if (!ok.existed) {
