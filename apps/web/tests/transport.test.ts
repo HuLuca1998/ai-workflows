@@ -52,9 +52,7 @@ describe('入参转换', () => {
 
 describe('出参转换', () => {
   it('workflow.list 把 snake_case 转成契约形状', () => {
-    const raw = [
-      { id: 'wf_1', name: '流程', folder: null, updated_at: '2026-07-27T10:00:00.000Z' },
-    ];
+    const raw = [{ id: 'wf_1', name: '流程', folder: null, updatedAt: '2026-07-27T10:00:00.000Z' }];
     const result = fromIpcResult('workflow.list', raw) as { items: unknown[] };
     expect(result.items[0]).toMatchObject({
       id: 'wf_1',
@@ -64,22 +62,22 @@ describe('出参转换', () => {
     });
   });
 
-  it('workflow.get 把 graph_json 解析成对象，并保留 rev 与版本列表', () => {
+  it('workflow.get 把 graphJson 解析成对象，并保留 rev 与版本列表', () => {
     const raw = {
       id: 'wf_1',
       name: '流程',
       folder: null,
-      created_at: '2026-07-27T09:00:00.000Z',
-      updated_at: '2026-07-27T10:00:00.000Z',
+      createdAt: '2026-07-27T09:00:00.000Z',
+      updatedAt: '2026-07-27T10:00:00.000Z',
       rev: 4,
-      graph_json: '{"nodes":[],"edges":[],"groups":[]}',
+      graphJson: '{"nodes":[],"edges":[],"groups":[]}',
       versions: [
         {
           id: 'wv_1',
           version: 1,
-          config_hash: 'abc',
-          published_at: '2026-07-27T09:30:00.000Z',
-          published_by: '本地用户',
+          configHash: 'abc',
+          publishedAt: '2026-07-27T09:30:00.000Z',
+          publishedBy: '本地用户',
         },
       ],
     };
@@ -93,15 +91,15 @@ describe('出参转换', () => {
     expect(result.versions[0]?.version).toBe(1);
   });
 
-  it('graph_json 坏掉时报错而不是给一张空图——空图会让用户以为工作流丢了', () => {
+  it('graphJson 坏掉时报错而不是给一张空图——空图会让用户以为工作流丢了', () => {
     expect(() =>
       fromIpcResult('workflow.get', {
         id: 'wf_1',
         name: 'x',
-        created_at: 'a',
-        updated_at: 'a',
+        createdAt: 'a',
+        updatedAt: 'a',
         rev: 1,
-        graph_json: '{ 这不是 JSON',
+        graphJson: '{ 这不是 JSON',
         versions: [],
       }),
     ).toThrow(/图数据/u);

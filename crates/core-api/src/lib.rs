@@ -10,6 +10,8 @@
 //! 「返回值不合契约」。JSON 里表达「没有这个值」的方式是字段缺席。
 //! 这个坑是浏览器端到端测试抓到的。
 
+use std::path::Path;
+
 use aiwf_engine::runner::RunRequest;
 use aiwf_engine::supervisor::Supervisor;
 use aiwf_store::Store;
@@ -60,6 +62,7 @@ fn resolve_workdir(workdir: Option<&str>, data_dir: &std::path::Path) -> std::pa
 
 /// 传给界面的错误。形状与 `@aiwf/contracts` 的统一错误对象一致。
 #[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ApiError {
     pub code: String,
     pub message: String,
@@ -141,6 +144,7 @@ pub const COMMANDS: &[&str] = &[
     "run_resume",
     "approval_decide",
     "workflow_list",
+    "workspace_stats",
     "workflow_create",
     "workflow_get",
     "workflow_save_draft",
@@ -359,15 +363,55 @@ pub struct ArtifactsDto {
 }
 
 #[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct WorkflowSummary {
     id: String,
     name: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     folder: Option<String>,
+    created_at: String,
     updated_at: String,
+    archived: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    latest_version: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    last_run: Option<LastRunDto>,
+}
+
+/// 首页列表行上的运行态投影。
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LastRunDto {
+    id: String,
+    status: String,
+    started_at: String,
+    /// 已结束才有；运行中的时长由界面按当前时间算。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    duration_ms: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    failed_node_label: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    version: Option<i64>,
+}
+
+/// 首页四张统计卡。
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkspaceStatsDto {
+    pending_approvals: i64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pending_approval_hint: Option<String>,
+    runs_today: i64,
+    runs_today_succeeded: i64,
+    /// 缺席表示还没有数据源 —— 界面显示「—」而不是 0。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    tokens_this_week: Option<i64>,
+    active_worktrees: i64,
+    worktree_bytes: i64,
 }
 
 #[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct VersionMetaDto {
     id: String,
     version: i64,
@@ -377,6 +421,7 @@ pub struct VersionMetaDto {
 }
 
 #[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct WorkflowDetail {
     id: String,
     name: String,
@@ -391,6 +436,7 @@ pub struct WorkflowDetail {
 }
 
 #[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct PublishedDto {
     version_id: String,
     version: i64,
@@ -670,9 +716,122 @@ pub fn workflow_list(store: &Store) -> ApiResult<Vec<WorkflowSummary>> {
             id: w.id,
             name: w.name,
             folder: w.folder,
+            created_at: w.created_at,
             updated_at: w.updated_at,
+            archived: w.archived,
+            latest_version: w.latest_version,
+            last_run: w.last_run.map(|r| LastRunDto {
+                duration_ms: duration_ms_between(&r.started_at, r.ended_at.as_deref()),
+                // 失败时停在哪个节点：current_node 存的是节点 id，
+                // 界面要的是用户看得懂的标题，但那要读图 —— 列表一次读 300 张图
+                // 不现实。先给 id，详情页才展开成标题
+                failed_node_label: if r.status == "failed" {
+                    r.failed_node.clone()
+                } else {
+                    None
+                },
+                id: r.id,
+                status: r.status,
+                started_at: r.started_at,
+                version: r.version,
+            }),
         })
         .collect())
+}
+
+/// 首页四张统计卡。
+///
+/// worktree 那两项走文件系统 —— 存储层里没有它们的记录，
+/// 而真实占用只有磁盘知道（用户可能手工删过）。
+pub fn workspace_stats(store: &Store, workdir: Option<&Path>) -> ApiResult<WorkspaceStatsDto> {
+    let stats = store.workspace_stats()?;
+    let (count, bytes) = workdir.map_or((0, 0), worktree_usage);
+
+    Ok(WorkspaceStatsDto {
+        pending_approvals: stats.pending_approvals,
+        pending_approval_hint: stats.pending_approval_hint,
+        runs_today: stats.runs_today,
+        runs_today_succeeded: stats.runs_today_succeeded,
+        // 事件流里目前不记 token。给 0 会被读成「这周没花钱」，
+        // 那比空着更糟 —— 空着至少是诚实的
+        tokens_this_week: None,
+        active_worktrees: count,
+        worktree_bytes: bytes,
+    })
+}
+
+/// 数 `.aiwf-worktrees` 下的目录与占用。
+///
+/// 失败一律当 0：统计卡不该因为权限问题让整个首页报错。
+fn worktree_usage(workdir: &Path) -> (i64, i64) {
+    let root = workdir.join(aiwf_engine::worktree::ENGINE_WORKTREE_DIR);
+    let Ok(entries) = std::fs::read_dir(&root) else {
+        return (0, 0);
+    };
+
+    let mut count = 0;
+    let mut bytes = 0;
+    for entry in entries.flatten() {
+        if entry.file_type().is_ok_and(|t| t.is_dir()) {
+            count += 1;
+            bytes += dir_size(&entry.path());
+        }
+    }
+    (count, bytes)
+}
+
+fn dir_size(path: &Path) -> i64 {
+    let Ok(entries) = std::fs::read_dir(path) else {
+        return 0;
+    };
+    entries
+        .flatten()
+        .map(|entry| match entry.file_type() {
+            // symlink 不递归：worktree 里的链接可能指向仓库外，
+            // 跟进去会把整个磁盘算进来，也可能绕成环
+            Ok(t) if t.is_dir() => dir_size(&entry.path()),
+            Ok(t) if t.is_file() => entry.metadata().map(|m| m.len() as i64).unwrap_or(0),
+            _ => 0,
+        })
+        .sum()
+}
+
+/// 两个 ISO 时间戳之间的毫秒数。解析不出来就当没有 —— 界面会显示「运行中」。
+fn duration_ms_between(started: &str, ended: Option<&str>) -> Option<i64> {
+    let ended = ended?;
+    let a = iso_to_millis(started)?;
+    let b = iso_to_millis(ended)?;
+    (b >= a).then_some(b - a)
+}
+
+/// 解析 `now_iso()` 写出的 `YYYY-MM-DDTHH:MM:SS.mmmZ`。
+fn iso_to_millis(iso: &str) -> Option<i64> {
+    let (date, rest) = iso.split_once('T')?;
+    let mut d = date.split('-');
+    let (y, m, day) = (
+        d.next()?.parse::<i64>().ok()?,
+        d.next()?.parse::<i64>().ok()?,
+        d.next()?.parse::<i64>().ok()?,
+    );
+    let time = rest.trim_end_matches('Z');
+    let (hms, ms) = time.split_once('.').unwrap_or((time, "0"));
+    let mut t = hms.split(':');
+    let (h, min, sec) = (
+        t.next()?.parse::<i64>().ok()?,
+        t.next()?.parse::<i64>().ok()?,
+        t.next()?.parse::<i64>().ok()?,
+    );
+
+    // days_from_civil（Howard Hinnant），与存储层写时间用的是同一套换算
+    let y2 = if m <= 2 { y - 1 } else { y };
+    let era = y2.div_euclid(400);
+    let yoe = y2 - era * 400;
+    let mp = (m + 9) % 12;
+    let doy = (153 * mp + 2) / 5 + day - 1;
+    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    let days = era * 146_097 + doe - 719_468;
+
+    Some((days * 86_400 + h * 3600 + min * 60 + sec) * 1000 + ms.parse::<i64>().unwrap_or(0))
 }
 
 pub fn workflow_create(

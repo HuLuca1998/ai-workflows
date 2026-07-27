@@ -390,6 +390,13 @@ fn workflow_list(state: State<'_, AppState>) -> IpcResult<Vec<WorkflowSummary>> 
 }
 
 #[tauri::command]
+fn workspace_stats(state: State<'_, AppState>) -> IpcResult<api::WorkspaceStatsDto> {
+    let data_dir = state.data_dir.clone();
+    let store = lock(&state)?;
+    api::workspace_stats(&store, Some(&data_dir))
+}
+
+#[tauri::command]
 fn workflow_create(
     state: State<'_, AppState>,
     name: String,
@@ -582,6 +589,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             workflow_list,
+            workspace_stats,
             workflow_create,
             workflow_get,
             workflow_save_draft,

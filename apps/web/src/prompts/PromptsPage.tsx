@@ -75,9 +75,9 @@ export function PromptsPage() {
 
   const load = async (search?: string) => {
     try {
-      const result = (await coreClient.call('prompt.list', {
-        ...(search ? { query: search } : {}),
-      })) as { items: Prompt[] };
+      const result = (await coreClient.call('prompt.list', search ? { query: search } : {})) as {
+        items: Prompt[];
+      };
       setItems(result.items);
     } catch (err) {
       setError(describe(err));

@@ -8,6 +8,27 @@ import { SENSITIVITY_LEVELS } from './events.js';
  * 领域实体。字段与 SQLite 表（技术选型 §10）一一对应，避免出现「界面有、库里没有」的字段。
  */
 
+/**
+ * 工作流列表行上那点运行态投影。
+ *
+ * 图纸「01 工作流首页」的状态列显示的是**最近一次运行**的状态
+ * （等待审批 / 成功 / 失败 · 节点 3），没运行过才是草稿或已发布。
+ * 不带上这些，列表里每一行都长成「已创建 · 未运行 · 草稿」，
+ * 跟执行记录完全对不上。
+ */
+export const WorkflowLastRunSchema = z.object({
+  id: z.string().min(1),
+  status: z.enum(RUN_STATUSES),
+  startedAt: z.iso.datetime(),
+  /** 已结束才有；运行中的时长由界面自己按当前时间算。 */
+  durationMs: z.number().int().min(0).optional(),
+  /** 失败时停在哪个节点 —— 图纸写的是「失败 · 节点 3」。 */
+  failedNodeLabel: z.string().optional(),
+  /** 运行引用的是不可变版本，不是草稿 rev。 */
+  version: z.number().int().min(1).optional(),
+});
+export type WorkflowLastRun = z.infer<typeof WorkflowLastRunSchema>;
+
 export const WorkflowSchema = z.object({
   id: z.string().min(1),
   name: z.string().min(1),
@@ -15,6 +36,9 @@ export const WorkflowSchema = z.object({
   createdAt: z.iso.datetime(),
   updatedAt: z.iso.datetime(),
   archived: z.boolean().default(false),
+  /** 最新发布版本号。没发布过时缺席 —— 那时状态列显示「草稿」。 */
+  latestVersion: z.number().int().min(1).optional(),
+  lastRun: WorkflowLastRunSchema.optional(),
 });
 export type Workflow = z.infer<typeof WorkflowSchema>;
 

@@ -17,6 +17,7 @@ import {
 /** 已接通引擎的方法。没列在这里的方法调用时会明确报未实现。 */
 const COMMANDS: Partial<Record<CoreApiMethod, string>> = {
   'workflow.list': 'workflow_list',
+  'workspace.stats': 'workspace_stats',
   'workflow.get': 'workflow_get',
   'workflow.create': 'workflow_create',
   // patch 的结构化操作在客户端应用并生成 Diff（contracts 的 applyPatch），
@@ -197,16 +198,19 @@ interface WorkflowRowDto {
   id: string;
   name: string;
   folder?: string | null;
-  created_at?: string;
-  updated_at: string;
+  createdAt?: string;
+  updatedAt: string;
+  archived?: boolean;
+  latestVersion?: number;
+  lastRun?: unknown;
 }
 
 interface VersionMetaDto {
   id: string;
   version: number;
-  config_hash: string;
-  published_at: string;
-  published_by: string;
+  configHash: string;
+  publishedAt: string;
+  publishedBy: string;
 }
 
 export function fromIpcResult(method: CoreApiMethod, raw: unknown): unknown {
@@ -218,9 +222,13 @@ export function fromIpcResult(method: CoreApiMethod, raw: unknown): unknown {
           id: row.id,
           name: row.name,
           ...(row.folder ? { folder: row.folder } : {}),
-          createdAt: row.created_at ?? row.updated_at,
-          updatedAt: row.updated_at,
-          archived: false,
+          createdAt: row.createdAt ?? row.updatedAt,
+          updatedAt: row.updatedAt,
+          archived: row.archived ?? false,
+          // 运行态投影：后端已按 camelCase 发，原样带过来。
+          // 漏掉的话首页每一行都长成「未运行 · 草稿」
+          ...(row.latestVersion === undefined ? {} : { latestVersion: row.latestVersion }),
+          ...(row.lastRun ? { lastRun: row.lastRun } : {}),
         })),
       };
     }
@@ -228,12 +236,12 @@ export function fromIpcResult(method: CoreApiMethod, raw: unknown): unknown {
     case 'workflow.get': {
       const detail = raw as WorkflowRowDto & {
         rev: number;
-        graph_json: string;
+        graphJson: string;
         versions: VersionMetaDto[];
       };
       let graph: unknown;
       try {
-        graph = JSON.parse(detail.graph_json);
+        graph = JSON.parse(detail.graphJson);
       } catch (error) {
         // 给一张空图会让用户以为工作流丢了，宁可报错
         throw new CoreApiError({
@@ -247,8 +255,8 @@ export function fromIpcResult(method: CoreApiMethod, raw: unknown): unknown {
           id: detail.id,
           name: detail.name,
           ...(detail.folder ? { folder: detail.folder } : {}),
-          createdAt: detail.created_at ?? detail.updated_at,
-          updatedAt: detail.updated_at,
+          createdAt: detail.createdAt ?? detail.updatedAt,
+          updatedAt: detail.updatedAt,
           archived: false,
         },
         graph,
@@ -257,10 +265,10 @@ export function fromIpcResult(method: CoreApiMethod, raw: unknown): unknown {
           id: v.id,
           workflowId: detail.id,
           version: v.version,
-          configHash: v.config_hash,
+          configHash: v.configHash,
           dependencyManifest: {},
-          publishedAt: v.published_at,
-          publishedBy: v.published_by,
+          publishedAt: v.publishedAt,
+          publishedBy: v.publishedBy,
         })),
       };
     }
@@ -277,8 +285,8 @@ export function fromIpcResult(method: CoreApiMethod, raw: unknown): unknown {
       };
 
     case 'workflow.publish': {
-      const dto = raw as { version_id: string; version: number; config_hash: string };
-      return { versionId: dto.version_id, version: dto.version, configHash: dto.config_hash };
+      const dto = raw as { versionId: string; version: number; configHash: string };
+      return { versionId: dto.versionId, version: dto.version, configHash: dto.configHash };
     }
 
     case 'workflow.versionGraph': {
@@ -318,6 +326,7 @@ export function fromIpcResult(method: CoreApiMethod, raw: unknown): unknown {
       return { ok: true };
 
     case 'supervisor.ask':
+    case 'workspace.stats':
       return raw;
 
     case 'memory.list':

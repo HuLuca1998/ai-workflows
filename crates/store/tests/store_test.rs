@@ -1491,3 +1491,153 @@ fn 更新提示词仍然拒绝非法分段() {
     );
     assert_eq!(store.get_prompt(&id).unwrap().unwrap().ver, base);
 }
+
+// ── 首页的运行态投影 ──────────────────────────────────────────────────────
+//
+// 图纸「01 工作流首页」的状态列显示的是**最近一次运行**的状态，
+// 不带上它每一行都长成「已创建 · 未运行 · 草稿」——
+// 用户发布并跑过三次，列表看起来还是没动过。
+
+fn 建工作流并跑一次(store: &Store, name: &str, status: &str) -> (String, String) {
+    let wf = store.create_workflow(name, None).unwrap();
+    let run = store.create_run(&wf, None, Some(1), "{}").unwrap();
+    store.advance_run_status(&run, status, None).unwrap();
+    (wf, run)
+}
+
+#[test]
+fn 列表带上最近一次运行() {
+    let store = Store::open_in_memory().unwrap();
+    let (wf, run) = 建工作流并跑一次(&store, "跑过的", "succeeded");
+
+    let found = store.list_workflows().unwrap();
+    let row = found.iter().find(|w| w.id == wf).unwrap();
+    let last = row.last_run.as_ref().expect("跑过就该有");
+    assert_eq!(last.id, run);
+    assert_eq!(last.status, "succeeded");
+}
+
+#[test]
+fn 没跑过的工作流没有最近运行() {
+    let store = Store::open_in_memory().unwrap();
+    let wf = store.create_workflow("没跑过的", None).unwrap();
+
+    let found = store.list_workflows().unwrap();
+    let row = found.iter().find(|w| w.id == wf).unwrap();
+    assert!(row.last_run.is_none(), "没运行过就不该编一个出来");
+}
+
+#[test]
+fn 最近一次运行取的是最新那条而不是第一条() {
+    let store = Store::open_in_memory().unwrap();
+    let (wf, _first) = 建工作流并跑一次(&store, "跑很多次的", "failed");
+
+    // 同一条工作流再跑一次，这次成功
+    let second = store.create_run(&wf, None, Some(1), "{}").unwrap();
+    store
+        .advance_run_status(&second, "succeeded", None)
+        .unwrap();
+
+    let found = store.list_workflows().unwrap();
+    let row = found.iter().find(|w| w.id == wf).unwrap();
+    let last = row.last_run.as_ref().unwrap();
+    assert_eq!(last.id, second, "列表要显示最新那次，不是第一次");
+    assert_eq!(last.status, "succeeded");
+}
+
+#[test]
+fn 一次查询就带回全部工作流的最近运行() {
+    // N+1 会让 300 条工作流的首页发 300 次查询。
+    // 这条用例不测性能，只是把「必须是一次查询」这件事钉住：
+    // 300 条的列表要能在一次调用里返回
+    let store = Store::open_in_memory().unwrap();
+    for i in 0..40 {
+        建工作流并跑一次(&store, &format!("流程 {i}"), "succeeded");
+    }
+    let found = store.list_workflows().unwrap();
+    assert_eq!(found.len(), 40);
+    assert!(found.iter().all(|w| w.last_run.is_some()));
+}
+
+#[test]
+fn 统计卡数今天的运行与其中成功的() {
+    let store = Store::open_in_memory().unwrap();
+    建工作流并跑一次(&store, "成功一", "succeeded");
+    建工作流并跑一次(&store, "成功二", "succeeded");
+    建工作流并跑一次(&store, "失败的", "failed");
+
+    let stats = store.workspace_stats().unwrap();
+    assert_eq!(stats.runs_today, 3);
+    assert_eq!(stats.runs_today_succeeded, 2);
+}
+
+#[test]
+fn 统计卡数等待审批的运行() {
+    let store = Store::open_in_memory().unwrap();
+    建工作流并跑一次(&store, "在等审批的", "waiting_approval");
+    建工作流并跑一次(&store, "跑完了的", "succeeded");
+
+    let stats = store.workspace_stats().unwrap();
+    assert_eq!(stats.pending_approvals, 1);
+    assert_eq!(
+        stats.pending_approval_hint.as_deref(),
+        Some("在等审批的"),
+        "副文本要说清是哪条在等，只给一个数字没法行动"
+    );
+}
+
+#[test]
+fn 一条运行都没有时统计全是零而不是报错() {
+    let store = Store::open_in_memory().unwrap();
+    let stats = store.workspace_stats().unwrap();
+    assert_eq!(stats.pending_approvals, 0);
+    assert_eq!(stats.runs_today, 0);
+    assert!(stats.pending_approval_hint.is_none());
+}
+
+#[test]
+fn 进入终态时记下结束时间() {
+    // ended_at 一直没人写，于是「这次跑了多久」在整个应用里都是空的：
+    // 首页的「4m18s」、执行记录的时长、运行详情的耗时统统显示不出来。
+    // 这不是显示层的问题 —— 数据从来就没被记下来过。
+    let store = Store::open_in_memory().unwrap();
+    let wf = store.create_workflow("会结束的", None).unwrap();
+    let run = store.create_run(&wf, None, Some(1), "{}").unwrap();
+
+    store.advance_run_status(&run, "running", None).unwrap();
+    assert!(
+        store.get_run(&run).unwrap().unwrap().ended_at.is_none(),
+        "还在跑就不该有结束时间"
+    );
+
+    store.advance_run_status(&run, "succeeded", None).unwrap();
+    assert!(store.get_run(&run).unwrap().unwrap().ended_at.is_some());
+}
+
+#[test]
+fn 失败与取消也记结束时间() {
+    for status in ["failed", "cancelled"] {
+        let store = Store::open_in_memory().unwrap();
+        let wf = store.create_workflow("会结束的", None).unwrap();
+        let run = store.create_run(&wf, None, Some(1), "{}").unwrap();
+        store.advance_run_status(&run, status, None).unwrap();
+        assert!(
+            store.get_run(&run).unwrap().unwrap().ended_at.is_some(),
+            "{status} 也是终态"
+        );
+    }
+}
+
+#[test]
+fn 等待审批不算结束() {
+    // waiting_approval 会停很久，但它随时可能继续 ——
+    // 记了结束时间的话「运行时长」会把审批等待算成执行耗时
+    let store = Store::open_in_memory().unwrap();
+    let wf = store.create_workflow("等审批的", None).unwrap();
+    let run = store.create_run(&wf, None, Some(1), "{}").unwrap();
+
+    store
+        .advance_run_status(&run, "waiting_approval", None)
+        .unwrap();
+    assert!(store.get_run(&run).unwrap().unwrap().ended_at.is_none());
+}

@@ -1,5 +1,10 @@
 import { create } from 'zustand';
-import { applyPatch, type PatchOperation, type WorkflowGraph } from '@aiwf/contracts';
+import {
+  applyPatch,
+  type PatchOperation,
+  type Workflow,
+  type WorkflowGraph,
+} from '@aiwf/contracts';
 import { CoreApiClient, MemoryTransport, type Transport } from '@aiwf/client-core';
 import { isDesktopRuntime } from '../updater/useAppVersion.js';
 import { createTauriTransport } from './ipc.js';
@@ -13,12 +18,14 @@ import { createHttpTransport } from './httpTransport.js';
  * 空库就显示空态，与产品原则「可解释优先」一致。
  */
 
-export interface WorkflowSummary {
-  id: string;
-  name: string;
-  folder?: string;
-  updatedAt: string;
-}
+/**
+ * 列表行的形状**直接取自契约**，不再手写一份。
+ *
+ * 手写的那份漏了 latestVersion 与 lastRun，于是后端明明发了运行态投影，
+ * TypeScript 却说这两个字段不存在 —— 而运行时它们确实在。
+ * 类型与契约分家的代价就是这个。
+ */
+export type WorkflowSummary = Workflow;
 
 function createTransport(): Transport {
   if (isDesktopRuntime()) {
@@ -74,18 +81,13 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
   load: async () => {
     set({ loading: true, error: null });
     try {
+      // 原样收下：coreClient 已经拿契约校验过一遍，
+      // 在这里再挑一遍字段只会把新增的（latestVersion、lastRun）漏掉 ——
+      // 而那种漏法不报错，只是界面上永远没有那些信息
       const result = (await coreClient.call('workflow.list', {})) as {
-        items: { id: string; name: string; folder?: string; updatedAt: string }[];
+        items: WorkflowSummary[];
       };
-      set({
-        workflows: result.items.map((w) => ({
-          id: w.id,
-          name: w.name,
-          ...(w.folder === undefined ? {} : { folder: w.folder }),
-          updatedAt: w.updatedAt,
-        })),
-        loading: false,
-      });
+      set({ workflows: result.items, loading: false });
     } catch (error) {
       set({
         loading: false,

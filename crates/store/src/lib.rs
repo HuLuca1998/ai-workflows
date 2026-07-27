@@ -38,6 +38,11 @@ pub enum StoreError {
 
 pub type Result<T> = std::result::Result<T, StoreError>;
 
+/// 终态：进了就不再变，也是「这次跑了多久」的截止点。
+/// 与 `aiwf_engine::status::RunStatus::is_terminal` 是同一个集合 ——
+/// store 不依赖 engine，所以由 core-api 的守卫测试压住两边一致。
+const TERMINAL_RUN_STATUSES: [&str; 3] = ["succeeded", "failed", "cancelled"];
+
 /// [`Store::update_agent`] 的部分更新。
 ///
 /// `None` = 这个字段没改。全都摊成参数的话调用点是一串 `None, None, Some(x), None`，
@@ -62,6 +67,32 @@ pub struct WorkflowRow {
     pub created_at: String,
     pub updated_at: String,
     pub archived: bool,
+    /// 最新发布版本号。没发布过时 None —— 首页据此显示「草稿」。
+    pub latest_version: Option<i64>,
+    pub last_run: Option<WorkflowLastRun>,
+}
+
+/// 首页列表行上那点运行态投影。
+#[derive(Debug, Clone)]
+pub struct WorkflowLastRun {
+    pub id: String,
+    pub status: String,
+    pub started_at: String,
+    pub ended_at: Option<String>,
+    /// 失败时停在哪个节点。图纸写的是「失败 · 节点 3」。
+    pub failed_node: Option<String>,
+    pub version: Option<i64>,
+}
+
+/// 首页四张统计卡的同一时刻快照。
+#[derive(Debug, Clone, Default)]
+pub struct WorkspaceStats {
+    pub pending_approvals: i64,
+    pub pending_approval_hint: Option<String>,
+    pub runs_today: i64,
+    pub runs_today_succeeded: i64,
+    pub active_worktrees: i64,
+    pub worktree_bytes: i64,
 }
 
 #[derive(Debug, Clone)]
@@ -488,19 +519,78 @@ impl Store {
             .query_row(
                 "SELECT id, name, folder, created_at, updated_at, archived FROM workflow WHERE id = ?1",
                 params![id],
-                map_workflow,
+                map_workflow_bare,
             )
             .optional()?;
         Ok(row)
     }
 
+    /// 列出工作流，**带最近一次运行**。
+    ///
+    /// 用关联子查询而不是「先列工作流、再逐条查运行」：后者在 300 条的
+    /// 真实库上就是 301 次查询，首页会肉眼可见地卡。子查询按 rowid 取最新，
+    /// 因为 started_at 可能为 NULL（刚建还没开始）也可能同秒撞上。
     pub fn list_workflows(&self) -> Result<Vec<WorkflowRow>> {
         let mut stmt = self.conn.prepare(
-            "SELECT id, name, folder, created_at, updated_at, archived
-             FROM workflow ORDER BY updated_at DESC",
+            "SELECT w.id, w.name, w.folder, w.created_at, w.updated_at, w.archived,
+                    (SELECT MAX(version) FROM workflow_version WHERE workflow_id = w.id),
+                    r.id, r.status, r.started_at, r.ended_at, r.current_node,
+                    (SELECT version FROM workflow_version WHERE id = r.version_id)
+             FROM workflow w
+             LEFT JOIN run r ON r.id = (
+                 SELECT id FROM run WHERE workflow_id = w.id ORDER BY rowid DESC LIMIT 1
+             )
+             ORDER BY w.updated_at DESC",
         )?;
         let rows = stmt.query_map([], map_workflow)?;
         Ok(rows.collect::<std::result::Result<Vec<_>, _>>()?)
+    }
+
+    /// 首页四张统计卡。
+    ///
+    /// 一次取齐是有意的：分四次查会出现「等待审批 1，但今日运行 0」
+    /// 这种自相矛盾的组合 —— 它们本就该是同一时刻的快照。
+    ///
+    /// worktree 的两项由调用方补 —— 那要走文件系统，不属于存储层。
+    pub fn workspace_stats(&self) -> Result<WorkspaceStats> {
+        let (pending, hint) = self
+            .conn
+            .query_row(
+                "SELECT COUNT(*),
+                        (SELECT w.name FROM run r2 JOIN workflow w ON w.id = r2.workflow_id
+                         WHERE r2.status = 'waiting_approval' ORDER BY r2.rowid DESC LIMIT 1)
+                 FROM run WHERE status = 'waiting_approval'",
+                [],
+                |row| Ok((row.get::<_, i64>(0)?, row.get::<_, Option<String>>(1)?)),
+            )
+            .optional()?
+            .unwrap_or((0, None));
+
+        // 「今日」按**本地**日期算：started_at 存的是 UTC，直接比 UTC 日期的话
+        // 东八区用户在早上 8 点前看到的全是昨天的数。
+        // 转换交给 SQLite 的 'localtime' —— 它读系统时区，
+        // 比在 Rust 里自己推偏移少一个依赖也少一类错。
+        // started_at 为 NULL 的（建了还没开始）自然被 date() 排除
+        let (runs_today, succeeded) = self
+            .conn
+            .query_row(
+                "SELECT COUNT(*), COALESCE(SUM(status = 'succeeded'), 0)
+                 FROM run
+                 WHERE date(started_at, 'localtime') = date('now', 'localtime')",
+                [],
+                |row| Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?)),
+            )
+            .optional()?
+            .unwrap_or((0, 0));
+
+        Ok(WorkspaceStats {
+            pending_approvals: pending,
+            pending_approval_hint: hint,
+            runs_today,
+            runs_today_succeeded: succeeded,
+            active_worktrees: 0,
+            worktree_bytes: 0,
+        })
     }
 
     pub fn delete_workflow(&self, id: &str) -> Result<()> {
@@ -1458,10 +1548,21 @@ impl Store {
         status: &str,
         current_node: Option<&str>,
     ) -> Result<bool> {
+        // 进终态时记下结束时间。不记的话「这次跑了多久」在整个应用里都是空的 ——
+        // 首页的「4m18s」、执行记录的时长都没有数据来源。
+        //
+        // waiting_approval 不算终态：它会停很久但随时可能继续，
+        // 记了的话审批等待会被算进执行耗时
+        let ended_at = TERMINAL_RUN_STATUSES
+            .contains(&status)
+            .then(now_iso)
+            .unwrap_or_default();
+
         let changed = self.conn.execute(
-            "UPDATE run SET status = ?2, current_node = ?3
+            "UPDATE run SET status = ?2, current_node = ?3,
+                            ended_at = CASE WHEN ?4 = '' THEN ended_at ELSE ?4 END
              WHERE id = ?1 AND status NOT IN ('succeeded', 'failed', 'cancelled')",
-            params![run_id, status, current_node],
+            params![run_id, status, current_node, ended_at],
         )?;
         Ok(changed > 0)
     }
@@ -1694,7 +1795,9 @@ impl Store {
 
 const EMPTY_GRAPH: &str = r#"{"nodes":[],"edges":[],"groups":[]}"#;
 
-fn map_workflow(row: &rusqlite::Row<'_>) -> rusqlite::Result<WorkflowRow> {
+/// 只有 workflow 表那 6 列时用这个 —— 单条查询不带运行态投影：
+/// 打开一条工作流时界面要的是图，不是它上次跑得怎么样。
+fn map_workflow_bare(row: &rusqlite::Row<'_>) -> rusqlite::Result<WorkflowRow> {
     Ok(WorkflowRow {
         id: row.get(0)?,
         name: row.get(1)?,
@@ -1702,6 +1805,30 @@ fn map_workflow(row: &rusqlite::Row<'_>) -> rusqlite::Result<WorkflowRow> {
         created_at: row.get(3)?,
         updated_at: row.get(4)?,
         archived: row.get::<_, i64>(5)? != 0,
+        latest_version: None,
+        last_run: None,
+    })
+}
+
+fn map_workflow(row: &rusqlite::Row<'_>) -> rusqlite::Result<WorkflowRow> {
+    let last_run = row.get::<_, Option<String>>(7)?.map(|id| WorkflowLastRun {
+        id,
+        status: row.get(8).unwrap_or_default(),
+        started_at: row.get(9).unwrap_or_default(),
+        ended_at: row.get(10).unwrap_or_default(),
+        failed_node: row.get(11).unwrap_or_default(),
+        version: row.get(12).unwrap_or_default(),
+    });
+
+    Ok(WorkflowRow {
+        id: row.get(0)?,
+        name: row.get(1)?,
+        folder: row.get(2)?,
+        created_at: row.get(3)?,
+        updated_at: row.get(4)?,
+        archived: row.get::<_, i64>(5)? != 0,
+        latest_version: row.get(6)?,
+        last_run,
     })
 }
 

@@ -110,12 +110,20 @@ describe('列表与筛选', () => {
   const seed = () =>
     useWorkspace.setState({
       workflows: [
-        { id: 'wf_1', name: 'GitHub Issue 修复', updatedAt: '2026-07-27T09:00:00.000Z' },
+        {
+          id: 'wf_1',
+          name: 'GitHub Issue 修复',
+          createdAt: '2026-07-27T09:00:00.000Z',
+          updatedAt: '2026-07-27T09:00:00.000Z',
+          archived: false,
+        },
         {
           id: 'wf_2',
           name: '错误日志归因',
           folder: '工作区',
+          createdAt: '2026-07-27T08:00:00.000Z',
           updatedAt: '2026-07-27T08:00:00.000Z',
+          archived: false,
         },
       ],
       loading: false,

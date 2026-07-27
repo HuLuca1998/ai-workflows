@@ -8,6 +8,9 @@
 
 use std::collections::BTreeSet;
 
+use aiwf_engine::status::RunStatus;
+use aiwf_store::Store;
+
 fn read(path: &str) -> String {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
@@ -118,4 +121,89 @@ fn 每个_dto_的_option_字段都跳过_null_序列化() {
         "这些 Option 字段缺少 #[serde(skip_serializing_if = \"Option::is_none\")]：\n{}",
         offenders.join("\n")
     );
+}
+
+#[test]
+fn 统计里的状态字符串必须来自状态机而不是手写() {
+    // 我写 workspace_stats 时手打了 'awaiting_approval'，而契约与引擎
+    // 一直用的是 'waiting_approval'。症状不是报错 —— 是统计卡永远显示 0，
+    // 因为那个状态一条都匹配不到。SQL 里的字符串没有编译期检查，
+    // 所以拿状态机的真值反过来验一遍。
+    //
+    // 这条放在 core-api 是因为它同时看得到 store 与 engine：
+    // store 不依赖 engine（方向是 engine → store），在 store 的测试里够不着状态机。
+    let store = Store::open_in_memory().unwrap();
+    let wf = store.create_workflow("在等审批", None).unwrap();
+    let run = store.create_run(&wf, None, Some(1), "{}").unwrap();
+    store
+        .advance_run_status(&run, RunStatus::WaitingApproval.as_str(), None)
+        .unwrap();
+
+    let stats = store.workspace_stats().unwrap();
+    assert_eq!(stats.pending_approvals, 1, "状态字符串与状态机对不上");
+    assert_eq!(stats.pending_approval_hint.as_deref(), Some("在等审批"));
+}
+
+#[test]
+fn 每个_dto_都声明了_camel_case() {
+    // WorkflowSummary 漏了 rename_all，于是它发的是 last_run 而契约里是 lastRun。
+    // Zod 的 .optional() 对「字段名不对」和「字段缺席」的反应一模一样 ——
+    // 都是静默通过，界面上那一列永远空着，一条错误都没有。
+    //
+    // 这类问题只在真实跑起来、且恰好有数据时才看得见，
+    // 所以拿源码把规则钉死：出参结构一律 camelCase。
+    let source = read("crates/core-api/src/lib.rs");
+
+    let mut serializable = false;
+    let mut camel = false;
+    let mut offenders = Vec::new();
+
+    for line in source.lines() {
+        if line.starts_with("#[derive(") {
+            serializable = line.contains("Serialize");
+            camel = false;
+        } else if line.starts_with("#[serde(") && line.contains("camelCase") {
+            camel = true;
+        } else if line.starts_with("pub struct ") && line.ends_with('{') {
+            if serializable && !camel {
+                offenders.push(line.trim_end_matches(" {").to_string());
+            }
+            serializable = false;
+            camel = false;
+        }
+    }
+
+    assert!(
+        offenders.is_empty(),
+        "这些出参结构缺少 #[serde(rename_all = \"camelCase\")]：\n{}",
+        offenders.join("\n")
+    );
+}
+
+#[test]
+fn 存储层的终态集合与状态机一致() {
+    // store 不依赖 engine，所以它的 TERMINAL_RUN_STATUSES 是硬编码的
+    // 三个字符串。多一个少一个都不会编译报错 —— 症状是某个终态的运行
+    // 永远没有结束时间，或者已结束的运行还能被继续推进。
+    let store = Store::open_in_memory().unwrap();
+
+    for status in RunStatus::ALL {
+        let wf = store.create_workflow("终态验证", None).unwrap();
+        let run = store.create_run(&wf, None, Some(1), "{}").unwrap();
+        // created 是初始状态，推进到它自己没有意义
+        if *status == RunStatus::Created {
+            continue;
+        }
+        store
+            .advance_run_status(&run, status.as_str(), None)
+            .unwrap();
+
+        let ended = store.get_run(&run).unwrap().unwrap().ended_at.is_some();
+        assert_eq!(
+            ended,
+            status.is_terminal(),
+            "{} 的终态判定两边对不上",
+            status.as_str()
+        );
+    }
 }

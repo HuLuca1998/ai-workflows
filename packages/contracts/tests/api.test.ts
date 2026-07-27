@@ -6,6 +6,7 @@ import {
   requiredScope,
 } from '../src/api.js';
 import { ERROR_CODES } from '../src/errors.js';
+import { WorkflowSchema } from '../src/domain.js';
 import { SCOPES } from '../src/capabilities.js';
 
 /**
@@ -185,5 +186,103 @@ describe('入参出参形状', () => {
       getMethodSpec('memory.update').input.safeParse({ id: 'm_1', value: '新内容', ver: 3 })
         .success,
     ).toBe(true);
+  });
+});
+
+describe('workspace.stats', () => {
+  it('token 用量可以缺席 —— 那表示还没有数据源，不是本周花了 0', () => {
+    const spec = getMethodSpec('workspace.stats');
+    const withoutTokens = {
+      pendingApprovals: 1,
+      runsToday: 12,
+      runsTodaySucceeded: 10,
+      activeWorktrees: 3,
+      worktreeBytes: 432_013_312,
+    };
+    expect(spec.output.safeParse(withoutTokens).success).toBe(true);
+    expect(spec.output.safeParse({ ...withoutTokens, tokensThisWeek: 1_240_000 }).success).toBe(
+      true,
+    );
+  });
+
+  it('计数不能是负数 —— 那只可能来自算错', () => {
+    const spec = getMethodSpec('workspace.stats');
+    const parsed = spec.output.safeParse({
+      pendingApprovals: -1,
+      runsToday: 0,
+      runsTodaySucceeded: 0,
+      activeWorktrees: 0,
+      worktreeBytes: 0,
+    });
+    expect(parsed.success).toBe(false);
+  });
+
+  it('成功数不该超过今日运行数 —— 但那是引擎的事，契约只保证类型', () => {
+    // 这条用例存在是为了记下边界在哪：跨字段的一致性由引擎测试压，
+    // 契约层做这种校验会让「运行中途查询」这种正常情况被拒
+    const spec = getMethodSpec('workspace.stats');
+    expect(
+      spec.output.safeParse({
+        pendingApprovals: 0,
+        runsToday: 1,
+        runsTodaySucceeded: 5,
+        activeWorktrees: 0,
+        worktreeBytes: 0,
+      }).success,
+    ).toBe(true);
+  });
+});
+
+describe('工作流列表带运行态投影', () => {
+  it('没运行过时 lastRun 缺席 —— 界面据此显示「草稿」', () => {
+    const parsed = WorkflowSchema.safeParse({
+      id: 'wf_1',
+      name: '批量文件整理',
+      createdAt: '2026-07-27T10:00:00Z',
+      updatedAt: '2026-07-27T10:00:00Z',
+    });
+    expect(parsed.success).toBe(true);
+    expect(parsed.success && parsed.data.lastRun).toBeUndefined();
+  });
+
+  it('失败的运行带上停在哪个节点 —— 图纸写的是「失败 · 节点 3」', () => {
+    const parsed = WorkflowSchema.safeParse({
+      id: 'wf_1',
+      name: '错误日志归因',
+      createdAt: '2026-07-27T10:00:00Z',
+      updatedAt: '2026-07-27T10:00:00Z',
+      latestVersion: 11,
+      lastRun: {
+        id: 'run_1',
+        status: 'failed',
+        startedAt: '2026-07-27T21:40:00Z',
+        durationMs: 48_000,
+        failedNodeLabel: '节点 3',
+        version: 11,
+      },
+    });
+    expect(parsed.success).toBe(true);
+  });
+
+  it('运行中的没有 durationMs —— 时长由界面按当前时间算', () => {
+    const parsed = WorkflowSchema.safeParse({
+      id: 'wf_1',
+      name: '运行中的',
+      createdAt: '2026-07-27T10:00:00Z',
+      updatedAt: '2026-07-27T10:00:00Z',
+      lastRun: { id: 'run_1', status: 'running', startedAt: '2026-07-27T21:40:00Z' },
+    });
+    expect(parsed.success).toBe(true);
+  });
+
+  it('lastRun 的状态必须是契约里的运行状态，不能自造', () => {
+    const parsed = WorkflowSchema.safeParse({
+      id: 'wf_1',
+      name: '状态自造',
+      createdAt: '2026-07-27T10:00:00Z',
+      updatedAt: '2026-07-27T10:00:00Z',
+      lastRun: { id: 'run_1', status: '跑完了', startedAt: '2026-07-27T21:40:00Z' },
+    });
+    expect(parsed.success).toBe(false);
   });
 });

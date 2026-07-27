@@ -1,17 +1,43 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router';
-import { Button, StatusBadge, Tag } from '@aiwf/ui';
-import { WORKFLOW_TEMPLATES } from '@aiwf/contracts';
+import { Button, type RunStatusName, StatusBadge, Tag } from '@aiwf/ui';
+import { WORKFLOW_TEMPLATES, type Workflow } from '@aiwf/contracts';
 import { parseGraphFile } from '../editor/importGraph.js';
-import { useWorkspace } from '../data/workspace.js';
+import { coreClient, useWorkspace } from '../data/workspace.js';
 
 /**
  * 概览与工作流 —— 严格照图纸「01 工作流首页」。
  *
  * 统计条的四张卡、标签、字号、颜色、筛选 chips 的药丸形状与位置都取自图纸。
- * 引擎（M2）与 AI 节点（M3）接上前，这些卡的**数值位留空**：
- * 结构照图纸，但不填演示数字，也不添加图纸上没有的说明文案。
+ *
+ * 数值一律来自真实数据。唯一空着的是 Token 用量 ——
+ * 事件流里目前不记 token，显示 0 会被读成「这周没花钱」，
+ * 那比空着更糟；缺席时显示「—」。
+ *
+ * 状态列显示的是**最近一次运行**的状态，不是工作流自身的。
+ * 只看工作流的话每一行都是「已创建 · 未运行 · 草稿」——
+ * 发布并跑过三次也照样，跟执行记录完全对不上。
  */
+
+interface Stats {
+  pendingApprovals: number;
+  pendingApprovalHint?: string;
+  runsToday: number;
+  runsTodaySucceeded: number;
+  tokensThisWeek?: number;
+  activeWorktrees: number;
+  worktreeBytes: number;
+}
+
+/** 运行状态 → 图纸上的状态列文案与徽章。 */
+const RUN_STATUS_LABELS: Record<string, string> = {
+  queued: '排队中',
+  running: '运行中',
+  waiting_approval: '等待审批',
+  succeeded: '成功',
+  failed: '失败',
+  cancelled: '已取消',
+};
 
 const FILTERS = ['全部', '运行中', '草稿', '失败'] as const;
 type Filter = (typeof FILTERS)[number];
@@ -23,23 +49,44 @@ export function OverviewPage() {
   const [query, setQuery] = useState('');
   const [creating, setCreating] = useState(false);
   const [importError, setImportError] = useState<string | null>(null);
+  const [stats, setStats] = useState<Stats | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
+  /**
+   * 新建的重入保护。
+   *
+   * 用 ref 而不是 `creating` state：setState 在同一批事件里不会立刻生效，
+   * 快速连点五次时五个 handler 读到的 creating 都还是 false ——
+   * 于是建出五条空工作流。ref 的写入是同步的。
+   */
+  const creatingRef = useRef(false);
 
   useEffect(() => {
     void load();
+    // 统计卡失败不该拖垮首页 —— 列表才是这一屏的主体
+    void coreClient
+      .call('workspace.stats', {})
+      .then((result) => setStats(result as Stats))
+      .catch(() => setStats(null));
   }, [load]);
 
   const visible = useMemo(() => {
     const keyword = query.trim().toLowerCase();
     return workflows.filter((w) => {
-      // M0 还没有运行数据，所有工作流都处于「草稿」状态
-      if (filter === '运行中' || filter === '失败') return false;
+      const status = w.lastRun?.status;
+      if (filter === '运行中' && status !== 'running' && status !== 'waiting_approval') {
+        return false;
+      }
+      if (filter === '失败' && status !== 'failed') return false;
+      // 「草稿」指没发布过 —— 发布过但这次没跑的仍是已发布状态
+      if (filter === '草稿' && w.latestVersion !== undefined) return false;
       if (!keyword) return true;
       return w.name.toLowerCase().includes(keyword);
     });
   }, [workflows, filter, query]);
 
   const onCreate = async (templateId?: string) => {
+    if (creatingRef.current) return;
+    creatingRef.current = true;
     setCreating(true);
     try {
       const template = templateId ? WORKFLOW_TEMPLATES.find((t) => t.id === templateId) : undefined;
@@ -50,6 +97,7 @@ export function OverviewPage() {
       // 建完直接进编辑器：新建的意图就是要去搭流程
       if (id) navigate(`/editor/${id}`);
     } finally {
+      creatingRef.current = false;
       setCreating(false);
     }
   };
@@ -108,10 +156,27 @@ export function OverviewPage() {
       </header>
 
       <section className="stats" role="region" aria-label="概览统计">
-        <Stat label="等待审批" accent />
-        <Stat label="今日运行" noteTone="success" />
-        <Stat label="Token 用量" />
-        <Stat label="活跃 worktree" />
+        <Stat
+          label="等待审批"
+          accent
+          {...(stats ? { value: String(stats.pendingApprovals) } : {})}
+          {...(stats?.pendingApprovalHint ? { note: stats.pendingApprovalHint } : {})}
+        />
+        <Stat
+          label="今日运行"
+          noteTone="success"
+          {...(stats ? { value: String(stats.runsToday) } : {})}
+          {...(stats ? { note: `${stats.runsTodaySucceeded} 成功` } : {})}
+        />
+        <Stat
+          label="Token 用量"
+          {...(stats ? { value: formatTokens(stats.tokensThisWeek), note: '本周' } : {})}
+        />
+        <Stat
+          label="活跃 worktree"
+          {...(stats ? { value: String(stats.activeWorktrees) } : {})}
+          {...(stats ? { note: `占用 ${formatBytes(stats.worktreeBytes)}` } : {})}
+        />
       </section>
 
       <section className="list" role="region" aria-label="全部工作流">
@@ -182,6 +247,9 @@ export function OverviewPage() {
                 <th scope="col">状态</th>
                 <th scope="col">最近一次运行</th>
                 <th scope="col">版本 · 触发</th>
+                <th scope="col">
+                  <span className="sr-only">操作</span>
+                </th>
               </tr>
             </thead>
             <tbody>
@@ -190,6 +258,7 @@ export function OverviewPage() {
                   key={w.id}
                   onClick={() => navigate(`/editor/${w.id}`)}
                   data-clickable="true"
+                  data-workflow-id={w.id}
                   title="打开编辑器"
                 >
                   <td>
@@ -200,18 +269,62 @@ export function OverviewPage() {
                     </p>
                   </td>
                   <td>
-                    <StatusBadge status="created" />
+                    <StatusBadge status={badgeStatus(w)} />
+                    {w.lastRun ? (
+                      <span className="wf-table__status">
+                        {RUN_STATUS_LABELS[w.lastRun.status] ?? w.lastRun.status}
+                        {w.lastRun.failedNodeLabel ? ` · ${w.lastRun.failedNodeLabel}` : ''}
+                      </span>
+                    ) : null}
                   </td>
-                  <td className="wf-table__muted">未运行</td>
+                  <td className="wf-table__muted">
+                    {w.lastRun
+                      ? `${formatTime(w.lastRun.startedAt)}${
+                          w.lastRun.durationMs === undefined
+                            ? ''
+                            : ` · ${formatDuration(w.lastRun.durationMs)}`
+                        }`
+                      : '未运行'}
+                  </td>
                   <td>
-                    <Tag tone="outline">草稿</Tag>
+                    {w.latestVersion === undefined ? (
+                      <Tag tone="outline">草稿</Tag>
+                    ) : (
+                      <Tag tone="outline">v{w.lastRun?.version ?? w.latestVersion}</Tag>
+                    )}
                     <span className="wf-table__muted"> · 手动</span>
+                  </td>
+                  <td className="wf-table__actions">
+                    {/* 图纸里失败那行的行尾图标就是重试，其余是运行 */}
+                    {w.lastRun?.status === 'failed' ? (
+                      <button
+                        type="button"
+                        aria-label={`重试 ${w.name}`}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          navigate(`/runs/${w.lastRun?.id ?? ''}`);
+                        }}
+                      >
+                        <i className="ph ph-arrow-counter-clockwise" aria-hidden="true" />
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        aria-label={`运行 ${w.name}`}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          navigate(`/editor/${w.id}`);
+                        }}
+                      >
+                        <i className="ph ph-play" aria-hidden="true" />
+                      </button>
+                    )}
                   </td>
                 </tr>
               ))}
               {visible.length === 0 ? (
                 <tr>
-                  <td colSpan={4} className="wf-table__empty">
+                  <td colSpan={5} className="wf-table__empty">
                     当前筛选下没有工作流
                     <button type="button" className="link-button" onClick={() => setFilter('全部')}>
                       清除筛选
@@ -225,6 +338,43 @@ export function OverviewPage() {
       </section>
     </article>
   );
+}
+
+/** 图纸写的是「1.24M」。缺席表示还没有数据源，显示「—」而不是 0。 */
+function formatTokens(tokens: number | undefined): string {
+  if (tokens === undefined) return '—';
+  if (tokens >= 1_000_000) return `${(tokens / 1_000_000).toFixed(2)}M`;
+  if (tokens >= 1000) return `${(tokens / 1000).toFixed(1)}K`;
+  return String(tokens);
+}
+
+/** 图纸写的是「412 MB」——按 1024 进制，与 Finder 之外的开发工具一致。 */
+function formatBytes(bytes: number): string {
+  if (bytes >= 1024 ** 3) return `${(bytes / 1024 ** 3).toFixed(1)} GB`;
+  if (bytes >= 1024 ** 2) return `${Math.round(bytes / 1024 ** 2)} MB`;
+  if (bytes >= 1024) return `${Math.round(bytes / 1024)} KB`;
+  return `${bytes} B`;
+}
+
+/** 图纸写的是「4m18s」「48s」「12m05s」。 */
+function formatDuration(ms: number): string {
+  const total = Math.round(ms / 1000);
+  const minutes = Math.floor(total / 60);
+  const seconds = total % 60;
+  if (minutes === 0) return `${seconds}s`;
+  return `${minutes}m${String(seconds).padStart(2, '0')}s`;
+}
+
+/**
+ * 状态徽章的取值。没跑过的是「已创建」，跑过的跟着运行走。
+ *
+ * 返回类型写成 RunStatusName 而不是 string：契约的 RUN_STATUSES 与
+ * StatusBadge 认识的集合必须是同一个，写 string 的话新增一个状态时
+ * 徽章会在运行时读 undefined.shape 崩掉整页 —— 已经这么栽过一次
+ * （引擎写 waiting_approval，我在统计里手打成 awaiting_approval）。
+ */
+function badgeStatus(workflow: Workflow): RunStatusName {
+  return workflow.lastRun?.status ?? 'created';
 }
 
 /**
@@ -245,7 +395,7 @@ function Stat({
   noteTone?: 'success';
 }) {
   return (
-    <div className="stat">
+    <div className="stat" role="group" aria-label={label}>
       <p className="stat__label">{label}</p>
       <p className="stat__value" data-accent={accent ? 'true' : undefined}>
         <span className="stat__number">{value ?? ''}</span>

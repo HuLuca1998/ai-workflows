@@ -3973,3 +3973,67 @@
 .models__field textarea:focus {
   border-color: var(--color-accent-700);
 }
+
+/* 图纸「01 工作流首页」的列宽：1.7fr .9fr 1.1fr .9fr 90px。
+   第五列是行尾的操作图标 —— 失败的行给重试，其余给运行。
+   用 table-layout: fixed + colgroup 的等价写法，让 5 列比例与图纸一致 */
+.wf-table {
+  table-layout: fixed;
+}
+
+.wf-table th:nth-child(1),
+.wf-table td:nth-child(1) {
+  width: 33%;
+}
+
+.wf-table th:nth-child(2),
+.wf-table td:nth-child(2) {
+  width: 17.5%;
+}
+
+.wf-table th:nth-child(3),
+.wf-table td:nth-child(3) {
+  width: 21.5%;
+}
+
+.wf-table th:nth-child(4),
+.wf-table td:nth-child(4) {
+  width: 17.5%;
+}
+
+.wf-table th:nth-child(5),
+.wf-table td:nth-child(5) {
+  width: 90px;
+}
+
+/* 状态列：徽章下方那行文字（「失败 · 节点 3」） */
+.wf-table__status {
+  display: block;
+  margin-top: 3px;
+  font-size: 11px;
+  color: var(--color-neutral-500);
+}
+
+.wf-table__actions {
+  display: flex;
+  gap: 4px;
+  justify-content: flex-end;
+}
+
+.wf-table__actions button {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--color-neutral-500);
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.wf-table__actions button:hover {
+  background: color-mix(in srgb, var(--color-bg) 70%, #000);
+  color: var(--color-neutral-200);
+}

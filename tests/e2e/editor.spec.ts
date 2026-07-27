@@ -42,14 +42,14 @@ async function seedWorkflow(page: Page, name: string): Promise<string> {
 test.describe('概览页', () => {
   test('新建工作流后跳进编辑器，且列表里能看到', async ({ page }) => {
     await page.goto('/');
-    const rows = page.locator('.wf-table tbody tr');
-    const before = await rows.count();
-
     await page.getByRole('button', { name: /新建工作流/ }).click();
     await expect(page).toHaveURL(/\/editor\/wf_/, { timeout: 15_000 });
 
+    // 按 id 找那一行，而不是数总行数：这个库是所有 spec 共用的，
+    // 并发跑时别的用例也在建工作流，「多了正好一条」不成立
+    const id = new URL(page.url()).pathname.split('/').pop()!;
     await page.goto('/');
-    await expect(rows).toHaveCount(before + 1);
+    await expect(page.locator(`.wf-table tbody tr[data-workflow-id="${id}"]`)).toHaveCount(1);
   });
 
   test('搜索按名字过滤', async ({ page }) => {

@@ -82,6 +82,7 @@
     "mcp.tool"
   ],
   "methods": [
+    "workspace.stats",
     "workflow.list",
     "workflow.get",
     "workflow.create",

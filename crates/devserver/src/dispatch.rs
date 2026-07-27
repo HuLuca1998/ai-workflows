@@ -190,6 +190,8 @@ pub fn dispatch(
             string(input, "decision")?,
         )?),
         "workflow_list" => to_value(api::workflow_list(&store)?),
+        // 数据库同级的 data 目录就是运行工作目录，与 run_start 的默认一致
+        "workspace_stats" => to_value(api::workspace_stats(&store, Some(data_dir))?),
         "workflow_create" => to_value(api::workflow_create(
             &store,
             string(input, "name")?,

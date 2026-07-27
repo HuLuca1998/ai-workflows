@@ -63,6 +63,34 @@ export const EVENTS_PAGE_LIMIT_MAX = 1000;
 
 const SPECS = {
   // ── Workflow ────────────────────────────────────────────────────────────
+  'workspace.stats': {
+    // 图纸「01 工作流首页」顶部那四张卡。分四次查会让概览页发四个请求，
+    // 而它们本就是同一时刻的快照 —— 分开取会出现「等待审批 1，
+    // 但今日运行 0」这种自相矛盾的组合
+    input: z.object({}),
+    output: z.object({
+      /** 卡一：等待审批。副文本是最近那条在等的运行叫什么。 */
+      pendingApprovals: z.number().int().min(0),
+      pendingApprovalHint: z.string().optional(),
+      /** 卡二：今日运行 / 其中成功几条。 */
+      runsToday: z.number().int().min(0),
+      runsTodaySucceeded: z.number().int().min(0),
+      /**
+       * 卡三：本周 token 用量。
+       *
+       * 缺席表示**还没有数据源**（事件流里目前不记 token），
+       * 界面据此显示「—」而不是 0 —— 0 会被读成「这周没花钱」。
+       */
+      tokensThisWeek: z.number().int().min(0).optional(),
+      /** 卡四：活跃 worktree 数与占用字节。 */
+      activeWorktrees: z.number().int().min(0),
+      worktreeBytes: z.number().int().min(0),
+    }),
+    mutates: false,
+    audited: false,
+    scope: 'workflow:read',
+    summary: '首页四张统计卡的同一时刻快照',
+  },
   'workflow.list': {
     input: z.object({ query: z.string().optional(), archived: z.boolean().optional() }),
     output: z.object({ items: z.array(WorkflowSchema) }),
