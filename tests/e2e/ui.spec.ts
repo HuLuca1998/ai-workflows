@@ -152,7 +152,7 @@ test.describe('模型登记（真实写库）', () => {
     await page.getByLabel(/^名称/).fill('明文测试');
     await page.getByLabel(/模型 ID/).fill('x');
     await page.getByLabel(/上下文窗口/).fill('1000');
-    await page.getByLabel(/凭据/).fill('sk-ant-plaintext');
+    await page.getByLabel(/凭据/).fill('明文密钥的占位');
     await page.getByRole('button', { name: '保存' }).click();
 
     await expect(page.getByText(/必须是 keychain:\/\/ 引用/)).toBeVisible();

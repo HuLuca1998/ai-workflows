@@ -425,13 +425,13 @@ def suite_models(api, report):
         api.call("model_create", {
             "name": "明文", "runtime": "acp.codex", "modelId": "x", "effort": "low",
             "contextWindow": 1000, "capabilities": [],
-            "credentialRef": "sk-ant-plaintext-key", "enabled": True})
+            "credentialRef": "明文密钥的占位", "enabled": True})
         report.check("明文密钥被拒绝", False, "居然写进去了")
     except ApiError as error:
         report.check("明文密钥被拒绝", "keychain://" in error.payload.get("message", ""),
                      error.payload.get("message", ""))
         report.check("报错里不回显密钥原文",
-                     "plaintext-key" not in error.payload.get("message", ""),
+                     "明文密钥的占位" not in error.payload.get("message", ""),
                      error.payload.get("message", ""))
 
     api.call("model_update", {"id": model_id, "enabled": False})

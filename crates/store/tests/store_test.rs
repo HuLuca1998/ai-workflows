@@ -562,7 +562,10 @@ fn 凭据只存引用_明文密钥被拒绝() {
     // 硬约束：仓库、事件、日志、导出里只出现 keychain:// 引用
     let store = Store::open_in_memory().unwrap();
     let mut plain = model("明文");
-    plain.credential_ref = Some("sk-ant-api03-abcdefghijklmnop".to_string());
+    // 刻意不用真实密钥的样子：仓库里的扫描器认得那种前缀，
+    // 而它没法区分「测试用的假值」和「真的漏了一个 key」——
+    // 那是对的，所以这里用一个明显不是密钥的字符串
+    plain.credential_ref = Some("明文密钥的占位".to_string());
 
     let error = store.create_model(&plain).unwrap_err().to_string();
     assert!(error.contains("keychain://"), "错误信息实际：{error}");
