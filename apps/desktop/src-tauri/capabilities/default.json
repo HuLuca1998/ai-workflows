@@ -1,18 +1,27 @@
 {
   "$schema": "../gen/schemas/macOS-schema.json",
   "identifier": "default",
-  "description": "主窗口的权限白名单。Tauri 2 的权限是白名单制：没在这里列出的插件命令，前端调用会被直接拒绝。少一条的症状往往不是报错，而是某个功能安静地不工作——自动更新检查不到新版本就是这么来的。",
+  "description": "主窗口的权限白名单。Tauri 2 的权限是白名单制：没在这里列出的插件命令，前端调用会被直接拒绝。少一条的症状往往不是报错，而是某个功能安静地不工作——自动更新检查不到新版本、标题栏拖不动窗口，都是这么来的。注意 core:window:default 是个空权限集，窗口操作必须逐条列出。",
   "windows": ["main"],
   "permissions": [
     "core:default",
-
     "core:app:allow-version",
-
+    "core:window:allow-start-dragging",
+    "core:window:allow-toggle-maximize",
+    "core:window:allow-maximize",
+    "core:window:allow-unmaximize",
+    "core:window:allow-minimize",
+    "core:window:allow-unminimize",
+    "core:window:allow-show",
+    "core:window:allow-hide",
+    "core:window:allow-close",
+    "core:window:allow-set-focus",
+    "core:window:allow-is-visible",
+    "core:window:allow-is-maximized",
     "updater:allow-check",
     "updater:allow-download",
     "updater:allow-install",
     "updater:allow-download-and-install",
-
     "process:allow-restart"
   ]
 }

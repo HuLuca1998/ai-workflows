@@ -150,14 +150,15 @@ AI 的改动一律先进 `DraftStore.propose()`（出 Diff），用户确认才 
 
 改这些地方前先看一眼，都有对应的注释或测试：
 
-| 现象                           | 原因                                                                                                                      |
-| ------------------------------ | ------------------------------------------------------------------------------------------------------------------------- |
-| 窗口拖不动                     | 窗口是 hiddenTitle + Overlay，标题栏必须有 `data-tauri-drag-region`（只有被标记的元素本身能拖，子元素不冒泡）             |
-| 应用报「已损坏」               | Apple Silicon 要求 arm64 有 bundle 级签名；链接器那份 linker-signed 不覆盖 bundle。构建时设 `APPLE_SIGNING_IDENTITY: '-'` |
-| CI 代码签名失败                | 空的 `APPLE_CERTIFICATE` 也算「已设置」，tauri-action 会去 import 空证书。必须拆成两个互斥的构建步骤                      |
-| Preview.js 显示空组件          | 它不解析 CSF 的 `args`，stories 必须写成函数形式并用 `Frame` 包裹（`packages/ui/src/components/_frame.tsx`）              |
-| `pnpm doctor` 跑的不是脚本     | pnpm 有同名内置命令，所以环境检查叫 `env:check`                                                                           |
-| Tauri 配置报 BundleTargetInner | `updater` 不是 bundle target，更新包由 `createUpdaterArtifacts: true` 控制                                                |
+| 现象                           | 原因                                                                                                                                                                                                                     |
+| ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 窗口拖不动                     | 两个条件都要满足：标题栏有 `data-tauri-drag-region`（只有被标记的元素本身能拖，子元素不冒泡），**且** capabilities 里有 `core:window:allow-start-dragging`。`core:window:default` 是个**空权限集**，窗口操作必须逐条列出 |
+| 某个 Tauri 功能安静地不工作    | 先查 capabilities。权限缺失不报错，只是调用被拒——自动更新（`core:app:allow-version`）、窗口拖动（`allow-start-dragging`）都因此栽过                                                                                      |
+| 应用报「已损坏」               | Apple Silicon 要求 arm64 有 bundle 级签名；链接器那份 linker-signed 不覆盖 bundle。构建时设 `APPLE_SIGNING_IDENTITY: '-'`                                                                                                |
+| CI 代码签名失败                | 空的 `APPLE_CERTIFICATE` 也算「已设置」，tauri-action 会去 import 空证书。必须拆成两个互斥的构建步骤                                                                                                                     |
+| Preview.js 显示空组件          | 它不解析 CSF 的 `args`，stories 必须写成函数形式并用 `Frame` 包裹（`packages/ui/src/components/_frame.tsx`）                                                                                                             |
+| `pnpm doctor` 跑的不是脚本     | pnpm 有同名内置命令，所以环境检查叫 `env:check`                                                                                                                                                                          |
+| Tauri 配置报 BundleTargetInner | `updater` 不是 bundle target，更新包由 `createUpdaterArtifacts: true` 控制                                                                                                                                               |
 
 ## 现在做到哪
 
