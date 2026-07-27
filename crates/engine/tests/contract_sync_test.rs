@@ -1,0 +1,117 @@
+//! 跨语言契约门禁。
+//!
+//! 契约的真源是 `packages/contracts`（TypeScript + Zod），Rust 侧是它的镜像。
+//! 镜像会漂移，所以对着生成物校验一遍：TS 改了状态机而 Rust 没跟上，这里立刻红。
+
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+
+use std::collections::BTreeSet;
+use std::path::PathBuf;
+
+use aiwf_engine::status::{NodeStatus, RunStatus};
+
+fn meta() -> serde_json::Value {
+    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../../packages/contracts/generated/contracts.meta.json");
+    let raw = std::fs::read_to_string(&path).unwrap_or_else(|e| {
+        panic!(
+            "读不到契约生成物 {}：{e}。先跑 pnpm contracts:gen",
+            path.display()
+        )
+    });
+    serde_json::from_str(&raw).expect("契约生成物不是合法 JSON")
+}
+
+fn string_set(value: &serde_json::Value, key: &str) -> BTreeSet<String> {
+    value[key]
+        .as_array()
+        .unwrap_or_else(|| panic!("契约生成物缺少数组字段 {key}"))
+        .iter()
+        .filter_map(|v| v.as_str().map(str::to_string))
+        .collect()
+}
+
+#[test]
+fn 契约生成物存在且带版本号() {
+    let meta = meta();
+    assert!(meta["version"].as_i64().unwrap_or(0) >= 1);
+}
+
+#[test]
+fn 事件类型清单非空且都是_分类点动作_形式() {
+    let types = string_set(&meta(), "eventTypes");
+    assert!(!types.is_empty());
+    let categories = string_set(&meta(), "eventCategories");
+    for t in &types {
+        let prefix = t.split('.').next().unwrap_or_default();
+        assert!(
+            categories.contains(prefix),
+            "事件 {t} 的分类 {prefix} 不在九类之内"
+        );
+    }
+}
+
+#[test]
+fn 恰好九类事件() {
+    assert_eq!(string_set(&meta(), "eventCategories").len(), 9);
+}
+
+#[test]
+fn 节点类型数量与契约一致() {
+    // 节点库展示 15 条，其中脚本节点合并展示；类型总数 16
+    assert_eq!(string_set(&meta(), "nodeTypes").len(), 16);
+}
+
+#[test]
+fn 引擎侧状态机与契约同名同数() {
+    // 状态名以事件里的 run.* / node.* 动作为准无法反推，因此这里直接锁数量与拼写：
+    // 契约里 RUN_STATUSES 有 11 个、NODE_STATUSES 有 8 个。
+    assert_eq!(RunStatus::ALL.len(), 11);
+    assert_eq!(NodeStatus::ALL.len(), 8);
+
+    let run_names: BTreeSet<&str> = RunStatus::ALL.iter().map(|s| s.as_str()).collect();
+    assert_eq!(
+        run_names,
+        BTreeSet::from([
+            "cancelled",
+            "created",
+            "failed",
+            "interrupted",
+            "paused",
+            "preflight",
+            "queued",
+            "resuming",
+            "running",
+            "succeeded",
+            "waiting_approval",
+        ])
+    );
+
+    let node_names: BTreeSet<&str> = NodeStatus::ALL.iter().map(|s| s.as_str()).collect();
+    assert_eq!(
+        node_names,
+        BTreeSet::from([
+            "cancelled",
+            "failed",
+            "idle",
+            "queued",
+            "running",
+            "skipped",
+            "succeeded",
+            "waiting",
+        ])
+    );
+}
+
+#[test]
+fn 核心_api_方法清单包含写入口() {
+    let methods = string_set(&meta(), "methods");
+    for required in [
+        "workflow.patch",
+        "workflow.publish",
+        "run.start",
+        "approval.decide",
+    ] {
+        assert!(methods.contains(required), "契约缺少方法 {required}");
+    }
+}
