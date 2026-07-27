@@ -1,13 +1,23 @@
 name: Release
 
-# 刻意**不**在 push main 时触发：macOS runner 按 10 倍计费，
-# 每次提交都出一个快照会很快吃掉 Actions 额度，而绝大多数提交没人会去装。
-# 发布一律是主动行为：打 tag，或在 Actions 页面手动点 Run workflow。
+# 只手动触发，且**只在 main 上跑**。两个原因：
+#
+# 1. 省额度：macOS runner 按 10 倍计费，每次提交都发版会很快吃掉配额，
+#    而绝大多数提交没人会去装。
+# 2. 缓存能命中：GitHub Actions 的缓存有 ref 作用域——一个 run 只能读
+#    「自己这个 ref」和「默认分支」的缓存。以前用 tag 触发，
+#    每个 tag 写的缓存只对自己可见，下一次发版换了 tag 就读不到，
+#    等于每次发版都从零编译整个依赖树（实测 6 分钟）。
+#    在 main 上跑，作用域就是 main，一直命中。
+#
+# tag 由 tauri-action 在发布时创建，不需要预先打。
 on:
-  push:
-    tags: ['v*']
   workflow_dispatch:
     inputs:
+      version:
+        description: '正式版版本号，如 0.2.0。留空则发一个预发布快照（不会成为 latest）'
+        type: string
+        default: ''
       dry_run:
         description: '只构建不发布（验证流水线本身）'
         type: boolean
@@ -22,7 +32,7 @@ concurrency:
 
 jobs:
   # 版本解析与幂等检查都放在 Linux 上（1 倍计费）。
-  # 重跑一个已发布的 tag 时，macOS runner 根本不会启动。
+  # 重发一个已存在的版本时，macOS runner 根本不会启动。
   plan:
     name: 解析版本
     runs-on: ubuntu-latest
@@ -37,16 +47,23 @@ jobs:
       exists: ${{ steps.existing.outputs.exists }}
     steps:
       # 版本策略：
-      #   tag v1.2.3 → 正式版 1.2.3，标记 latest，成为已安装用户的更新目标
-      #   手动触发   → 预发布快照，不会成为 latest
+      #   填了 version → 正式版，标记 latest，成为已安装用户的更新目标
+      #   留空        → 预发布快照，不会成为 latest
       - name: 解析版本
         id: meta
         shell: bash
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
         run: |
           set -euo pipefail
           sha="${GITHUB_SHA:0:7}"
-          if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
-            version="${GITHUB_REF#refs/tags/v}"
+          if [[ -n "${INPUT_VERSION:-}" ]]; then
+            # 先挡掉手滑：v 前缀、空格、非 semver 都会让 updater 的版本比较失效
+            if [[ ! "$INPUT_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
+              echo "::error::版本号必须是 semver（如 0.2.0），不要带 v 前缀。收到：$INPUT_VERSION"
+              exit 1
+            fi
+            version="$INPUT_VERSION"
             tag="v${version}"
             prerelease=false
             channel=stable
@@ -100,8 +117,9 @@ jobs:
 
       # 缓存要**写**：CI 那边跑的是 cargo check（debug profile，产物是 rmeta），
       # 与这里的 release 构建不共享编译产物，只共享 crates 下载。
-      # 所以发版必须自己保存一份 release profile 的 target，
-      # 下一次发版才能真正复用——不写的话每次发版都从零编译。
+      # 所以发版必须自己保存一份 release profile 的 target。
+      # 因为这个 workflow 只在 main 上跑，写下的缓存作用域就是 main，
+      # 下次发版（同样在 main 上）必然命中。
       - uses: Swatinem/rust-cache@v2
         with:
           shared-key: macos-arm64-release

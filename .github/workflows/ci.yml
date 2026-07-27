@@ -149,16 +149,18 @@ jobs:
       - name: 安装 Rust 工具链
         run: rustup toolchain install stable --profile minimal
 
-      # 与 Release 分开用 key：这里是 cargo check（debug），那边是 release 构建，
-      # 编译产物本来就不通用，共用一个 key 只会让两份 target 互相覆盖
+      # 与 Release 用同一个 key，并且也编 release profile。
+      # 这样在 main 上改过桌面壳之后，发版能直接命中这份缓存
+      # （发版也只在 main 上跑，作用域一致）。
+      # 代价是这个 job 比 cargo check 慢，但它只在改了桌面壳 / Rust 时才触发。
       - uses: Swatinem/rust-cache@v2
         with:
-          shared-key: macos-arm64-check
+          shared-key: macos-arm64-release
           cache-all-crates: true
           save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: 安装依赖
         run: pnpm install --frozen-lockfile
 
-      - name: 编译检查
-        run: cargo check -p aiwf-desktop
+      - name: 编译检查（release profile，与发版共享缓存）
+        run: cargo check --release -p aiwf-desktop

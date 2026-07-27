@@ -2,22 +2,34 @@
 
 ## 两条通道
 
-| 触发           | 版本号                          | Release 类型 | 谁会收到                               |
-| -------------- | ------------------------------- | ------------ | -------------------------------------- |
-| push 到 `main` | `0.0.0-nightly.<日期>.<短 sha>` | prerelease   | 只有手动下载的人                       |
-| push tag `v*`  | tag 上的版本，如 `1.2.0`        | latest       | **所有已安装用户**（应用内检查更新时） |
-
-关键点：nightly 是 prerelease，不会成为 `latest`，
-而更新端点指向 `releases/latest/download/latest.json`——
-**所以日常提交不会把用户推到未验证的版本上**，只有打 tag 才会。
-
-发正式版：
+发布只能**手动触发**，且只在 `main` 上跑：
 
 ```bash
-git tag v0.1.0 && git push origin v0.1.0
+gh workflow run Release --repo HuLuca1998/ai-workflows -f version=0.2.0   # 正式版
+gh workflow run Release --repo HuLuca1998/ai-workflows                     # 预发布快照
 ```
 
-流水线是幂等的：同一个 tag 重跑不会产生第二份 release。
+也可以在 GitHub 的 Actions 页面点 Run workflow。
+
+| 填了 version  | 版本号                             | Release 类型 | 谁会收到                               |
+| ------------- | ---------------------------------- | ------------ | -------------------------------------- |
+| 是（`0.2.0`） | `0.2.0`，tag `v0.2.0` 由流水线创建 | latest       | **所有已安装用户**（应用内检查更新时） |
+| 留空          | `0.0.0-snapshot.<日期>.<短 sha>`   | prerelease   | 只有手动下载的人                       |
+
+关键点：快照是 prerelease，不会成为 `latest`，
+而更新端点指向 `releases/latest/download/latest.json`——
+**所以快照不会被推给已安装用户**，只有填了 version 的正式发布才会。
+
+流水线是幂等的：同一个版本重跑不会产生第二份 release，
+而且幂等检查在 Linux 上做，重复触发时 macOS runner 根本不会启动。
+
+### 为什么不用 tag 触发
+
+试过，但每次发版都要重新编译整个依赖树（6 分钟）。
+原因是 **GitHub Actions 缓存有 ref 作用域**：一个 run 只能读「自己这个 ref」
+和「默认分支」的缓存。tag 触发时，缓存写在 `refs/tags/vX.Y.Z` 名下，
+下一次发版换了 tag 就读不到。改成在 main 上手动触发后，
+缓存作用域一直是 main，能稳定命中。
 
 ## 发布前会跑什么
 

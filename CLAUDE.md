@@ -85,7 +85,9 @@ pnpm contracts:check    # 只校验不写（CI 用这条）
 # 本地出 dmg。注意必须用 exec 直传参数
 pnpm --filter @aiwf/desktop exec tauri build --target aarch64-apple-darwin
 
-git tag v0.2.0 && git push origin v0.2.0    # 线上发布（唯一的正式发布方式）
+# 线上发布：只手动触发，且只在 main 上跑（缓存作用域的缘故，见下表）
+gh workflow run Release --repo HuLuca1998/ai-workflows -f version=0.2.0   # 正式版
+gh workflow run Release --repo HuLuca1998/ai-workflows                     # 预发布快照
 ```
 
 `pnpm run build -- --target ...` 里的 `--` 会把参数交给 cargo 而不是 tauri，
