@@ -1,0 +1,123 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # 依赖装在 CI 缓存里，别让 corepack 再去下一份
+  PNPM_VERSION: 11.17.0
+
+jobs:
+  # TypeScript 侧：格式、lint、类型、测试、契约生成物一致性
+  node:
+    name: Node（契约 / UI / 客户端）
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: 安装依赖
+        run: pnpm install --frozen-lockfile
+
+      - name: 格式检查
+        run: pnpm format:check
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: 类型检查
+        run: pnpm typecheck
+
+      - name: 单元测试
+        run: pnpm test
+
+      # 契约是单一真源：生成物必须与源一致，手改 generated/ 会在这里被打回
+      - name: 契约生成物未漂移
+        run: pnpm contracts:check
+
+      - name: 构建 Web 形态
+        run: pnpm --filter @aiwf/web build
+
+  # Rust 侧：引擎与存储层
+  rust:
+    name: Rust（引擎 / 存储）
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: 安装 Rust 工具链
+        run: rustup toolchain install stable --profile minimal --component rustfmt,clippy
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          # 桌面壳要 GTK 等系统依赖，Linux CI 上只测引擎与存储
+          workspaces: '. -> target'
+
+      - name: 格式检查
+        run: cargo fmt --all -- --check
+
+      - name: Clippy（warnings 视为错误）
+        run: cargo clippy -p aiwf-engine -p aiwf-store --all-targets -- -D warnings
+
+      - name: 测试
+        run: cargo test -p aiwf-engine -p aiwf-store
+
+  # 安全回归：导出物、事件、预览中不得出现 Secret（质量门禁 §14）
+  secrets:
+    name: Secret 泄漏扫描
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+
+      - name: 扫描已跟踪文件
+        run: node scripts/scan-secrets.mjs
+
+  # 桌面壳单独一个 job：只在 macOS 上编译得动
+  desktop:
+    name: 桌面壳编译（macOS）
+    runs-on: macos-15
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: 安装 Rust 工具链
+        run: rustup toolchain install stable --profile minimal
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: 安装依赖
+        run: pnpm install --frozen-lockfile
+
+      - name: 编译检查
+        run: cargo check -p aiwf-desktop

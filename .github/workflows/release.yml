@@ -1,0 +1,167 @@
+name: Release
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: '只构建不发布'
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: macOS arm64
+    runs-on: macos-15
+    timeout-minutes: 45
+    env:
+      GH_TOKEN: ${{ github.token }}
+
+    steps:
+      # 版本策略：
+      #   tag v1.2.3  → 正式版 1.2.3，标记为 latest，更新通道指向它
+      #   push main   → nightly 预发布，版本 0.0.0-nightly.<日期>.<短 sha>
+      # 预发布不会成为 latest，所以已安装的稳定版用户不会被自动推到 nightly。
+      - name: 解析版本
+        id: meta
+        shell: bash
+        run: |
+          set -euo pipefail
+          sha="${GITHUB_SHA:0:7}"
+          if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
+            version="${GITHUB_REF#refs/tags/v}"
+            tag="v${version}"
+            prerelease=false
+            channel=stable
+          else
+            version="0.0.0-nightly.$(date -u +%Y%m%d).${sha}"
+            tag="nightly-$(date -u +%Y%m%d)-${sha}"
+            prerelease=true
+            channel=nightly
+          fi
+          {
+            echo "version=$version"
+            echo "tag=$tag"
+            echo "prerelease=$prerelease"
+            echo "channel=$channel"
+          } >> "$GITHUB_OUTPUT"
+
+      # 幂等：同一个 tag 重跑不会产生第二份 release
+      - name: 检查是否已发布
+        id: existing
+        shell: bash
+        env:
+          TAG: ${{ steps.meta.outputs.tag }}
+        run: |
+          set -euo pipefail
+          exists=false
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            exists=true
+            echo "::notice::$TAG 已存在，跳过本次发布"
+          fi
+          echo "exists=$exists" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@v6
+        if: steps.existing.outputs.exists != 'true'
+
+      - uses: pnpm/action-setup@v4
+        if: steps.existing.outputs.exists != 'true'
+        with:
+          version: 11.17.0
+
+      - uses: actions/setup-node@v6
+        if: steps.existing.outputs.exists != 'true'
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: 安装 Rust 工具链
+        if: steps.existing.outputs.exists != 'true'
+        run: rustup toolchain install stable --profile minimal --target aarch64-apple-darwin
+
+      - uses: Swatinem/rust-cache@v2
+        if: steps.existing.outputs.exists != 'true'
+
+      - name: 安装依赖
+        if: steps.existing.outputs.exists != 'true'
+        run: pnpm install --frozen-lockfile
+
+      # 发布前最后一道门禁：不把坏版本推给用户
+      - name: 门禁
+        if: steps.existing.outputs.exists != 'true'
+        run: |
+          pnpm test
+          pnpm contracts:check
+          node scripts/scan-secrets.mjs
+          cargo test -p aiwf-engine -p aiwf-store
+
+      - name: 写入版本号
+        if: steps.existing.outputs.exists != 'true'
+        shell: bash
+        env:
+          VERSION: ${{ steps.meta.outputs.version }}
+        run: |
+          set -euo pipefail
+          conf=apps/desktop/src-tauri/tauri.conf.json
+          tmp=$(mktemp)
+          # 版本只在发布时注入，仓库里始终是 0.0.0——避免每次发版都产生一次版本号提交
+          jq --arg v "$VERSION" '.version = $v' "$conf" > "$tmp" && mv "$tmp" "$conf"
+          jq -r '.version' "$conf"
+
+      - name: 构建、签名并发布
+        if: steps.existing.outputs.exists != 'true' && !inputs.dry_run
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          # 更新包的签名私钥只存在于 Secret 里；公钥内嵌在应用中用于校验
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          # 有 Apple 开发者证书时自动启用签名与公证；没有也能发，只是首次打开要右键
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        with:
+          projectPath: apps/desktop
+          tagName: ${{ steps.meta.outputs.tag }}
+          releaseName: ${{ steps.meta.outputs.tag }}
+          releaseBody: |
+            通道：${{ steps.meta.outputs.channel }} · 提交 ${{ github.sha }}
+
+            应用内「设置与环境 → 检查更新」可一键更新；更新包经签名校验后才安装。
+          releaseDraft: false
+          prerelease: ${{ steps.meta.outputs.prerelease }}
+          includeUpdaterJson: true
+          args: --target aarch64-apple-darwin
+
+      - name: 只构建不发布
+        if: steps.existing.outputs.exists != 'true' && inputs.dry_run
+        run: pnpm --filter @aiwf/desktop build -- --target aarch64-apple-darwin
+
+      - name: 摘要
+        if: always()
+        shell: bash
+        run: |
+          {
+            echo "## Release"
+            echo
+            echo "- 版本：\`${{ steps.meta.outputs.version }}\`"
+            echo "- Tag：\`${{ steps.meta.outputs.tag }}\`"
+            echo "- 通道：${{ steps.meta.outputs.channel }}"
+            if [[ "${{ steps.existing.outputs.exists }}" == "true" ]]; then
+              echo "- 结果：已存在，跳过"
+            else
+              echo "- 结果：${{ job.status }}"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"

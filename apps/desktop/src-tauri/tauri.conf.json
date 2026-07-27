@@ -28,20 +28,21 @@
   },
   "bundle": {
     "active": true,
-    "targets": ["app", "dmg", "updater"],
+    "targets": ["app", "dmg"],
     "icon": ["icons/32x32.png", "icons/128x128.png", "icons/128x128@2x.png", "icons/icon.icns"],
     "copyright": "MIT",
     "category": "DeveloperTool",
     "shortDescription": "本地优先的 AI Workflow 客户端",
     "macOS": {
       "minimumSystemVersion": "13.0"
-    }
+    },
+    "createUpdaterArtifacts": true
   },
   "plugins": {
     "updater": {
       "active": true,
       "dialog": false,
-      "pubkey": "REPLACE_WITH_UPDATER_PUBLIC_KEY",
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDQ1NEY5MDU4OEE3QTA5ODEKUldTQkNYcUtXSkJQUlp1eTVuODJtR1hwMUMxZnk2REJsNHpDeEhmVEx5Nm9OM2h3eGp5TjFGOGIK",
       "endpoints": [
         "https://github.com/HuLuca1998/ai-workflows/releases/latest/download/latest.json"
       ]

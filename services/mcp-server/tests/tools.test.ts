@@ -103,7 +103,13 @@ describe('调用路径', () => {
 
   it('写操作前触发确认回调——AI 的修改一律先由用户确认', async () => {
     const confirm = vi.fn(async () => false);
-    const transport = new MemoryTransport({ 'workflow.patch': () => ({ rev: 19, diff: { added: [], removed: [], changed: [] }, validation: { ok: true, issues: [] } }) });
+    const transport = new MemoryTransport({
+      'workflow.patch': () => ({
+        rev: 19,
+        diff: { added: [], removed: [], changed: [] },
+        validation: { ok: true, issues: [] },
+      }),
+    });
     const r = new McpToolRegistry(new CoreApiClient(transport), { confirmWrite: confirm });
 
     await expect(

@@ -36,7 +36,11 @@ export function listMcpTools(): McpTool[] {
     return {
       name,
       description: spec.summary,
-      inputSchema: z.toJSONSchema(spec.input, { target: 'draft-2020-12', io: 'input', unrepresentable: 'any' }),
+      inputSchema: z.toJSONSchema(spec.input, {
+        target: 'draft-2020-12',
+        io: 'input',
+        unrepresentable: 'any',
+      }),
       scope: spec.scope,
       mutates: spec.mutates,
     };

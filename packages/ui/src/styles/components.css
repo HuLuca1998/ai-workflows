@@ -17,7 +17,9 @@
   font: inherit;
   font-size: 12.5px;
   cursor: pointer;
-  transition: background-color 120ms ease, border-color 120ms ease;
+  transition:
+    background-color 120ms ease,
+    border-color 120ms ease;
 }
 
 /* 主操作是强调色描边，不铺色块 */

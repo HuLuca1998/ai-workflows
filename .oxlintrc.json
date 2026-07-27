@@ -21,7 +21,6 @@
     "typescript/no-explicit-any": "warn",
     "typescript/consistent-type-imports": "error",
     "unicorn/no-null": "off",
-    "unicorn/prevent-abbreviations": "off",
     "import/no-cycle": "error"
   },
   "overrides": [

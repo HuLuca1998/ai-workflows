@@ -31,11 +31,25 @@ const baseGraph = (): WorkflowGraph => ({
       position: { x: 400, y: 0 },
       config: { title: '检查 Diff', interaction: 'confirm' },
     },
-    { id: 'end', type: 'end', title: '结束', position: { x: 600, y: 0 }, config: { outcome: 'success' } },
+    {
+      id: 'end',
+      type: 'end',
+      title: '结束',
+      position: { x: 600, y: 0 },
+      config: { outcome: 'success' },
+    },
   ],
   edges: [
-    { id: 'e1', source: { nodeId: 'entry', port: 'success' }, target: { nodeId: 'fix', port: 'input' } },
-    { id: 'e2', source: { nodeId: 'fix', port: 'success' }, target: { nodeId: 'approve', port: 'input' } },
+    {
+      id: 'e1',
+      source: { nodeId: 'entry', port: 'success' },
+      target: { nodeId: 'fix', port: 'input' },
+    },
+    {
+      id: 'e2',
+      source: { nodeId: 'fix', port: 'success' },
+      target: { nodeId: 'approve', port: 'input' },
+    },
     {
       id: 'e3',
       source: { nodeId: 'approve', port: 'approved' },
@@ -107,8 +121,18 @@ describe('结构化操作', () => {
         position: { x: 300, y: 120 },
         config: { interpreter: 'zsh', script: 'pnpm lint' },
       },
-      { op: 'connect', edgeId: 'e4', source: { nodeId: 'fix', port: 'success' }, target: { nodeId: 'run_lint', port: 'input' } },
-      { op: 'connect', edgeId: 'e5', source: { nodeId: 'run_lint', port: 'success' }, target: { nodeId: 'approve', port: 'input' } },
+      {
+        op: 'connect',
+        edgeId: 'e4',
+        source: { nodeId: 'fix', port: 'success' },
+        target: { nodeId: 'run_lint', port: 'input' },
+      },
+      {
+        op: 'connect',
+        edgeId: 'e5',
+        source: { nodeId: 'run_lint', port: 'success' },
+        target: { nodeId: 'approve', port: 'input' },
+      },
       { op: 'disconnect', edgeId: 'e2' },
     ];
     const result = applyPatch(baseGraph(), 18, { baseRevision: 18, operations });
@@ -133,7 +157,11 @@ describe('结构化操作', () => {
     const result = applyPatch(baseGraph(), 18, {
       baseRevision: 18,
       operations: [
-        { op: 'setConfig', nodeId: 'approve', config: { title: '检查 Diff', interaction: 'single' } },
+        {
+          op: 'setConfig',
+          nodeId: 'approve',
+          config: { title: '检查 Diff', interaction: 'single' },
+        },
       ],
     });
     const changed = result.diff.changed[0];

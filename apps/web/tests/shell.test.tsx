@@ -40,7 +40,9 @@ describe('主导航', () => {
     renderShell();
     const nav = screen.getByRole('navigation', { name: '主导航' });
     for (const item of NAV_ITEMS) {
-      expect(within(nav).getByRole('link', { name: new RegExp(item.label, 'u') })).toBeInTheDocument();
+      expect(
+        within(nav).getByRole('link', { name: new RegExp(item.label, 'u') }),
+      ).toBeInTheDocument();
     }
   });
 
@@ -62,7 +64,10 @@ describe('主导航', () => {
   it('窗口够宽时展开', () => {
     setWidth(1440);
     renderShell();
-    expect(screen.getByRole('navigation', { name: '主导航' })).toHaveAttribute('data-collapsed', 'false');
+    expect(screen.getByRole('navigation', { name: '主导航' })).toHaveAttribute(
+      'data-collapsed',
+      'false',
+    );
   });
 });
 

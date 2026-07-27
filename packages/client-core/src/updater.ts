@@ -9,13 +9,7 @@
  */
 
 export type UpdateStatus =
-  | 'idle'
-  | 'checking'
-  | 'up-to-date'
-  | 'available'
-  | 'downloading'
-  | 'ready'
-  | 'error';
+  'idle' | 'checking' | 'up-to-date' | 'available' | 'downloading' | 'ready' | 'error';
 
 /**
  * 可选字段显式带 `| undefined`：状态推进时要能把上一轮的错误信息、进度清掉，

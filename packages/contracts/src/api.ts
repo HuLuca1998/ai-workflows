@@ -41,7 +41,10 @@ const ValidationIssueSchema = z.object({
   nodeId: z.string().optional(),
   edgeId: z.string().optional(),
 });
-const ValidationResultSchema = z.object({ ok: z.boolean(), issues: z.array(ValidationIssueSchema) });
+const ValidationResultSchema = z.object({
+  ok: z.boolean(),
+  issues: z.array(ValidationIssueSchema),
+});
 const DiffEntrySchema = z.object({
   kind: z.enum(['node', 'edge', 'group']),
   id: z.string(),
@@ -82,7 +85,11 @@ const SPECS = {
     summary: '读取工作流草稿与版本列表',
   },
   'workflow.create': {
-    input: z.object({ name: z.string().min(1), folder: z.string().optional(), fromTemplate: z.string().optional() }),
+    input: z.object({
+      name: z.string().min(1),
+      folder: z.string().optional(),
+      fromTemplate: z.string().optional(),
+    }),
     output: z.object({ id: z.string().min(1), rev: z.number().int().min(0) }),
     mutates: true,
     audited: true,
@@ -95,7 +102,11 @@ const SPECS = {
       baseRevision: z.number().int().min(0),
       operations: z.array(PatchOperationSchema).min(1),
     }),
-    output: z.object({ rev: z.number().int(), diff: DiffSchema, validation: ValidationResultSchema }),
+    output: z.object({
+      rev: z.number().int(),
+      diff: DiffSchema,
+      validation: ValidationResultSchema,
+    }),
     mutates: true,
     audited: true,
     scope: 'workflow:write-draft',
@@ -118,7 +129,11 @@ const SPECS = {
     summary: '对比两个版本或草稿',
   },
   'workflow.publish': {
-    input: z.object({ id: z.string().min(1), rev: z.number().int().min(0), note: z.string().optional() }),
+    input: z.object({
+      id: z.string().min(1),
+      rev: z.number().int().min(0),
+      note: z.string().optional(),
+    }),
     output: z.object({
       versionId: z.string().min(1),
       version: z.number().int().min(1),
@@ -233,7 +248,11 @@ const SPECS = {
 
   // ── Memory ──────────────────────────────────────────────────────────────
   'memory.list': {
-    input: z.object({ scope: z.string().optional(), scopeId: z.string().optional(), query: z.string().optional() }),
+    input: z.object({
+      scope: z.string().optional(),
+      scopeId: z.string().optional(),
+      query: z.string().optional(),
+    }),
     output: z.object({ items: z.array(MemorySchema) }),
     mutates: false,
     audited: false,
@@ -340,7 +359,11 @@ const SPECS = {
   },
   'model.test': {
     input: idOnly,
-    output: z.object({ ok: z.boolean(), latencyMs: z.number().int().nonnegative().optional(), detail: z.string().optional() }),
+    output: z.object({
+      ok: z.boolean(),
+      latencyMs: z.number().int().nonnegative().optional(),
+      detail: z.string().optional(),
+    }),
     mutates: false,
     audited: true,
     scope: 'workflow:read',
@@ -363,7 +386,10 @@ const SPECS = {
     summary: '新建 Agent 角色',
   },
   'agent.update': {
-    input: AgentProfileSchema.partial().extend({ id: z.string().min(1), ver: z.number().int().min(1) }),
+    input: AgentProfileSchema.partial().extend({
+      id: z.string().min(1),
+      ver: z.number().int().min(1),
+    }),
     output: z.object({ ver: z.number().int().min(1) }),
     mutates: true,
     audited: true,
@@ -382,7 +408,10 @@ const SPECS = {
   // ── 环境 ────────────────────────────────────────────────────────────────
   'env.health': {
     input: z.object({ recheck: z.boolean().default(false) }),
-    output: z.object({ status: z.enum(['ready', 'needs_attention']), items: z.array(EnvHealthItemSchema) }),
+    output: z.object({
+      status: z.enum(['ready', 'needs_attention']),
+      items: z.array(EnvHealthItemSchema),
+    }),
     mutates: false,
     audited: false,
     scope: 'workflow:read',

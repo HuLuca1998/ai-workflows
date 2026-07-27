@@ -18,7 +18,10 @@ export function Field({ label, hint, error, required, className, ...rest }: Fiel
   const describedBy = [hint ? hintId : null, error ? errorId : null].filter(Boolean).join(' ');
 
   return (
-    <div className={['aiwf-field', className].filter(Boolean).join(' ')} data-invalid={error ? 'true' : undefined}>
+    <div
+      className={['aiwf-field', className].filter(Boolean).join(' ')}
+      data-invalid={error ? 'true' : undefined}
+    >
       <label className="aiwf-field__label" htmlFor={id}>
         {label}
         {required ? <span aria-hidden="true"> *</span> : null}

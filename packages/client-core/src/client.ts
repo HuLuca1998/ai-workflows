@@ -92,7 +92,12 @@ function normalizeError(error: unknown, method: string): CoreApiError {
   if (error instanceof CoreApiError) return error;
 
   if (error && typeof error === 'object' && 'code' in error) {
-    const candidate = error as { code: unknown; message?: unknown; retriable?: unknown; hint?: unknown };
+    const candidate = error as {
+      code: unknown;
+      message?: unknown;
+      retriable?: unknown;
+      hint?: unknown;
+    };
     const code = ERROR_CODES.find((c) => c === candidate.code);
     if (code) {
       return new CoreApiError({

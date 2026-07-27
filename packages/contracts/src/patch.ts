@@ -39,7 +39,11 @@ export const PatchOperationSchema = z.discriminatedUnion('op', [
     nodeId: z.string().min(1),
     capabilities: CapabilitiesSchema.partial(),
   }),
-  z.object({ op: z.literal('setRetry'), nodeId: z.string().min(1), retry: RetryPolicySchema.partial() }),
+  z.object({
+    op: z.literal('setRetry'),
+    nodeId: z.string().min(1),
+    retry: RetryPolicySchema.partial(),
+  }),
   z.object({
     op: z.literal('connect'),
     edgeId: z.string().min(1).optional(),
@@ -123,7 +127,8 @@ export function applyPatch(
   for (const [index, operation] of patch.operations.entries()) {
     switch (operation.op) {
       case 'addNode': {
-        const nodeId = operation.nodeId ?? `${operation.type.replace(/\./gu, '_')}_${next.nodes.length + 1}`;
+        const nodeId =
+          operation.nodeId ?? `${operation.type.replace(/\./gu, '_')}_${next.nodes.length + 1}`;
         if (next.nodes.some((n) => n.id === nodeId)) {
           throw new CoreApiError({ code: 'VALIDATION', message: `节点 id ${nodeId} 已存在` });
         }
@@ -162,7 +167,12 @@ export function applyPatch(
           (e) => e.source.nodeId === operation.nodeId || e.target.nodeId === operation.nodeId,
         );
         next.edges = next.edges.filter((e) => !orphanEdges.includes(e));
-        diff.removed.push({ kind: 'node', id: node.id, label: `node ${node.type}「${node.title}」`, before: node });
+        diff.removed.push({
+          kind: 'node',
+          id: node.id,
+          label: `node ${node.type}「${node.title}」`,
+          before: node,
+        });
         for (const edge of orphanEdges) {
           diff.removed.push({
             kind: 'edge',
@@ -294,7 +304,12 @@ export function applyPatch(
         for (const nodeId of operation.nodeIds) findNode(nodeId);
         const group = { id: groupId, title: operation.title, nodeIds: operation.nodeIds };
         next.groups.push(group);
-        diff.added.push({ kind: 'group', id: groupId, label: `group「${operation.title}」`, after: group });
+        diff.added.push({
+          kind: 'group',
+          id: groupId,
+          label: `group「${operation.title}」`,
+          after: group,
+        });
         break;
       }
 
@@ -302,7 +317,12 @@ export function applyPatch(
         const group = next.groups.find((g) => g.id === operation.groupId);
         if (!group) throw notFound('分组', operation.groupId);
         next.groups = next.groups.filter((g) => g.id !== operation.groupId);
-        diff.removed.push({ kind: 'group', id: group.id, label: `group「${group.title}」`, before: group });
+        diff.removed.push({
+          kind: 'group',
+          id: group.id,
+          label: `group「${group.title}」`,
+          before: group,
+        });
         break;
       }
     }

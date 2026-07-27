@@ -144,7 +144,14 @@ describe('Table 与 Card、Tag', () => {
   });
 
   it('Table 无数据时给出空态说明而不是空白', () => {
-    render(<Table caption="运行" columns={[{ key: 'a', header: 'A' }]} rows={[]} empty="先在编辑器点运行" />);
+    render(
+      <Table
+        caption="运行"
+        columns={[{ key: 'a', header: 'A' }]}
+        rows={[]}
+        empty="先在编辑器点运行"
+      />,
+    );
     expect(screen.getByText('先在编辑器点运行')).toBeInTheDocument();
   });
 

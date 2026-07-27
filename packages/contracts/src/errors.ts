@@ -50,7 +50,13 @@ export class CoreApiError extends Error {
   }
 
   /** 序列化成跨进程传输的纯对象（Tauri IPC / SSE / MCP 都走这个形状）。 */
-  toJSON(): { code: ErrorCode; message: string; retriable: boolean; hint?: string; details?: unknown } {
+  toJSON(): {
+    code: ErrorCode;
+    message: string;
+    retriable: boolean;
+    hint?: string;
+    details?: unknown;
+  } {
     return {
       code: this.code,
       message: this.message,

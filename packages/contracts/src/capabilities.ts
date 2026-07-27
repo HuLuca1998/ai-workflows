@@ -27,7 +27,11 @@ export const CapabilitiesSchema = z.object({
 export type Capabilities = z.infer<typeof CapabilitiesSchema>;
 
 /** 权限三档（功能文档 §7）。扩权或版本重要变化时自动失效并重新确认。 */
-export const PERMISSION_PRESETS = ['review_every_change', 'workspace_safe', 'trusted_workflow'] as const;
+export const PERMISSION_PRESETS = [
+  'review_every_change',
+  'workspace_safe',
+  'trusted_workflow',
+] as const;
 export type PermissionPreset = (typeof PERMISSION_PRESETS)[number];
 
 /** MCP / HTTP API 的能力范围（技术选型 §6）。 */

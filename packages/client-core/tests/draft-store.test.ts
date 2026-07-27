@@ -19,9 +19,21 @@ const graph = (): WorkflowGraph => ({
       position: { x: 0, y: 0 },
       config: { trigger: 'manual', inputSchema: { type: 'object' } },
     },
-    { id: 'end', type: 'end', title: '结束', position: { x: 300, y: 0 }, config: { outcome: 'success' } },
+    {
+      id: 'end',
+      type: 'end',
+      title: '结束',
+      position: { x: 300, y: 0 },
+      config: { outcome: 'success' },
+    },
   ],
-  edges: [{ id: 'e1', source: { nodeId: 'entry', port: 'success' }, target: { nodeId: 'end', port: 'input' } }],
+  edges: [
+    {
+      id: 'e1',
+      source: { nodeId: 'entry', port: 'success' },
+      target: { nodeId: 'end', port: 'input' },
+    },
+  ],
   groups: [],
 });
 
@@ -93,7 +105,11 @@ describe('本地乐观编辑', () => {
     let called = 0;
     const draft = store(() => {
       called += 1;
-      return { rev: 19, diff: { added: [], removed: [], changed: [] }, validation: { ok: true, issues: [] } };
+      return {
+        rev: 19,
+        diff: { added: [], removed: [], changed: [] },
+        validation: { ok: true, issues: [] },
+      };
     });
     await draft.commit();
     expect(called).toBe(0);

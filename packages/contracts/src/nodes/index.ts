@@ -114,7 +114,9 @@ const DEFINITIONS: Record<NodeType, NodeDefinition> = {
     configSchema: AiBaseSchema.extend({
       target: z.string().min(1),
       checklist: z.array(z.string().min(1)).default([]),
-      severities: z.array(z.enum(['blocker', 'major', 'minor'])).default(['blocker', 'major', 'minor']),
+      severities: z
+        .array(z.enum(['blocker', 'major', 'minor']))
+        .default(['blocker', 'major', 'minor']),
     }),
     ports: {
       inputs: [IN],
@@ -133,12 +135,14 @@ const DEFINITIONS: Record<NodeType, NodeDefinition> = {
     group: 'ai',
     summary: 'L1–L3 分级判定，超出自动层级则转人工',
     configSchema: AiBaseSchema.extend({
+      // 字段刻意叫 action 而非 then：带 then 的对象会被 await 当成 thenable，
+      // 而节点配置会在 IPC / MCP 之间来回传递，撞上 await 只是时间问题
       rules: z
         .array(
           z.object({
             level: z.enum(['L1', 'L2', 'L3']),
             when: z.string().min(1),
-            then: z.string().min(1),
+            action: z.string().min(1),
           }),
         )
         .default([]),
@@ -186,7 +190,9 @@ const DEFINITIONS: Record<NodeType, NodeDefinition> = {
     group: 'flow',
     summary: '触发方式、工作目录来源与输入参数 Schema（启动表单由它生成）',
     configSchema: z.object({
-      trigger: z.enum(['manual', 'shortcut', 'url_scheme', 'schedule', 'webhook']).default('manual'),
+      trigger: z
+        .enum(['manual', 'shortcut', 'url_scheme', 'schedule', 'webhook'])
+        .default('manual'),
       workdirSource: z.enum(['prompt', 'fixed', 'inherit']).default('prompt'),
       workdir: z.string().optional(),
       inputSchema: JsonSchemaObject,
@@ -231,9 +237,7 @@ const DEFINITIONS: Record<NodeType, NodeDefinition> = {
     group: 'flow',
     summary: '按结构化字段分流，端口由配置决定',
     configSchema: z.object({
-      cases: z
-        .array(z.object({ port: z.string().min(1), when: z.string().min(1) }))
-        .min(1),
+      cases: z.array(z.object({ port: z.string().min(1), when: z.string().min(1) })).min(1),
       defaultPort: z.string().min(1).default('default'),
     }),
     ports: { inputs: [IN], outputs: [{ id: 'default', label: 'default' }] },
@@ -291,7 +295,13 @@ const DEFINITIONS: Record<NodeType, NodeDefinition> = {
       bodyMarkdown: z.string().default(''),
       interaction: z.enum(['single', 'multi', 'confirm', 'supplement']),
       options: z
-        .array(z.object({ id: z.string().min(1), label: z.string().min(1), recommended: z.boolean().default(false) }))
+        .array(
+          z.object({
+            id: z.string().min(1),
+            label: z.string().min(1),
+            recommended: z.boolean().default(false),
+          }),
+        )
         .default([]),
       waitStrategy: z.enum(['forever', 'timeout']).default('forever'),
       timeoutMs: z.number().int().positive().optional(),
@@ -474,17 +484,77 @@ export interface NodeLibraryEntry {
 }
 
 export const NODE_LIBRARY: readonly NodeLibraryEntry[] = [
-  { id: 'ai.analyze', group: 'ai', label: 'AI · 分析', summary: DEFINITIONS['ai.analyze'].summary, types: ['ai.analyze'] },
-  { id: 'ai.review', group: 'ai', label: 'AI · 审查', summary: DEFINITIONS['ai.review'].summary, types: ['ai.review'] },
-  { id: 'ai.decide', group: 'ai', label: 'AI · 决策', summary: DEFINITIONS['ai.decide'].summary, types: ['ai.decide'] },
-  { id: 'ai.execute', group: 'ai', label: 'AI · 执行', summary: DEFINITIONS['ai.execute'].summary, types: ['ai.execute'] },
-  { id: 'entry', group: 'flow', label: '入口设置', summary: DEFINITIONS.entry.summary, types: ['entry'] },
-  { id: 'subworkflow', group: 'flow', label: '调用子工作流', summary: DEFINITIONS.subworkflow.summary, types: ['subworkflow'] },
-  { id: 'branch', group: 'flow', label: '条件分支', summary: DEFINITIONS.branch.summary, types: ['branch'] },
-  { id: 'transform', group: 'flow', label: '数据转换', summary: DEFINITIONS.transform.summary, types: ['transform'] },
+  {
+    id: 'ai.analyze',
+    group: 'ai',
+    label: 'AI · 分析',
+    summary: DEFINITIONS['ai.analyze'].summary,
+    types: ['ai.analyze'],
+  },
+  {
+    id: 'ai.review',
+    group: 'ai',
+    label: 'AI · 审查',
+    summary: DEFINITIONS['ai.review'].summary,
+    types: ['ai.review'],
+  },
+  {
+    id: 'ai.decide',
+    group: 'ai',
+    label: 'AI · 决策',
+    summary: DEFINITIONS['ai.decide'].summary,
+    types: ['ai.decide'],
+  },
+  {
+    id: 'ai.execute',
+    group: 'ai',
+    label: 'AI · 执行',
+    summary: DEFINITIONS['ai.execute'].summary,
+    types: ['ai.execute'],
+  },
+  {
+    id: 'entry',
+    group: 'flow',
+    label: '入口设置',
+    summary: DEFINITIONS.entry.summary,
+    types: ['entry'],
+  },
+  {
+    id: 'subworkflow',
+    group: 'flow',
+    label: '调用子工作流',
+    summary: DEFINITIONS.subworkflow.summary,
+    types: ['subworkflow'],
+  },
+  {
+    id: 'branch',
+    group: 'flow',
+    label: '条件分支',
+    summary: DEFINITIONS.branch.summary,
+    types: ['branch'],
+  },
+  {
+    id: 'transform',
+    group: 'flow',
+    label: '数据转换',
+    summary: DEFINITIONS.transform.summary,
+    types: ['transform'],
+  },
   { id: 'end', group: 'flow', label: '结束', summary: DEFINITIONS.end.summary, types: ['end'] },
-  { id: 'approval', group: 'human', label: '人工审批', summary: DEFINITIONS.approval.summary, types: ['approval'] },
-  { id: 'notify', group: 'human', label: '系统通知', summary: DEFINITIONS.notify.summary, types: ['notify'] },
+  {
+    id: 'approval',
+    group: 'human',
+    label: '人工审批',
+    summary: DEFINITIONS.approval.summary,
+    types: ['approval'],
+  },
+  {
+    id: 'notify',
+    group: 'human',
+    label: '系统通知',
+    summary: DEFINITIONS.notify.summary,
+    types: ['notify'],
+  },
   {
     id: 'script',
     group: 'execution',
@@ -492,9 +562,27 @@ export const NODE_LIBRARY: readonly NodeLibraryEntry[] = [
     summary: '非交互执行，带超时与输出上限',
     types: ['script.shell', 'script.python'],
   },
-  { id: 'git.worktree', group: 'execution', label: 'Git worktree', summary: DEFINITIONS['git.worktree'].summary, types: ['git.worktree'] },
-  { id: 'env', group: 'execution', label: '环境变量', summary: DEFINITIONS.env.summary, types: ['env'] },
-  { id: 'mcp.tool', group: 'integration', label: 'MCP 工具', summary: DEFINITIONS['mcp.tool'].summary, types: ['mcp.tool'] },
+  {
+    id: 'git.worktree',
+    group: 'execution',
+    label: 'Git worktree',
+    summary: DEFINITIONS['git.worktree'].summary,
+    types: ['git.worktree'],
+  },
+  {
+    id: 'env',
+    group: 'execution',
+    label: '环境变量',
+    summary: DEFINITIONS.env.summary,
+    types: ['env'],
+  },
+  {
+    id: 'mcp.tool',
+    group: 'integration',
+    label: 'MCP 工具',
+    summary: DEFINITIONS['mcp.tool'].summary,
+    types: ['mcp.tool'],
+  },
 ] as const;
 
 export function getNodeDefinition(type: NodeType): NodeDefinition {

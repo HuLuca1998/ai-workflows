@@ -90,7 +90,12 @@ fn data_file(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     Ok(dir.join("aiwf.sqlite"))
 }
 
+/// 应用入口。
+///
+/// 这里是全项目唯一允许 panic 的地方：壳都起不来就没有界面可以显示错误，
+/// 继续执行只会得到一个没有窗口的僵尸进程。业务代码一律返回 Result。
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
+#[allow(clippy::expect_used)]
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_process::init())

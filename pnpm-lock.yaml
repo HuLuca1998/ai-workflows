@@ -54,6 +54,12 @@ importers:
       '@aiwf/ui':
         specifier: workspace:*
         version: link:../../packages/ui
+      '@tauri-apps/plugin-process':
+        specifier: ^2.3.0
+        version: 2.3.1
+      '@tauri-apps/plugin-updater':
+        specifier: ^2.9.0
+        version: 2.10.1
       react:
         specifier: ^19.2.8
         version: 19.2.8

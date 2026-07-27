@@ -106,10 +106,16 @@ export interface ValidationResult {
 
 export function validateGraph(graph: WorkflowGraph): ValidationResult {
   const issues: ValidationIssue[] = [];
-  const err = (code: ValidationCode, message: string, at: { nodeId?: string; edgeId?: string } = {}) =>
-    issues.push({ level: 'error', code, message, ...at });
-  const warn = (code: ValidationCode, message: string, at: { nodeId?: string; edgeId?: string } = {}) =>
-    issues.push({ level: 'warning', code, message, ...at });
+  const err = (
+    code: ValidationCode,
+    message: string,
+    at: { nodeId?: string; edgeId?: string } = {},
+  ) => issues.push({ level: 'error', code, message, ...at });
+  const warn = (
+    code: ValidationCode,
+    message: string,
+    at: { nodeId?: string; edgeId?: string } = {},
+  ) => issues.push({ level: 'warning', code, message, ...at });
 
   const byId = new Map<string, GraphNode>();
   for (const node of graph.nodes) {
@@ -242,7 +248,10 @@ function reachableFrom(graph: WorkflowGraph, startId: string): Set<string> {
 }
 
 /** Kahn 算法；返回未能排序的节点即位于环上的节点。 */
-function kahn(graph: WorkflowGraph, byId: Map<string, GraphNode>): { order: string[]; stuck: string[] } {
+function kahn(
+  graph: WorkflowGraph,
+  byId: Map<string, GraphNode>,
+): { order: string[]; stuck: string[] } {
   const indegree = new Map<string, number>();
   for (const id of byId.keys()) indegree.set(id, 0);
   for (const edge of graph.edges) {

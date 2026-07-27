@@ -168,7 +168,8 @@ describe('入参出参形状', () => {
       getMethodSpec('memory.update').input.safeParse({ id: 'm_1', value: '新内容' }).success,
     ).toBe(false);
     expect(
-      getMethodSpec('memory.update').input.safeParse({ id: 'm_1', value: '新内容', ver: 3 }).success,
+      getMethodSpec('memory.update').input.safeParse({ id: 'm_1', value: '新内容', ver: 3 })
+        .success,
     ).toBe(true);
   });
 });

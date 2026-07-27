@@ -19,10 +19,10 @@
     "format:check": "prettier --check .",
     "contracts:gen": "pnpm --filter @aiwf/contracts gen",
     "contracts:check": "pnpm --filter @aiwf/contracts gen:check",
-    "rs:test": "cargo test --workspace",
-    "rs:lint": "cargo clippy --workspace --all-targets -- -D warnings",
-    "rs:fmt": "cargo fmt --all",
-    "rs:fmt:check": "cargo fmt --all -- --check",
+    "rs:test": "PATH=\"$HOME/.cargo/bin:$PATH\" cargo test --workspace",
+    "rs:lint": "PATH=\"$HOME/.cargo/bin:$PATH\" cargo clippy --workspace --all-targets -- -D warnings",
+    "rs:fmt": "PATH=\"$HOME/.cargo/bin:$PATH\" cargo fmt --all",
+    "rs:fmt:check": "PATH=\"$HOME/.cargo/bin:$PATH\" cargo fmt --all -- --check",
     "verify": "pnpm format:check && pnpm lint && pnpm typecheck && pnpm test && pnpm contracts:check && pnpm rs:fmt:check && pnpm rs:lint && pnpm rs:test"
   },
   "devDependencies": {

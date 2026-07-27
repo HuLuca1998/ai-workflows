@@ -9,6 +9,11 @@ export { Button, type ButtonProps, type ButtonVariant } from './components/Butto
 export { Card, type CardProps } from './components/Card.js';
 export { Dialog, type DialogProps } from './components/Dialog.js';
 export { Field, type FieldProps } from './components/Field.js';
-export { StatusBadge, statusLabel, type RunStatusName, type StatusBadgeProps } from './components/StatusBadge.js';
+export {
+  StatusBadge,
+  statusLabel,
+  type RunStatusName,
+  type StatusBadgeProps,
+} from './components/StatusBadge.js';
 export { Table, type TableColumn, type TableProps } from './components/Table.js';
 export { Tag, type TagProps, type TagTone } from './components/Tag.js';

@@ -16,7 +16,9 @@ export function SupervisorDrawer({ onClose }: SupervisorDrawerProps) {
       <div className="supervisor__head">
         <div>
           <h2>主管 AI</h2>
-          <p className="supervisor__sub">掌握全部功能：工作流、节点、运行、记忆、提示词、模型、设置</p>
+          <p className="supervisor__sub">
+            掌握全部功能：工作流、节点、运行、记忆、提示词、模型、设置
+          </p>
         </div>
         <Button variant="ghost" onClick={onClose} aria-label="收起主管 AI">
           收起
@@ -24,7 +26,9 @@ export function SupervisorDrawer({ onClose }: SupervisorDrawerProps) {
       </div>
 
       <div className="supervisor__body">
-        <p className="supervisor__hint">M0 阶段这里只有壳。M4 接上会话、工具调用轨迹与结构化 Patch。</p>
+        <p className="supervisor__hint">
+          M0 阶段这里只有壳。M4 接上会话、工具调用轨迹与结构化 Patch。
+        </p>
       </div>
 
       <footer className="supervisor__scopes">

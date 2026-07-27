@@ -30,7 +30,11 @@ export function Table<Row extends { id: string }>({
       <thead>
         <tr>
           {columns.map((column) => (
-            <th key={column.key} scope="col" style={column.width ? { width: column.width } : undefined}>
+            <th
+              key={column.key}
+              scope="col"
+              style={column.width ? { width: column.width } : undefined}
+            >
               {column.header}
             </th>
           ))}
@@ -51,7 +55,9 @@ export function Table<Row extends { id: string }>({
               data-clickable={onRowClick ? 'true' : undefined}
             >
               {columns.map((column) => (
-                <td key={column.key}>{column.render ? column.render(row) : String(row[column.key] ?? '')}</td>
+                <td key={column.key}>
+                  {column.render ? column.render(row) : String(row[column.key] ?? '')}
+                </td>
               ))}
             </tr>
           ))

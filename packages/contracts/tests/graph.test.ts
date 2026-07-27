@@ -46,7 +46,9 @@ describe('图校验', () => {
 
   it('入口节点全图唯一', () => {
     const graph = minimalGraph();
-    graph.nodes.push(node('entry2', 'entry', { trigger: 'manual', inputSchema: { type: 'object' } }));
+    graph.nodes.push(
+      node('entry2', 'entry', { trigger: 'manual', inputSchema: { type: 'object' } }),
+    );
     expect(validateGraph(graph).issues.map((i) => i.code)).toContain('ENTRY_DUPLICATE');
   });
 

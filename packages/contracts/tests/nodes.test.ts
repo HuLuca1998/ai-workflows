@@ -1,10 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import {
-  NODE_LIBRARY,
-  NODE_TYPES,
-  getNodeDefinition,
-  type NodeType,
-} from '../src/nodes/index.js';
+import { NODE_LIBRARY, NODE_TYPES, getNodeDefinition, type NodeType } from '../src/nodes/index.js';
 
 /**
  * 节点定义 Schema 是 M0 冻结的第三件事（功能文档 §14）。
@@ -104,9 +99,10 @@ describe('配置 Schema', () => {
   it('每种节点的最小配置都能通过校验', () => {
     for (const type of NODE_TYPES) {
       const parsed = getNodeDefinition(type).configSchema.safeParse(MINIMAL_CONFIG[type]);
-      expect(parsed.success, `${type} 的最小配置未通过：${JSON.stringify(parsed.error?.issues)}`).toBe(
-        true,
-      );
+      expect(
+        parsed.success,
+        `${type} 的最小配置未通过：${JSON.stringify(parsed.error?.issues)}`,
+      ).toBe(true);
     }
   });
 

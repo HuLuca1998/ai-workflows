@@ -6,3 +6,4 @@ coverage/
 docs/design/
 docs/reference/acp/
 packages/contracts/generated/
+apps/desktop/src-tauri/gen/

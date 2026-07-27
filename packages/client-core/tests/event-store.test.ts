@@ -63,7 +63,10 @@ describe('归并与去重', () => {
 
   it('检测到空洞时报告出来，让调用方回补而不是装作完整', () => {
     const store = new EventStore('run_1');
-    store.ingest([ev({ type: 'run.started', seq: 1 }), ev({ type: 'node.queued', seq: 5, nodeId: 'n1', attempt: 1 })]);
+    store.ingest([
+      ev({ type: 'run.started', seq: 1 }),
+      ev({ type: 'node.queued', seq: 5, nodeId: 'n1', attempt: 1 }),
+    ]);
     expect(store.gaps()).toEqual([{ from: 2, to: 4 }]);
   });
 
@@ -99,10 +102,21 @@ describe('三视图投影', () => {
       ev({ type: 'node.started', seq: 3, nodeId: 'analyze', attempt: 1, summary: '分析开始' }),
       ev({ type: 'reasoning.summary', seq: 4, actor: 'agent', summary: '定位到 TTL 缓存' }),
       ev({ type: 'tool.call_finished', seq: 5, actor: 'agent', summary: '6 次读取，2 次搜索' }),
-      ev({ type: 'conversation.agent_message', seq: 6, actor: 'agent', summary: '根因是缓存未失效' }),
+      ev({
+        type: 'conversation.agent_message',
+        seq: 6,
+        actor: 'agent',
+        summary: '根因是缓存未失效',
+      }),
       ev({ type: 'node.succeeded', seq: 7, nodeId: 'analyze', attempt: 1, summary: '分析完成' }),
       ev({ type: 'artifact.created', seq: 8, summary: 'diff.patch', artifactRefs: ['art_1'] }),
-      ev({ type: 'approval.requested', seq: 9, nodeId: 'approve', attempt: 1, summary: '检查 Diff' }),
+      ev({
+        type: 'approval.requested',
+        seq: 9,
+        nodeId: 'approve',
+        attempt: 1,
+        summary: '检查 Diff',
+      }),
       ev({ type: 'script.stdout', seq: 10, nodeId: 'lint', attempt: 1, summary: 'all good' }),
     ]);
     return store;

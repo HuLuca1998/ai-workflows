@@ -9,8 +9,14 @@ import { describe, expect, it } from 'vitest';
  * （功能文档 §9），所以这两种偏好必须在令牌层就有响应，而不是各组件各自处理。
  */
 
-const tokens = readFileSync(fileURLToPath(new URL('../src/styles/tokens.css', import.meta.url)), 'utf8');
-const base = readFileSync(fileURLToPath(new URL('../src/styles/base.css', import.meta.url)), 'utf8');
+const tokens = readFileSync(
+  fileURLToPath(new URL('../src/styles/tokens.css', import.meta.url)),
+  'utf8',
+);
+const base = readFileSync(
+  fileURLToPath(new URL('../src/styles/base.css', import.meta.url)),
+  'utf8',
+);
 
 describe('Nocturne 令牌', () => {
   it('定义了色彩角色与全部 100–900 色阶', () => {

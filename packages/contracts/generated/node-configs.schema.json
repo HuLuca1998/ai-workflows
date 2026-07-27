@@ -261,7 +261,7 @@
               "type": "string",
               "minLength": 1
             },
-            "then": {
+            "action": {
               "type": "string",
               "minLength": 1
             }
@@ -269,7 +269,7 @@
           "required": [
             "level",
             "when",
-            "then"
+            "action"
           ]
         }
       },

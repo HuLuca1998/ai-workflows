@@ -6,14 +6,14 @@
 
 ## 产品原则
 
-| 原则 | 含义 |
-| --- | --- |
-| 可解释优先 | 任何时刻都能回答「现在跑到哪、为什么停、接下来做什么」 |
-| 显式权限 | 文件、命令、网络、Secret 由策略控制，**引擎强制，Prompt 无法越权** |
-| 草稿与执行分离 | 编辑草稿不影响运行中的版本；运行记录永远引用不可变版本快照 |
-| 结构化数据优先 | 节点之间按字段传递，文本拼接只是兼容方式 |
-| AI 建议 ≠ 执行 | AI 的修改一律先出 Diff，用户确认后才写入 |
-| 本地优先与可恢复 | 工作流、记录、记忆、凭据留在本机；审批等待、重启、断网不丢 Run |
+| 原则             | 含义                                                               |
+| ---------------- | ------------------------------------------------------------------ |
+| 可解释优先       | 任何时刻都能回答「现在跑到哪、为什么停、接下来做什么」             |
+| 显式权限         | 文件、命令、网络、Secret 由策略控制，**引擎强制，Prompt 无法越权** |
+| 草稿与执行分离   | 编辑草稿不影响运行中的版本；运行记录永远引用不可变版本快照         |
+| 结构化数据优先   | 节点之间按字段传递，文本拼接只是兼容方式                           |
+| AI 建议 ≠ 执行   | AI 的修改一律先出 Diff，用户确认后才写入                           |
+| 本地优先与可恢复 | 工作流、记录、记忆、凭据留在本机；审批等待、重启、断网不丢 Run     |
 
 ## 仓库结构
 
@@ -47,13 +47,13 @@ pnpm verify           # 提交前跑一遍完整门禁
 
 常用命令：
 
-| 命令 | 作用 |
-| --- | --- |
-| `pnpm dev` | 启动 Web 形态开发服务器 |
-| `pnpm contracts:gen` | 由契约源重新生成 JSON Schema |
-| `pnpm contracts:check` | 校验生成物未漂移（CI 门禁） |
-| `pnpm lint` / `pnpm format` | oxlint / Prettier |
-| `pnpm rs:lint` | clippy（warnings 视为错误） |
+| 命令                        | 作用                         |
+| --------------------------- | ---------------------------- |
+| `pnpm dev`                  | 启动 Web 形态开发服务器      |
+| `pnpm contracts:gen`        | 由契约源重新生成 JSON Schema |
+| `pnpm contracts:check`      | 校验生成物未漂移（CI 门禁）  |
+| `pnpm lint` / `pnpm format` | oxlint / Prettier            |
+| `pnpm rs:lint`              | clippy（warnings 视为错误）  |
 
 ## 开发方式
 
@@ -63,16 +63,16 @@ pnpm verify           # 提交前跑一遍完整门禁
 
 ## 文档
 
-| 文档 | 内容 |
-| --- | --- |
-| [docs/README.md](docs/README.md) | 文档索引 |
-| [docs/PROJECT.md](docs/PROJECT.md) | 产品定位、范围与非目标 |
-| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | 分层架构与目录职责 |
-| [docs/ROADMAP.md](docs/ROADMAP.md) | M0–M6 里程碑与出口标准 |
-| [docs/TESTING.md](docs/TESTING.md) | 测试先行规约与质量门禁 |
+| 文档                                         | 内容                           |
+| -------------------------------------------- | ------------------------------ |
+| [docs/README.md](docs/README.md)             | 文档索引                       |
+| [docs/PROJECT.md](docs/PROJECT.md)           | 产品定位、范围与非目标         |
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | 分层架构与目录职责             |
+| [docs/ROADMAP.md](docs/ROADMAP.md)           | M0–M6 里程碑与出口标准         |
+| [docs/TESTING.md](docs/TESTING.md)           | 测试先行规约与质量门禁         |
 | [docs/CONTRIBUTING.md](docs/CONTRIBUTING.md) | 分支、提交、评审与契约变更流程 |
-| [docs/RELEASE.md](docs/RELEASE.md) | 自动发布与应用内一键更新 |
-| [docs/adr/](docs/adr/) | 架构决策记录 |
+| [docs/RELEASE.md](docs/RELEASE.md)           | 自动发布与应用内一键更新       |
+| [docs/adr/](docs/adr/)                       | 架构决策记录                   |
 
 ## 许可
 

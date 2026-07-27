@@ -105,10 +105,19 @@ function Gallery() {
         ))}
       </nav>
 
-      <main style={{ padding: 'var(--space-8)', display: 'grid', gap: 'var(--space-8)', alignContent: 'start' }}>
+      <main
+        style={{
+          padding: 'var(--space-8)',
+          display: 'grid',
+          gap: 'var(--space-8)',
+          alignContent: 'start',
+        }}
+      >
         {current?.stories.map((story) => (
           <section key={story.name} style={{ display: 'grid', gap: 'var(--space-3)' }}>
-            <h2 style={{ fontSize: 12, color: 'var(--color-text-muted)', margin: 0 }}>{story.name}</h2>
+            <h2 style={{ fontSize: 12, color: 'var(--color-text-muted)', margin: 0 }}>
+              {story.name}
+            </h2>
             <div
               style={{
                 padding: 'var(--space-6)',
