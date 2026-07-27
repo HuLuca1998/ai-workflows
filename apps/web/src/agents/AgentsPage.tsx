@@ -60,7 +60,16 @@ export function AgentsPage() {
   const [models, setModels] = useState<ModelOption[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  /**
+   * 详情区的本地改动。
+   *
+   * 不直接改 items 里的对象：那样「改了但没保存」与「已保存」就分不出来了，
+   * 而这一屏的保存是显式的（按钮叫「保存新版本」）。
+   */
+  const [draft, setDraft] = useState<Partial<Agent>>({});
 
   const load = async () => {
     try {
@@ -84,8 +93,41 @@ export function AgentsPage() {
 
   const onSave = async () => {
     if (!selected) return;
+    // 只发真正改过的字段：全量回写会把并发的其他改动覆盖掉，
+    // 而 agent.update 的契约本来就是 partial。
+    // ver 是乐观锁，必带 —— 少发它的话后端无从判断这次改动基于哪一版
+    const changed: Record<string, unknown> = { id: selected.id, ver: selected.ver };
+    for (const key of ['name', 'goal', 'persona', 'modelRef', 'fallbackModelRef'] as const) {
+      const next = draft[key];
+      if (next !== undefined && next !== selected[key]) changed[key] = next;
+    }
+    if (Object.keys(changed).length === 2) {
+      setError('没有改动可保存。');
+      return;
+    }
+
     try {
-      await coreClient.call('agent.update', { id: selected.id, name: selected.name });
+      await coreClient.call('agent.update', changed);
+      setDraft({});
+      setError(null);
+      await load();
+    } catch (err) {
+      setError(describe(err));
+    }
+  };
+
+  const onCreate = async (input: NewAgentInput) => {
+    try {
+      const result = (await coreClient.call('agent.create', {
+        ...input,
+        tools: [],
+        capabilities: { fileRead: true, fileWrite: false, network: 'none' },
+        outputContract: '',
+        turnLimit: 12,
+        timeoutMs: 900_000,
+      })) as { id: string };
+      setCreating(false);
+      setSelectedId(result.id);
       await load();
     } catch (err) {
       setError(describe(err));
@@ -123,7 +165,16 @@ export function AgentsPage() {
         <div className="agents__list-head">
           <span className="runs__label">Agent 角色</span>
           <span className="runs__grow" />
-          <button type="button" className="models__add" aria-label="新建角色">
+          <button
+            type="button"
+            className="models__add"
+            aria-label="新建角色"
+            onClick={() => {
+              setCreating(true);
+              setSelectedId(null);
+              setDraft({});
+            }}
+          >
             <i className="ph ph-plus" aria-hidden="true" />
           </button>
         </div>
@@ -145,6 +196,8 @@ export function AgentsPage() {
               onClick={() => {
                 setSelectedId(agent.id);
                 setConfirmDelete(false);
+                setCreating(false);
+                setDraft({});
               }}
             >
               <i className="ph ph-robot" aria-hidden="true" />
@@ -175,14 +228,21 @@ export function AgentsPage() {
           </p>
         ) : null}
 
-        {selected ? (
+        {creating ? (
+          <AgentForm onCancel={() => setCreating(false)} onSubmit={onCreate} models={models} />
+        ) : selected ? (
           <>
             <header className="agents__detail-head">
               <div className="agents__avatar">
                 <i className="ph ph-robot" aria-hidden="true" />
               </div>
               <div>
-                <h4>{selected.name}</h4>
+                <input
+                  className="agents__name-input"
+                  aria-label="角色名称"
+                  value={draft.name ?? selected.name}
+                  onChange={(event) => setDraft((d) => ({ ...d, name: event.target.value }))}
+                />
                 <p className="models__detail-sub">
                   {selected.role} · v{selected.ver} ·{' '}
                   {RUNTIME_LABELS[selected.runtime as never] ?? selected.runtime}
@@ -230,17 +290,31 @@ export function AgentsPage() {
               <div className="models__card">
                 <p className="models__label">角色</p>
                 <p className="models__value">{selected.role}</p>
-                <p className="models__label agents__spaced">目标</p>
-                <p className="agents__block">{selected.goal}</p>
+                <label className="models__label agents__spaced" htmlFor="agent-goal">
+                  目标
+                </label>
+                <textarea
+                  id="agent-goal"
+                  className="agents__block agents__editable"
+                  value={draft.goal ?? selected.goal}
+                  onChange={(event) => setDraft((d) => ({ ...d, goal: event.target.value }))}
+                />
               </div>
 
               <div className="models__card">
                 <p className="agents__card-head">
-                  <span className="models__label">性格与指令</span>
+                  <label className="models__label" htmlFor="agent-persona">
+                    性格与指令
+                  </label>
                   <span className="runs__grow" />
                   <span className="models__note">决定语气与判断边界</span>
                 </p>
-                <p className="agents__persona">{selected.persona}</p>
+                <textarea
+                  id="agent-persona"
+                  className="agents__persona agents__editable"
+                  value={draft.persona ?? selected.persona}
+                  onChange={(event) => setDraft((d) => ({ ...d, persona: event.target.value }))}
+                />
               </div>
             </div>
 
@@ -252,7 +326,19 @@ export function AgentsPage() {
               <div className="agents__grid">
                 <div>
                   <p className="models__label">模型</p>
-                  <select className="agents__select" value={selected.modelRef} aria-label="模型">
+                  <select
+                    className="agents__select"
+                    aria-label="模型"
+                    value={draft.modelRef ?? selected.modelRef}
+                    onChange={(event) => setDraft((d) => ({ ...d, modelRef: event.target.value }))}
+                  >
+                    {/* 引用的模型可能已被停用 —— 保留它并标出来，
+                        而不是让下拉悄悄跳到第一项：那会让用户以为已经改绑 */}
+                    {models.some((m) => m.id === (draft.modelRef ?? selected.modelRef)) ? null : (
+                      <option value={draft.modelRef ?? selected.modelRef}>
+                        {selected.modelRef}（已停用或已删除）
+                      </option>
+                    )}
                     {models.map((model) => (
                       <option key={model.id} value={model.id}>
                         {model.name}
@@ -264,8 +350,11 @@ export function AgentsPage() {
                   <p className="models__label">降级模型</p>
                   <select
                     className="agents__select"
-                    value={selected.fallbackModelRef ?? ''}
                     aria-label="降级模型"
+                    value={draft.fallbackModelRef ?? selected.fallbackModelRef ?? ''}
+                    onChange={(event) =>
+                      setDraft((d) => ({ ...d, fallbackModelRef: event.target.value }))
+                    }
                   >
                     <option value="">不降级</option>
                     {models.map((model) => (
@@ -326,6 +415,115 @@ export function AgentsPage() {
         )}
       </section>
     </div>
+  );
+}
+
+export interface NewAgentInput {
+  name: string;
+  role: string;
+  goal: string;
+  persona: string;
+  runtime: string;
+  modelRef: string;
+}
+
+/**
+ * 新建角色表单。
+ *
+ * 最少必填就是「名称 + 角色 + 模型」—— 其余（权限、工具、输出契约）
+ * 建完再在详情区调，逼用户一次填十几个字段只会让人放弃。
+ */
+function AgentForm({
+  models,
+  onSubmit,
+  onCancel,
+}: {
+  models: ModelOption[];
+  onSubmit: (input: NewAgentInput) => void;
+  onCancel: () => void;
+}) {
+  const [name, setName] = useState('');
+  const [role, setRole] = useState('');
+  const [goal, setGoal] = useState('');
+  const [persona, setPersona] = useState('');
+  const [runtime, setRuntime] = useState('acp.claude');
+  const [modelRef, setModelRef] = useState(models[0]?.id ?? '');
+
+  const ready = name.trim() !== '' && role.trim() !== '' && modelRef !== '';
+
+  return (
+    <form
+      className="models__form"
+      aria-label="新建角色"
+      onSubmit={(event) => {
+        event.preventDefault();
+        if (!ready) return;
+        onSubmit({ name: name.trim(), role: role.trim(), goal, persona, runtime, modelRef });
+      }}
+    >
+      <h4>新建角色</h4>
+
+      <label className="models__field">
+        <span>名称</span>
+        <input value={name} onChange={(e) => setName(e.target.value)} required />
+      </label>
+
+      <label className="models__field">
+        <span>角色</span>
+        <input
+          value={role}
+          onChange={(e) => setRole(e.target.value)}
+          placeholder="例如：代码审查者"
+          required
+        />
+      </label>
+
+      <label className="models__field">
+        <span>目标</span>
+        <textarea value={goal} onChange={(e) => setGoal(e.target.value)} rows={2} />
+      </label>
+
+      <label className="models__field">
+        <span>性格与指令</span>
+        <textarea value={persona} onChange={(e) => setPersona(e.target.value)} rows={3} />
+      </label>
+
+      <label className="models__field">
+        <span>Runtime</span>
+        <select value={runtime} onChange={(e) => setRuntime(e.target.value)}>
+          {Object.entries(RUNTIME_LABELS).map(([key, label]) => (
+            <option key={key} value={key}>
+              {label}
+            </option>
+          ))}
+        </select>
+      </label>
+
+      <label className="models__field">
+        <span>模型</span>
+        <select value={modelRef} onChange={(e) => setModelRef(e.target.value)} required>
+          {models.length === 0 ? <option value="">先去「模型」页登记一个</option> : null}
+          {models.map((model) => (
+            <option key={model.id} value={model.id}>
+              {model.name}
+            </option>
+          ))}
+        </select>
+      </label>
+
+      <p className="models__note">
+        权限、工具白名单和输出契约建完再调 —— 新建时默认只读文件、不联网。
+      </p>
+
+      <div className="models__form-actions">
+        <button type="button" className="runs__action" onClick={onCancel}>
+          取消
+        </button>
+        <button type="submit" className="runs__action runs__action--primary" disabled={!ready}>
+          创建
+        </button>
+      </div>
+    </form>
   );
 }
 

@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { getMethodSpec } from '@aiwf/contracts';
 import { fromIpcResult, ipcCommandFor, toIpcInput } from '../src/data/ipc.js';
 
 /**
@@ -204,5 +205,31 @@ describe('契约不会悄悄剥掉后端发的字段', () => {
 
     const result = getMethodSpec('run.list').output.safeParse(converted);
     expect(result.success, result.success ? '' : JSON.stringify(result.error.issues)).toBe(true);
+  });
+});
+
+describe('保存类方法的返回值不能被转换层吃掉', () => {
+  it('agent.update / prompt.update 原样透传 —— 它们返回的是新版本号', () => {
+    // 这两个原本和 delete 归在同一档「返回 { ok: true }」，
+    // 于是后端算出的 ver 在这一层被丢掉，界面拿不到新版本，
+    // 下一次保存必然撞乐观锁 —— 症状是「第二次保存就报冲突」
+    expect(fromIpcResult('agent.update', { ver: 7 })).toEqual({ ver: 7 });
+    expect(fromIpcResult('prompt.update', { ver: 2 })).toEqual({ ver: 2 });
+  });
+
+  it('返回值合契约 —— 转换后能通过 output 校验', () => {
+    for (const method of ['agent.update', 'prompt.update'] as const) {
+      const parsed = getMethodSpec(method).output.safeParse(fromIpcResult(method, { ver: 3 }));
+      expect(parsed.success, `${method} 的返回值不合契约`).toBe(true);
+    }
+  });
+
+  it('prompt.update 的入参保留 ver —— 乐观锁不能被字段转换吃掉', () => {
+    const sent = toIpcInput('prompt.update', {
+      id: 'prompt_1',
+      ver: 4,
+      sections: [{ title: 'Role', body: '正文' }],
+    });
+    expect(sent).toMatchObject({ id: 'prompt_1', ver: 4 });
   });
 });

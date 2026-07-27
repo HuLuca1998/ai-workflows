@@ -155,10 +155,17 @@ describe('角色详情', () => {
     const user = userEvent.setup();
     view();
     await user.click(await screen.findByRole('button', { name: /分析 Agent/u }));
+    // 得先真的改点什么：原样回写没有版本可递增，
+    // 这条用例最初直接点保存，于是测的是一个后端会拒的空更新
+    await user.clear(screen.getByLabelText('目标'));
+    await user.type(screen.getByLabelText('目标'), '改过的目标');
     await user.click(screen.getByRole('button', { name: '保存新版本' }));
 
     await waitFor(() => {
-      expect(call).toHaveBeenCalledWith('agent.update', expect.objectContaining({ id: 'agent_1' }));
+      expect(call).toHaveBeenCalledWith(
+        'agent.update',
+        expect.objectContaining({ id: 'agent_1', ver: 3 }),
+      );
     });
   });
 });

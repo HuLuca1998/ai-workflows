@@ -114,12 +114,13 @@ fn prompt_create(
 fn prompt_update(
     state: State<'_, AppState>,
     id: String,
+    ver: i64,
     name: Option<String>,
     sections_json: Option<String>,
     vars_json: Option<String>,
-) -> IpcResult<()> {
+) -> IpcResult<api::VerOnly> {
     let store = lock(&state)?;
-    api::prompt_update(&store, id, name, sections_json, vars_json)
+    api::prompt_update(&store, id, ver, name, sections_json, vars_json)
 }
 
 #[tauri::command]
@@ -176,16 +177,32 @@ fn agent_create(
 }
 
 #[tauri::command]
+// Tauri 的命令参数必须是扁平的，收不了嵌套结构，所以这里仍逐个列出，
+// 进 core-api 之前再收成 AgentEdit
+#[allow(clippy::too_many_arguments)]
 fn agent_update(
     state: State<'_, AppState>,
     id: String,
+    ver: i64,
     name: Option<String>,
     goal: Option<String>,
     persona: Option<String>,
     model_ref: Option<String>,
-) -> IpcResult<()> {
+    fallback_model_ref: Option<String>,
+) -> IpcResult<api::VerOnly> {
     let store = lock(&state)?;
-    api::agent_update(&store, id, name, goal, persona, model_ref)
+    api::agent_update(
+        &store,
+        id,
+        ver,
+        api::AgentEdit {
+            name,
+            goal,
+            persona,
+            model_ref,
+            fallback_model_ref,
+        },
+    )
 }
 
 #[tauri::command]

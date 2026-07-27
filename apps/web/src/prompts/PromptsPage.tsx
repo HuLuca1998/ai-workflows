@@ -62,7 +62,16 @@ export function PromptsPage() {
   const [tab, setTab] = useState<Tab>('template');
   const [query, setQuery] = useState('');
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  /**
+   * 编辑中的分段。null 表示「没动过」。
+   *
+   * 分段是有序数组而不是一整块文本，正是为了只改其中一段而不动其余 ——
+   * 所以这里存整个数组的副本，改哪段替换哪段。
+   */
+  const [sections, setSections] = useState<Section[] | null>(null);
 
   const load = async (search?: string) => {
     try {
@@ -84,11 +93,45 @@ export function PromptsPage() {
 
   const onSave = async () => {
     if (!selected) return;
+    if (selected.builtin) {
+      setError('内置提示词不能直接改 —— 先「复制」一份，副本是可编辑的。');
+      return;
+    }
+    if (sections === null) {
+      setError('没有改动可保存。');
+      return;
+    }
+
     try {
-      await coreClient.call('prompt.update', {
-        id: selected.id,
-        sections: selected.sections,
-      });
+      // ver 是乐观锁：后端靠它判断这次改动基于哪一版，
+      // 少发的话契约层直接拒，而错误信息说不清是哪个字段
+      await coreClient.call('prompt.update', { id: selected.id, ver: selected.ver, sections });
+      setSections(null);
+      setError(null);
+      await load(query);
+    } catch (err) {
+      setError(describe(err));
+    }
+  };
+
+  const onCreate = async (input: { group: string; name: string }) => {
+    try {
+      const result = (await coreClient.call('prompt.create', {
+        ...input,
+        // 图纸的框架分段就是这五段，新建时把骨架给出来 ——
+        // 让用户对着空白想「该写哪几段」是最没必要的一道坎
+        sections: [
+          { title: 'Role', body: '' },
+          { title: 'Task', body: '' },
+          { title: 'Context', body: '' },
+          { title: 'Constraints', body: '' },
+          { title: 'Output contract', body: '' },
+        ],
+        vars: [],
+      })) as { id: string };
+      setCreating(false);
+      setSelectedId(result.id);
+      setTab('template');
       await load(query);
     } catch (err) {
       setError(describe(err));
@@ -126,7 +169,16 @@ export function PromptsPage() {
         <div className="prompts__list-head">
           <span className="runs__label">提示词库</span>
           <span className="runs__grow" />
-          <button type="button" className="models__add" aria-label="新建提示词">
+          <button
+            type="button"
+            className="models__add"
+            aria-label="新建提示词"
+            onClick={() => {
+              setCreating(true);
+              setSelectedId(null);
+              setSections(null);
+            }}
+          >
             <i className="ph ph-plus" aria-hidden="true" />
           </button>
         </div>
@@ -168,6 +220,8 @@ export function PromptsPage() {
                   onClick={() => {
                     setSelectedId(prompt.id);
                     setConfirmDelete(false);
+                    setCreating(false);
+                    setSections(null);
                     setTab('template');
                   }}
                 >
@@ -196,7 +250,13 @@ export function PromptsPage() {
           </p>
         ) : null}
 
-        {selected ? (
+        {creating ? (
+          <PromptForm
+            groups={[...new Set((items ?? []).map((p) => p.group))]}
+            onCancel={() => setCreating(false)}
+            onSubmit={onCreate}
+          />
+        ) : selected ? (
           <>
             <header className="prompts__detail-head">
               <div>
@@ -256,7 +316,13 @@ export function PromptsPage() {
             </div>
 
             <div className="prompts__body" role="tabpanel">
-              {tab === 'template' ? <TemplateTab sections={selected.sections} /> : null}
+              {tab === 'template' ? (
+                <TemplateTab
+                  sections={sections ?? selected.sections}
+                  readOnly={selected.builtin}
+                  onChange={setSections}
+                />
+              ) : null}
               {tab === 'vars' ? <VarsTab vars={selected.vars} /> : null}
               {tab === 'preview' ? <PreviewTab /> : null}
               {tab === 'versions' ? <VersionsTab prompt={selected} /> : null}
@@ -270,18 +336,105 @@ export function PromptsPage() {
   );
 }
 
-function TemplateTab({ sections }: { sections: readonly Section[] }) {
+function TemplateTab({
+  sections,
+  readOnly,
+  onChange,
+}: {
+  sections: readonly Section[];
+  readOnly: boolean;
+  onChange: (next: Section[]) => void;
+}) {
   return (
     <div className="prompts__sections">
-      {sections.map((section) => (
+      {sections.map((section, index) => (
         <div key={section.title}>
           <p className="prompts__section-head">
-            <span className="runs__label">{section.title}</span>
+            <label className="runs__label" htmlFor={`section-${section.title}`}>
+              {section.title}
+            </label>
           </p>
-          <pre className="prompts__section-body">{section.body}</pre>
+          {readOnly ? (
+            // 内置条目只读：改它等于改掉系统某处调用的行为，而那处调用别人也在用。
+            // 复制一份是有意的一步 —— 副本归用户，改坏了也只影响自己
+            <pre className="prompts__section-body">{section.body}</pre>
+          ) : (
+            <textarea
+              id={`section-${section.title}`}
+              className="prompts__section-body prompts__section-body--edit"
+              value={section.body}
+              rows={Math.max(3, section.body.split('\n').length + 1)}
+              onChange={(event) => {
+                const next = [...sections];
+                next[index] = { title: section.title, body: event.target.value };
+                onChange(next);
+              }}
+            />
+          )}
         </div>
       ))}
     </div>
+  );
+}
+
+/**
+ * 新建提示词表单。
+ *
+ * 分组是自由文本但给出已有的作为建议 —— 逼用户从固定枚举里选，
+ * 新场景就没地方放；完全自由又会让同一类提示词散在三个名字略不同的组里。
+ */
+function PromptForm({
+  groups,
+  onSubmit,
+  onCancel,
+}: {
+  groups: string[];
+  onSubmit: (input: { group: string; name: string }) => void;
+  onCancel: () => void;
+}) {
+  const [group, setGroup] = useState(groups[0] ?? '');
+  const [name, setName] = useState('');
+  const ready = group.trim() !== '' && name.trim() !== '';
+
+  return (
+    <form
+      className="models__form"
+      aria-label="新建提示词"
+      onSubmit={(event) => {
+        event.preventDefault();
+        if (ready) onSubmit({ group: group.trim(), name: name.trim() });
+      }}
+    >
+      <h4>新建提示词</h4>
+
+      <label className="models__field">
+        <span>分组</span>
+        <input list="prompt-groups" value={group} onChange={(e) => setGroup(e.target.value)} />
+        <datalist id="prompt-groups">
+          {groups.map((item) => (
+            <option key={item} value={item} />
+          ))}
+        </datalist>
+      </label>
+
+      <label className="models__field">
+        <span>名称</span>
+        <input value={name} onChange={(e) => setName(e.target.value)} required />
+      </label>
+
+      <p className="models__note">
+        会按框架分段建出骨架：Role / Task / Context / Constraints / Output contract。
+      </p>
+
+      <div className="models__form-actions">
+        <button type="button" className="runs__action" onClick={onCancel}>
+          取消
+        </button>
+        <button type="submit" className="runs__action runs__action--primary" disabled={!ready}>
+          创建
+        </button>
+      </div>
+    </form>
   );
 }
 

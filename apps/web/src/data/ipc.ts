@@ -115,6 +115,8 @@ export function toIpcInput(method: CoreApiMethod, input: unknown): Record<string
     // 会把「分段长什么样」这件事从契约里糊掉
     return {
       ...(record.id ? { id: record.id } : {}),
+      // ver 是乐观锁，不能被这层转换吃掉
+      ...(record.ver === undefined ? {} : { ver: record.ver }),
       ...(record.group ? { group: record.group } : {}),
       ...(record.name ? { name: record.name } : {}),
       ...(record.sections ? { sectionsJson: JSON.stringify(record.sections) } : {}),
@@ -331,9 +333,13 @@ export function fromIpcResult(method: CoreApiMethod, raw: unknown): unknown {
     case 'prompt.duplicate':
       return { id: raw as string };
 
+    // 这两个返回新版本号，不是 { ok }。归错档的话后端算出的 ver
+    // 在这一层就被丢掉了，界面拿不到新版本，下一次保存必然撞乐观锁
     case 'agent.update':
-    case 'agent.delete':
     case 'prompt.update':
+      return raw;
+
+    case 'agent.delete':
     case 'prompt.delete':
     case 'memory.update':
     case 'memory.toggle':

@@ -3904,3 +3904,72 @@
   outline: none;
   min-width: 200px;
 }
+
+/* ── 可编辑的详情字段 ────────────────────────────────────────────────
+   图纸上这些位置是展示态（<p> / <pre>），但那一屏的按钮叫「保存新版本」——
+   没有输入控件的话按钮无事可做。这里把 textarea 的默认外观抹平，
+   让它和只读态在视觉上完全一样，只在获得焦点时用边框色提示可以改。 */
+.agents__editable {
+  width: 100%;
+  font-family: inherit;
+  color: var(--color-neutral-200);
+  background: color-mix(in srgb, var(--color-bg) 82%, #000);
+  resize: vertical;
+  outline: none;
+}
+
+.agents__editable:focus {
+  border-color: var(--color-accent-700);
+}
+
+/* 名称直接就地编辑：图纸上它是标题，所以输入框平时不画边框，
+   悬停才透出一层底，避免整屏突然多出一个表单框 */
+.agents__name-input {
+  font-size: 17px;
+  font-weight: 400;
+  color: var(--color-neutral-100);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  padding: 1px 5px;
+  margin: 0 0 3px -5px;
+  width: 100%;
+  max-width: 320px;
+  outline: none;
+}
+
+.agents__name-input:hover {
+  border-color: var(--color-divider);
+}
+
+.agents__name-input:focus {
+  border-color: var(--color-accent-700);
+  background: color-mix(in srgb, var(--color-bg) 82%, #000);
+}
+
+.prompts__section-body--edit {
+  width: 100%;
+  resize: vertical;
+  outline: none;
+}
+
+.prompts__section-body--edit:focus {
+  border-color: var(--color-accent-700);
+}
+
+.models__field textarea {
+  padding: 8px 11px;
+  border-radius: 8px;
+  border: 1px solid var(--color-divider);
+  background: color-mix(in srgb, var(--color-bg) 82%, #000);
+  color: var(--color-neutral-200);
+  font-family: inherit;
+  font-size: 12.5px;
+  line-height: 1.7;
+  resize: vertical;
+  outline: none;
+}
+
+.models__field textarea:focus {
+  border-color: var(--color-accent-700);
+}

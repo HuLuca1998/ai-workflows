@@ -157,12 +157,15 @@ describe('编辑与版本', () => {
     const user = userEvent.setup();
     view();
     await user.click(await screen.findByRole('button', { name: /分析 · 根因/u }));
+    // 同 agents-page：先改一段再保存。原来直接点保存，
+    // 发出的是一个缺 ver 的原样回写 —— 契约层会拒，而用例照样绿
+    await user.type(screen.getByLabelText('Role'), '（改）');
     await user.click(screen.getByRole('button', { name: '保存新版本' }));
 
     await waitFor(() => {
       expect(call).toHaveBeenCalledWith(
         'prompt.update',
-        expect.objectContaining({ id: 'prompt_1' }),
+        expect.objectContaining({ id: 'prompt_1', ver: 4 }),
       );
     });
   });

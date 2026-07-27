@@ -70,6 +70,7 @@ pub fn dispatch(
         "prompt_update" => to_value(api::prompt_update(
             &store,
             string(input, "id")?,
+            int(input, "ver")?,
             opt_string(input, "name"),
             opt_string(input, "sectionsJson"),
             opt_string(input, "varsJson"),
@@ -99,10 +100,14 @@ pub fn dispatch(
         "agent_update" => to_value(api::agent_update(
             &store,
             string(input, "id")?,
-            opt_string(input, "name"),
-            opt_string(input, "goal"),
-            opt_string(input, "persona"),
-            opt_string(input, "modelRef"),
+            int(input, "ver")?,
+            api::AgentEdit {
+                name: opt_string(input, "name"),
+                goal: opt_string(input, "goal"),
+                persona: opt_string(input, "persona"),
+                model_ref: opt_string(input, "modelRef"),
+                fallback_model_ref: opt_string(input, "fallbackModelRef"),
+            },
         )?),
         "agent_duplicate" => to_value(api::agent_duplicate(
             &store,

@@ -87,15 +87,20 @@ fn 每个_dto_的_option_字段都跳过_null_序列化() {
     // Rust 的 None 会变成 JSON null，而契约里 .optional() 只接受字段缺席。
     // 漏一个字段的症状是整页「返回值不合契约」——而这只在真实跑起来时才出现，
     // 单元测试构造的 DTO 不经过 Zod。
+    // 只看**会被序列化出去**的结构：入参结构（如 AgentEdit）没有 Serialize，
+    // 它的 None 永远不会变成 JSON null，不该被这条规则连坐
     let source = read("crates/core-api/src/lib.rs");
 
     let mut in_struct = false;
+    let mut serializable = false;
     let mut previous = "";
     let mut offenders = Vec::new();
 
     for line in source.lines() {
-        if line.starts_with("pub struct ") && line.ends_with('{') {
-            in_struct = true;
+        if line.starts_with("#[derive(") {
+            serializable = line.contains("Serialize");
+        } else if line.starts_with("pub struct ") && line.ends_with('{') {
+            in_struct = serializable;
         } else if in_struct && line == "}" {
             in_struct = false;
         } else if in_struct

@@ -38,6 +38,20 @@ pub enum StoreError {
 
 pub type Result<T> = std::result::Result<T, StoreError>;
 
+/// [`Store::update_agent`] 的部分更新。
+///
+/// `None` = 这个字段没改。全都摊成参数的话调用点是一串 `None, None, Some(x), None`，
+/// 顺序错了编译器也看不出来 —— goal 和 persona 都是 `Option<&str>`。
+#[derive(Debug, Default, Clone, Copy)]
+pub struct AgentPatch<'a> {
+    pub name: Option<&'a str>,
+    pub goal: Option<&'a str>,
+    pub persona: Option<&'a str>,
+    pub model_ref: Option<&'a str>,
+    /// 空串表示「不降级」——用 `None` 就与「没改」撞了。
+    pub fallback_model_ref: Option<&'a str>,
+}
+
 // ── 行结构 ──────────────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone)]
@@ -1025,27 +1039,48 @@ impl Store {
     ///
     /// 「运行记录会引用当时的提示词版本，历史结果始终可解释」——
     /// 版本号必须往前走，否则没法回答「那次运行用的是哪一版」。
+    /// 更新提示词，**带乐观锁**，返回新版本号。
+    ///
+    /// 运行记录引用的是具体版本号，所以版本必须只增不改 ——
+    /// 同一个 ver 前后指向两份不同的正文，历史结果就再也解释不清了。
     pub fn update_prompt(
         &self,
         id: &str,
+        base_ver: i64,
         name: Option<&str>,
         sections_json: Option<&str>,
         vars_json: Option<&str>,
-    ) -> Result<()> {
+    ) -> Result<i64> {
+        // 校验放在乐观锁之前：非法分段无论版本对不对都不该落库
         if let Some(sections) = sections_json {
             validate_sections(sections)?;
         }
-        self.conn.execute(
+
+        let changed = self.conn.execute(
             "UPDATE prompt SET
-                name          = COALESCE(?2, name),
-                sections_json = COALESCE(?3, sections_json),
-                vars_json     = COALESCE(?4, vars_json),
+                name          = COALESCE(?3, name),
+                sections_json = COALESCE(?4, sections_json),
+                vars_json     = COALESCE(?5, vars_json),
                 ver           = ver + 1,
-                updated_at    = ?5
-             WHERE id = ?1",
-            params![id, name, sections_json, vars_json, now_iso()],
+                updated_at    = ?6
+             WHERE id = ?1 AND ver = ?2",
+            params![id, base_ver, name, sections_json, vars_json, now_iso()],
         )?;
-        Ok(())
+
+        if changed == 0 {
+            let current = self.get_prompt(id)?.map_or(0, |p| p.ver);
+            if current == 0 {
+                return Err(StoreError::NotFound {
+                    kind: "提示词",
+                    id: id.to_string(),
+                });
+            }
+            return Err(StoreError::Invalid(format!(
+                "提示词已被改过：你带的版本是 {base_ver}，当前是 {current}。请重新读取后再改"
+            )));
+        }
+
+        Ok(base_ver + 1)
     }
 
     pub fn duplicate_prompt(&self, id: &str, new_name: &str) -> Result<String> {
@@ -1149,25 +1184,66 @@ impl Store {
     ///
     /// 图纸的按钮是「保存新版本」：节点引用角色而不是复制 Prompt，
     /// 所以运行记录必须能说清当时用的是第几版。
-    pub fn update_agent(
-        &self,
-        id: &str,
-        name: Option<&str>,
-        goal: Option<&str>,
-        persona: Option<&str>,
-        model_ref: Option<&str>,
-    ) -> Result<()> {
-        self.conn.execute(
+    /// 更新 Agent 角色，**带乐观锁**，返回新版本号。
+    ///
+    /// 和 [`Self::update_memory`] 同一套理由：节点引用的是角色 id，
+    /// 所以一次覆盖会同时改掉所有引用它的节点的行为 ——
+    /// 用户和 AI 同时在改时，无声覆盖比冲突报错糟得多。
+    ///
+    /// `fallback_model_ref` 用空串表示「不降级」：用 `None` 的话就与
+    /// 「这个字段没改」撞了，降级模型一旦设上就再也去不掉。
+    pub fn update_agent(&self, id: &str, base_ver: i64, patch: &AgentPatch<'_>) -> Result<i64> {
+        let AgentPatch {
+            name,
+            goal,
+            persona,
+            model_ref,
+            fallback_model_ref,
+        } = *patch;
+
+        let fallback = fallback_model_ref.map(|value| {
+            if value.is_empty() {
+                None
+            } else {
+                Some(value.to_string())
+            }
+        });
+
+        let changed = self.conn.execute(
             "UPDATE agent_profile SET
-                name      = COALESCE(?2, name),
-                goal      = COALESCE(?3, goal),
-                persona   = COALESCE(?4, persona),
-                model_ref = COALESCE(?5, model_ref),
+                name      = COALESCE(?3, name),
+                goal      = COALESCE(?4, goal),
+                persona   = COALESCE(?5, persona),
+                model_ref = COALESCE(?6, model_ref),
+                fallback_model_ref = CASE WHEN ?8 THEN ?7 ELSE fallback_model_ref END,
                 ver       = ver + 1
-             WHERE id = ?1",
-            params![id, name, goal, persona, model_ref],
+             WHERE id = ?1 AND ver = ?2",
+            params![
+                id,
+                base_ver,
+                name,
+                goal,
+                persona,
+                model_ref,
+                fallback.clone().flatten(),
+                fallback.is_some(),
+            ],
         )?;
-        Ok(())
+
+        if changed == 0 {
+            let current = self.get_agent(id)?.map_or(0, |a| a.ver);
+            if current == 0 {
+                return Err(StoreError::NotFound {
+                    kind: "Agent 角色",
+                    id: id.to_string(),
+                });
+            }
+            return Err(StoreError::Invalid(format!(
+                "Agent 角色已被改过：你带的版本是 {base_ver}，当前是 {current}。请重新读取后再改"
+            )));
+        }
+
+        Ok(base_ver + 1)
     }
 
     /// 复制成一个可编辑的副本。用户想基于内置角色改，但不该改到内置本身。

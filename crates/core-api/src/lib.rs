@@ -829,22 +829,35 @@ pub fn agent_create(
 }
 
 /// 更新角色。版本号由存储层递增 —— 图纸的按钮就叫「保存新版本」。
+/// Agent 角色的部分更新。字段与 [`aiwf_store::AgentPatch`] 一一对应，
+/// 只是持有所有权 —— IPC 层拿到的是 `Option<String>`，借不出去。
+#[derive(Debug, Default, Clone)]
+pub struct AgentEdit {
+    pub name: Option<String>,
+    pub goal: Option<String>,
+    pub persona: Option<String>,
+    pub model_ref: Option<String>,
+    pub fallback_model_ref: Option<String>,
+}
+
 pub fn agent_update(
     store: &Store,
     id: String,
-    name: Option<String>,
-    goal: Option<String>,
-    persona: Option<String>,
-    model_ref: Option<String>,
-) -> ApiResult<()> {
-    store.update_agent(
+    base_ver: i64,
+    edit: AgentEdit,
+) -> ApiResult<VerOnly> {
+    let ver = store.update_agent(
         &id,
-        name.as_deref(),
-        goal.as_deref(),
-        persona.as_deref(),
-        model_ref.as_deref(),
+        base_ver,
+        &aiwf_store::AgentPatch {
+            name: edit.name.as_deref(),
+            goal: edit.goal.as_deref(),
+            persona: edit.persona.as_deref(),
+            model_ref: edit.model_ref.as_deref(),
+            fallback_model_ref: edit.fallback_model_ref.as_deref(),
+        },
     )?;
-    Ok(())
+    Ok(VerOnly { ver })
 }
 
 pub fn agent_duplicate(store: &Store, id: String, name: String) -> ApiResult<String> {
@@ -881,21 +894,36 @@ pub fn prompt_create(
     })?)
 }
 
-/// 更新提示词。版本号由存储层递增 —— 运行记录引用的是具体版本。
+/// `{ ver }` —— agent.update / prompt.update 的返回形状。
+///
+/// 保存成功后界面要立刻拿到新版本号做下一次乐观锁，
+/// 不回传的话它只能再查一次列表，而那中间又有一个可被别人插队的窗口。
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VerOnly {
+    pub ver: i64,
+}
+
+/// 更新提示词，返回新版本号。
+///
+/// `base_ver` 是乐观锁：运行记录引用的是具体版本号，同一个 ver 前后
+/// 指向两份不同的正文，历史结果就再也解释不清了。
 pub fn prompt_update(
     store: &Store,
     id: String,
+    base_ver: i64,
     name: Option<String>,
     sections_json: Option<String>,
     vars_json: Option<String>,
-) -> ApiResult<()> {
-    store.update_prompt(
+) -> ApiResult<VerOnly> {
+    let ver = store.update_prompt(
         &id,
+        base_ver,
         name.as_deref(),
         sections_json.as_deref(),
         vars_json.as_deref(),
     )?;
-    Ok(())
+    Ok(VerOnly { ver })
 }
 
 pub fn prompt_duplicate(store: &Store, id: String, name: String) -> ApiResult<String> {

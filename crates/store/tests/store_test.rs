@@ -7,7 +7,8 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 use aiwf_store::{
-    EXPECTED_SCHEMA_VERSION, NewAgent, NewMemory, NewModel, NewPrompt, NewRunEvent, Store,
+    AgentPatch, EXPECTED_SCHEMA_VERSION, NewAgent, NewMemory, NewModel, NewPrompt, NewRunEvent,
+    Store,
 };
 
 fn store() -> Store {
@@ -838,14 +839,34 @@ fn 保存新版本会让版本号递增_而不是覆盖() {
     let id = store.create_agent(&agent("会升级的")).unwrap();
 
     store
-        .update_agent(&id, Some("改了名"), None, None, None)
+        .update_agent(
+            &id,
+            1,
+            &AgentPatch {
+                name: Some("改了名"),
+                goal: None,
+                persona: None,
+                model_ref: None,
+                fallback_model_ref: None,
+            },
+        )
         .unwrap();
     let after = store.get_agent(&id).unwrap().unwrap();
     assert_eq!(after.name, "改了名");
     assert_eq!(after.ver, 2, "保存一次应当到第 2 版");
 
     store
-        .update_agent(&id, None, Some("换个目标"), None, None)
+        .update_agent(
+            &id,
+            2,
+            &AgentPatch {
+                name: None,
+                goal: Some("换个目标"),
+                persona: None,
+                model_ref: None,
+                fallback_model_ref: None,
+            },
+        )
         .unwrap();
     assert_eq!(store.get_agent(&id).unwrap().unwrap().ver, 3);
 }
@@ -856,7 +877,17 @@ fn 部分更新不清空其他字段() {
     let id = store.create_agent(&agent("部分更新")).unwrap();
 
     store
-        .update_agent(&id, Some("新名字"), None, None, None)
+        .update_agent(
+            &id,
+            1,
+            &AgentPatch {
+                name: Some("新名字"),
+                goal: None,
+                persona: None,
+                model_ref: None,
+                fallback_model_ref: None,
+            },
+        )
         .unwrap();
     let after = store.get_agent(&id).unwrap().unwrap();
     assert_eq!(after.goal, "定位根因，给出可验证的方案");
@@ -978,6 +1009,7 @@ fn 保存新版本让版本号递增() {
     store
         .update_prompt(
             &id,
+            1,
             None,
             Some(r#"[{"title":"Role","body":"改过了"}]"#),
             None,
@@ -1327,4 +1359,135 @@ fn 空名字被拒绝() {
 fn 改不存在的工作流报错() {
     let store = Store::open_in_memory().unwrap();
     assert!(store.rename_workflow("wf_nope", "新名").is_err());
+}
+
+// ── Agent 与提示词的乐观锁 ────────────────────────────────────────────────
+//
+// 契约里这两个 update 都要求带 base_ver 并返回新版本，但存储层最初
+// 只是无条件 `ver = ver + 1`。症状在界面上是「保存报『返回值不合契约』」，
+// 而真正的风险是：AI 通过 MCP 的写入会悄悄盖掉用户刚改的内容。
+
+#[test]
+fn 更新_agent_返回新版本号() {
+    let store = Store::open_in_memory().unwrap();
+    let id = store.create_agent(&agent("分析")).unwrap();
+    let before = store.get_agent(&id).unwrap().unwrap().ver;
+
+    let after = store
+        .update_agent(
+            &id,
+            before,
+            &AgentPatch {
+                name: Some("分析 v2"),
+                goal: None,
+                persona: None,
+                model_ref: None,
+                fallback_model_ref: None,
+            },
+        )
+        .unwrap();
+
+    assert_eq!(after, before + 1);
+    assert_eq!(store.get_agent(&id).unwrap().unwrap().name, "分析 v2");
+}
+
+#[test]
+fn 带着旧版本号更新_agent_会被拒() {
+    let store = Store::open_in_memory().unwrap();
+    let id = store.create_agent(&agent("分析")).unwrap();
+    let base = store.get_agent(&id).unwrap().unwrap().ver;
+
+    // 别人先改了一版
+    store
+        .update_agent(
+            &id,
+            base,
+            &AgentPatch {
+                name: Some("别人改的"),
+                goal: None,
+                persona: None,
+                model_ref: None,
+                fallback_model_ref: None,
+            },
+        )
+        .unwrap();
+
+    // 我拿着过期的 base 再改 —— 必须拒，否则「别人改的」会被无声盖掉
+    let err = store
+        .update_agent(
+            &id,
+            base,
+            &AgentPatch {
+                name: Some("我改的"),
+                goal: None,
+                persona: None,
+                model_ref: None,
+                fallback_model_ref: None,
+            },
+        )
+        .unwrap_err();
+    assert!(format!("{err}").contains("已被改过"), "实际：{err}");
+    assert_eq!(store.get_agent(&id).unwrap().unwrap().name, "别人改的");
+}
+
+#[test]
+fn 更新_agent_能清空降级模型() {
+    let store = Store::open_in_memory().unwrap();
+    let mut input = agent("分析");
+    input.fallback_model_ref = Some("model_sonnet".to_string());
+    let id = store.create_agent(&input).unwrap();
+    let base = store.get_agent(&id).unwrap().unwrap().ver;
+
+    // 空字符串表示「不降级」。用 None 表示的话就与「这个字段没改」撞了，
+    // 于是降级模型一旦设上就再也去不掉
+    store
+        .update_agent(
+            &id,
+            base,
+            &AgentPatch {
+                name: None,
+                goal: None,
+                persona: None,
+                model_ref: None,
+                fallback_model_ref: Some(""),
+            },
+        )
+        .unwrap();
+    assert_eq!(
+        store.get_agent(&id).unwrap().unwrap().fallback_model_ref,
+        None
+    );
+}
+
+#[test]
+fn 更新提示词返回新版本号并带乐观锁() {
+    let store = Store::open_in_memory().unwrap();
+    let id = store.create_prompt(&prompt("根因")).unwrap();
+    let base = store.get_prompt(&id).unwrap().unwrap().ver;
+
+    let sections = r#"[{"title":"Role","body":"改过的"}]"#;
+    let after = store
+        .update_prompt(&id, base, None, Some(sections), None)
+        .unwrap();
+    assert_eq!(after, base + 1);
+
+    let err = store
+        .update_prompt(&id, base, None, Some(sections), None)
+        .unwrap_err();
+    assert!(format!("{err}").contains("已被改过"), "实际：{err}");
+}
+
+#[test]
+fn 更新提示词仍然拒绝非法分段() {
+    let store = Store::open_in_memory().unwrap();
+    let id = store.create_prompt(&prompt("根因")).unwrap();
+    let base = store.get_prompt(&id).unwrap().unwrap().ver;
+
+    // 乐观锁不能把原有的分段校验挤掉
+    assert!(
+        store
+            .update_prompt(&id, base, None, Some("不是数组"), None)
+            .is_err()
+    );
+    assert_eq!(store.get_prompt(&id).unwrap().unwrap().ver, base);
 }
