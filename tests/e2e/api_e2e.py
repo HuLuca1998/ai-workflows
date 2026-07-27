@@ -474,8 +474,10 @@ def suite_git_worktree(api, report, workdir, repo):
                         "branchTemplate": branch}},
             {"id": "edit", "type": "script.shell", "title": "在 worktree 里改代码",
              "position": {"x": 500, "y": 0},
+             # 改一个任何仓库都有的文件：写死 src/cache.js 的话，
+             # 这条用例就只能在特定夹具仓库里跑（CI 里现建的仓库没有它）
              "config": {"interpreter": "bash",
-                        "script": "cd ${wt.success.path} && echo '// 由 AI Workflows 修改' >> src/cache.js && git add -A && git -c user.email=e2e@test -c user.name=E2E commit -qm '测试提交' && git log --oneline -1",
+                        "script": "cd ${wt.success.path} && echo '由 AI Workflows 端到端测试写入' >> AIWF_E2E.txt && git add -A && git -c user.email=e2e@test -c user.name=E2E commit -qm '测试提交' && git log --oneline -1",
                         "timeoutMs": 30000}},
         ],
         "edges": [
