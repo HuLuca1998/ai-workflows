@@ -118,23 +118,32 @@ test.describe('右键菜单', () => {
 });
 
 test.describe('导入导出', () => {
-  test('导入一份合法的图会建出新工作流', async ({ page }) => {
+  test('导入一份合法的图会建出新工作流，并直接进编辑器', async ({ page }) => {
     await page.goto('/');
+    // 等列表加载完再计数：页面刚打开时是 0，拿它当基准会一直对不上
     const rows = page.locator('.wf-table tbody tr');
+    await expect(rows.first()).toBeVisible({ timeout: 15_000 });
     const before = await rows.count();
 
     await page.getByLabel('导入工作流文件').setInputFiles({
-      name: 'imported.json',
+      name: `导入的流程-${Date.now()}.json`,
       mimeType: 'application/json',
       buffer: Buffer.from(JSON.stringify(TWO_NODES)),
     });
 
-    await expect(rows).toHaveCount(before + 1, { timeout: 15_000 });
+    // 导入成功会直接进编辑器 —— 导入的意图本来就是去编辑它
+    await expect(page).toHaveURL(/\/editor\/wf_/, { timeout: 15_000 });
+    await expect(page.locator('.react-flow__node')).toHaveCount(2);
+
+    // 回概览页确认真的多了一条
+    await page.goto('/');
+    await expect(rows).toHaveCount(before + 1);
   });
 
   test('导入坏图时说清原因，不建出半个工作流', async ({ page }) => {
     await page.goto('/');
     const rows = page.locator('.wf-table tbody tr');
+    await expect(rows.first()).toBeVisible({ timeout: 15_000 });
     const before = await rows.count();
 
     await page.getByLabel('导入工作流文件').setInputFiles({
