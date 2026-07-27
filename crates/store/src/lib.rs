@@ -163,6 +163,71 @@ fn map_model_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<ModelRow> {
     })
 }
 
+/// 登记一个 Agent 角色。
+///
+/// 「节点引用角色而不是复制 Prompt；角色升级后引用它的节点一并生效」——
+/// 所以角色是一等实体，有自己的版本号。
+pub struct NewAgent {
+    pub name: String,
+    pub role: String,
+    pub goal: String,
+    pub persona: String,
+    pub runtime: String,
+    pub model_ref: String,
+    pub fallback_model_ref: Option<String>,
+    pub tools: Vec<String>,
+    /// 权限（引擎强制，Prompt 无法越权）。整体存一个 JSON：
+    /// 拆成列会让「权限」这件事散落在七八个字段上，而它需要被整体校验。
+    pub capabilities_json: String,
+    pub output_contract: String,
+    pub turn_limit: i64,
+    pub timeout_ms: i64,
+}
+
+#[derive(Debug, Clone)]
+pub struct AgentRow {
+    pub id: String,
+    pub name: String,
+    pub role: String,
+    pub goal: String,
+    pub persona: String,
+    pub runtime: String,
+    pub model_ref: String,
+    pub fallback_model_ref: Option<String>,
+    pub tools: Vec<String>,
+    pub capabilities_json: String,
+    pub output_contract: String,
+    pub turn_limit: i64,
+    pub timeout_ms: i64,
+    pub ver: i64,
+    pub builtin: bool,
+}
+
+const AGENT_COLUMNS: &str = "id, name, role, goal, persona, runtime, model_ref,
+     fallback_model_ref, tools_json, policy_json, output_contract,
+     turn_limit, timeout_ms, ver, builtin";
+
+fn map_agent_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<AgentRow> {
+    let tools: String = row.get(8)?;
+    Ok(AgentRow {
+        id: row.get(0)?,
+        name: row.get(1)?,
+        role: row.get(2)?,
+        goal: row.get(3)?,
+        persona: row.get(4)?,
+        runtime: row.get(5)?,
+        model_ref: row.get(6)?,
+        fallback_model_ref: row.get(7)?,
+        tools: serde_json::from_str(&tools).unwrap_or_default(),
+        capabilities_json: row.get(9)?,
+        output_contract: row.get(10)?,
+        turn_limit: row.get(11)?,
+        timeout_ms: row.get(12)?,
+        ver: row.get(13)?,
+        builtin: row.get::<_, i64>(14)? != 0,
+    })
+}
+
 /// 一次运行，带上工作流名。
 #[derive(Debug, Clone)]
 pub struct RunRow {
@@ -616,6 +681,138 @@ impl Store {
             .map_err(StoreError::from)
     }
 
+    // ── Agent 角色 ───────────────────────────────────────────────────────
+
+    pub fn create_agent(&self, agent: &NewAgent) -> Result<String> {
+        self.insert_agent(agent, false)
+    }
+
+    /// 内置角色：随应用附带，用户可以复制但不能删。
+    pub fn create_builtin_agent(&self, agent: &NewAgent) -> Result<String> {
+        self.insert_agent(agent, true)
+    }
+
+    fn insert_agent(&self, agent: &NewAgent, builtin: bool) -> Result<String> {
+        validate_runtime(&agent.runtime)?;
+        if agent.turn_limit <= 0 || agent.timeout_ms <= 0 {
+            return Err(StoreError::Invalid("轮次上限与超时必须是正数".to_string()));
+        }
+
+        let id = new_id("agent");
+        let tools =
+            serde_json::to_string(&agent.tools).map_err(|e| StoreError::Invalid(e.to_string()))?;
+        self.conn.execute(
+            "INSERT INTO agent_profile(id, name, role, goal, persona, runtime, model_ref,
+                                       fallback_model_ref, tools_json, policy_json,
+                                       output_contract, turn_limit, timeout_ms, ver, builtin)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, 1, ?14)",
+            params![
+                id,
+                agent.name,
+                agent.role,
+                agent.goal,
+                agent.persona,
+                agent.runtime,
+                agent.model_ref,
+                agent.fallback_model_ref,
+                tools,
+                agent.capabilities_json,
+                agent.output_contract,
+                agent.turn_limit,
+                agent.timeout_ms,
+                i64::from(builtin),
+            ],
+        )?;
+        Ok(id)
+    }
+
+    pub fn get_agent(&self, id: &str) -> Result<Option<AgentRow>> {
+        let sql = format!("SELECT {AGENT_COLUMNS} FROM agent_profile WHERE id = ?1");
+        let row = self
+            .conn
+            .query_row(&sql, params![id], map_agent_row)
+            .optional()?;
+        Ok(row)
+    }
+
+    /// 列出角色，按名字排序 —— 顺序跳来跳去会让人找不到刚建的那条。
+    pub fn list_agents(&self) -> Result<Vec<AgentRow>> {
+        let sql = format!("SELECT {AGENT_COLUMNS} FROM agent_profile ORDER BY name ASC");
+        let mut stmt = self.conn.prepare(&sql)?;
+        let rows = stmt.query_map([], map_agent_row)?;
+        rows.collect::<std::result::Result<Vec<_>, _>>()
+            .map_err(StoreError::from)
+    }
+
+    /// 更新角色，**版本号递增**。
+    ///
+    /// 图纸的按钮是「保存新版本」：节点引用角色而不是复制 Prompt，
+    /// 所以运行记录必须能说清当时用的是第几版。
+    pub fn update_agent(
+        &self,
+        id: &str,
+        name: Option<&str>,
+        goal: Option<&str>,
+        persona: Option<&str>,
+        model_ref: Option<&str>,
+    ) -> Result<()> {
+        self.conn.execute(
+            "UPDATE agent_profile SET
+                name      = COALESCE(?2, name),
+                goal      = COALESCE(?3, goal),
+                persona   = COALESCE(?4, persona),
+                model_ref = COALESCE(?5, model_ref),
+                ver       = ver + 1
+             WHERE id = ?1",
+            params![id, name, goal, persona, model_ref],
+        )?;
+        Ok(())
+    }
+
+    /// 复制成一个可编辑的副本。用户想基于内置角色改，但不该改到内置本身。
+    pub fn duplicate_agent(&self, id: &str, new_name: &str) -> Result<String> {
+        let source = self.get_agent(id)?.ok_or(StoreError::NotFound {
+            kind: "Agent 角色",
+            id: id.to_string(),
+        })?;
+
+        self.insert_agent(
+            &NewAgent {
+                name: new_name.to_string(),
+                role: source.role,
+                goal: source.goal,
+                persona: source.persona,
+                runtime: source.runtime,
+                model_ref: source.model_ref,
+                fallback_model_ref: source.fallback_model_ref,
+                tools: source.tools,
+                capabilities_json: source.capabilities_json,
+                output_contract: source.output_contract,
+                turn_limit: source.turn_limit,
+                timeout_ms: source.timeout_ms,
+            },
+            false,
+        )
+    }
+
+    /// 删除角色。内置的不能删 —— 引用它的节点会失效，
+    /// 而用户往往意识不到某个节点在用它。
+    pub fn delete_agent(&self, id: &str) -> Result<()> {
+        let agent = self.get_agent(id)?.ok_or(StoreError::NotFound {
+            kind: "Agent 角色",
+            id: id.to_string(),
+        })?;
+        if agent.builtin {
+            return Err(StoreError::Invalid(format!(
+                "{} 是内置角色，不能删除。可以复制一份再改",
+                agent.name
+            )));
+        }
+        self.conn
+            .execute("DELETE FROM agent_profile WHERE id = ?1", params![id])?;
+        Ok(())
+    }
+
     // ── 模型登记 ─────────────────────────────────────────────────────────
 
     pub fn create_model(&self, model: &NewModel) -> Result<String> {
@@ -775,18 +972,21 @@ impl Store {
     /// 明确要求把状态改成这个」（取消、恢复），这个是「执行到这一步了」。
     /// 后者必须让位于前者 —— 否则取消运行时，执行线程会把 cancelled
     /// 覆盖回 running，运行就再也停不下来。
+    /// 返回是否真的更新了。**调用方必须看这个返回值**：
+    /// 更新 0 行意味着运行已经进入终态（多半是刚被取消），
+    /// 此时继续推进就会在取消之后仍然产生副作用。
     pub fn advance_run_status(
         &self,
         run_id: &str,
         status: &str,
         current_node: Option<&str>,
-    ) -> Result<()> {
-        self.conn.execute(
+    ) -> Result<bool> {
+        let changed = self.conn.execute(
             "UPDATE run SET status = ?2, current_node = ?3
              WHERE id = ?1 AND status NOT IN ('succeeded', 'failed', 'cancelled')",
             params![run_id, status, current_node],
         )?;
-        Ok(())
+        Ok(changed > 0)
     }
 
     /// Run 引用的图：优先用已发布版本，其次用草稿修订。

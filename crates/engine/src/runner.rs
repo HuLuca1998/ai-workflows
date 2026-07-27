@@ -25,6 +25,18 @@ pub enum RunError {
     GraphInvalid(String),
     #[error("无法建立执行计划：{0}")]
     Plan(#[from] crate::plan::PlanError),
+    #[error("运行 {run_id} 当前是 {status}，不能{action}")]
+    WrongState {
+        run_id: String,
+        status: String,
+        action: &'static str,
+    },
+    #[error("运行 {run_id} 当前等的是节点 {expected:?}，不是 {got}")]
+    NotPendingApproval {
+        run_id: String,
+        expected: Option<String>,
+        got: String,
+    },
     #[error("节点执行失败：{0}")]
     Executor(#[from] crate::executor::ExecutorError),
 }
@@ -188,7 +200,7 @@ impl Runner {
                     "没有可继续的节点"
                 },
             )?;
-            store.advance_run_status(run_id, status, None)?;
+            let _ = store.advance_run_status(run_id, status, None)?;
             // 状态可能已被取消抢先写成终态，回读一次而不是想当然
             return Ok(StepResult::Finished {
                 status: self.status(store, run_id)?,
@@ -199,7 +211,14 @@ impl Runner {
             .node(&node_id)
             .ok_or_else(|| RunError::GraphInvalid(format!("计划里的节点 {node_id} 不在图中")))?;
 
-        store.advance_run_status(run_id, "running", Some(&node_id))?;
+        // advance_run_status 在终态时不更新任何行。不检查的话，
+        // 一个刚被取消的运行仍会继续起新节点 —— 取消之后还产生副作用。
+        if !store.advance_run_status(run_id, "running", Some(&node_id))? {
+            return Ok(StepResult::Finished {
+                status: self.status(store, run_id)?,
+            });
+        }
+
         self.emit_node(
             store,
             run_id,
@@ -241,7 +260,7 @@ impl Runner {
                     "engine",
                     &format!("节点 {node_id} 失败"),
                 )?;
-                store.advance_run_status(run_id, "failed", Some(&node_id))?;
+                let _ = store.advance_run_status(run_id, "failed", Some(&node_id))?;
                 Ok(StepResult::Finished {
                     // 可能已被取消抢先写成终态，回读而不是想当然
                     status: self.status(store, run_id)?,
@@ -268,7 +287,7 @@ impl Runner {
 
                 // 检查点必须在挂起时落下：杀掉应用后靠它回到同一位置
                 self.checkpoint(store, run_id, scope, Some(&node_id))?;
-                store.advance_run_status(run_id, "waiting_approval", Some(&node_id))?;
+                let _ = store.advance_run_status(run_id, "waiting_approval", Some(&node_id))?;
 
                 Ok(StepResult::WaitingApproval { node_id })
             }
@@ -318,6 +337,27 @@ impl Runner {
         node_id: &str,
         decision: &str,
     ) -> Result<()> {
+        // 先校验再写事件。反过来的话，一个指向下游节点的审批会直接写出
+        // node.succeeded —— 而 completed_nodes 信任所有 node.succeeded，
+        // 那个节点的真实脚本就被整个跳过了。
+        let status = self.status(store, run_id)?;
+        if status != "waiting_approval" {
+            return Err(RunError::WrongState {
+                run_id: run_id.to_string(),
+                status,
+                action: "提交审批决定",
+            });
+        }
+
+        let pending = self.pending_approval(store, run_id)?;
+        if pending.as_deref() != Some(node_id) {
+            return Err(RunError::NotPendingApproval {
+                run_id: run_id.to_string(),
+                expected: pending,
+                got: node_id.to_string(),
+            });
+        }
+
         self.emit_node(
             store,
             run_id,
@@ -336,7 +376,7 @@ impl Runner {
                 "engine",
                 "审批通过",
             )?;
-            store.advance_run_status(run_id, "running", Some(node_id))?;
+            let _ = store.advance_run_status(run_id, "running", Some(node_id))?;
         } else {
             self.emit_node(
                 store,
@@ -347,12 +387,25 @@ impl Runner {
                 &format!("审批未通过：{decision}"),
             )?;
             self.emit(store, run_id, "run.failed", None, "engine", "审批未通过")?;
-            store.advance_run_status(run_id, "failed", Some(node_id))?;
+            let _ = store.advance_run_status(run_id, "failed", Some(node_id))?;
         }
         Ok(())
     }
 
+    /// 取消运行。已经结束的运行不能再取消 —— 终态没有出边。
+    ///
+    /// 迟到的取消（网络重试、用户在旧页面上点的）如果能改状态，
+    /// 运行记录就自相矛盾了：一串 succeeded 事件后面跟着一条 cancelled。
     pub fn cancel(&self, store: &Store, run_id: &str) -> Result<()> {
+        let status = self.status(store, run_id)?;
+        if is_terminal(&status) {
+            return Err(RunError::WrongState {
+                run_id: run_id.to_string(),
+                status,
+                action: "取消",
+            });
+        }
+
         self.emit(
             store,
             run_id,
@@ -537,4 +590,9 @@ impl Runner {
     ) -> Result<()> {
         self.emit(store, run_id, kind, Some(node_id), actor, summary)
     }
+}
+
+/// 终态：没有出边。恢复要走显式的 `resume`，而它只接受 failed。
+pub fn is_terminal(status: &str) -> bool {
+    matches!(status, "succeeded" | "failed" | "cancelled")
 }

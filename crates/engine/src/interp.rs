@@ -104,6 +104,20 @@ impl Scope {
 }
 
 pub fn interpolate(template: &str, scope: &Scope) -> Result<String> {
+    interpolate_with(template, scope, |value| value.to_string())
+}
+
+/// 带转义器的插值。
+///
+/// 转义发生在**值进入目标语境的那一刻**，而不是插值本身：
+/// 同一个 `${input.repo}` 拼进 shell 脚本时必须转义，
+/// 作为 `Command` 的参数传给 git 时**不能**转义（那会让路径里多出引号）。
+/// 把转义塞进 interpolate 会让后者也坏掉。
+pub fn interpolate_with(
+    template: &str,
+    scope: &Scope,
+    escape: impl Fn(&str) -> String,
+) -> Result<String> {
     let mut out = String::with_capacity(template.len());
     let mut rest = template;
 
@@ -121,7 +135,7 @@ pub fn interpolate(template: &str, scope: &Scope) -> Result<String> {
             .ok_or_else(|| InterpError::Undefined {
                 reference: reference.to_string(),
             })?;
-        out.push_str(&stringify(&value));
+        out.push_str(&escape(&stringify(&value)));
         rest = &after[end + 1..];
     }
 
@@ -151,4 +165,28 @@ fn dig(value: &Value, path: &str) -> Option<Value> {
         current = current.get(segment)?;
     }
     Some(current.clone())
+}
+
+/// POSIX shell 的单引号转义。
+///
+/// 用单引号包住整个值，值里的单引号写成 `'\''`（关引号、转义的引号、再开引号）。
+/// 单引号内除了单引号本身没有任何元字符会被解释，所以 `;`、`$()`、反引号、
+/// 换行全部失去特殊含义。
+///
+/// 代价是插值出来的值永远是**一个**参数：
+/// `${input.flags}` 填 `--a --b` 会得到一个叫 `--a --b` 的参数，而不是两个。
+/// 这是刻意的 —— 想拼多个参数就该在脚本里自己展开，
+/// 而不是让一个输入框的内容决定命令的结构。
+pub fn shell_quote(value: &str) -> String {
+    let mut quoted = String::with_capacity(value.len() + 2);
+    quoted.push('\'');
+    for ch in value.chars() {
+        if ch == '\'' {
+            quoted.push_str("'\\''");
+        } else {
+            quoted.push(ch);
+        }
+    }
+    quoted.push('\'');
+    quoted
 }

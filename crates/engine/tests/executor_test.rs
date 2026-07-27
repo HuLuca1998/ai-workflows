@@ -308,3 +308,132 @@ fn 失败的脚本也要留下日志产物() {
             .contains("诊断信息")
     );
 }
+
+// ── 命令注入（codex 审查指出，验证后确认属实）─────────────────────────────
+
+#[test]
+fn 启动参数里的分号不能变成另一条命令() {
+    // 工作流作者写脚本是本来就有的权限；但只拥有「运行工作流」能力的人
+    // 不该借启动参数拿到同样的权限。M4 的主管 AI 也会启动运行 ——
+    // 那时这个口子等于把命令执行权交给了模型的输出。
+    let dir = std::env::temp_dir().join("aiwf_inject");
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let marker = dir.join("pwned.txt");
+
+    let mut scope = Scope::new("run_inject");
+    scope.set_inputs(serde_json::json!({
+        "name": format!("x; touch {} #", marker.display()),
+    }));
+
+    NodeExecutor::new(dir.clone())
+        .execute(
+            &node(
+                "greet",
+                "script.shell",
+                serde_json::json!({
+                    "interpreter": "bash",
+                    "script": "echo hello ${input.name}",
+                    "timeoutMs": 5000
+                }),
+            ),
+            &mut scope,
+        )
+        .unwrap();
+
+    assert!(
+        !marker.exists(),
+        "启动参数里的 `; touch` 被当成了另一条命令执行"
+    );
+}
+
+#[test]
+fn 上游节点的输出里的反引号不会被求值() {
+    let dir = std::env::temp_dir().join("aiwf_inject2");
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let marker = dir.join("subshell.txt");
+
+    let mut scope = Scope::new("run_inject2");
+    scope.set_node_output(
+        "up",
+        "success",
+        serde_json::json!({ "stdout": format!("$(touch {})", marker.display()) }),
+    );
+
+    NodeExecutor::new(dir.clone())
+        .execute(
+            &node(
+                "consume",
+                "script.shell",
+                serde_json::json!({
+                    "interpreter": "bash",
+                    "script": "echo ${up.success.stdout}",
+                    "timeoutMs": 5000
+                }),
+            ),
+            &mut scope,
+        )
+        .unwrap();
+
+    assert!(!marker.exists(), "上游输出里的 $() 被当成命令替换执行了");
+}
+
+#[test]
+fn 插值出的值原样传给脚本_不因转义而变形() {
+    // 转义不能把值改掉：脚本里 echo 出来的必须还是用户填的那串
+    let dir = std::env::temp_dir().join("aiwf_inject3");
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+
+    let mut scope = Scope::new("run_inject3");
+    scope.set_inputs(serde_json::json!({ "text": "a b'c\"d;e$f" }));
+
+    NodeExecutor::new(dir)
+        .execute(
+            &node(
+                "echo",
+                "script.shell",
+                serde_json::json!({
+                    "interpreter": "bash",
+                    "script": "printf '%s' ${input.text}",
+                    "timeoutMs": 5000
+                }),
+            ),
+            &mut scope,
+        )
+        .unwrap();
+
+    let out = interpolate("${echo.success.stdout}", &scope).unwrap();
+    assert_eq!(out, "a b'c\"d;e$f", "转义把值改坏了");
+}
+
+#[test]
+fn 换行也不能拆出新的一行命令() {
+    let dir = std::env::temp_dir().join("aiwf_inject4");
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let marker = dir.join("newline.txt");
+
+    let mut scope = Scope::new("run_inject4");
+    scope.set_inputs(serde_json::json!({
+        "name": format!("x\ntouch {}", marker.display()),
+    }));
+
+    NodeExecutor::new(dir.clone())
+        .execute(
+            &node(
+                "greet",
+                "script.shell",
+                serde_json::json!({
+                    "interpreter": "bash",
+                    "script": "echo ${input.name}",
+                    "timeoutMs": 5000
+                }),
+            ),
+            &mut scope,
+        )
+        .unwrap();
+
+    assert!(!marker.exists(), "换行被当成了命令分隔符");
+}

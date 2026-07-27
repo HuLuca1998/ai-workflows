@@ -10,7 +10,7 @@ use std::time::Duration;
 use crate::artifacts::{ArtifactKind, ArtifactStore};
 use crate::exec::{ExecOutcome, ScriptRequest, run_script};
 use crate::graph::GraphNode;
-use crate::interp::{Scope, interpolate};
+use crate::interp::{Scope, interpolate, interpolate_with, shell_quote};
 use crate::runner::NodeOutcome;
 use crate::worktree::{WorktreeRequest, create_worktree};
 
@@ -88,7 +88,10 @@ impl NodeExecutor {
 
     fn run_shell(&self, node: &GraphNode, scope: &mut Scope) -> Result<NodeOutcome> {
         let script_raw = self.require_str(node, "script")?;
-        let script = match interpolate(&script_raw, scope) {
+        // 插值结果直接进 bash -c：不转义的话，启动参数里一个 `; rm -rf ~`
+        // 就是另一条命令。工作流作者写脚本本来就有这个权限，
+        // 但只拥有「运行」能力的人不该借参数拿到它
+        let script = match interpolate_with(&script_raw, scope, shell_quote) {
             Ok(script) => script,
             // 未解析的引用绝不能带进 shell：`rm -rf ${input.nope}/x` 会真的执行
             Err(error) => {

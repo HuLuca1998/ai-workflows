@@ -91,8 +91,10 @@ impl From<aiwf_engine::supervisor::SupervisorError> for ApiError {
                 aiwf_store::StoreError::Sqlite(_) => ("INTERNAL", false),
                 _ => ("VALIDATION", false),
             },
-            // preflight 不过属于用户能修的问题
+            // preflight 不过、状态不对、审批指向错节点，都属于用户能修的问题
             E::Run(_) => ("VALIDATION", false),
+            // 已经在跑了：这是调用方的状态判断问题，重试没有意义
+            E::AlreadyRunning(_) => ("VALIDATION", false),
             E::Poisoned => ("INTERNAL", false),
         };
         Self {

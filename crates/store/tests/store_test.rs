@@ -6,7 +6,7 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
-use aiwf_store::{EXPECTED_SCHEMA_VERSION, NewModel, NewRunEvent, Store};
+use aiwf_store::{EXPECTED_SCHEMA_VERSION, NewAgent, NewModel, NewRunEvent, Store};
 
 fn store() -> Store {
     Store::open_in_memory().expect("打开内存库")
@@ -783,4 +783,159 @@ fn 契约里的每一种接入方式都能登记() {
             .unwrap_or_else(|e| panic!("{runtime} 应当可以登记：{e}"));
     }
     assert_eq!(store.list_models(false).unwrap().len(), 3);
+}
+
+// ── Agent 角色（M3）────────────────────────────────────────────────────────
+
+fn agent(name: &str) -> NewAgent {
+    NewAgent {
+        name: name.to_string(),
+        role: "分析师".to_string(),
+        goal: "定位根因，给出可验证的方案".to_string(),
+        persona: "先读代码再下结论；不确定时说不确定。".to_string(),
+        runtime: "acp.claude".to_string(),
+        model_ref: "model_opus".to_string(),
+        fallback_model_ref: None,
+        tools: vec!["read".to_string(), "grep".to_string()],
+        capabilities_json: r#"{"file":"read_only","network":"none"}"#.to_string(),
+        output_contract: "结构化 JSON".to_string(),
+        turn_limit: 12,
+        timeout_ms: 900_000,
+    }
+}
+
+#[test]
+fn 登记_agent_后能按_id_读回全部字段() {
+    let store = Store::open_in_memory().unwrap();
+    let id = store.create_agent(&agent("分析 Agent")).unwrap();
+
+    let found = store.get_agent(&id).unwrap().expect("应当能读到");
+    assert_eq!(found.name, "分析 Agent");
+    assert_eq!(found.role, "分析师");
+    assert_eq!(found.runtime, "acp.claude");
+    assert_eq!(found.tools, vec!["read", "grep"]);
+    assert_eq!(found.turn_limit, 12);
+    // 新建的是第 1 版
+    assert_eq!(found.ver, 1);
+}
+
+#[test]
+fn agent_的接入方式也要在契约枚举里() {
+    let store = Store::open_in_memory().unwrap();
+    let mut bad = agent("野路子");
+    bad.runtime = "acp_claude_code".to_string();
+    let error = store.create_agent(&bad).unwrap_err().to_string();
+    assert!(error.contains("acp.claude"), "错误信息实际：{error}");
+}
+
+#[test]
+fn 保存新版本会让版本号递增_而不是覆盖() {
+    // 图纸的按钮是「保存新版本」——角色升级后引用它的节点一并生效，
+    // 所以历史版本号必须能往前走，运行记录才能说清「用的是第几版」
+    let store = Store::open_in_memory().unwrap();
+    let id = store.create_agent(&agent("会升级的")).unwrap();
+
+    store
+        .update_agent(&id, Some("改了名"), None, None, None)
+        .unwrap();
+    let after = store.get_agent(&id).unwrap().unwrap();
+    assert_eq!(after.name, "改了名");
+    assert_eq!(after.ver, 2, "保存一次应当到第 2 版");
+
+    store
+        .update_agent(&id, None, Some("换个目标"), None, None)
+        .unwrap();
+    assert_eq!(store.get_agent(&id).unwrap().unwrap().ver, 3);
+}
+
+#[test]
+fn 部分更新不清空其他字段() {
+    let store = Store::open_in_memory().unwrap();
+    let id = store.create_agent(&agent("部分更新")).unwrap();
+
+    store
+        .update_agent(&id, Some("新名字"), None, None, None)
+        .unwrap();
+    let after = store.get_agent(&id).unwrap().unwrap();
+    assert_eq!(after.goal, "定位根因，给出可验证的方案");
+    assert_eq!(after.tools, vec!["read", "grep"]);
+}
+
+#[test]
+fn 列出_agent_顺序稳定() {
+    let store = Store::open_in_memory().unwrap();
+    store.create_agent(&agent("乙")).unwrap();
+    store.create_agent(&agent("甲")).unwrap();
+
+    let first: Vec<String> = store
+        .list_agents()
+        .unwrap()
+        .into_iter()
+        .map(|a| a.name)
+        .collect();
+    let second: Vec<String> = store
+        .list_agents()
+        .unwrap()
+        .into_iter()
+        .map(|a| a.name)
+        .collect();
+    // 要的是「稳定」，不是某个特定的中文序 —— SQLite 按 UTF-8 字节排，
+    // 乙(U+4E59) 在 甲(U+7532) 前面，与拼音、笔画都不一致。
+    // 界面上要按中文排的话得在前端做
+    assert_eq!(first, second, "两次列出的顺序应当一致");
+    assert_eq!(first.len(), 2);
+}
+
+#[test]
+fn 内置角色不能删() {
+    // 「节点引用角色而不是复制 Prompt」——删掉内置角色会让引用它的节点失效，
+    // 而用户往往意识不到某个节点在用它
+    let store = Store::open_in_memory().unwrap();
+    let id = store.create_builtin_agent(&agent("内置分析师")).unwrap();
+
+    let error = store.delete_agent(&id).unwrap_err().to_string();
+    assert!(error.contains("内置"), "错误信息实际：{error}");
+    assert!(store.get_agent(&id).unwrap().is_some());
+}
+
+#[test]
+fn 自建角色可以删() {
+    let store = Store::open_in_memory().unwrap();
+    let id = store.create_agent(&agent("我建的")).unwrap();
+    store.delete_agent(&id).unwrap();
+    assert!(store.get_agent(&id).unwrap().is_none());
+}
+
+#[test]
+fn 复制内置角色得到一个可编辑的副本() {
+    // 图纸详情区有「复制」——用户想基于内置角色改，但不该改到内置本身
+    let store = Store::open_in_memory().unwrap();
+    let id = store.create_builtin_agent(&agent("内置审查员")).unwrap();
+
+    let copy_id = store.duplicate_agent(&id, "我的审查员").unwrap();
+    let copy = store.get_agent(&copy_id).unwrap().unwrap();
+
+    assert_ne!(copy_id, id);
+    assert_eq!(copy.name, "我的审查员");
+    assert!(!copy.builtin, "副本必须是可编辑的");
+    assert_eq!(copy.persona, "先读代码再下结论；不确定时说不确定。");
+    assert_eq!(copy.ver, 1, "副本从第 1 版开始");
+}
+
+#[test]
+fn 复制不存在的角色报错而不是建出空副本() {
+    let store = Store::open_in_memory().unwrap();
+    assert!(store.duplicate_agent("agent_nope", "x").is_err());
+}
+
+#[test]
+fn 轮次上限与超时必须为正() {
+    let store = Store::open_in_memory().unwrap();
+    let mut zero = agent("零轮次");
+    zero.turn_limit = 0;
+    assert!(store.create_agent(&zero).is_err());
+
+    let mut no_timeout = agent("零超时");
+    no_timeout.timeout_ms = 0;
+    assert!(store.create_agent(&no_timeout).is_err());
 }

@@ -123,21 +123,23 @@ test.describe('外壳与导航', () => {
 
 test.describe('模型登记（真实写库）', () => {
   test('登记 → 出现在列表 → 停用 → 删除', async ({ page }) => {
+    // 名字带时间戳：本地测试库是留存的，跑第二轮时同名条目会让断言含糊
+    const name = `UI 登记的模型 ${Date.now()}`;
     await page.goto('/models');
 
     await page.getByRole('button', { name: '登记模型' }).click();
-    await page.getByLabel(/^名称/).fill('UI 登记的模型');
+    await page.getByLabel(/^名称/).fill(name);
     await page.getByLabel(/模型 ID/).fill('claude-sonnet-5');
     await page.getByLabel(/上下文窗口/).fill('200000');
     await page.getByLabel(/凭据/).fill('keychain://ui-test');
     await page.getByRole('button', { name: '保存' }).click();
 
     // 真的写进库了：刷新后还在
-    await expect(page.getByText('UI 登记的模型')).toBeVisible();
+    await expect(page.getByText(name)).toBeVisible();
     await page.reload();
-    await expect(page.getByText('UI 登记的模型')).toBeVisible();
+    await expect(page.getByText(name)).toBeVisible();
 
-    await page.getByRole('button', { name: /UI 登记的模型/ }).click();
+    await page.getByRole('button', { name }).click();
     await expect(page.getByText('keychain://ui-test')).toBeVisible();
     // 界面上不该有查看明文的入口
     await expect(page.getByRole('button', { name: /显示明文|查看密钥/ })).toHaveCount(0);
@@ -147,20 +149,21 @@ test.describe('模型登记（真实写库）', () => {
 
     await page.getByRole('button', { name: '删除' }).click();
     await page.getByRole('button', { name: /确认删除/ }).click();
-    await expect(page.getByText('UI 登记的模型')).toHaveCount(0);
+    await expect(page.getByText(name)).toHaveCount(0);
   });
 
   test('明文密钥在界面上就被拦住，不会发到后端', async ({ page }) => {
     await page.goto('/models');
     await page.getByRole('button', { name: '登记模型' }).click();
-    await page.getByLabel(/^名称/).fill('明文测试');
+    const plaintextName = `明文测试 ${Date.now()}`;
+    await page.getByLabel(/^名称/).fill(plaintextName);
     await page.getByLabel(/模型 ID/).fill('x');
     await page.getByLabel(/上下文窗口/).fill('1000');
     await page.getByLabel(/凭据/).fill('明文密钥的占位');
     await page.getByRole('button', { name: '保存' }).click();
 
     await expect(page.getByText(/必须是 keychain:\/\/ 引用/)).toBeVisible();
-    await expect(page.getByText('明文测试')).toHaveCount(0);
+    await expect(page.getByText(plaintextName)).toHaveCount(0);
   });
 });
 

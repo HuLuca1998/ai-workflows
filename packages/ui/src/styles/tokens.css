@@ -66,9 +66,15 @@
   --space-6: 16.8px;
   --space-8: 22.4px;
 
-  --radius-sm: 4px;
-  --radius-md: 8px;
-  --radius-lg: 14px;
+  /* 原始名带 nocturne- 前缀，与颜色令牌一致。
+   *
+   * 不能直接叫 --radius-*：下面的 @theme inline 要把它们映射成
+   * Tailwind 的 radius 令牌，`--radius-sm: var(--radius-sm)` 是自引用，
+   * CSS 判定该变量无效 → 所有 border-radius: var(--radius-sm) 取初始值 0。
+   * 这个坑没有任何报错，只是圆角悄悄没了。 */
+  --nocturne-radius-sm: 4px;
+  --nocturne-radius-md: 8px;
+  --nocturne-radius-lg: 14px;
 
   /* 暗底上的高度 = 一条描边 + 环境暗度，不叠重阴影 */
   --shadow-sm: 0 0 0 1px #3f424d;
@@ -111,7 +117,7 @@
   --font-sans: var(--font-body);
   --font-mono: var(--font-mono);
 
-  --radius-sm: var(--radius-sm);
-  --radius-md: var(--radius-md);
-  --radius-lg: var(--radius-lg);
+  --radius-sm: var(--nocturne-radius-sm);
+  --radius-md: var(--nocturne-radius-md);
+  --radius-lg: var(--nocturne-radius-lg);
 }

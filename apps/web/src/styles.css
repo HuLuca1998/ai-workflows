@@ -150,11 +150,18 @@
 }
 
 /* ── 主导航 ─────────────────────────────────────────────────────────────── */
+/* 内边距取图纸的具体值 16/12，不走 --space-* 刻度。
+ *
+ * 令牌是 0.70× 的等比刻度（2.8 / 5.6 / 8.4 / 11.2 / 16.8），
+ * 而原型里的数值是设计者在每一屏上调出来的实际像素
+ * （执行记录的 7px 10px、8px 12px、11px 字号都不在刻度上）。
+ * 图纸是最终形态，所以这里照图纸，而不是照最接近的那档令牌 ——
+ * 用 --space-4 会得到 11.2px，比图纸窄 4.8px。 */
 .side-nav {
   width: var(--layout-nav-w);
   flex: none;
   border-right: 1px solid var(--color-divider);
-  padding: var(--space-4) var(--space-3);
+  padding: 16px 12px;
   display: flex;
   flex-direction: column;
   gap: 2px;

@@ -489,3 +489,239 @@ fn 事件流可完整回放_从第一条到最后一条连续无缺口() {
         );
     }
 }
+
+// ── 状态机与并发的边界（codex 审查指出，逐条验证后确认属实）───────────────
+
+#[test]
+fn 重复提交审批不会让同一个运行跑起两个线程() {
+    // 用户手抖点两下「批准」，或界面重试了一次请求。
+    // 两个线程会读到同一份 completed 集合、挑中同一个 ready 节点，
+    // 于是同一个脚本被执行两遍 —— 副作用也发生两遍。
+    let path = db("double_approve");
+    let dir = path.parent().unwrap().to_path_buf();
+    let store = Store::open(&path).unwrap();
+
+    let graph = serde_json::json!({
+        "nodes": [
+            {"id": "entry", "type": "entry", "title": "入口", "config": {}},
+            {"id": "ap", "type": "approval", "title": "审批", "config": {"title": "确认"}},
+            {"id": "after", "type": "script.shell", "title": "累加",
+             "config": {"interpreter": "bash",
+                        "script": "echo x >> counter.txt",
+                        "timeoutMs": 10000}}
+        ],
+        "edges": [
+            {"id": "e1", "source": {"nodeId": "entry", "port": "success"}, "target": {"nodeId": "ap", "port": "input"}},
+            {"id": "e2", "source": {"nodeId": "ap", "port": "approved"}, "target": {"nodeId": "after", "port": "input"}}
+        ],
+        "groups": []
+    })
+    .to_string();
+    let workflow = store
+        .create_workflow_with_graph("重复审批", None, &graph)
+        .unwrap();
+
+    let supervisor = Supervisor::new(path.clone());
+    let run_id = supervisor
+        .start(
+            &store,
+            RunRequest {
+                workflow_id: workflow,
+                version_id: None,
+                draft_rev: Some(0),
+                inputs_json: "{}".to_string(),
+                workdir: dir.display().to_string(),
+            },
+        )
+        .unwrap();
+
+    assert!(wait_until(
+        || store.run_status(&run_id).unwrap().as_deref() == Some("waiting_approval"),
+        Duration::from_secs(15)
+    ));
+
+    // 连点两次
+    supervisor
+        .decide_approval(&store, &run_id, "ap", "approved")
+        .unwrap();
+    let _ = supervisor.decide_approval(&store, &run_id, "ap", "approved");
+
+    assert!(wait_until(
+        || store.run_status(&run_id).unwrap().as_deref() == Some("succeeded"),
+        Duration::from_secs(20)
+    ));
+    std::thread::sleep(Duration::from_millis(500));
+
+    let counter = std::fs::read_to_string(dir.join("counter.txt")).unwrap_or_default();
+    assert_eq!(
+        counter.lines().count(),
+        1,
+        "脚本被执行了 {} 次，重复审批把同一个节点跑了多遍",
+        counter.lines().count()
+    );
+}
+
+#[test]
+fn 审批决定必须指向当前真正在等的那个节点() {
+    // 传一个下游节点的 id 进来，会被直接写成 node.succeeded ——
+    // 而 completed_nodes 信任所有 node.succeeded 事件，
+    // 于是那个节点的真实脚本被整个跳过。
+    let path = db("wrong_approve");
+    let dir = path.parent().unwrap().to_path_buf();
+    let store = Store::open(&path).unwrap();
+
+    let graph = serde_json::json!({
+        "nodes": [
+            {"id": "entry", "type": "entry", "title": "入口", "config": {}},
+            {"id": "ap", "type": "approval", "title": "审批", "config": {"title": "确认"}},
+            {"id": "must_run", "type": "script.shell", "title": "必须执行",
+             "config": {"interpreter": "bash", "script": "echo ran > ran.txt", "timeoutMs": 10000}}
+        ],
+        "edges": [
+            {"id": "e1", "source": {"nodeId": "entry", "port": "success"}, "target": {"nodeId": "ap", "port": "input"}},
+            {"id": "e2", "source": {"nodeId": "ap", "port": "approved"}, "target": {"nodeId": "must_run", "port": "input"}}
+        ],
+        "groups": []
+    })
+    .to_string();
+    let workflow = store
+        .create_workflow_with_graph("错审批", None, &graph)
+        .unwrap();
+
+    let supervisor = Supervisor::new(path.clone());
+    let run_id = supervisor
+        .start(
+            &store,
+            RunRequest {
+                workflow_id: workflow,
+                version_id: None,
+                draft_rev: Some(0),
+                inputs_json: "{}".to_string(),
+                workdir: dir.display().to_string(),
+            },
+        )
+        .unwrap();
+
+    assert!(wait_until(
+        || store.run_status(&run_id).unwrap().as_deref() == Some("waiting_approval"),
+        Duration::from_secs(15)
+    ));
+
+    // 冒充下游节点
+    let result = supervisor.decide_approval(&store, &run_id, "must_run", "approved");
+    assert!(result.is_err(), "对着非等待中的节点审批应当被拒绝");
+
+    // 正常批准后，那个脚本必须真的执行
+    supervisor
+        .decide_approval(&store, &run_id, "ap", "approved")
+        .unwrap();
+    assert!(wait_until(
+        || store.run_status(&run_id).unwrap().as_deref() == Some("succeeded"),
+        Duration::from_secs(20)
+    ));
+    assert!(
+        dir.join("ran.txt").exists(),
+        "must_run 被跳过了 —— 伪造的 node.succeeded 让引擎以为它已经跑过"
+    );
+}
+
+#[test]
+fn 已经结束的运行不能被迟到的取消改状态() {
+    // 运行早已成功，取消请求晚到（网络重试、用户在旧页面上点的）。
+    // 终态没有出边，改回 cancelled 会让运行记录自相矛盾。
+    let path = db("late_cancel");
+    let dir = path.parent().unwrap().to_path_buf();
+    let store = Store::open(&path).unwrap();
+    let workflow = store
+        .create_workflow_with_graph(
+            "迟到取消",
+            None,
+            &serde_json::json!({
+                "nodes": [{"id": "entry", "type": "entry", "title": "入口", "config": {}}],
+                "edges": [], "groups": []
+            })
+            .to_string(),
+        )
+        .unwrap();
+
+    let supervisor = Supervisor::new(path.clone());
+    let run_id = supervisor
+        .start(
+            &store,
+            RunRequest {
+                workflow_id: workflow,
+                version_id: None,
+                draft_rev: Some(0),
+                inputs_json: "{}".to_string(),
+                workdir: dir.display().to_string(),
+            },
+        )
+        .unwrap();
+    assert!(wait_until(
+        || store.run_status(&run_id).unwrap().as_deref() == Some("succeeded"),
+        Duration::from_secs(15)
+    ));
+
+    let result = supervisor.cancel(&store, &run_id);
+    assert!(result.is_err(), "对已结束的运行取消应当被拒绝");
+    assert_eq!(
+        store.run_status(&run_id).unwrap().as_deref(),
+        Some("succeeded")
+    );
+}
+
+#[test]
+fn 已取消的运行不能被恢复() {
+    // resume 只排除了 waiting_approval，cancelled 会被无条件改回 running，
+    // 未完成的节点重新执行 —— 用户明确取消过的东西又跑起来了
+    let path = db("resume_cancelled");
+    let dir = path.parent().unwrap().to_path_buf();
+    let store = Store::open(&path).unwrap();
+    let workflow = store
+        .create_workflow_with_graph(
+            "恢复已取消",
+            None,
+            &serde_json::json!({
+                "nodes": [
+                    {"id": "entry", "type": "entry", "title": "入口", "config": {}},
+                    {"id": "slow", "type": "script.shell", "title": "慢",
+                     "config": {"interpreter": "bash", "script": "sleep 2", "timeoutMs": 20000}}
+                ],
+                "edges": [{"id": "e1", "source": {"nodeId": "entry", "port": "success"},
+                           "target": {"nodeId": "slow", "port": "input"}}],
+                "groups": []
+            })
+            .to_string(),
+        )
+        .unwrap();
+
+    let supervisor = Supervisor::new(path.clone());
+    let run_id = supervisor
+        .start(
+            &store,
+            RunRequest {
+                workflow_id: workflow,
+                version_id: None,
+                draft_rev: Some(0),
+                inputs_json: "{}".to_string(),
+                workdir: dir.display().to_string(),
+            },
+        )
+        .unwrap();
+    assert!(wait_until(
+        || store.run_status(&run_id).unwrap().as_deref() == Some("running"),
+        Duration::from_secs(10)
+    ));
+    supervisor.cancel(&store, &run_id).unwrap();
+    assert!(wait_until(
+        || store.run_status(&run_id).unwrap().as_deref() == Some("cancelled"),
+        Duration::from_secs(15)
+    ));
+
+    let result = supervisor.resume(&store, &run_id);
+    assert!(result.is_err(), "恢复一个已取消的运行应当被拒绝");
+    assert_eq!(
+        store.run_status(&run_id).unwrap().as_deref(),
+        Some("cancelled")
+    );
+}

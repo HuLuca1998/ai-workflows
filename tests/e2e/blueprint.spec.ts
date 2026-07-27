@@ -138,3 +138,45 @@ test.describe('全局外壳', () => {
     await expect(page.locator('header.title-bar[data-tauri-drag-region]')).toHaveCount(1);
   });
 });
+
+test.describe('设计令牌', () => {
+  test('每个令牌都能解析出值，没有自引用', async ({ page }) => {
+    // `--radius-sm: var(--radius-sm)` 这种自引用会让变量在 CSS 里彻底失效，
+    // 用它的 border-radius 静默变成 0 —— 没有报错，圆角就是悄悄没了。
+    // 踩过一次：Tailwind 的 @theme inline 里把三个 radius 令牌写成了自引用
+    await page.goto('/');
+    const empty = await page.evaluate(() => {
+      const style = getComputedStyle(document.documentElement);
+      const names = [
+        '--radius-sm',
+        '--radius-md',
+        '--radius-lg',
+        '--space-1',
+        '--space-2',
+        '--space-3',
+        '--space-4',
+        '--space-6',
+        '--space-8',
+        '--color-bg',
+        '--color-surface',
+        '--color-text',
+        '--color-accent',
+        '--layout-nav-w',
+        '--layout-titlebar-h',
+      ];
+      return names.filter((name) => style.getPropertyValue(name).trim() === '');
+    });
+
+    expect(empty, `这些令牌解析不出值（多半是自引用）：${empty.join(', ')}`).toEqual([]);
+  });
+
+  test('用令牌的元素真的拿到了圆角', async ({ page }) => {
+    await page.goto('/');
+    // 主导航条目用 var(--radius-sm)
+    const radius = await page.evaluate(() => {
+      const item = document.querySelector('.side-nav__item');
+      return item ? getComputedStyle(item).borderRadius : '';
+    });
+    expect(radius).toBe('4px');
+  });
+});
