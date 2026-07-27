@@ -479,6 +479,16 @@ const SPECS = {
     scope: 'workflow:write-draft',
     summary: '保存 Agent 新版本；引用它的节点一并生效',
   },
+  'agent.duplicate': {
+    // 图纸详情区有「复制」：用户想基于内置角色改，但不该改到内置本身。
+    // 副本从 v1 开始，且一定是可编辑的
+    input: z.object({ id: z.string().min(1), name: z.string().min(1) }),
+    output: idOnly,
+    mutates: true,
+    audited: true,
+    scope: 'workflow:write-draft',
+    summary: '复制角色为一个可编辑的副本',
+  },
   'agent.delete': {
     input: idOnly,
     output: ok,

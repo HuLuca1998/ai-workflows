@@ -1,4 +1,4 @@
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test } from '@playwright/test';
 import { api } from './_api.js';
 
 /**
@@ -22,10 +22,56 @@ test.describe('设置与环境', () => {
   });
 });
 
+test.describe('Agent 角色（图纸「05 Agent 角色」）', () => {
+  test.beforeEach(async ({ page }) => {
+    await page.goto('/agents');
+    await expect(page.getByRole('region', { name: '角色详情' })).toBeVisible();
+  });
+
+  test('左栏 250px', async ({ page }) => {
+    const width = await page.evaluate(() => {
+      const el = document.querySelector('.agents__list');
+      return el ? Number.parseFloat(getComputedStyle(el).width) : -1;
+    });
+    expect(width).toBe(250);
+  });
+
+  test('底部两句常驻说明照图纸', async ({ page }) => {
+    await expect(
+      page.getByText('节点引用角色而不是复制 Prompt；角色升级后引用它的节点一并生效。'),
+    ).toBeVisible();
+  });
+
+  test('选中角色后四块内容都在，权限那块标明由引擎强制', async ({ page }) => {
+    const first = page.locator('.agents__item').first();
+    if ((await first.count()) === 0) test.skip();
+    await first.click();
+
+    const detail = page.getByRole('region', { name: '角色详情' });
+    await expect(detail.getByText('权限（引擎强制，Prompt 无法越权）')).toBeVisible();
+    await expect(detail.getByText('工具与 MCP 白名单')).toBeVisible();
+    await expect(
+      detail.getByText(
+        '节点可覆盖任务指令、输出 Schema 和 Turn 上限，但不能静默扩大这里声明的权限。',
+      ),
+    ).toBeVisible();
+  });
+
+  test('复制角色真的建出一个副本', async ({ page }) => {
+    const items = page.locator('.agents__item');
+    if ((await items.count()) === 0) test.skip();
+    const before = await items.count();
+
+    await items.first().click();
+    await page.getByRole('button', { name: '复制' }).click();
+
+    await expect(items).toHaveCount(before + 1, { timeout: 10_000 });
+  });
+});
+
 test.describe('尚未实现的屏', () => {
   for (const [path, label] of [
     ['/memory', '记忆'],
-    ['/agents', 'Agent 角色'],
     ['/prompts', '提示词库'],
     ['/onboarding', '首次配置'],
   ] as const) {

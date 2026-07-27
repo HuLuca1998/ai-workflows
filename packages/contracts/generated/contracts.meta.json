@@ -118,6 +118,7 @@
     "agent.list",
     "agent.create",
     "agent.update",
+    "agent.duplicate",
     "agent.delete",
     "env.health",
     "env.install"

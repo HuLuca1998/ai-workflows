@@ -28,6 +28,72 @@ pub mod tray;
 type IpcResult<T> = Result<T, ApiError>;
 
 #[tauri::command]
+fn agent_list(state: State<'_, AppState>) -> IpcResult<Vec<api::AgentDto>> {
+    let store = lock(&state)?;
+    api::agent_list(&store)
+}
+
+#[allow(clippy::too_many_arguments)]
+#[tauri::command]
+fn agent_create(
+    state: State<'_, AppState>,
+    name: String,
+    role: String,
+    goal: String,
+    persona: String,
+    runtime: String,
+    model_ref: String,
+    fallback_model_ref: Option<String>,
+    tools: Vec<String>,
+    capabilities_json: Option<String>,
+    output_contract: String,
+    turn_limit: Option<i64>,
+    timeout_ms: Option<i64>,
+) -> IpcResult<String> {
+    let store = lock(&state)?;
+    api::agent_create(
+        &store,
+        name,
+        role,
+        goal,
+        persona,
+        runtime,
+        model_ref,
+        fallback_model_ref,
+        tools,
+        capabilities_json,
+        output_contract,
+        turn_limit,
+        timeout_ms,
+    )
+}
+
+#[tauri::command]
+fn agent_update(
+    state: State<'_, AppState>,
+    id: String,
+    name: Option<String>,
+    goal: Option<String>,
+    persona: Option<String>,
+    model_ref: Option<String>,
+) -> IpcResult<()> {
+    let store = lock(&state)?;
+    api::agent_update(&store, id, name, goal, persona, model_ref)
+}
+
+#[tauri::command]
+fn agent_duplicate(state: State<'_, AppState>, id: String, name: String) -> IpcResult<String> {
+    let store = lock(&state)?;
+    api::agent_duplicate(&store, id, name)
+}
+
+#[tauri::command]
+fn agent_delete(state: State<'_, AppState>, id: String) -> IpcResult<()> {
+    let store = lock(&state)?;
+    api::agent_delete(&store, id)
+}
+
+#[tauri::command]
 fn model_list(state: State<'_, AppState>, enabled_only: bool) -> IpcResult<Vec<ModelDto>> {
     let store = lock(&state)?;
     api::model_list(&store, enabled_only)
@@ -402,6 +468,11 @@ pub fn run() {
             run_cancel,
             run_resume,
             approval_decide,
+            agent_list,
+            agent_create,
+            agent_update,
+            agent_duplicate,
+            agent_delete,
             model_list,
             model_create,
             model_update,

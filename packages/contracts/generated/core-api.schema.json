@@ -4073,6 +4073,43 @@
       ]
     }
   },
+  "agent.duplicate": {
+    "summary": "复制角色为一个可编辑的副本",
+    "scope": "workflow:write-draft",
+    "mutates": true,
+    "audited": true,
+    "input": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "id",
+        "name"
+      ]
+    },
+    "output": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "id"
+      ]
+    }
+  },
   "agent.delete": {
     "summary": "删除 Agent 角色（被引用时拒绝）",
     "scope": "workflow:write-draft",

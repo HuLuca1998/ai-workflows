@@ -25,6 +25,36 @@ pub fn dispatch(
     })?;
 
     match command {
+        "agent_list" => to_value(api::agent_list(&store)?),
+        "agent_create" => to_value(api::agent_create(
+            &store,
+            string(input, "name")?,
+            string(input, "role")?,
+            opt_string(input, "goal").unwrap_or_default(),
+            opt_string(input, "persona").unwrap_or_default(),
+            string(input, "runtime")?,
+            string(input, "modelRef")?,
+            opt_string(input, "fallbackModelRef"),
+            strings(input, "tools"),
+            input.get("capabilities").map(ToString::to_string),
+            opt_string(input, "outputContract").unwrap_or_default(),
+            opt_int(input, "turnLimit"),
+            opt_int(input, "timeoutMs"),
+        )?),
+        "agent_update" => to_value(api::agent_update(
+            &store,
+            string(input, "id")?,
+            opt_string(input, "name"),
+            opt_string(input, "goal"),
+            opt_string(input, "persona"),
+            opt_string(input, "modelRef"),
+        )?),
+        "agent_duplicate" => to_value(api::agent_duplicate(
+            &store,
+            string(input, "id")?,
+            string(input, "name")?,
+        )?),
+        "agent_delete" => to_value(api::agent_delete(&store, string(input, "id")?)?),
         "model_list" => to_value(api::model_list(&store, boolean(input, "enabledOnly"))?),
         "model_create" => to_value(api::model_create(
             &store,

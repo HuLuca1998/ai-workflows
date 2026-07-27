@@ -35,6 +35,11 @@ const COMMANDS: Partial<Record<CoreApiMethod, string>> = {
   'run.cancel': 'run_cancel',
   'run.resume': 'run_resume',
   'approval.decide': 'approval_decide',
+  'agent.list': 'agent_list',
+  'agent.create': 'agent_create',
+  'agent.update': 'agent_update',
+  'agent.duplicate': 'agent_duplicate',
+  'agent.delete': 'agent_delete',
   'model.list': 'model_list',
   'model.create': 'model_create',
   'model.update': 'model_update',
@@ -275,8 +280,17 @@ export function fromIpcResult(method: CoreApiMethod, raw: unknown): unknown {
     case 'run.resume':
       return { ok: true };
 
+    case 'agent.list':
     case 'model.list':
       return { items: raw ?? [] };
+
+    case 'agent.create':
+    case 'agent.duplicate':
+      return { id: raw as string };
+
+    case 'agent.update':
+    case 'agent.delete':
+      return { ok: true };
 
     case 'model.create':
       return { id: raw as string };

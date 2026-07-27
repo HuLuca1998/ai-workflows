@@ -1,4 +1,4 @@
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test } from '@playwright/test';
 import { api } from './_api.js';
 
 /**
@@ -104,7 +104,7 @@ test.describe('规模', () => {
 
     // 目标是 60fps；30 是「明显掉帧」的红线，低于它用户会觉得卡
     expect(fps, `拖动 200 节点画布时只有 ${fps} fps`).toBeGreaterThan(30);
-    console.log(`  200 节点拖动帧率：${fps} fps`);
+    test.info().annotations.push({ type: '帧率', description: `${fps} fps` });
   });
 
   test('长事件流不会把执行记录页拖垮', async ({ page }) => {
@@ -189,6 +189,9 @@ test.describe('规模', () => {
 
 test.describe('并发', () => {
   test('同时启动 5 个运行，界面全都跟得上', async ({ page }) => {
+    // 5 个运行 × 4 个节点，每个节点起一次真实进程。
+    // 默认 30s 的用例预算不够 —— 这条本来就是压力测试
+    test.setTimeout(120_000);
     const id = (await api(page, 'workflow_create', { name: '并发 5 个' })) as string;
     const rev = (await api(page, 'workflow_save_draft', {
       id,
@@ -207,22 +210,23 @@ test.describe('并发', () => {
       );
     }
 
-    await page.goto('/runs');
-    // 五个运行最终都要成功，且列表里能看到
+    // 先确认引擎跑完，再看界面 —— 反过来的话，界面的 1.2s 轮询会和
+    // poll 里每轮 5 次 page.evaluate 挤在一起，把一件 1 秒的事拖成一分钟。
+    // 用一次 run_list 拿全部状态，而不是逐个 run_get
     await expect
       .poll(
         async () => {
-          const statuses = await Promise.all(
-            runIds.map(async (runId) => {
-              const run = (await api(page, 'run_get', { runId })) as { status: string } | null;
-              return run?.status;
-            }),
-          );
-          return statuses.filter((status) => status === 'succeeded').length;
+          const runs = (await api(page, 'run_list', { statuses: ['succeeded'] })) as {
+            id: string;
+          }[];
+          const finished = new Set(runs.map((run) => run.id));
+          return runIds.filter((id) => finished.has(id)).length;
         },
-        { timeout: 60_000 },
+        { timeout: 60_000, intervals: [500] },
       )
       .toBe(5);
+
+    await page.goto('/runs');
 
     await page.reload();
     await expect(page.locator('.runs__item')).toHaveCount(

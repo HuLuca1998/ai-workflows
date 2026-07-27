@@ -3057,3 +3057,207 @@
   font-size: 11.5px;
   color: #e0685c;
 }
+
+/* ── Agent 角色（图纸「05 Agent 角色」）────────────────────────────────── */
+.agents {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+
+.agents__list {
+  width: 250px;
+  flex: none;
+  border-right: 1px solid var(--color-divider);
+  display: flex;
+  flex-direction: column;
+  padding: 18px 12px;
+}
+
+.agents__list-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 8px 12px;
+}
+
+.agents__list-body {
+  flex: 1;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.agents__item {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  padding: 8px 9px;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  background: none;
+  text-align: left;
+  cursor: pointer;
+  color: inherit;
+}
+
+.agents__item:hover {
+  background: color-mix(in srgb, var(--color-surface) 45%, transparent);
+}
+
+.agents__item[data-selected='true'] {
+  border-color: var(--color-accent-700);
+  background: rgba(145, 132, 217, 0.1);
+}
+
+.agents__item > i {
+  font-size: 15px;
+  color: var(--color-accent-300);
+  flex: none;
+}
+
+.agents__item-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.agents__item-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.agents__item-name {
+  font-size: 12.5px;
+}
+
+.agents__item-tag {
+  font-size: 10px;
+  padding: 1px 6px;
+  border-radius: 20px;
+  background: rgba(233, 233, 237, 0.07);
+  color: var(--color-neutral-500);
+}
+
+.agents__item-meta {
+  font-size: 11px;
+  color: var(--color-neutral-600);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.agents__detail {
+  flex: 1;
+  min-width: 0;
+  overflow: auto;
+  padding: 24px 28px;
+  display: flex;
+  flex-direction: column;
+}
+
+.agents__detail-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  margin-bottom: 18px;
+}
+
+.agents__detail-head h4 {
+  margin: 0 0 3px;
+  font-size: 17px;
+  font-weight: 400;
+}
+
+.agents__avatar {
+  width: 38px;
+  height: 38px;
+  flex: none;
+  border-radius: 10px;
+  background: rgba(145, 132, 217, 0.14);
+  display: grid;
+  place-items: center;
+}
+
+.agents__avatar i {
+  font-size: 18px;
+  color: var(--color-accent-300);
+}
+
+.agents__card-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 6px;
+}
+
+/* 目标与性格是多行文本，给一个最小高度让卡片高度稳定 */
+.agents__block {
+  padding: 9px 11px;
+  border-radius: 8px;
+  border: 1px solid var(--color-divider);
+  font-size: 12.5px;
+  line-height: 1.7;
+  min-height: 58px;
+  margin: 0;
+}
+
+.agents__persona {
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--color-divider);
+  font-size: 12.5px;
+  line-height: 1.75;
+  min-height: 116px;
+  background: color-mix(in srgb, var(--color-bg) 82%, #000);
+  margin: 0;
+}
+
+.agents__spaced {
+  margin-top: 12px;
+}
+
+.agents__models {
+  margin-bottom: 12px;
+}
+
+.agents__grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.agents__select {
+  height: 32px;
+  width: 100%;
+  padding: 0 11px;
+  border-radius: 8px;
+  border: 1px solid var(--color-divider);
+  background: color-mix(in srgb, var(--color-bg) 82%, #000);
+  color: var(--color-neutral-200);
+  font-size: 12.5px;
+  outline: none;
+}
+
+.agents__kv-row {
+  display: contents;
+}
+
+.agents__inline {
+  font-size: 12.5px;
+  margin: 0;
+}
+
+.agents__foot {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 11.5px;
+  color: var(--color-neutral-600);
+  margin: 12px 0 0;
+}

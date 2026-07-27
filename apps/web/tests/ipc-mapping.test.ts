@@ -120,3 +120,42 @@ describe('run.* 的映射', () => {
     }
   });
 });
+
+describe('界面用到的方法都接通了', () => {
+  it('源码里 coreClient.call 的每个方法都在契约与映射表里', async () => {
+    // 漏配一个方法不会编译报错，也不会有测试变红 ——
+    // 只有点到那个按钮才发现「点了没反应」。
+    // agent.duplicate 就这么漏过一次：UI 调了一个契约里不存在的方法
+    const { readdirSync, readFileSync, statSync } = await import('node:fs');
+    const { join } = await import('node:path');
+    const { CORE_API_METHODS } = await import('@aiwf/contracts');
+
+    const root = join(import.meta.dirname, '../src');
+    const files: string[] = [];
+    const walk = (dir: string) => {
+      for (const entry of readdirSync(dir)) {
+        const full = join(dir, entry);
+        if (statSync(full).isDirectory()) walk(full);
+        else if (/\.tsx?$/.test(entry)) files.push(full);
+      }
+    };
+    walk(root);
+
+    const used = new Set<string>();
+    for (const file of files) {
+      const source = readFileSync(file, 'utf8');
+      for (const match of source.matchAll(/\.call\(\s*'([a-z]+\.[a-zA-Z]+)'/gu)) {
+        if (match[1]) used.add(match[1]);
+      }
+    }
+    expect(used.size).toBeGreaterThan(5);
+
+    const notInContract = [...used].filter(
+      (method) => !(CORE_API_METHODS as readonly string[]).includes(method),
+    );
+    expect(notInContract, `这些方法契约里没有：${notInContract.join(', ')}`).toEqual([]);
+
+    const notMapped = [...used].filter((method) => ipcCommandFor(method as never) === null);
+    expect(notMapped, `这些方法没有 IPC 映射：${notMapped.join(', ')}`).toEqual([]);
+  });
+});

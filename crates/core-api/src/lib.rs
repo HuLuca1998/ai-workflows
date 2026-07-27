@@ -111,6 +111,11 @@ impl From<aiwf_engine::supervisor::SupervisorError> for ApiError {
 
 /// 已接通的方法名清单。HTTP 侧按它分派，测试按它守住两端一致。
 pub const COMMANDS: &[&str] = &[
+    "agent_list",
+    "agent_create",
+    "agent_update",
+    "agent_duplicate",
+    "agent_delete",
     "model_list",
     "model_create",
     "model_update",
@@ -183,6 +188,51 @@ pub struct RunEventsPage {
     events: Vec<RunEventDto>,
     next_seq: i64,
     has_more: bool,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentDto {
+    pub id: String,
+    pub name: String,
+    pub role: String,
+    pub goal: String,
+    pub persona: String,
+    pub runtime: String,
+    pub model_ref: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub fallback_model_ref: Option<String>,
+    pub tools: Vec<String>,
+    pub capabilities: serde_json::Value,
+    pub output_contract: String,
+    pub turn_limit: i64,
+    pub timeout_ms: i64,
+    pub ver: i64,
+    pub builtin: bool,
+}
+
+impl From<aiwf_store::AgentRow> for AgentDto {
+    fn from(row: aiwf_store::AgentRow) -> Self {
+        Self {
+            id: row.id,
+            name: row.name,
+            role: row.role,
+            goal: row.goal,
+            persona: row.persona,
+            runtime: row.runtime,
+            model_ref: row.model_ref,
+            fallback_model_ref: row.fallback_model_ref,
+            tools: row.tools,
+            // 权限整体存一个 JSON；解析不出来时给空对象而不是让整页失败
+            capabilities: serde_json::from_str(&row.capabilities_json)
+                .unwrap_or_else(|_| serde_json::json!({})),
+            output_contract: row.output_contract,
+            turn_limit: row.turn_limit,
+            timeout_ms: row.timeout_ms,
+            ver: row.ver,
+            builtin: row.builtin,
+        }
+    }
 }
 
 #[derive(Serialize)]
@@ -645,5 +695,75 @@ pub fn workflow_rollback(store: &Store, id: String, version_id: String) -> ApiRe
 
 pub fn workflow_delete(store: &Store, id: String) -> ApiResult<()> {
     store.delete_workflow(&id)?;
+    Ok(())
+}
+
+// ── Agent 角色 ──────────────────────────────────────────────────────────────
+
+pub fn agent_list(store: &Store) -> ApiResult<Vec<AgentDto>> {
+    Ok(store
+        .list_agents()?
+        .into_iter()
+        .map(AgentDto::from)
+        .collect())
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn agent_create(
+    store: &Store,
+    name: String,
+    role: String,
+    goal: String,
+    persona: String,
+    runtime: String,
+    model_ref: String,
+    fallback_model_ref: Option<String>,
+    tools: Vec<String>,
+    capabilities_json: Option<String>,
+    output_contract: String,
+    turn_limit: Option<i64>,
+    timeout_ms: Option<i64>,
+) -> ApiResult<String> {
+    Ok(store.create_agent(&aiwf_store::NewAgent {
+        name,
+        role,
+        goal,
+        persona,
+        runtime,
+        model_ref,
+        fallback_model_ref,
+        tools,
+        capabilities_json: capabilities_json.unwrap_or_else(|| "{}".to_string()),
+        output_contract,
+        turn_limit: turn_limit.unwrap_or(12),
+        timeout_ms: timeout_ms.unwrap_or(900_000),
+    })?)
+}
+
+/// 更新角色。版本号由存储层递增 —— 图纸的按钮就叫「保存新版本」。
+pub fn agent_update(
+    store: &Store,
+    id: String,
+    name: Option<String>,
+    goal: Option<String>,
+    persona: Option<String>,
+    model_ref: Option<String>,
+) -> ApiResult<()> {
+    store.update_agent(
+        &id,
+        name.as_deref(),
+        goal.as_deref(),
+        persona.as_deref(),
+        model_ref.as_deref(),
+    )?;
+    Ok(())
+}
+
+pub fn agent_duplicate(store: &Store, id: String, name: String) -> ApiResult<String> {
+    Ok(store.duplicate_agent(&id, &name)?)
+}
+
+pub fn agent_delete(store: &Store, id: String) -> ApiResult<()> {
+    store.delete_agent(&id)?;
     Ok(())
 }

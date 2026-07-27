@@ -4,6 +4,7 @@ import { EditorPage } from '../editor/EditorPage.js';
 import { OverviewPage } from './OverviewPage.js';
 import { RunsPage } from '../runs/RunsPage.js';
 import { ModelsPage } from '../models/ModelsPage.js';
+import { AgentsPage } from '../agents/AgentsPage.js';
 import { PlaceholderPage } from './PlaceholderPage.js';
 import { SettingsPage } from './SettingsPage.js';
 
@@ -41,6 +42,7 @@ const FULL_SCREENS: Record<string, ReactElement> = {
   '/editor': <EditorPage />,
   '/runs': <RunsPage />,
   '/models': <ModelsPage />,
+  '/agents': <AgentsPage />,
 };
 
 /** 需要额外注册带参数的子路由的屏。 */
