@@ -4091,3 +4091,35 @@
   font-size: 11px;
   color: var(--color-neutral-500);
 }
+
+/* 主管 AI 的提议区。
+   图纸原话：「不会发布，也不会改动运行中的 v7」——
+   所以它长得像一块待确认的东西，而不是已经生效的状态 */
+.supervisor__proposal {
+  margin: 12px 0 4px;
+  padding: 12px 14px;
+  border-radius: 10px;
+  border: 1px solid color-mix(in srgb, var(--color-accent) 34%, var(--color-divider));
+  background: color-mix(in srgb, var(--color-accent) 5%, var(--color-surface));
+}
+
+.supervisor__proposal-head {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin: 0 0 9px;
+  font-size: 12.5px;
+  color: var(--color-neutral-200);
+}
+
+.supervisor__proposal-head i {
+  color: var(--color-accent);
+  font-size: 14px;
+}
+
+.supervisor__proposal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 11px;
+}

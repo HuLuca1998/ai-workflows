@@ -425,6 +425,21 @@ const SPECS = {
       text: z.string(),
       /** 这次回答用掉的工具调用次数，界面显示「工具活动 · N 次」。 */
       toolCalls: z.number().int().min(0).default(0),
+      /**
+       * AI 想做的改动。**只是提议** —— 界面据此算 Diff 给用户看，
+       * 用户确认后才走 workflow.patch 落草稿。
+       *
+       * 这个方法本身 mutates: false 是有意的：AI 不能直接写库，
+       * 落草稿那一步有 baseRevision 守卫，而它必须由用户触发。
+       */
+      proposal: z
+        .object({
+          /** Diff 上面那句话 —— 用户判断要不要接受的依据。 */
+          summary: z.string().min(1),
+          /** 空列表不算提议：那会让用户看到一个没内容的 Diff。 */
+          operations: z.array(PatchOperationSchema).min(1),
+        })
+        .optional(),
     }),
     mutates: false,
     audited: true,

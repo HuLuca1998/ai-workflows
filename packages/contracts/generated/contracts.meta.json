@@ -81,6 +81,20 @@
     "env",
     "mcp.tool"
   ],
+  "patchOps": [
+    "addNode",
+    "removeNode",
+    "renameNode",
+    "moveNode",
+    "setConfig",
+    "setJoin",
+    "setCapabilities",
+    "setRetry",
+    "connect",
+    "disconnect",
+    "createGroup",
+    "deleteGroup"
+  ],
   "methods": [
     "workspace.stats",
     "workflow.list",

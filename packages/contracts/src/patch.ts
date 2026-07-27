@@ -61,6 +61,17 @@ export const PatchOperationSchema = z.discriminatedUnion('op', [
 ]);
 export type PatchOperation = z.infer<typeof PatchOperationSchema>;
 
+/**
+ * 所有合法的操作名。
+ *
+ * 从 Schema 自己派生，不手写第二份 —— 手写的那份迟早会漏一个。
+ * Rust 侧（主管 AI 解析提议时）要用它做最小校验，
+ * 所以它进了生成物，由 contract_sync_test 守着不漂移。
+ */
+export const PATCH_OPS = PatchOperationSchema.options.map(
+  (option) => option.shape.op.value,
+) as readonly PatchOperation['op'][];
+
 export const WorkflowPatchSchema = z.object({
   /** 调用方读到的草稿修订号；与当前不符即拒绝，避免并发覆盖。 */
   baseRevision: z.number().int().min(0),

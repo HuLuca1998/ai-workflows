@@ -1,5 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
+import {
+  applyPatch,
+  type PatchOperation,
+  type WorkflowDiff,
+  type WorkflowGraph,
+} from '@aiwf/contracts';
 import { coreClient } from '../data/workspace.js';
+import { DiffLines } from '../editor/DiffLines.js';
 
 /**
  * 主管 AI 抽屉 —— 严格照图纸：468px 从右侧滑入。
@@ -37,12 +44,25 @@ export interface SupervisorContext {
   runId?: string;
   /** 会注入的记忆条数。 */
   memoryCount?: number;
+  /** 当前工作流。后端靠它读草稿的图，AI 才提得出能落地的操作。 */
+  workflowId?: string;
 }
 
 export interface SupervisorDrawerProps {
   open: boolean;
   context: SupervisorContext;
+  /** 当前草稿的图。有它才算得出 Diff —— 没有就只能问答。 */
+  graph?: WorkflowGraph;
+  /** 用户确认后把操作交给编辑器落草稿（那里有 baseRevision 守卫）。 */
+  onApply?: (operations: PatchOperation[]) => void;
   onClose: () => void;
+}
+
+/** 待确认的提议：AI 说了什么、会变成什么样。 */
+interface Proposal {
+  summary: string;
+  operations: PatchOperation[];
+  diff: WorkflowDiff;
 }
 
 interface ModelOption {
@@ -50,13 +70,20 @@ interface ModelOption {
   name: string;
 }
 
-export function SupervisorDrawer({ open, context, onClose }: SupervisorDrawerProps) {
+export function SupervisorDrawer({
+  open,
+  context,
+  graph,
+  onApply,
+  onClose,
+}: SupervisorDrawerProps) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [draft, setDraft] = useState('');
   const [busy, setBusy] = useState(false);
   const [models, setModels] = useState<ModelOption[]>([]);
   const [modelId, setModelId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [proposal, setProposal] = useState<Proposal | null>(null);
   const bodyRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -102,14 +129,44 @@ export function SupervisorDrawer({ open, context, onClose }: SupervisorDrawerPro
         context: {
           ...(context.draftRev === undefined ? {} : { draftRev: context.draftRev }),
           ...(context.runId ? { runId: context.runId } : {}),
+          // 后端靠它读当前草稿的图 —— 不给的话 AI 只能凭空造 nodeId，
+          // 那些操作应用不到任何东西上
+          ...(context.workflowId ? { workflowId: context.workflowId } : {}),
         },
-      })) as { text: string };
+      })) as {
+        text: string;
+        proposal?: { summary: string; operations: PatchOperation[] };
+      };
 
       setMessages((prev) =>
         prev.map((message) =>
           message.streaming ? { ...message, text: result.text, streaming: false } : message,
         ),
       );
+
+      // 改动**先出 Diff**，用户确认才落草稿。
+      // 这里只是算出「会变成什么样」，一个字节都不写
+      if (result.proposal && graph) {
+        try {
+          // 用当前 rev 当 baseRevision：这一步只是**试算**，
+          // 真正的守卫在落草稿那一步（editorStore 会带上它自己的 rev）
+          const rev = context.draftRev ?? 0;
+          const applied = applyPatch(graph, rev, {
+            baseRevision: rev,
+            operations: result.proposal.operations,
+          });
+          setProposal({
+            summary: result.proposal.summary,
+            operations: result.proposal.operations,
+            diff: applied.diff,
+          });
+        } catch (err) {
+          // AI 引用了一个不存在的节点 —— 多半是图变了而它拿的是旧的。
+          // 给一个空 Diff 会让用户以为「没什么改动」然后点确认
+          setProposal(null);
+          setError(`这次的提议应用不上：${describe(err)}`);
+        }
+      }
     } catch (err) {
       // 失败时把那条空的 agent 消息去掉 —— 留一个空气泡比没有更糟
       setMessages((prev) => prev.filter((message) => !message.streaming));
@@ -211,6 +268,36 @@ export function SupervisorDrawer({ open, context, onClose }: SupervisorDrawerPro
               </div>
             </div>
           ))}
+
+          {proposal ? (
+            <section className="supervisor__proposal" aria-label="AI 提议的改动">
+              <p className="supervisor__proposal-head">
+                <i className="ph ph-git-diff" aria-hidden="true" />
+                {proposal.summary}
+              </p>
+              <div className="ver__diff-body">
+                <DiffLines diff={proposal.diff} empty="这组操作不会改变任何东西" />
+              </div>
+              <div className="supervisor__proposal-actions">
+                <button type="button" className="runs__action" onClick={() => setProposal(null)}>
+                  不用了
+                </button>
+                {/* 没有 onApply 就是没有草稿可落 —— 那时只显示 Diff 供参考 */}
+                {onApply ? (
+                  <button
+                    type="button"
+                    className="runs__action runs__action--primary"
+                    onClick={() => {
+                      onApply(proposal.operations);
+                      setProposal(null);
+                    }}
+                  >
+                    应用到草稿
+                  </button>
+                ) : null}
+              </div>
+            </section>
+          ) : null}
 
           {error ? (
             <p className="runs__error" role="alert">

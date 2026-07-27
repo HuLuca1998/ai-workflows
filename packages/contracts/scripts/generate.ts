@@ -16,6 +16,7 @@ import { CORE_API_METHODS, getMethodSpec } from '../src/api.js';
 import { RunEventSchema, RUN_EVENT_TYPES, RUN_EVENT_CATEGORIES } from '../src/events.js';
 import { WorkflowGraphSchema } from '../src/graph.js';
 import { NODE_TYPES, getNodeDefinition } from '../src/nodes/index.js';
+import { PATCH_OPS } from '../src/patch.js';
 import { CONTRACTS_VERSION } from '../src/index.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -31,6 +32,7 @@ const files: Record<string, unknown> = {
     eventCategories: RUN_EVENT_CATEGORIES,
     eventTypes: RUN_EVENT_TYPES,
     nodeTypes: NODE_TYPES,
+    patchOps: PATCH_OPS,
     methods: CORE_API_METHODS,
   },
   'run-event.schema.json': toSchema(RunEventSchema),

@@ -3,6 +3,7 @@ import { Route, Routes } from 'react-router';
 
 import { SideNav } from './layout/SideNav.js';
 import { SupervisorDrawer } from './supervisor/SupervisorDrawer.js';
+import { useEditor } from './editor/editorStore.js';
 import { TitleBar } from './layout/TitleBar.js';
 import { NotFoundPage } from './pages/NotFoundPage.js';
 import { PAGES } from './pages/index.js';
@@ -15,6 +16,7 @@ import { PAGES } from './pages/index.js';
  */
 export function AppShell() {
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const editor = useEditor();
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -44,9 +46,18 @@ export function AppShell() {
             <Route path="*" element={<NotFoundPage />} />
           </Routes>
         </main>
-        {/* 上下文由各屏提供；现在只有全局的部分，编辑器与执行记录的
-            草稿 rev、选中节点、当前运行随后接上 */}
-        <SupervisorDrawer open={drawerOpen} context={{}} onClose={() => setDrawerOpen(false)} />
+        {/* 上下文从编辑器状态直接读。
+            不接的话「上下文是显式的」就是空话：头部一个 chip 都没有，
+            AI 也不知道你在看哪条工作流，提出来的操作引用的 nodeId 全是编的 */}
+        <SupervisorDrawer
+          open={drawerOpen}
+          context={{
+            ...(editor.workflowId ? { workflowId: editor.workflowId, draftRev: editor.rev } : {}),
+            ...(editor.selection.length > 0 ? { selectedNodes: editor.selection.length } : {}),
+          }}
+          {...(editor.workflowId ? { graph: editor.graph, onApply: editor.apply } : {})}
+          onClose={() => setDrawerOpen(false)}
+        />
       </div>
     </div>
   );

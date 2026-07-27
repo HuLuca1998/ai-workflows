@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Button } from '@aiwf/ui';
 import { diffGraphs, type WorkflowDiff, type WorkflowGraph } from './editorDeps.js';
+import { DiffLines } from './DiffLines.js';
 import type { VersionSummary } from './editorStore.js';
 
 export interface VersionDrawerProps {
@@ -171,33 +172,6 @@ export function VersionDrawer({
         </footer>
       </aside>
     </div>
-  );
-}
-
-function DiffLines({ diff }: { diff: WorkflowDiff }) {
-  const total = diff.added.length + diff.removed.length + diff.changed.length;
-  if (total === 0) {
-    return <p className="ver__diff-line">与这个版本完全一致</p>;
-  }
-
-  return (
-    <>
-      {diff.added.map((entry) => (
-        <p key={`a-${entry.kind}-${entry.id}`} className="ver__diff-line ver__diff-line--added">
-          + {entry.label}
-        </p>
-      ))}
-      {diff.removed.map((entry) => (
-        <p key={`r-${entry.kind}-${entry.id}`} className="ver__diff-line ver__diff-line--removed">
-          − {entry.label}
-        </p>
-      ))}
-      {diff.changed.map((entry) => (
-        <p key={`c-${entry.kind}-${entry.id}`} className="ver__diff-line ver__diff-line--changed">
-          ~ {entry.label}
-        </p>
-      ))}
-    </>
   );
 }
 

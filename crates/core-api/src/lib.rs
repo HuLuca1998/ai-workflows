@@ -1238,6 +1238,9 @@ pub fn memory_delete(store: &Store, id: String) -> ApiResult<()> {
 pub struct SupervisorAnswer {
     pub text: String,
     pub tool_calls: u32,
+    /// AI 想做的改动。界面据此算 Diff，用户确认后才落草稿。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub proposal: Option<Proposal>,
 }
 
 /// 问主管 AI。走与 AI 节点同一套 ACP 客户端。
@@ -1251,6 +1254,22 @@ pub fn supervisor_ask(
     question: String,
     context_json: Option<String>,
 ) -> ApiResult<SupervisorAnswer> {
+    // 要提结构化改动就得先看得见当前的图 ——
+    // 让模型凭空造 nodeId 的话，那些操作应用不到任何东西上
+    let context_graph = context_json
+        .as_deref()
+        .and_then(|json| serde_json::from_str::<serde_json::Value>(json).ok())
+        .and_then(|value| {
+            value
+                .get("workflowId")
+                .and_then(serde_json::Value::as_str)
+                .map(str::to_string)
+        })
+        .and_then(|workflow_id| {
+            let rev = store.draft_revision(&workflow_id).ok().flatten()?;
+            store.get_draft(&workflow_id, rev).ok().flatten()
+        });
+
     use aiwf_engine::acp::{AcpClient, SessionUpdate, adapter_installed, env_to_remove};
 
     let runtime = "acp.claude";
@@ -1285,6 +1304,23 @@ pub fn supervisor_ask(
         .filter(|c| *c != "{}" && !c.is_empty())
     {
         prompt.push_str(&format!("当前界面状态：{context}\n\n"));
+    }
+
+    // 教它怎么提改动。不说的话它只会用自然语言描述「你可以加一个审批节点」——
+    // 那没法出 Diff，用户还得自己动手照做一遍。
+    //
+    // 用专门的围栏标记而不是 ```json：用户问「这个节点配置长什么样」时
+    // 模型会贴一段 JSON，那是解释，不是要改东西
+    if let Some(graph_json) = context_graph {
+        prompt.push_str(
+            "\n要修改这条工作流时，除了用自然语言说明，还要附一段提议：\n\n             ```aiwf-proposal\n             {\"summary\": \"一句话说清这次改了什么\", \"operations\": [ … ]}\n             ```\n\n             operations 里每一项的 op 只能是：",
+        );
+        prompt.push_str(&PATCH_OPS.join("、"));
+        prompt.push_str(
+            "。\n改动不会直接生效 —— 用户会先看到 Diff，确认后才写进草稿。\n\n             当前草稿的图：\n",
+        );
+        prompt.push_str(&graph_json);
+        prompt.push_str("\n\n");
     }
 
     prompt.push_str(&question);
@@ -1324,10 +1360,114 @@ pub fn supervisor_ask(
             retriable: true,
         })?;
 
-    Ok(SupervisorAnswer { text, tool_calls })
+    let (text, proposal) = extract_proposal(&text);
+    Ok(SupervisorAnswer {
+        text,
+        tool_calls,
+        proposal,
+    })
 }
 
 pub fn workflow_rename(store: &Store, id: String, name: String) -> ApiResult<()> {
     store.rename_workflow(&id, &name)?;
     Ok(())
+}
+
+/// 主管 AI 提议的一组改动。
+///
+/// 只是**提议** —— 界面据此算 Diff 给用户看，确认后才走 workflow.patch
+/// 落草稿。那一步有 baseRevision 守卫，且必须由用户触发。
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Proposal {
+    /// Diff 上面那句话 —— 用户判断要不要接受的依据。
+    pub summary: String,
+    /// 原样透传给前端；完整校验由契约的 Zod 做，这里只认 op 名。
+    pub operations: Vec<serde_json::Value>,
+}
+
+/// 契约里的操作名。
+///
+/// Rust 侧只做**最小校验**（op 名已知、结构完整），完整校验在契约的 Zod 里 ——
+/// 在 Rust 里镜像 12 种 op 的完整结构等于维护第二份契约，而那必然漂移。
+/// 这个名单由 contract_sync_test 对着生成物守着。
+pub fn patch_ops() -> &'static [&'static str] {
+    &PATCH_OPS
+}
+
+const PATCH_OPS: [&str; 12] = [
+    "addNode",
+    "removeNode",
+    "renameNode",
+    "moveNode",
+    "setConfig",
+    "setJoin",
+    "setCapabilities",
+    "setRetry",
+    "connect",
+    "disconnect",
+    "createGroup",
+    "deleteGroup",
+];
+
+/// 主管 AI 用来包裹提议的围栏标记。
+///
+/// 用专门的标记而不是普通的 ```json：用户问「这个节点配置长什么样」时
+/// 模型会贴一段 JSON，那是解释不是要改东西。
+const PROPOSAL_FENCE: &str = "```aiwf-proposal";
+
+/// 从模型的回答里抠出结构化提议，并把那段围栏从展示文本里去掉。
+///
+/// 返回 `(给用户看的文本, 提议)`。抠不出来时提议为 None ——
+/// **不报错**：模型偶尔会写出不合法的 JSON，整个回答因此失败的话，
+/// 用户连那句自然语言解释都看不到，而那句往往是有用的。
+pub fn extract_proposal(answer: &str) -> (String, Option<Proposal>) {
+    let Some(start) = answer.find(PROPOSAL_FENCE) else {
+        return (answer.to_string(), None);
+    };
+    let body_start = start + PROPOSAL_FENCE.len();
+    let Some(end_offset) = answer[body_start..].find("```") else {
+        return (answer.to_string(), None);
+    };
+    let body = &answer[body_start..body_start + end_offset];
+
+    // 无论解析成不成功，那段围栏都要从展示文本里去掉 ——
+    // 用户看的是 Diff，不是 JSON
+    let mut text = String::with_capacity(answer.len());
+    text.push_str(&answer[..start]);
+    text.push_str(&answer[body_start + end_offset + 3..]);
+    let text = text.trim().to_string();
+
+    (text, parse_proposal(body))
+}
+
+fn parse_proposal(body: &str) -> Option<Proposal> {
+    let value: serde_json::Value = serde_json::from_str(body.trim()).ok()?;
+
+    let summary = value.get("summary")?.as_str()?.trim().to_string();
+    if summary.is_empty() {
+        return None;
+    }
+
+    let operations = value.get("operations")?.as_array()?;
+    // 空列表不算提议：那会让用户看到一个没内容的 Diff
+    if operations.is_empty() {
+        return None;
+    }
+
+    // 有一个操作不合契约就整个作废。半个能用的提议比没有更危险：
+    // 用户看到 Diff 少了一半却以为那就是全部
+    let all_known = operations.iter().all(|op| {
+        op.get("op")
+            .and_then(serde_json::Value::as_str)
+            .is_some_and(|name| PATCH_OPS.contains(&name))
+    });
+    if !all_known {
+        return None;
+    }
+
+    Some(Proposal {
+        summary,
+        operations: operations.clone(),
+    })
 }

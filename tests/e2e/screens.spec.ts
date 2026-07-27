@@ -148,19 +148,34 @@ test.describe('记忆管理（图纸「04 记忆管理」）', () => {
   });
 
   test('停用一条记忆后它仍在列表里，只是标成已停用', async ({ page }) => {
-    const rows = page.locator('.memory__row[data-enabled]');
-    if ((await rows.count()) === 0) test.skip();
+    // 自己建一条来操作，不碰共用的那些：这个库是所有 spec 共用的，
+    // 用 .first() 加「行数不变」在并发下必然翻车 —— 别的用例正在建记忆
+    const key = `e2e.toggle.${Date.now()}`;
+    const id = (await api(page, 'memory_create', {
+      scope: 'workspace',
+      key,
+      value: '停用验证用，跑完就删',
+      source: 'user',
+      createdBy: 'e2e',
+      tags: [],
+      enabled: true,
+    })) as string;
 
-    const before = await rows.count();
-    const toggle = page.locator('.memory__actions button').first();
-    await toggle.click();
+    try {
+      await page.goto('/memory');
+      const row = page.locator('.memory__row', { hasText: key });
+      await expect(row).toHaveCount(1);
 
-    // 条数不变 —— 停用不是删除
-    await expect(rows).toHaveCount(before);
-    await expect(page.locator('.memory__off').first()).toBeVisible();
+      await row.getByRole('button', { name: `停用 ${key}` }).click();
 
-    // 恢复原状，别污染留存数据
-    await page.locator('.memory__actions button').first().click();
+      // 还在列表里 —— 停用不是删除，用户要看得到它为什么不生效
+      await expect(page.locator('.memory__row', { hasText: key })).toHaveCount(1);
+      await expect(
+        page.locator('.memory__row', { hasText: key }).locator('.memory__off'),
+      ).toBeVisible();
+    } finally {
+      await api(page, 'memory_delete', { id });
+    }
   });
 });
 

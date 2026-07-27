@@ -327,3 +327,65 @@ describe('run.artifactContent', () => {
     expect(requiredScope('run.artifactContent')).toBe('workflow:read');
   });
 });
+
+describe('主管 AI 的改动先出 Diff', () => {
+  const spec = () => getMethodSpec('supervisor.ask');
+
+  it('回答可以带一组结构化操作 —— 那是要给用户看 Diff 的东西', () => {
+    const parsed = spec().output.safeParse({
+      text: '我给你在分析节点后面插了一个审批。',
+      toolCalls: 0,
+      proposal: {
+        summary: '在「分析」后插入人工审批',
+        operations: [
+          {
+            op: 'addNode',
+            type: 'approval',
+            title: '人工审批',
+            position: { x: 400, y: 200 },
+            config: {},
+          },
+        ],
+      },
+    });
+    expect(parsed.success).toBe(true);
+  });
+
+  it('纯问答不带 proposal —— 大多数提问不该改任何东西', () => {
+    expect(spec().output.safeParse({ text: '上次失败是因为超时。', toolCalls: 2 }).success).toBe(
+      true,
+    );
+  });
+
+  it('操作必须是契约里的 op，不能自造', () => {
+    const parsed = spec().output.safeParse({
+      text: '改好了',
+      toolCalls: 0,
+      proposal: { summary: '乱改', operations: [{ op: 'rewriteEverything' }] },
+    });
+    expect(parsed.success).toBe(false);
+  });
+
+  it('proposal 必须有 summary —— Diff 上面那句话是用户判断要不要接受的依据', () => {
+    const parsed = spec().output.safeParse({
+      text: '改好了',
+      toolCalls: 0,
+      proposal: { operations: [] },
+    });
+    expect(parsed.success).toBe(false);
+  });
+
+  it('空操作列表不算提议 —— 那会让用户看到一个没内容的 Diff', () => {
+    const parsed = spec().output.safeParse({
+      text: '改好了',
+      toolCalls: 0,
+      proposal: { summary: '什么都没改', operations: [] },
+    });
+    expect(parsed.success).toBe(false);
+  });
+
+  it('这个方法本身仍然不写库 —— 落草稿走 workflow.patch，那里才有 baseRevision 守卫', () => {
+    expect(spec().mutates).toBe(false);
+    expect(requiredScope('supervisor.ask')).toBe('workflow:read');
+  });
+});
