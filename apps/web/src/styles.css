@@ -688,12 +688,30 @@
 }
 
 .editor-error {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
   margin: 0;
   padding: var(--space-3) var(--space-6);
   background: color-mix(in srgb, var(--color-status-failed) 14%, transparent);
   border-bottom: 1px solid color-mix(in srgb, var(--color-status-failed) 40%, transparent);
   color: var(--color-status-failed);
   font-size: 12px;
+}
+
+/* 「放弃本地改动」在报错条里 —— 它会丢东西，所以是次要按钮的分量 */
+.editor-error__action {
+  padding: 3px 10px;
+  border: 1px solid color-mix(in srgb, var(--color-status-failed) 45%, transparent);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: inherit;
+  font-size: 11.5px;
+  cursor: pointer;
+}
+
+.editor-error__action:hover {
+  background: color-mix(in srgb, var(--color-status-failed) 18%, transparent);
 }
 
 .editor-bar {

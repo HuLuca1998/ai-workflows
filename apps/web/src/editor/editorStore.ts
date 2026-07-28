@@ -53,6 +53,8 @@ interface EditorState {
   rollbackTo: (versionId: string) => Promise<void>;
   /** 给工作流改名。名字是用户识别它的唯一线索。 */
   rename: (name: string) => Promise<void>;
+  /** 放弃本地未提交的改动，回到服务端那份图。冲突后用户主动脱身的出路。 */
+  discardLocal: () => void;
   setSelection: (ids: string[]) => void;
   clear: () => void;
 }
@@ -132,7 +134,8 @@ export const useEditor = create<EditorState>((set, get) => ({
       await draft.commit();
       set({ saving: false, rev: draft.rev, dirty: false });
     } catch (error) {
-      // 冲突时 DraftStore 已把本地图回滚，这里同步回界面
+      // 失败后 DraftStore 保留着本地改动（见它的 commit）。把真实状态
+      // 同步回界面：dirty 仍是 true，按钮显示「保存草稿」，用户能重试
       set({
         saving: false,
         graph: draft.graph,
@@ -197,6 +200,13 @@ export const useEditor = create<EditorState>((set, get) => ({
     } catch (error) {
       set({ error: describe(error) });
     }
+  },
+
+  discardLocal: () => {
+    if (!draft) return;
+    draft.discardLocal();
+    // 订阅会把图与 dirty 同步回来，这里只清掉那条已经不成立的报错
+    set({ error: null });
   },
 
   setSelection: (ids: string[]) => set({ selection: ids }),

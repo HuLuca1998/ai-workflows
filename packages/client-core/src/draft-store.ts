@@ -143,11 +143,34 @@ export class DraftStore {
       this.pending = [];
       this.notify();
     } catch (error) {
-      this.currentGraph = structuredClone(this.committedGraph);
-      this.pending = [];
+      // **不回滚**。
+      //
+      // 曾经无条件把本地图退回 committedGraph 并清空 pending，代价是：
+      // 网络抖一下（服务端根本没收到）用户拖的节点就没了，界面还显示
+      // 禁用的「已保存」——数据丢了，而提示说一切正常。
+      //
+      // 版本冲突也一样保留：并发保护挡住了「旧版本覆盖新草稿」，
+      // 但保护完顺手清掉本地现场，只是把一种数据损失换成了另一种。
+      //
+      // 保留意味着 isDirty 仍是 true，界面据此显示「未保存」并允许重试；
+      // 要脱身走 discardLocal()，那得用户自己按。
       this.notify();
       throw error;
     }
+  }
+
+  /**
+   * 放弃本地未提交的改动，回到服务端已确认的那份图。
+   *
+   * 提交失败后本地改动会一直留着（见 commit 的 catch）。冲突场景里
+   * 重试也没用 —— baseRevision 已经过期。这个方法是用户主动脱身的出路：
+   * 明确知道自己在丢什么，然后按下去。
+   */
+  discardLocal(): void {
+    if (this.pending.length === 0) return;
+    this.currentGraph = structuredClone(this.committedGraph);
+    this.pending = [];
+    this.notify();
   }
 
   /** 服务端有了新版本（别处改了草稿）时重置本地状态。 */

@@ -89,16 +89,78 @@ describe('本地乐观编辑', () => {
     expect(draft.isDirty).toBe(false);
   });
 
-  it('版本冲突时回滚到提交前的图，并把冲突交给调用方处理', async () => {
+  it('提交失败时保住本地改动 —— 服务端没收到，这些编辑仍然有效', async () => {
+    // codex 自主体验的原话：「保存时网络瞬断会清空本地修改，恢复网络后
+    // 也无处重试」。曾经无条件回滚成 committedGraph 并清空 pending，
+    // 于是网络抖一下，用户拖的节点就没了，按钮还变成禁用的「已保存」。
+    const draft = store(() => {
+      throw new Error('连不上开发服务');
+    });
+    draft.apply(addLint);
+
+    await expect(draft.commit()).rejects.toThrow('连不上开发服务');
+    expect(draft.graph.nodes.map((n) => n.id)).toContain('run_lint');
+    expect(draft.isDirty).toBe(true);
+  });
+
+  it('失败之后能重试，且不会把操作重复应用一遍', async () => {
+    let attempt = 0;
+    const draft = store(() => {
+      attempt += 1;
+      if (attempt === 1) throw new Error('连不上开发服务');
+      return {
+        rev: 19,
+        diff: { added: [], removed: [], changed: [] },
+        validation: { ok: true, issues: [] },
+      };
+    });
+    draft.apply(addLint);
+
+    await expect(draft.commit()).rejects.toThrow();
+    await draft.commit();
+
+    expect(draft.rev).toBe(19);
+    expect(draft.isDirty).toBe(false);
+    expect(draft.graph.nodes.filter((n) => n.id === 'run_lint')).toHaveLength(1);
+  });
+
+  it('版本冲突时同样保住本地改动 —— 丢掉它是另一种数据损失', async () => {
+    // 并发保护本身是对的（别人的新草稿没被旧版本覆盖），
+    // 但保护完顺手清掉本地现场，就把一种数据损失换成了另一种。
     const draft = store(() => {
       throw { code: 'REVISION_CONFLICT', message: '草稿已变化', retriable: true };
     });
     draft.apply(addLint);
 
     await expect(draft.commit()).rejects.toMatchObject({ code: 'REVISION_CONFLICT' });
-    // 回滚：本地不能留着一份服务端并不知道的图
+    expect(draft.graph.nodes.map((n) => n.id)).toContain('run_lint');
+    expect(draft.isDirty).toBe(true);
+  });
+
+  it('用户可以显式放弃本地改动 —— 那是脱身的出路，但得他自己按', async () => {
+    const draft = store(() => {
+      throw { code: 'REVISION_CONFLICT', message: '草稿已变化', retriable: true };
+    });
+    draft.apply(addLint);
+    await expect(draft.commit()).rejects.toMatchObject({ code: 'REVISION_CONFLICT' });
+
+    draft.discardLocal();
+
     expect(draft.graph.nodes.map((n) => n.id)).not.toContain('run_lint');
     expect(draft.isDirty).toBe(false);
+  });
+
+  it('放弃本地改动会通知订阅者 —— 画布得跟着回去', () => {
+    const draft = store();
+    let notified = 0;
+    draft.subscribe(() => {
+      notified += 1;
+    });
+    draft.apply(addLint);
+    const before = notified;
+
+    draft.discardLocal();
+    expect(notified).toBeGreaterThan(before);
   });
 
   it('没有待提交操作时 commit 是空操作，不发请求', async () => {

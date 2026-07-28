@@ -306,3 +306,79 @@ describe('工作流改名', () => {
     expect(useEditor.getState().name).toBe(before);
   });
 });
+
+describe('保存失败后用户有出路', () => {
+  /**
+   * codex 的原话：「恢复网络后没有『重试保存』，原修改也已经不在」。
+   * 现在改动留着了（DraftStore 不再回滚），界面要把这件事说清楚：
+   * 报错、按钮仍可按、以及一条主动放弃的出路。
+   */
+  it('报错时按钮仍是「保存草稿」而不是禁用的「已保存」', () => {
+    useEditor.setState({ dirty: true, error: '连不上开发服务 http://127.0.0.1:5177' });
+    renderEditor();
+
+    const save = screen.getByRole('button', { name: '保存草稿' });
+    expect(save).toBeEnabled();
+  });
+
+  it('报错旁边给「放弃本地改动」—— 冲突时重试没用，得能脱身', async () => {
+    const user = userEvent.setup();
+    let discarded = false;
+    useEditor.setState({
+      dirty: true,
+      error: '草稿已变化：基础版本 4，当前 rev 6',
+      discardLocal: () => {
+        discarded = true;
+      },
+    });
+    renderEditor();
+
+    const alert = screen.getByRole('alert');
+    expect(alert.textContent).toContain('草稿已变化');
+
+    await user.click(within(alert).getByRole('button', { name: '放弃本地改动' }));
+    expect(discarded).toBe(true);
+  });
+
+  it('没有未保存改动时不给放弃按钮 —— 没东西可放弃', () => {
+    useEditor.setState({ dirty: false, error: '读取失败' });
+    renderEditor();
+
+    expect(screen.queryByRole('button', { name: '放弃本地改动' })).toBeNull();
+  });
+});
+
+describe('刷新前拦一下未保存的草稿', () => {
+  /**
+   * codex 的原话：「刷新页面不提示，未保存的整张草稿直接消失」。
+   * 站内跳转再后退能保住现场（那条是 🟢），刷新和关标签不能 ——
+   * 浏览器只给 beforeunload 这一个口子。
+   */
+  it('有未保存改动时 beforeunload 被拦下', () => {
+    useEditor.setState({ dirty: true });
+    renderEditor();
+
+    const event = new Event('beforeunload', { cancelable: true });
+    window.dispatchEvent(event);
+    expect(event.defaultPrevented, '刷新会静默丢掉整张草稿').toBe(true);
+  });
+
+  it('已保存时不拦 —— 别为难没有风险的离开', () => {
+    useEditor.setState({ dirty: false });
+    renderEditor();
+
+    const event = new Event('beforeunload', { cancelable: true });
+    window.dispatchEvent(event);
+    expect(event.defaultPrevented).toBe(false);
+  });
+
+  it('离开编辑器后不再拦 —— 监听得摘干净', () => {
+    useEditor.setState({ dirty: true });
+    const { unmount } = renderEditor();
+    unmount();
+
+    const event = new Event('beforeunload', { cancelable: true });
+    window.dispatchEvent(event);
+    expect(event.defaultPrevented).toBe(false);
+  });
+});

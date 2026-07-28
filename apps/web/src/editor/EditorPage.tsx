@@ -78,6 +78,7 @@ function EditorCanvas() {
     saving,
     loading,
     error,
+    discardLocal,
     selection,
     load,
     loadVersionGraph,
@@ -106,6 +107,27 @@ function EditorCanvas() {
     if (workflowId) void load(workflowId);
     return () => clear();
   }, [workflowId, load, clear]);
+
+  /**
+   * 刷新或关标签前拦一下未保存的草稿。
+   *
+   * 站内跳转再后退能保住现场（编辑器只在 workflowId 变化时重建草稿），
+   * 但刷新和关标签整个页面就没了 —— 浏览器只给 beforeunload 这一个口子，
+   * 而且不允许自定义文案，只能触发它自己那句通用询问。
+   *
+   * 没有它的时候：拖了两个节点、没点保存、随手刷新，整张图直接消失，
+   * 工具栏还显示「已保存」。
+   */
+  useEffect(() => {
+    if (!dirty) return;
+    const onBeforeUnload = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      // 老浏览器看的是 returnValue，新的看 preventDefault，两个都给
+      event.returnValue = '';
+    };
+    window.addEventListener('beforeunload', onBeforeUnload);
+    return () => window.removeEventListener('beforeunload', onBeforeUnload);
+  }, [dirty]);
 
   /**
    * ⌘A 全选 —— 底部状态栏写着它，那它就必须能用。
@@ -268,6 +290,13 @@ function EditorCanvas() {
       {error ? (
         <p className="editor-error" role="alert">
           {error}
+          {/* 冲突时重试没用（baseRevision 已过期），得给一条主动脱身的路。
+              保存失败后本地改动一直留着，用户要能明确地丢掉它 */}
+          {dirty ? (
+            <button type="button" className="editor-error__action" onClick={discardLocal}>
+              放弃本地改动
+            </button>
+          ) : null}
         </p>
       ) : null}
 

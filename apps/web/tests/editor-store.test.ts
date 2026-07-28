@@ -130,7 +130,7 @@ describe('保存', () => {
     expect(called).toBe(0);
   });
 
-  it('版本冲突时把图回滚并说明原因，不留一份服务端不知道的图', async () => {
+  it('版本冲突时说明原因，但本地改动留着 —— 丢掉它是另一种数据损失', async () => {
     withDraft(() => {
       throw {
         code: 'REVISION_CONFLICT',
@@ -142,8 +142,8 @@ describe('保存', () => {
     await useEditor.getState().save();
 
     const state = useEditor.getState();
-    expect(state.graph.nodes.map((n) => n.id)).not.toContain('lint');
-    expect(state.dirty).toBe(false);
+    expect(state.graph.nodes.map((n) => n.id)).toContain('lint');
+    expect(state.dirty).toBe(true);
     expect(state.error).toMatch(/草稿已变化/u);
   });
 });
@@ -195,5 +195,66 @@ describe('离开编辑器不删任何东西', () => {
     expect(useEditor.getState().workflowId).toBeNull();
     expect(useEditor.getState().name).toBe('');
     expect(useEditor.getState().dirty).toBe(false);
+  });
+});
+
+describe('保存失败不能丢掉用户的现场', () => {
+  /**
+   * codex 自主体验连报三条 🔴，根因是同一个：
+   * 刷新、网络错误、版本冲突三种入口都会清掉未保存的编辑。
+   *
+   * 底层（DraftStore.commit 不再回滚）由 client-core 的用例守，
+   * 这里守 store 这一层把真实状态如实同步回界面 —— 尤其是 dirty，
+   * 它决定按钮显示「保存草稿」还是禁用的「已保存」。
+   */
+  it('网络失败后仍是 dirty —— 按钮得让用户能再按一次', async () => {
+    withDraft(() => {
+      throw new Error('连不上开发服务 http://127.0.0.1:5177');
+    });
+    useEditor.getState().apply(addLint);
+    await useEditor.getState().save();
+
+    const state = useEditor.getState();
+    expect(state.dirty, '失败后变成「已保存」会让用户以为存住了').toBe(true);
+    expect(state.graph.nodes.map((n) => n.id)).toContain('lint');
+    expect(state.error).toContain('连不上开发服务');
+  });
+
+  it('失败之后再按一次能存进去', async () => {
+    let attempt = 0;
+    withDraft((input) => {
+      attempt += 1;
+      if (attempt === 1) throw new Error('连不上开发服务');
+      return {
+        rev: (input as { baseRevision: number }).baseRevision + 1,
+        diff: { added: [], removed: [], changed: [] },
+        validation: { ok: true, issues: [] },
+      };
+    });
+    useEditor.getState().apply(addLint);
+
+    await useEditor.getState().save();
+    await useEditor.getState().save();
+
+    const state = useEditor.getState();
+    expect(state.dirty).toBe(false);
+    expect(state.rev).toBe(5);
+    expect(state.graph.nodes.filter((n) => n.id === 'lint')).toHaveLength(1);
+  });
+
+  it('冲突时给一条能自己按的出路 —— 放弃本地改动', async () => {
+    withDraft(() => {
+      throw { code: 'REVISION_CONFLICT', message: '草稿已变化', retriable: true };
+    });
+    useEditor.getState().apply(addLint);
+    await useEditor.getState().save();
+    expect(useEditor.getState().graph.nodes.map((n) => n.id)).toContain('lint');
+
+    useEditor.getState().discardLocal();
+
+    const state = useEditor.getState();
+    expect(state.graph.nodes.map((n) => n.id)).not.toContain('lint');
+    expect(state.dirty).toBe(false);
+    expect(state.error).toBeNull();
   });
 });
