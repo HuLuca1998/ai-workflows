@@ -278,6 +278,29 @@ describe('权限、工具白名单、输出契约可配', () => {
     expect(await screen.findByText('gh.pr_create')).toBeTruthy();
   });
 
+  it('点「+ 添加」之后光标就在输入框里 —— 否则看起来像什么都没发生', async () => {
+    // codex 第四轮报「点击后没有新输入框、弹窗、提示或列表项」。
+    // 复测两条路径都能出现输入框，但它找不到是有原因的：
+    // 输入框原地替换了按钮，没有标题、没有焦点，视觉上几乎没变化。
+    // 点了就该能直接打字 —— 那也是「+ 添加」这个动作的本意
+    const user = await 打开();
+    await user.click(screen.getByRole('button', { name: /添加/u }));
+
+    const 输入 = await screen.findByLabelText('工具名');
+    expect(document.activeElement, '光标没落在输入框里').toBe(输入);
+  });
+
+  it('按 Esc 收起 —— 点开了又不想加时得能退出去', async () => {
+    const user = await 打开();
+    await user.click(screen.getByRole('button', { name: /添加/u }));
+    await screen.findByLabelText('工具名');
+
+    await user.keyboard('{Escape}');
+
+    expect(screen.queryByLabelText('工具名')).toBeNull();
+    expect(screen.getByRole('button', { name: /添加/u })).toBeTruthy();
+  });
+
   it('输出契约可编辑', async () => {
     const user = await 打开();
     const 契约 = screen.getByLabelText('输出契约');

@@ -130,7 +130,10 @@ describe('路由', () => {
   it('每个菜单项都能渲染出一级标题', () => {
     // 这几屏在图纸里是并列分栏，每栏有自己的小标题，页面级不存在大标题；
     // 硬塞一个会偏离图纸，可识别名由各栏的 aria-label 承担
-    const SELF_DRAWN_WITHOUT_H1 = new Set(['/runs', '/models', '/agents', '/prompts']);
+    // 这几屏在图纸里是并列分栏，每栏有自己的小标题，页面级不存在大标题。
+    // 设置屏同样：图纸左栏是「设置」分组导航，右侧第一个标题是 h4
+    //「运行环境健康」——硬塞一个 h1 会偏离图纸
+    const SELF_DRAWN_WITHOUT_H1 = new Set(['/runs', '/models', '/agents', '/prompts', '/settings']);
 
     // 图纸给的标题：概览是「工作流」不是菜单名「概览与工作流」，
     // 记忆是「记忆管理」不是「记忆」

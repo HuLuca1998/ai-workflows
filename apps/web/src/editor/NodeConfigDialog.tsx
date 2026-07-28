@@ -264,7 +264,7 @@ function RetryTab({ node, fields }: { node: GraphNode; fields: FieldDescriptor[]
       </div>
       <p className="cfg__hint-block cfg__retry-span">
         取消行为：收到取消信号后先停止子进程，再写入 node.cancelled 事件；已产生的 Artifact 保留。
-        重试策略的编辑要等引擎（M2）——现在改这里没有执行方去读它。
+        重试策略还不能改：引擎目前不读它，改了也不会生效。
       </p>
     </div>
   );

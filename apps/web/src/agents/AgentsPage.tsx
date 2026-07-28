@@ -568,11 +568,20 @@ export function AgentsPage() {
                       setAddingTool(null);
                     }}
                   >
+                    {/* autoFocus：输入框原地替换了按钮，不聚焦的话视觉上
+                        几乎没变化 —— codex 自主体验时就没找到它，
+                        报了「点击后没有任何反应」。点了就该能直接打字 */}
                     <input
+                      // eslint-disable-next-line jsx-a11y/no-autofocus
+                      autoFocus
                       aria-label="工具名"
                       value={addingTool}
-                      placeholder="gh.pr_create"
+                      placeholder="工具名，回车添加；Esc 取消"
                       onChange={(event) => setAddingTool(event.target.value)}
+                      onKeyDown={(event) => {
+                        // 点开了又不想加时得能退出去
+                        if (event.key === 'Escape') setAddingTool(null);
+                      }}
                     />
                   </form>
                 ) : (

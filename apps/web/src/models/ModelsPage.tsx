@@ -329,7 +329,8 @@ export function ModelsPage() {
               </p>
               <p className="models__acp-body">
                 ACP 握手只返回协议能力与 session modes（权限档位），不返回可用模型。 因此 ACP
-                模型需要在这里登记；从 CLI 配置导入与连通性测试要等适配器接上（M3）。
+                模型需要在这里登记。「从 CLI
+                配置导入」还没做，现在只能手动登记；连通性测试见每条模型的详情。
               </p>
             </div>
           </>

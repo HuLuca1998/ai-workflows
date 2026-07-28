@@ -201,11 +201,12 @@ describe('其余标签页', () => {
     expect(screen.getByText(/会产生外部写操作/u)).toBeInTheDocument();
   });
 
-  it('重试页显示实际取值，并说明编辑要等引擎', () => {
+  it('重试页显示实际取值，并说清为什么改不了', () => {
     renderDialog();
     fireEvent.click(screen.getByRole('tab', { name: '重试与超时' }));
     expect(screen.getByText('15 min（墙钟）')).toBeInTheDocument();
-    expect(screen.getByText(/要等引擎/u)).toBeInTheDocument();
+    // 不露内部里程碑代号：用户不知道 M2 是什么，也不该知道
+    expect(screen.getByText(/引擎目前不读它/u)).toBeInTheDocument();
   });
 });
 

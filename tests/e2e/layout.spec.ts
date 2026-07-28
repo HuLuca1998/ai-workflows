@@ -288,9 +288,9 @@ test.describe('分栏页面各滚各的', () => {
     // main 自己不滚了（它是 flex 容器），滚的是页面根那一层
     for (const [path, root] of [
       ['/', '.overview'],
-      // 设置页外面套着带标题结构的 .page，滚动在那一层 ——
-      // 两层都能滚的话用户要猜哪个才是自己想滚的那个
-      ['/settings', '.page'],
+      // 设置页现在是图纸的左右两栏（分组导航 + 内容），
+      // 滚的是右边那一栏 —— 左栏是固定的 184px 导航，不该跟着滚
+      ['/settings', '.settings'],
     ] as const) {
       await page.goto(path);
       await page.waitForTimeout(500);

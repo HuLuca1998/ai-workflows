@@ -366,7 +366,7 @@ export function RunsPage() {
               {tab === 'artifacts' ? <ArtifactList runId={selected.id} /> : null}
               {tab === 'conversation' ? (
                 <p className="runs__empty">
-                  对话视图要等 AI 节点接上 ACP（M3）。现在这次运行还没有 AI 消息。
+                  这次运行没有 AI 节点，所以没有对话。含 AI 节点的运行会在这里显示完整的往返消息。
                 </p>
               ) : null}
             </div>

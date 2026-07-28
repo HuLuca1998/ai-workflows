@@ -12,7 +12,11 @@ import { api } from './_api.js';
 test.describe('设置与环境', () => {
   test('页面加载并显示权限档与环境状态', async ({ page }) => {
     await page.goto('/settings');
-    await expect(page.getByRole('heading', { level: 1 })).toContainText('设置与环境');
+    // 图纸「05 设置与环境」是左右两栏：左边「设置」分组导航，
+    // 右边第一个标题是 h4「运行环境健康」——页面级没有 h1
+    await expect(page.getByRole('tablist', { name: '设置分组' })).toBeVisible();
+    await expect(page.getByText('运行环境健康')).toBeVisible();
+    await expect(page.getByRole('radiogroup', { name: '权限策略' })).toBeVisible();
   });
 
   test('Web 形态下不显示桌面专属的更新卡片', async ({ page }) => {
