@@ -61,5 +61,27 @@ const client = new CoreApiClient({
   },
 });
 
-process.stderr.write(`[aiwf-mcp] 已连到 ${base}\n`);
-serve({ client }, process.stdin, process.stdout);
+/**
+ * 写工具默认不开放。
+ *
+ * 这个进程弹不出应用里的确认对话框，而「AI 的改动一律先出 Diff」
+ * 是这个产品的核心规则 —— 主管 AI 遵守了，MCP 不该例外。
+ *
+ * `AIWF_MCP_ALLOW_WRITE=1` 显式接受：写入仍然过 Core API 的
+ * baseRevision 守卫与审计，改的也只是草稿（不是已发布版本），
+ * 用户能在版本抽屉里看到 Diff 并回滚。但确认那一步没有了。
+ */
+const allowWrite = process.env['AIWF_MCP_ALLOW_WRITE'] === '1';
+
+process.stderr.write(`[aiwf-mcp] 已连到 ${base}（${allowWrite ? '可写' : '只读'}）\n`);
+
+serve(
+  {
+    client,
+    // 已经显式开了写：这里就不再逐次问 —— 真正的确认要接到桌面壳，
+    // 那是 M4 剩下的一件事
+    ...(allowWrite ? { confirmWrite: async () => true } : {}),
+  },
+  process.stdin,
+  process.stdout,
+);

@@ -64,7 +64,7 @@ export async function handleMessage(
         jsonrpc: '2.0',
         id,
         result: {
-          tools: listMcpTools().map((tool) => ({
+          tools: availableTools(session).map((tool) => ({
             name: tool.name,
             description: tool.description,
             inputSchema: tool.inputSchema,
@@ -88,6 +88,21 @@ export async function handleMessage(
 }
 
 /**
+ * 这个会话能用哪些工具。
+ *
+ * **没有确认机制时只给只读的**。MCP Server 是独立进程，弹不出应用里的
+ * 确认对话框；静默放行意味着 AI 能直接改用户的草稿，
+ * 而「AI 的改动一律先出 Diff」是这个产品的核心规则 ——
+ * 主管 AI 遵守了，MCP 不该例外。
+ *
+ * 安全默认是「不给写」：要写就得显式接上确认。
+ */
+function availableTools(session: McpSession): McpTool[] {
+  const all = listMcpTools();
+  return session.confirmWrite ? all : all.filter((tool) => !tool.mutates);
+}
+
+/**
  * 调用一个工具。
  *
  * 失败时返回 `isError: true` 而不是 JSON-RPC 层的 error：
@@ -102,6 +117,17 @@ async function callTool(session: McpSession, params: unknown): Promise<unknown> 
 
   if (!name) {
     return errorResult('tools/call 缺少 name');
+  }
+
+  // 清单之外没有旁路：直接按名字调也要过同一道门
+  const tool = availableTools(session).find((candidate) => candidate.name === name);
+  if (!tool) {
+    const known = listMcpTools().find((candidate) => candidate.name === name);
+    return errorResult(
+      known
+        ? `${name} 是写操作，而这个会话是只读的 —— 接上确认机制后才能用`
+        : `工具 ${name} 未暴露给 MCP`,
+    );
   }
 
   const registry = new McpToolRegistry(

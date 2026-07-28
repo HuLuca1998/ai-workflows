@@ -34,7 +34,8 @@ pnpm dev:api          # 或 scripts/local-test-env.sh start
 
 ## 暴露了什么
 
-首版 16 个工具，全部从 `MCP_FIRST_RELEASE_TOOLS` 派生：
+首版 16 个工具，全部从 `MCP_FIRST_RELEASE_TOOLS` 派生
+（默认只给其中 11 个只读的，见下）：
 
 | 类别         | 工具                                                               |
 | ------------ | ------------------------------------------------------------------ |
@@ -49,12 +50,27 @@ pnpm dev:api          # 或 scripts/local-test-env.sh start
 
 清单之外的工具调用一律被拒，没有旁路。
 
-## 写操作的确认
+## 写操作：默认关闭
 
-`McpToolRegistry` 支持 `confirmWrite` 回调：写类工具在真正调用前先问一次。
-桌面壳接上它之后，AI 的每次写入都会先在应用里显示 Diff。
+**默认只暴露只读工具**（11 个）。写类的 `workflow.create` / `patch`、
+`memory.create` / `update` / `delete` 都不在清单里，直接按名字调也会被拒。
 
-只读工具**不问** —— 每次 `list` 都弹一次确认，用户会直接把确认关掉。
+理由：这个进程弹不出应用里的确认对话框，而「AI 的改动一律先出 Diff」
+是这个产品的核心规则 —— 主管 AI 遵守了，MCP 不该例外。
+
+要开写，在配置的 `env` 里加：
+
+```json
+"env": { "AIWF_API": "http://127.0.0.1:5177", "AIWF_MCP_ALLOW_WRITE": "1" }
+```
+
+开了之后写入仍然过 Core API 的 baseRevision 守卫与审计，
+改的也只是**草稿**（不是已发布版本），用户能在版本抽屉里看到 Diff 并回滚。
+少掉的只是「写之前先问一次」。
+
+`McpToolRegistry` 的 `confirmWrite` 回调是为桌面壳准备的：接上之后
+AI 的每次写入都会先在应用里显示 Diff。只读工具**不问** ——
+每次 `list` 都弹一次确认，用户会直接把确认关掉。
 
 ## 排查
 

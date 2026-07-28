@@ -59,9 +59,12 @@ describe('握手', () => {
 
 describe('工具清单', () => {
   it('tools/list 给出契约派生的清单', async () => {
-    const response = (await request('tools/list')) as {
-      result: { tools: { name: string; inputSchema: unknown }[] };
-    };
+    // 带上确认才看得到完整清单 —— 只读会话只给只读工具，
+    // 那条规则由「写工具的安全默认」那组用例守着
+    const response = (await handleMessage(
+      { client: { call } as never, confirmWrite: async () => true },
+      { jsonrpc: '2.0', id: 1, method: 'tools/list' },
+    )) as { result: { tools: { name: string }[] } };
 
     const names = response.result.tools.map((t) => t.name);
     expect(names).toContain('workflow.list');
@@ -96,10 +99,18 @@ describe('调用工具', () => {
     // JSON-RPC 层的 error 在多数客户端里会直接中断对话；
     // isError 的结果仍然进上下文，Agent 能读到「哪个字段不对」再试一次
     call.mockRejectedValue(new Error('baseRevision 对不上'));
-    const response = (await request('tools/call', {
-      name: 'workflow.patch',
-      arguments: { workflowId: 'wf_1', baseRevision: 1, operations: [] },
-    })) as { result: { isError: boolean; content: { text: string }[] } };
+    const response = (await handleMessage(
+      { client: { call } as never, confirmWrite: async () => true },
+      {
+        jsonrpc: '2.0',
+        id: 1,
+        method: 'tools/call',
+        params: {
+          name: 'workflow.patch',
+          arguments: { workflowId: 'wf_1', baseRevision: 1, operations: [] },
+        },
+      },
+    )) as { result: { isError: boolean; content: { text: string }[] } };
 
     expect(response.result.isError).toBe(true);
     expect(response.result.content[0]?.text).toContain('baseRevision');
@@ -146,5 +157,63 @@ describe('写操作要确认', () => {
       { jsonrpc: '2.0', id: 9, method: 'tools/call', params: { name: 'workflow.list' } },
     );
     expect(confirmWrite).not.toHaveBeenCalled();
+  });
+});
+
+describe('写工具的安全默认', () => {
+  it('没有确认机制时，写工具不出现在清单里', async () => {
+    // MCP Server 是独立进程，弹不出应用里的确认对话框。
+    // 静默放行意味着 AI 能直接改用户的草稿，而「AI 的改动一律先出 Diff」
+    // 是这个产品的核心规则 —— 主管 AI 遵守了，MCP 不该例外。
+    //
+    // 安全默认是「不给写」：要写就得显式接上确认。
+    const response = (await handleMessage(
+      { client: { call } as never },
+      { jsonrpc: '2.0', id: 1, method: 'tools/list' },
+    )) as { result: { tools: { name: string }[] } };
+
+    const names = response.result.tools.map((t) => t.name);
+    expect(names).toContain('workflow.list');
+    expect(names).toContain('workflow.get');
+    // 写类工具全部不在
+    expect(names).not.toContain('workflow.patch');
+    expect(names).not.toContain('workflow.create');
+    expect(names).not.toContain('memory.create');
+  });
+
+  it('接上确认后写工具才出现', async () => {
+    const confirmWrite = vi.fn().mockResolvedValue(true);
+    const response = (await handleMessage(
+      { client: { call } as never, confirmWrite },
+      { jsonrpc: '2.0', id: 1, method: 'tools/list' },
+    )) as { result: { tools: { name: string }[] } };
+
+    const names = response.result.tools.map((t) => t.name);
+    expect(names).toContain('workflow.patch');
+    expect(names).toContain('memory.create');
+  });
+
+  it('绕过清单直接调写工具也会被拒 —— 清单之外没有旁路', async () => {
+    const response = (await handleMessage(
+      { client: { call } as never },
+      {
+        jsonrpc: '2.0',
+        id: 1,
+        method: 'tools/call',
+        params: { name: 'workflow.patch', arguments: {} },
+      },
+    )) as { result: { isError: boolean; content: { text: string }[] } };
+
+    expect(response.result.isError).toBe(true);
+    expect(response.result.content[0]?.text).toMatch(/确认|只读/u);
+    expect(call).not.toHaveBeenCalled();
+  });
+
+  it('只读工具在两种模式下都能用', async () => {
+    await handleMessage(
+      { client: { call } as never },
+      { jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'workflow.list' } },
+    );
+    expect(call).toHaveBeenCalledWith('workflow.list', {});
   });
 });
