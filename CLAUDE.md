@@ -164,9 +164,34 @@ UI 只做「订阅 RunEvent 的只读投影」和「发命令」，不碰文件�
 
 `workflow.patch` 携带 `baseRevision` 做版本守卫，只接受结构化操作
 （`addNode` / `connect` / `setConfig`…），**刻意没有整份回写**——那会绕过 Diff 与审计。
-`services/mcp-server` 的工具清单由契约派生，不存在旁路；CI 有门禁守这条。
+
+**引擎自己应用 Patch**（ADR-0009）。`crates/engine` 里有 `patch.rs` /
+`validate.rs` / `diff.rs`，与 `packages/contracts` 那三份 TypeScript
+**逐字等价**——包括错误文案。两份实现的代价由
+`crates/engine/tests/conformance_test.rs` 对冲：43 组夹具的期望输出由
+TypeScript 那份算出来写进 `generated/conformance.json`，Rust 逐条比。
+改任何一侧的行为，它会先红一次。
+
+`workflow_save_draft`（整份回写）只留给界面 —— 界面在本地已经走过一次
+applyPatch，Diff 给用户看过了。它**不对 MCP 开放**。
 
 AI 的改动一律先进 `DraftStore.propose()`（出 Diff），用户确认才 `acceptProposal()` 落草稿。
+
+### 4. 系统级 MCP 是对外的唯一门
+
+`crates/mcp` 把整个应用通过 MCP Streamable HTTP 开出去：50 个工具
+（清单 = 契约方法 ∩ 可分派命令，由契约派生）、7 份系统知识资源、
+2 条提示词模板。详见 [`docs/MCP.md`](docs/MCP.md)。
+
+三件事必须记住：
+
+- **调用一律经 `aiwf_core_api::dispatch`**，没有直连数据库或文件的路径
+- **写操作挂在权限档上**，与节点执行同一个开关；认不出的档位按最严处理
+- **主管 AI 走的是同一条**：`session/new` 把这个 MCP 接给 ACP agent，
+  所以界面里的 AI 与外部客户端看到的是同一份能力与知识
+
+加一个 Core API 命令时，它会**自动**出现在 MCP 里（`catalog_test` 守着
+「界面上有的 MCP 里也有」）。真要藏就写进 `DELIBERATELY_HIDDEN` 并说明理由。
 
 ## 关键机制
 
