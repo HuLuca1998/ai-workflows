@@ -71,6 +71,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "aiwf-mcp"
+version = "0.0.0"
+dependencies = [
+ "aiwf-core-api",
+ "aiwf-engine",
+ "aiwf-store",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tiny_http",
+]
+
+[[package]]
 name = "aiwf-store"
 version = "0.0.0"
 dependencies = [
