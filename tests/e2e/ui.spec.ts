@@ -258,17 +258,20 @@ test.describe('运行一个真实工作流', () => {
     await page.getByRole('button', { name: /开始运行/ }).click();
 
     // 停在审批上，并给出决定入口
-    await expect(page.getByRole('button', { name: '批准' })).toBeVisible({ timeout: 20_000 });
+    // 限定在审批卡里：节点进度栏现在也是按钮（图纸每行都可点），
+    // 而这条测试的图里有个节点叫「批准后执行」—— 不限定就会撞上它
+    const 审批卡 = page.locator('.runs__approval');
+    await expect(审批卡.getByRole('button', { name: '批准' })).toBeVisible({ timeout: 20_000 });
     await expect(
       page.locator('.runs__event-type').filter({ hasText: 'approval.requested' }),
     ).toHaveCount(1);
 
-    await page.getByRole('button', { name: '批准' }).click();
+    await 审批卡.getByRole('button', { name: '批准' }).click();
 
     await expect(
       page.locator('.runs__event-type').filter({ hasText: 'run.succeeded' }),
     ).toHaveCount(1, { timeout: 20_000 });
-    await expect(page.getByRole('button', { name: '批准' })).toHaveCount(0);
+    await expect(审批卡.getByRole('button', { name: '批准' })).toHaveCount(0);
   });
 
   test('失败的运行显示失败横幅与错误详情', async ({ page }) => {

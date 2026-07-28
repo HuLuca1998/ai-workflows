@@ -44,6 +44,8 @@ export function RunsPage() {
   const [tab, setTab] = useState<DetailTab>('events');
   /** 刚导出的诊断包路径。不告诉用户在哪的话他找不到。 */
   const [diagnostics, setDiagnostics] = useState<string | null>(null);
+  /** 选中的节点；null 表示看整条运行。图纸的节点进度栏每行都可点。 */
+  const [selectedNode, setSelectedNode] = useState<string | null>(null);
   const [exportError, setExportError] = useState<string | null>(null);
 
   const exportDiagnostics = async (runId: string) => {
@@ -202,14 +204,27 @@ export function RunsPage() {
         <div className="runs__nodes-body">
           {selected ? (
             nodeRows(runs.events).map((row) => (
-              <div key={row.nodeId} className="runs__node" data-state={row.state}>
+              // 图纸每一行都带 onClick：选中之后详情区只看这个节点。
+              // 一条 20 个节点的运行，不能点的话只能在事件流里自己数
+              <button
+                type="button"
+                key={row.nodeId}
+                className="runs__node"
+                data-state={row.state}
+                data-selected={selectedNode === row.nodeId ? 'true' : undefined}
+                aria-pressed={selectedNode === row.nodeId}
+                onClick={() =>
+                  // 再点一次取消 —— 回到整条运行的视图
+                  setSelectedNode((current) => (current === row.nodeId ? null : row.nodeId))
+                }
+              >
                 <i className={`ph ${nodeIcon(row.state)}`} aria-hidden="true" />
                 <div className="runs__node-main">
                   <span className="runs__node-title">{row.label}</span>
                   <span className="runs__node-sub">{row.summary}</span>
                 </div>
                 <span className="runs__node-state">{stateLabel(row.state)}</span>
-              </div>
+              </button>
             ))
           ) : (
             <p className="runs__empty">运行的节点会在这里逐个亮起。</p>
@@ -362,7 +377,15 @@ export function RunsPage() {
             </div>
 
             <div className="runs__detail-body">
-              {tab === 'events' ? <EventList events={runs.events} /> : null}
+              {tab === 'events' ? (
+                <EventList
+                  events={
+                    selectedNode
+                      ? runs.events.filter((event) => event.nodeId === selectedNode)
+                      : runs.events
+                  }
+                />
+              ) : null}
               {tab === 'artifacts' ? <ArtifactList runId={selected.id} /> : null}
               {tab === 'conversation' ? (
                 <p className="runs__empty">

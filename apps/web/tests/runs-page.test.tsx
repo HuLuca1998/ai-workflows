@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { render, screen, within } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router';
 
 /**
@@ -384,5 +384,82 @@ describe('审批面板认得出待决定的节点', () => {
     // 面板还在（状态仍是 waiting_approval），但已经找不到未决定的节点
     const title = document.querySelector('.runs__approval-title');
     expect(title?.textContent).not.toContain('选择修复方案');
+  });
+});
+
+describe('节点行可选中（图纸「03 执行记录」）', () => {
+  /** 两个节点、四条事件的运行 —— 够验证「选中后只剩这个节点的事件」。 */
+  const 打开一条运行 = () => {
+    const 事件 = (seq: number, type: string, nodeId: string) => ({
+      id: `e${seq}`,
+      runId: 'run_1',
+      seq,
+      ts: '2026-07-28T10:00:00Z',
+      type,
+      nodeId,
+      nodeLabel: nodeId === 'a' ? '第一个节点' : '第二个节点',
+      actor: 'engine',
+      summary: `${nodeId} 的事件`,
+      sensitivity: 'normal',
+      schemaVer: 1,
+    });
+    reset({
+      items: [RUN] as never,
+      selectedId: 'run_1',
+      events: [
+        事件(1, 'node.started', 'a'),
+        事件(2, 'node.succeeded', 'a'),
+        事件(3, 'node.started', 'b'),
+        事件(4, 'node.succeeded', 'b'),
+      ] as never,
+    });
+    view();
+  };
+
+  /**
+   * 第 5 轮审查（动态）：「执行记录节点行点不动（图纸有 onClick）」。
+   *
+   * 图纸的节点进度栏每一行都带 `onClick: () => setState({ nodeSel: n.id })`，
+   * 选中的行有紫色边框与背景；选中之后详情区显示**那个节点的**运行细节，
+   * 而不是整条运行的。
+   *
+   * 不能点的话，一条 20 个节点的运行只能在事件流里自己数 ——
+   * 而节点进度栏摆在那里，看起来就该能点。
+   */
+  it('点节点行把它选中', () => {
+    打开一条运行();
+
+    const 行 = document.querySelector('.runs__node');
+    expect(行, '没有节点行').toBeTruthy();
+    fireEvent.click(行 as Element);
+
+    expect((行 as HTMLElement).dataset.selected).toBe('true');
+  });
+
+  it('选中之后事件流只剩那个节点的 —— 那才是「看这个节点发生了什么」', () => {
+    打开一条运行();
+
+    const 全部 = document.querySelectorAll('.runs__event').length;
+    fireEvent.click(document.querySelector('.runs__node') as Element);
+    const 筛后 = document.querySelectorAll('.runs__event').length;
+
+    expect(筛后, '选中节点后事件没被筛').toBeLessThan(全部);
+    expect(筛后).toBeGreaterThan(0);
+  });
+
+  it('再点一次取消选中 —— 回到整条运行的视图', () => {
+    打开一条运行();
+
+    const 行 = document.querySelector('.runs__node') as Element;
+    fireEvent.click(行);
+    fireEvent.click(行);
+
+    expect((行 as HTMLElement).dataset.selected).toBeUndefined();
+  });
+
+  it('节点行是按钮 —— 键盘也要能选', () => {
+    打开一条运行();
+    const 行 = document.querySelector('.runs__node');
+    expect(行?.tagName.toLowerCase(), '节点行不是按钮，键盘用户点不到').toBe('button');
   });
 });

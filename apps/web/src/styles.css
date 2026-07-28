@@ -2247,8 +2247,24 @@
   display: flex;
   align-items: center;
   gap: 8px;
+  width: 100%;
   padding: 7px 8px;
+  border: 1px solid transparent;
   border-radius: 8px;
+  background: none;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.runs__node:hover {
+  background: rgb(233 233 237 / 5%);
+}
+
+/* 选中态照图纸第 2139 行：紫色边框 + 同色淡背景 */
+.runs__node[data-selected='true'] {
+  border-color: var(--color-accent-700);
+  background: rgb(145 132 217 / 13%);
 }
 
 .runs__node[data-state='running'] {
@@ -4931,6 +4947,24 @@
   padding: 10px 0 2px;
   font-size: 11.5px;
   color: var(--color-neutral-500);
+}
+
+/* 整页滚动的屏（概览）：分页吸底。
+   一页 50 行意味着它在 2600px 以下 —— 用户得一路滚到底才知道
+   自己在第几页、能不能往下翻。分栏的屏不用：那里的列表自己有滚动区，
+   分页跟着栏走本来就在视口里 */
+.overview .pager {
+  position: sticky;
+  bottom: 0;
+  z-index: 5;
+  margin-top: 4px;
+  padding: 10px 0;
+  background: linear-gradient(
+    to top,
+    var(--color-bg) 70%,
+    color-mix(in srgb, var(--color-bg) 60%, transparent)
+  );
+  backdrop-filter: blur(2px);
 }
 
 .pager__total {

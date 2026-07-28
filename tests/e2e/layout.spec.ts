@@ -345,3 +345,37 @@ test.describe('每一屏都铺满可视宽度', () => {
     });
   }
 });
+
+test.describe('分页控件不该要滚到底才看得见', () => {
+  /**
+   * 第 5 轮审查（动态）：「概览页分页要滚 2665px / 26 下滚轮才看得见」。
+   *
+   * 图纸的首页只有 7 条工作流，没设想过上千条 —— 分页是后加的。
+   * 放在表格底部是自然的，但一页 50 行意味着用户得一路滚到底
+   * 才知道自己在第几页、能不能往下翻。
+   */
+  const 屏幕 = [
+    { path: '/', 名: '概览' },
+    { path: '/runs', 名: '执行记录' },
+  ];
+
+  for (const { path, 名 } of 屏幕) {
+    test(`${名} 的分页控件在视口内可见，不用滚到底`, async ({ page }) => {
+      await page.setViewportSize({ width: 1440, height: 900 });
+      await page.goto(path);
+      await page.waitForTimeout(1200);
+
+      const pager = page.locator('.pager').first();
+      const 存在 = await pager.count();
+      test.skip(存在 === 0, '这一屏当前数据不足一页，没有分页控件');
+
+      // 不滚动，直接看它在不在视口里
+      const 可见 = await pager.evaluate((el) => {
+        const rect = el.getBoundingClientRect();
+        return rect.top < window.innerHeight && rect.bottom > 0;
+      });
+
+      expect(可见, '分页控件要滚到底才看得见 —— 用户不知道自己在第几页').toBe(true);
+    });
+  }
+});
