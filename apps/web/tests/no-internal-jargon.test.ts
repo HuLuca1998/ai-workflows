@@ -65,3 +65,24 @@ describe('界面文案不露内部代号', () => {
     }
   });
 });
+
+describe('生产代码的标识符用英文', () => {
+  /**
+   * CLAUDE.md：「注释与文档用中文，标识符用英文」。
+   *
+   * 第 5 轮审查 F3（第 21 条）指出生产代码里混进了中文标识符。
+   * 测试文件不在此列 —— 那里的中文名是描述性的，读起来比
+   * `const filtered2` 清楚得多。
+   */
+  it('src 下没有中文的变量名与函数名', () => {
+    const 违规: string[] = [];
+    for (const { path, text } of 源) {
+      const 无注释 = text.replace(/\/\*[\s\S]*?\*\//gu, '').replace(/^\s*\/\/.*$/gmu, '');
+      for (const m of 无注释.matchAll(/\b(?:const|let|var|function)\s+([一-龥][^\s(=:,)]*)/gu)) {
+        违规.push(`${path}: ${m[1]}`);
+      }
+    }
+
+    expect(违规, `这些标识符是中文的，改成英文：\n${违规.join('\n')}`).toEqual([]);
+  });
+});

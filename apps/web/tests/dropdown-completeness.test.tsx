@@ -33,7 +33,9 @@ describe('下拉列表不被分页截断', () => {
       // 找 call('model.list', { … }) 的调用，逐个看它带没带 limit
       for (const m of 内容.matchAll(/call\(\s*'model\.list'\s*,\s*(\{[\s\S]{0,200}?\})\s*\)/g)) {
         const 入参 = m[1]!;
-        if (入参.includes('enabledOnly') && !入参.includes('limit')) {
+        // 只管下拉：enabledOnly: true 才是「只列已启用的那份清单」。
+        // 列表页传 false（要全部）并且自己分页，不在这条守卫的范围里
+        if (/enabledOnly:\s*true/u.test(入参) && !入参.includes('limit')) {
           违规.push(path);
         }
       }

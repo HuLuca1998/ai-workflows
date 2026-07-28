@@ -1990,27 +1990,42 @@ impl Store {
     }
 
     /// 列出模型的一页，同时给出总数。
+    /// 列出模型，可按名字或模型 ID 搜。
+    ///
+    /// 模型 ID 也参与匹配：那是用户从文档里抄来的字符串，
+    /// 比他随手起的显示名更容易记住。
+    ///
+    /// `?2` 为 NULL 时不筛 —— 空搜索词与「搜一个空串」是两回事。
     pub fn list_models_paged(
         &self,
         enabled_only: bool,
+        query: Option<&str>,
         limit: i64,
         offset: i64,
     ) -> Result<(Vec<ModelRow>, i64)> {
         let flag = i64::from(enabled_only);
+        let like = query
+            .map(str::trim)
+            .filter(|text| !text.is_empty())
+            .map(|text| format!("%{text}%"));
+
+        let 条件 = "WHERE (?1 = 0 OR enabled = 1)
+             AND (?2 IS NULL OR name LIKE ?2 OR model_id LIKE ?2)";
+
         let total: i64 = self.conn.query_row(
-            "SELECT COUNT(*) FROM model WHERE (?1 = 0 OR enabled = 1)",
-            params![flag],
+            &format!("SELECT COUNT(*) FROM model {条件}"),
+            params![flag, like],
             |row| row.get(0),
         )?;
 
-        let mut stmt = self.conn.prepare(
+        let mut stmt = self.conn.prepare(&format!(
             "SELECT id, name, runtime, model_id, effort, ctx, caps_json, cred_ref, enabled, last_latency_ms
              FROM model
-             WHERE (?1 = 0 OR enabled = 1)
+             {条件}
              ORDER BY updated_at DESC, rowid DESC
-             LIMIT ?2 OFFSET ?3",
-        )?;
-        let rows = stmt.query_map(params![flag, limit, offset], map_model_row)?;
+             LIMIT ?3 OFFSET ?4"
+        ))?;
+        let rows = stmt.query_map(params![flag, like, limit, offset], map_model_row)?;
         Ok((rows.collect::<std::result::Result<Vec<_>, _>>()?, total))
     }
 

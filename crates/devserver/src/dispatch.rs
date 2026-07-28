@@ -154,6 +154,7 @@ pub fn dispatch(
         "model_list" => to_value(api::model_list(
             &store,
             boolean(input, "enabledOnly"),
+            opt_string(input, "query"),
             opt_int(input, "limit"),
             opt_int(input, "offset"),
         )?),

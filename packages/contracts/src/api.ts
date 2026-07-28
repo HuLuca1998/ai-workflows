@@ -833,7 +833,12 @@ const SPECS = {
     summary: '删除自定义提示词；内置项只能恢复默认',
   },
   'model.list': {
-    input: z.object({ enabledOnly: z.boolean().default(false), ...PAGING }),
+    input: z.object({
+      enabledOnly: z.boolean().default(false),
+      /** 按名字或模型 ID 搜。列表过 50 条之后翻页找是不可行的。 */
+      query: z.string().optional(),
+      ...PAGING,
+    }),
     output: paged(ModelSchema),
     mutates: false,
     audited: false,

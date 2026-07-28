@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { NODE_LIBRARY, NODE_TYPES, getNodeDefinition, type NodeType } from '../src/nodes/index.js';
+import {
+  NODE_LIBRARY,
+  NODE_TYPES,
+  fieldDescriptors,
+  getNodeDefinition,
+  type NodeType,
+} from '../src/nodes/index.js';
 
 /**
  * 节点定义 Schema 是 M0 冻结的第三件事（功能文档 §14）。
@@ -307,5 +313,48 @@ describe('节点库从定义派生，不是第二份清单', () => {
     const all = NODE_LIBRARY.flatMap((entry) => entry.types);
     const 重复 = all.filter((type, index) => all.indexOf(type) !== index);
     expect([...new Set(重复)]).toEqual([]);
+  });
+});
+
+describe('长文本由 Schema 声明，不靠字段名猜', () => {
+  /**
+   * 第 5 轮审查 B1-C7（第 14 条）：长文本靠**字段名白名单**判定
+   * （`LONG_TEXT_KEYS`）。同一个弹层里的 A/B 对照 ——
+   * `promptTemplate` 与 `script` 的 Zod 类型完全一样（都是 `z.string()`），
+   * 只因为名字不在白名单里，前者渲染成 34px 高的单行 input，
+   * 用户写不了多行提示词。
+   *
+   * 这与「新增节点类型不改 UI 代码」是同一类问题：
+   * 判据不在契约里，而在 UI 的一张表里。
+   */
+  it('脚本节点的 script 是多行 —— 那是声明出来的，不是猜出来的', () => {
+    const fields = fieldDescriptors('script.shell');
+    expect(fields.find((f) => f.key === 'script')?.control).toBe('text-long');
+  });
+
+  it('每个实际是长文本的字段都声明了 —— 不再靠名字', () => {
+    // 脚本、正文、指令、提示词模板：这些字段用户要写好几行
+    const 该长的 = ['script', 'bodyMarkdown', 'body', 'instruction'];
+    for (const type of NODE_TYPES) {
+      const fields = fieldDescriptors(type);
+      for (const field of fields) {
+        if (!该长的.includes(field.key)) continue;
+        expect(field.control, `${type}.${field.key} 该是多行却渲染成单行`).toBe('text-long');
+      }
+    }
+  });
+
+  it('判据在 Schema 里，不在 UI 的一张名字表里', async () => {
+    // 白名单那版的问题：promptTemplate 与 script 的 Zod 类型完全一样，
+    // 只因为名字不在表里，前者渲染成 34px 的单行 input
+    const { readFileSync } = await import('node:fs');
+    const { join } = await import('node:path');
+    const 源 = readFileSync(join(import.meta.dirname, '../src/nodes/fields.ts'), 'utf8');
+    const 无注释 = 源.replace(/\/\*[\s\S]*?\*\//gu, '').replace(/^\s*\/\/.*$/gmu, '');
+
+    expect(
+      /LONG_TEXT_KEYS\s*=\s*new Set/u.test(无注释),
+      '长文本还靠字段名白名单判定 —— 换个字段名就失效',
+    ).toBe(false);
   });
 });

@@ -1,12 +1,11 @@
 import { create } from 'zustand';
 
-/** 列表一页多少条。与契约的 LIST_PAGE_SIZE 一致。 */
-const LIST_PAGE_SIZE = 50;
 import {
   applyPatch,
   type PatchOperation,
   type Workflow,
   type WorkflowGraph,
+  LIST_PAGE_SIZE,
 } from '@aiwf/contracts';
 import {
   CoreApiClient,

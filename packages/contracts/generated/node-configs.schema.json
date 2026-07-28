@@ -11,6 +11,7 @@
       "instruction": {
         "type": "string",
         "minLength": 1,
+        "long": true,
         "description": "任务指令"
       },
       "promptId": {
@@ -97,6 +98,7 @@
       "instruction": {
         "type": "string",
         "minLength": 1,
+        "long": true,
         "description": "任务指令"
       },
       "promptId": {
@@ -209,6 +211,7 @@
       "instruction": {
         "type": "string",
         "minLength": 1,
+        "long": true,
         "description": "任务指令"
       },
       "promptId": {
@@ -347,6 +350,7 @@
       "instruction": {
         "type": "string",
         "minLength": 1,
+        "long": true,
         "description": "任务指令"
       },
       "promptId": {
@@ -676,6 +680,7 @@
       },
       "bodyMarkdown": {
         "default": "",
+        "long": true,
         "description": "审批内容\n支持 Markdown",
         "type": "string"
       },
@@ -758,6 +763,7 @@
       "body": {
         "type": "string",
         "minLength": 1,
+        "long": true,
         "description": "通知正文"
       },
       "on": {
@@ -820,6 +826,7 @@
       "script": {
         "type": "string",
         "minLength": 1,
+        "long": true,
         "description": "脚本内容"
       },
       "workdir": {
@@ -905,6 +912,7 @@
       "script": {
         "type": "string",
         "minLength": 1,
+        "long": true,
         "description": "脚本内容"
       },
       "workdir": {

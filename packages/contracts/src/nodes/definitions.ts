@@ -97,7 +97,7 @@ const AiBaseSchema = z.object({
     .string()
     .min(1)
     .describe('Agent 角色\n节点引用角色而不是复制 Prompt；角色升级后引用它的节点一并生效'),
-  instruction: z.string().min(1).describe('任务指令'),
+  instruction: z.string().min(1).meta({ long: true }).describe('任务指令'),
   promptId: z.string().min(1).optional().describe('提示词\n留空则用该节点类型的内建提示词'),
   modelPolicy: ModelPolicySchema.optional().describe(
     '模型策略\n只能选「模型」页里已启用的条目；降级会写入 RunEvent，不静默替换',
@@ -357,7 +357,7 @@ const DEFINITIONS: Record<NodeType, NodeDefinition> = {
     summary: '把决定权交回给人：单选 / 多选 / 确认 / 补充',
     configSchema: z.object({
       title: z.string().min(1).describe('审批标题'),
-      bodyMarkdown: z.string().default('').describe('审批内容\n支持 Markdown'),
+      bodyMarkdown: z.string().default('').meta({ long: true }).describe('审批内容\n支持 Markdown'),
       interaction: z.enum(['single', 'multi', 'confirm', 'supplement']).describe('交互类型'),
       options: z
         .array(
@@ -396,7 +396,7 @@ const DEFINITIONS: Record<NodeType, NodeDefinition> = {
     configSchema: z.object({
       title: z.string().min(1).describe('通知标题'),
       subtitle: z.string().optional().describe('副标题'),
-      body: z.string().min(1).describe('通知正文'),
+      body: z.string().min(1).meta({ long: true }).describe('通知正文'),
       on: z
         .array(z.enum(['completed', 'failed', 'waiting_approval', 'cancelled']))
         .default(['completed', 'failed', 'waiting_approval'])
@@ -430,7 +430,7 @@ const DEFINITIONS: Record<NodeType, NodeDefinition> = {
       interpreter: z
         .enum(['zsh', 'bash', 'sh'])
         .describe('解释器\n白名单：任意可执行文件会绕过命令能力声明'),
-      script: z.string().min(1).describe('脚本内容'),
+      script: z.string().min(1).meta({ long: true }).describe('脚本内容'),
       workdir: z.string().optional().describe('工作目录'),
       env: z.record(z.string(), z.string()).default({}).describe('环境变量'),
       /** 环境映射里引用 Secret 用 keychain:// 前缀，明文永不入库。 */
@@ -465,7 +465,7 @@ const DEFINITIONS: Record<NodeType, NodeDefinition> = {
       interpreter: z
         .enum(['python3', 'uv'])
         .describe('解释器\n用 App 管理的独立运行时，不依赖系统 Python'),
-      script: z.string().min(1).describe('脚本内容'),
+      script: z.string().min(1).meta({ long: true }).describe('脚本内容'),
       workdir: z.string().optional().describe('工作目录'),
       env: z.record(z.string(), z.string()).default({}).describe('环境变量'),
       secretEnv: z

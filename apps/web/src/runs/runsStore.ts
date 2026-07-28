@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { LIST_PAGE_SIZE } from '@aiwf/contracts';
 import { describeError } from '../data/describeError.js';
 import type { Run, RunEvent as ContractRunEvent } from '@aiwf/contracts';
 import { coreClient } from '../data/workspace.js';
@@ -30,9 +31,6 @@ const ACTIVE_STATUSES = new Set(['created', 'queued', 'running', 'waiting_approv
 
 /** 每页事件数。与后端的默认 limit 对齐。 */
 const EVENT_PAGE_SIZE = 200;
-
-/** 列表一页多少条。与契约的 LIST_PAGE_SIZE 一致。 */
-const LIST_PAGE_SIZE = 50;
 
 /**
  * 最多翻多少页。

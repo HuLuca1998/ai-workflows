@@ -1,4 +1,6 @@
 import { useEffect, useLayoutEffect, useState } from 'react';
+import { useDebouncedSearch } from '../hooks/useDebouncedSearch.js';
+import { LIST_PAGE_SIZE } from '@aiwf/contracts';
 import { describeError } from '../data/describeError.js';
 import { SplitPane } from '../layout/SplitPane.js';
 import { Pager } from '../layout/Pager.js';
@@ -59,14 +61,14 @@ const ON_MISSING_LABELS: Record<string, string> = {
   default: '用默认值',
 };
 
-/** 列表一页多少条。与契约的 LIST_PAGE_SIZE 一致。 */
-const LIST_PAGE_SIZE = 50;
-
 export function PromptsPage() {
+  // 输入即搜（300ms 防抖），回车立刻搜 —— 与其余五个列表页同一套交互。
+  // 搜索发给后端：前端过滤只能过滤已加载的那些
+  const search = useDebouncedSearch((next) => void load(next));
   const [items, setItems] = useState<Prompt[] | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [tab, setTab] = useState<Tab>('template');
-  const [query, setQuery] = useState('');
+  /** 搜索词由 useDebouncedSearch 持有 —— 见下面的 search。 */
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -121,7 +123,7 @@ export function PromptsPage() {
       await coreClient.call('prompt.update', { id: selected.id, ver: selected.ver, sections });
       setSections(null);
       setError(null);
-      await load(query);
+      await load(search.value);
     } catch (err) {
       setError(describeError(err));
     }
@@ -145,7 +147,7 @@ export function PromptsPage() {
       setCreating(false);
       setSelectedId(result.id);
       setTab('template');
-      await load(query);
+      await load(search.value);
     } catch (err) {
       setError(describeError(err));
     }
@@ -158,7 +160,7 @@ export function PromptsPage() {
         id: selected.id,
         name: `${selected.name} 副本`,
       });
-      await load(query);
+      await load(search.value);
     } catch (err) {
       setError(describeError(err));
     }
@@ -170,7 +172,7 @@ export function PromptsPage() {
       await coreClient.call('prompt.delete', { id: selected.id });
       setSelectedId(null);
       setConfirmDelete(false);
-      await load(query);
+      await load(search.value);
     } catch (err) {
       setError(describeError(err));
     }
@@ -201,11 +203,10 @@ export function PromptsPage() {
           <input
             type="search"
             placeholder="搜索名称、变量或正文"
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
+            value={search.value}
+            onChange={(event) => search.onChange(event.target.value)}
             onKeyDown={(event) => {
-              // 搜索发给后端：前端过滤只能过滤已加载的那些
-              if (event.key === 'Enter') void load(query);
+              if (event.key === 'Enter') search.onEnter();
             }}
           />
         </label>
@@ -255,7 +256,7 @@ export function PromptsPage() {
           total={total}
           pageSize={LIST_PAGE_SIZE}
           offset={offset}
-          onChange={(next) => void load(query || undefined, next)}
+          onChange={(next) => void load(search.value || undefined, next)}
         />
 
         <p className="models__foot">

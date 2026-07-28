@@ -128,7 +128,9 @@ describe('四张统计卡', () => {
     view();
     const stat = await card('活跃 worktree');
     expect(stat.textContent).toContain('3');
-    expect(stat.textContent).toContain('412 MB');
+    // 统一成一位小数：概览与执行记录曾经一个显示「412 MB」、
+    // 一个显示「412.0 MB」，同一个数字两种写法
+    expect(stat.textContent).toContain('412.0 MB');
   });
 
   it('统计取不到时卡片留空，不让整页报错', async () => {

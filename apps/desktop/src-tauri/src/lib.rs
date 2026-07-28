@@ -266,11 +266,12 @@ fn agent_delete(state: State<'_, AppState>, id: String) -> IpcResult<()> {
 fn model_list(
     state: State<'_, AppState>,
     enabled_only: bool,
+    query: Option<String>,
     limit: Option<i64>,
     offset: Option<i64>,
 ) -> IpcResult<api::Page<ModelDto>> {
     let store = lock(&state)?;
-    api::model_list(&store, enabled_only, limit, offset)
+    api::model_list(&store, enabled_only, query, limit, offset)
 }
 
 #[allow(clippy::too_many_arguments)]

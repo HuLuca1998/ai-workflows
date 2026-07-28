@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
+import { useDebouncedSearch } from '../hooks/useDebouncedSearch.js';
 import { describeError } from '../data/describeError.js';
-import { AGENT_RUNTIMES, type Model } from '@aiwf/contracts';
+import { AGENT_RUNTIMES, type Model, LIST_PAGE_SIZE } from '@aiwf/contracts';
 import { SplitPane } from '../layout/SplitPane.js';
 import { Pager } from '../layout/Pager.js';
 import { coreClient } from '../data/workspace.js';
@@ -36,10 +37,9 @@ function runtimeLabel(runtime: string): string {
   return RUNTIME_LABELS[runtime as (typeof AGENT_RUNTIMES)[number]] ?? runtime;
 }
 
-/** 列表一页多少条。与契约的 LIST_PAGE_SIZE 一致。 */
-const LIST_PAGE_SIZE = 50;
-
 export function ModelsPage() {
+  // 换条件时回第一页：停在第 2 页搜完可能一条都没有
+  const search = useDebouncedSearch((query) => void load(0, query));
   const [items, setItems] = useState<ModelRow[] | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
@@ -52,11 +52,13 @@ export function ModelsPage() {
   const [total, setTotal] = useState(0);
   const [offset, setOffset] = useState(0);
 
-  const load = async (nextOffset = offset) => {
+  const load = async (nextOffset = offset, query?: string) => {
     setOffset(nextOffset);
     try {
       const result = (await coreClient.call('model.list', {
         enabledOnly: false,
+        // 搜索发给后端：前端过滤只能过滤当前页
+        ...(query ? { query } : {}),
         limit: LIST_PAGE_SIZE,
         offset: nextOffset,
       })) as { items: ModelRow[]; total: number };
@@ -151,6 +153,21 @@ export function ModelsPage() {
             <i className="ph ph-plus" aria-hidden="true" />
           </button>
         </div>
+
+        {/* 输入即搜（300ms 防抖）—— 与其余五个列表页同一套交互。
+            模型 ID 也参与匹配：那是用户从文档里抄来的字符串 */}
+        <label className="runs__search models__search">
+          <i className="ph ph-magnifying-glass" aria-hidden="true" />
+          <input
+            type="search"
+            placeholder="搜索名称或模型 ID"
+            value={search.value}
+            onChange={(event) => search.onChange(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter') search.onEnter();
+            }}
+          />
+        </label>
 
         <div className="models__list-body">
           {items !== null && items.length === 0 ? (

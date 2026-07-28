@@ -69,8 +69,8 @@ export function environmentDisplay(
 ): { ok: boolean; text: string } | undefined {
   if (!settings.envCheckedAt) return undefined;
   const at = new Date(settings.envCheckedAt);
-  const 时间 = Number.isNaN(at.getTime())
+  const checkedAt = Number.isNaN(at.getTime())
     ? settings.envCheckedAt
     : at.toLocaleString('zh-CN', { hour12: false });
-  return { ok: true, text: `环境正常 · 上次检查 ${时间}` };
+  return { ok: true, text: `环境正常 · 上次检查 ${checkedAt}` };
 }

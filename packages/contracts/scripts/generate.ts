@@ -70,6 +70,26 @@ let drifted = 0;
 for (const [name, content] of Object.entries(files)) {
   const path = join(outDir, name);
   const next = `${JSON.stringify(content, null, 2)}\n`;
+  /**
+   * 两份文本的第一处差异，带行号与上下文。
+   *
+   * 生成物是格式化过的 JSON，逐行比就够用 —— 不用引入 diff 库。
+   */
+  function firstDifference(current: string, next: string): string | null {
+    const a = current.split('\n');
+    const b = next.split('\n');
+    const max = Math.max(a.length, b.length);
+
+    for (let i = 0; i < max; i += 1) {
+      if (a[i] === b[i]) continue;
+      const 行号 = i + 1;
+      const 现有 = a[i] === undefined ? '（文件到此结束）' : a[i]!.trim();
+      const 应为 = b[i] === undefined ? '（应到此结束）' : b[i]!.trim();
+      return `第 ${行号} 行：\n    生成物：${现有}\n    契约源：${应为}`;
+    }
+    return null;
+  }
+
   if (checkOnly) {
     let current = '';
     try {
@@ -80,6 +100,10 @@ for (const [name, content] of Object.entries(files)) {
     if (current !== next) {
       drifted += 1;
       console.error(`✗ ${name} 与契约源不一致，请跑 pnpm contracts:gen 后提交`);
+      // 指出第一处差异。只说「不一致」的话，要在 9000 行 JSON 里
+      // 自己找 —— 而 CI 上连文件都拿不到
+      const 差异 = firstDifference(current, next);
+      if (差异) console.error(`  ${差异}`);
     }
   } else {
     writeFileSync(path, next);

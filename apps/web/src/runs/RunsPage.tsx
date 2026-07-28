@@ -1,4 +1,6 @@
 import { useEffect, useState } from 'react';
+import { LIST_PAGE_SIZE } from '@aiwf/contracts';
+import { formatBytes } from '../data/format.js';
 import { useDebouncedSearch } from '../hooks/useDebouncedSearch.js';
 import { useSearchParams } from 'react-router';
 import { type RunStatusName, StatusBadge } from '@aiwf/ui';
@@ -172,7 +174,7 @@ export function RunsPage() {
         {/* 508 条运行一次铺满的话，用户要找的那次淹在里面 */}
         <Pager
           total={runs.total}
-          pageSize={50}
+          pageSize={LIST_PAGE_SIZE}
           offset={runs.offset}
           onChange={(next) => void runs.setOffset(next)}
         />
@@ -617,12 +619,6 @@ function artifactIcon(kind: string): string {
     default:
       return 'ph-file';
   }
-}
-
-function formatBytes(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
 }
 
 function ApprovalPanel({

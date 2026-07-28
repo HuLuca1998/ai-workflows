@@ -221,20 +221,20 @@ export function SupervisorDrawer({
       if (result.sessionId) setSessionId(result.sessionId);
 
       setMessages((prev) => {
-        const 落地 = prev.map((message) =>
+        const settled = prev.map((message) =>
           message.streaming ? { ...message, text: result.text, streaming: false } : message,
         );
         // 落库失败时答案照给，但要说出来 —— 用户隔天回来找不到这条对话，
         // 会以为是自己记错了
         if (result.historySaved === false) {
-          落地.push({
+          settled.push({
             id: `h_${prev.length}`,
             role: 'agent',
             text: '这轮对话没能存进历史，关掉抽屉后就找不到了。',
             system: true,
           });
         }
-        return 落地;
+        return settled;
       });
 
       // 改动**先出 Diff**，用户确认才落草稿。

@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
+import { formatBytes } from '../data/format.js';
 import { useDebouncedSearch } from '../hooks/useDebouncedSearch.js';
 import { useNavigate } from 'react-router';
 import { Button, type RunStatusName, StatusBadge, Tag } from '@aiwf/ui';
-import { WORKFLOW_TEMPLATES, type Workflow } from '@aiwf/contracts';
+import { WORKFLOW_TEMPLATES, type Workflow, LIST_PAGE_SIZE } from '@aiwf/contracts';
 import { Pager } from '../layout/Pager.js';
 import { parseGraphFile } from '../editor/importGraph.js';
 import { coreClient, useWorkspace } from '../data/workspace.js';
@@ -377,7 +378,12 @@ export function OverviewPage() {
         ) : null}
 
         {/* 1292 条一次铺满的话，用户关心的那几条淹在里面 */}
-        <Pager total={total} pageSize={50} offset={offset} onChange={(next) => void load(next)} />
+        <Pager
+          total={total}
+          pageSize={LIST_PAGE_SIZE}
+          offset={offset}
+          onChange={(next) => void load(next)}
+        />
       </section>
     </article>
   );
@@ -389,14 +395,6 @@ function formatTokens(tokens: number | undefined): string {
   if (tokens >= 1_000_000) return `${(tokens / 1_000_000).toFixed(2)}M`;
   if (tokens >= 1000) return `${(tokens / 1000).toFixed(1)}K`;
   return String(tokens);
-}
-
-/** 图纸写的是「412 MB」——按 1024 进制，与 Finder 之外的开发工具一致。 */
-function formatBytes(bytes: number): string {
-  if (bytes >= 1024 ** 3) return `${(bytes / 1024 ** 3).toFixed(1)} GB`;
-  if (bytes >= 1024 ** 2) return `${Math.round(bytes / 1024 ** 2)} MB`;
-  if (bytes >= 1024) return `${Math.round(bytes / 1024)} KB`;
-  return `${bytes} B`;
 }
 
 /** 图纸写的是「4m18s」「48s」「12m05s」。 */

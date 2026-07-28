@@ -567,11 +567,16 @@ impl From<aiwf_store::ModelRow> for ModelDto {
 pub fn model_list(
     store: &Store,
     enabled_only: bool,
+    query: Option<String>,
     limit: Option<i64>,
     offset: Option<i64>,
 ) -> ApiResult<Page<ModelDto>> {
-    let (rows, total) =
-        store.list_models_paged(enabled_only, page_limit(limit), page_offset(offset))?;
+    let (rows, total) = store.list_models_paged(
+        enabled_only,
+        query.as_deref(),
+        page_limit(limit),
+        page_offset(offset),
+    )?;
     Ok(Page {
         items: rows.into_iter().map(ModelDto::from).collect(),
         total,

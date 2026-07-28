@@ -2070,7 +2070,7 @@ fn 模型列表也是最新的排最前() {
     let first = store.create_model(&model("先登记的")).unwrap();
     let second = store.create_model(&model("后登记的")).unwrap();
 
-    let (rows, _) = store.list_models_paged(false, 10, 0).unwrap();
+    let (rows, _) = store.list_models_paged(false, None, 10, 0).unwrap();
     assert_eq!(rows.first().map(|m| m.id.as_str()), Some(second.as_str()));
     assert_eq!(rows.get(1).map(|m| m.id.as_str()), Some(first.as_str()));
 }
@@ -2865,5 +2865,63 @@ mod agent能力可改 {
         assert_eq!(row.persona, "y", "persona 被清了");
         assert!(row.capabilities_json.contains("none"), "能力被清了");
         assert_eq!(row.tools, vec!["read_file".to_string()], "工具被清了");
+    }
+}
+
+/// 模型列表的搜索 —— 与 Agent 那条同一个理由。
+mod 模型搜索 {
+    use super::*;
+
+    fn 建(store: &Store, name: &str, model_id: &str) -> String {
+        store
+            .create_model(&aiwf_store::NewModel {
+                name: name.to_string(),
+                runtime: "acp.codex".to_string(),
+                model_id: model_id.to_string(),
+                effort: "medium".to_string(),
+                context_window: 200_000,
+                capabilities: vec![],
+                credential_ref: None,
+                enabled: true,
+            })
+            .unwrap()
+    }
+
+    #[test]
+    fn 按名字搜() {
+        let store = store();
+        建(&store, "Opus 5 · high", "claude-opus-5");
+        建(&store, "Codex · high", "gpt-5-codex");
+
+        let (rows, total) = store.list_models_paged(false, Some("Opus"), 50, 0).unwrap();
+        assert_eq!(total, 1);
+        assert_eq!(rows[0].name, "Opus 5 · high");
+    }
+
+    #[test]
+    fn 也能按模型_id_搜_那是用户从文档里抄来的() {
+        let store = store();
+        建(&store, "A", "claude-opus-5");
+        建(&store, "B", "gpt-5-codex");
+
+        let (rows, _) = store
+            .list_models_paged(false, Some("gpt-5"), 50, 0)
+            .unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].name, "B");
+    }
+
+    #[test]
+    fn 搜索与只看已启用可以叠加() {
+        let store = store();
+        let id = 建(&store, "Opus 停用的", "claude-opus-5");
+        建(&store, "Opus 启用的", "claude-opus-5");
+        store
+            .update_model(&id, None, None, None, None, None, None, Some(false))
+            .unwrap();
+
+        let (rows, _) = store.list_models_paged(true, Some("Opus"), 50, 0).unwrap();
+        assert_eq!(rows.len(), 1, "停用的那条不该出现");
+        assert_eq!(rows[0].name, "Opus 启用的");
     }
 }

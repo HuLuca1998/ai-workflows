@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { describeError } from '../data/describeError.js';
 import { useDebouncedSearch } from '../hooks/useDebouncedSearch.js';
-import { LIST_PAGE_LIMIT_MAX } from '@aiwf/contracts';
+import { LIST_PAGE_LIMIT_MAX, LIST_PAGE_SIZE } from '@aiwf/contracts';
 import type { AGENT_RUNTIMES } from '@aiwf/contracts';
 import { SplitPane } from '../layout/SplitPane.js';
 import { Pager } from '../layout/Pager.js';
@@ -79,9 +79,6 @@ const CAPABILITY_VALUE_LABELS: Record<string, string> = {
 function same(a: unknown, b: unknown): boolean {
   return JSON.stringify(a) === JSON.stringify(b);
 }
-
-/** 列表一页多少条。与契约的 LIST_PAGE_SIZE 一致。 */
-const LIST_PAGE_SIZE = 50;
 
 export function AgentsPage() {
   const [items, setItems] = useState<Agent[] | null>(null);

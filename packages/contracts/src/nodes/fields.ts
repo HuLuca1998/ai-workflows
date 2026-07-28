@@ -34,11 +34,20 @@ export interface FieldDescriptor {
   defaultValue?: unknown;
 }
 
-/** 长文本字段：脚本、正文这类要给 textarea 而不是单行框。 */
-const LONG_TEXT_KEYS = new Set(['script', 'bodyMarkdown', 'body', 'instruction']);
+/**
+ * 长文本由 Schema 自己声明：`z.string().meta({ long: true })`。
+ *
+ * 曾经是一张字段名白名单。同一个弹层里 `promptTemplate` 与 `script`
+ * 的 Zod 类型完全一样（都是 `z.string()`），只因为名字不在表里，
+ * 前者渲染成 34px 的单行 input —— 用户写不了多行提示词。
+ *
+ * 判据放回契约：谁定义字段，谁说清它要多大的框。
+ */
 
 interface JsonSchemaNode {
   type?: string | string[];
+  /** `z.string().meta({ long: true })` 带过来的：这个框要多行。 */
+  long?: boolean;
   enum?: unknown[];
   default?: unknown;
   description?: string;
@@ -72,7 +81,7 @@ function describeField(key: string, node: JsonSchemaNode, isRequired: boolean): 
     key,
     label,
     ...(hint ? { hint } : {}),
-    control: controlFor(key, node),
+    control: controlFor(node),
     required: isRequired,
     ...(enumOptions(node) ? { options: enumOptions(node) } : {}),
     ...(node.default === undefined ? {} : { defaultValue: node.default }),
@@ -91,7 +100,13 @@ function unwrap(node: JsonSchemaNode): JsonSchemaNode | undefined {
   return candidates?.find((c) => c.type !== 'null');
 }
 
-function controlFor(key: string, raw: JsonSchemaNode): FieldControl {
+/**
+ * 这个字段该用哪种控件 —— **只看 Schema，不看字段名**。
+ *
+ * 参数里曾经有个 `key`，专门给长文本的字段名白名单用。
+ * 去掉它是有意的：判据一旦沾上名字，改个字段名就会静默换控件。
+ */
+function controlFor(raw: JsonSchemaNode): FieldControl {
   const node = raw.type || raw.enum ? raw : (unwrap(raw) ?? raw);
 
   if (enumOptions(node)) return 'enum';
@@ -120,7 +135,8 @@ function controlFor(key: string, raw: JsonSchemaNode): FieldControl {
       return 'json';
     }
     case 'string':
-      return LONG_TEXT_KEYS.has(key) ? 'text-long' : 'text';
+      // meta({ long: true }) 会进 JSON Schema 的同名字段
+      return node.long === true ? 'text-long' : 'text';
     default:
       // 没有 type 的（如 z.unknown()、union）一律 JSON 编辑，不猜
       return 'json';

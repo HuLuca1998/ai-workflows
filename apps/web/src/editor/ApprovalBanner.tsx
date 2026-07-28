@@ -5,7 +5,7 @@ import { coreClient } from '../data/workspace.js';
 /**
  * 等待审批横幅 —— 严格照图纸「02 画布编辑器」顶部那条。
  *
- * 图纸原文：「节点 7 · 审批：检查 Diff」+「正在等待你的决定 ·
+ * 图纸原文：「nodeName 7 · 审批：检查 Diff」+「正在等待你的决定 ·
  * 已等待 2 分 11 秒 · 3 个文件变更，测试 12/12 通过」+ 两个按钮。
  *
  * 不给这条的话，用户在编辑器里改流程时不会知道有一个运行正卡在审批上
@@ -78,19 +78,19 @@ export function ApprovalBanner({ workflowId }: { workflowId: string }) {
 
   if (!run) return null;
 
-  const 节点 = request?.nodeLabel ?? request?.nodeId ?? run.currentNode ?? '审批';
-  const 摘要 = request?.summary;
-  const 等待 = waitedFor(run.startedAt, tick);
+  const nodeName = request?.nodeLabel ?? request?.nodeId ?? run.currentNode ?? '审批';
+  const summary = request?.summary;
+  const waited = waitedFor(run.startedAt, tick);
 
   return (
     <div className="editor-approval" role="status">
       <i className="ph-fill ph-hand-palm" aria-hidden="true" />
       <div className="editor-approval__text">
-        <b>{节点}</b>
+        <b>{nodeName}</b>
         <span>
           正在等待你的决定
-          {等待 ? ` · 已等待 ${等待}` : ''}
-          {摘要 ? ` · ${摘要}` : ''}
+          {waited ? ` · 已等待 ${waited}` : ''}
+          {summary ? ` · ${summary}` : ''}
         </span>
       </div>
       <span className="editor-approval__grow" />

@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useDebouncedSearch } from '../hooks/useDebouncedSearch.js';
 import { describeError } from '../data/describeError.js';
 import { LIST_PAGE_SIZE } from '@aiwf/contracts';
 import { Pager } from '../layout/Pager.js';
@@ -52,9 +53,11 @@ const SCOPE_LABELS: Record<string, string> = {
 };
 
 export function MemoryPage() {
+  // 输入即搜（300ms 防抖）—— 与其余五个列表页同一套交互
+  const search = useDebouncedSearch((next) => void load(scope, next, 0));
   const [items, setItems] = useState<Memory[] | null>(null);
   const [scope, setScope] = useState<string | null>(null);
-  const [query, setQuery] = useState('');
+  /** 搜索词由 useDebouncedSearch 持有 —— 见下面的 search。 */
   const [error, setError] = useState<string | null>(null);
   /** 满足条件的总条数与当前页起点。后端早就分页了，缺的是界面这一层。 */
   const [total, setTotal] = useState(0);
@@ -69,7 +72,7 @@ export function MemoryPage() {
    * 而顶部那句「N 条」如果显示 items.length，无论库里有多少
    * 都永远是 50 —— 用户拿不到第 51 条，也不知道自己拿不到。
    */
-  const load = async (nextScope = scope, nextQuery = query, nextOffset = offset) => {
+  const load = async (nextScope = scope, nextQuery = '', nextOffset = offset) => {
     setOffset(nextOffset);
     try {
       const result = (await coreClient.call('memory.list', {
@@ -146,10 +149,10 @@ export function MemoryPage() {
           <input
             type="search"
             placeholder="搜索 key、内容或标签"
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
+            value={search.value}
+            onChange={(event) => search.onChange(event.target.value)}
             onKeyDown={(event) => {
-              if (event.key === 'Enter') void load(scope, query, 0);
+              if (event.key === 'Enter') search.onEnter();
             }}
           />
         </label>
@@ -166,7 +169,7 @@ export function MemoryPage() {
               setScope(entry.key);
               // 换条件时回第一页：停在第 3 页时切作用域，
               // 筛完可能一条都没有，而用户以为是「这个作用域没有记忆」
-              void load(entry.key, query, 0);
+              void load(entry.key, search.value, 0);
             }}
           >
             {entry.label}
@@ -296,7 +299,7 @@ export function MemoryPage() {
           total={total}
           offset={offset}
           pageSize={LIST_PAGE_SIZE}
-          onChange={(next) => void load(scope, query, next)}
+          onChange={(next) => void load(scope, search.value, next)}
         />
 
         <p className="memory__foot">
