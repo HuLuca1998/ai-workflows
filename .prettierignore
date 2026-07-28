@@ -11,3 +11,7 @@ apps/desktop/src-tauri/gen/
 # 测试产物：Playwright 的报告与失败现场，跑一次就重新生成
 docs/testing/playwright-report/
 test-results/
+
+# 审查与端到端的**证据**：AI 的原始产出、机器生成的运行报告。
+# 它们是记录，不是源码 —— 格式化器改一个字，那份记录就不再是当时的样子。
+docs/testing/evidence/

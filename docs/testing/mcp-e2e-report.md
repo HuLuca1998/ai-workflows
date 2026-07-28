@@ -131,6 +131,30 @@ system.model_resolved · fix
 输出落在 `outputs.review.success`，下游写 `${review.passed}` 解析不出来。
 两样都是记录不准确。
 
+## 留档的那一次运行
+
+`docs/testing/evidence/mcp-e2e/run-report.md` 是清理后留下的唯一一次运行
+（`node scripts/dump-run.mjs` 生成，路径已缩短）：12 节点、37 条事件、
+`succeeded`，含一次真实的审批暂停与恢复。
+
+两件事值得单独说：
+
+**审查者真的在审查。** 这一次的 `fix` Agent 只做了只读检查没改文件，
+而 `review` Agent 独立发现了这一点并给出阻塞结论：
+
+> 审查结论：不通过。修复分支与 `main` 的 SHA 相同，工作区无任何改动。
+> 严重度 🔴 阻塞 · src/cache.js:15 · 依次调用 `getConfig("x")`、
+> `onFileChanged("x")`、`getConfig("x")`，实测第二次读取与第一次是同一对象，
+> `loadedAt` 完全相同 —— 仍返回 TTL 缓存中的旧值。
+
+它没有顺着「上一步说修好了」往下走，而是自己去复现了一遍。
+产出在 `evidence/mcp-e2e/review-agent.md`。
+
+**分析者抱怨「给定工作目录不是 Git 仓库」** —— 那是这条工作流的
+设计问题，不是引擎的：AI 生成的图把 `analyze` 排在 `clone_repo` 之前。
+分析是只读的，放在克隆之后会更有料。这条留着不改，因为它正说明
+「运行数据能把设计问题指出来」。
+
 ## 数据完整性
 
 `node scripts/dump-run.mjs <db>` 出的报告逐项核对：

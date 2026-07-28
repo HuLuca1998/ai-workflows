@@ -14,6 +14,8 @@
  * 不给 runId 就取最近一次。
  */
 import { execFileSync } from 'node:child_process';
+import { existsSync, readdirSync, statSync } from 'node:fs';
+import { join } from 'node:path';
 
 const [dbPath, wantRun] = process.argv.slice(2);
 if (!dbPath) {
@@ -33,6 +35,19 @@ function query(sql) {
 }
 
 const one = (sql) => query(sql)[0] ?? null;
+
+/** 产物目录是 `<run>/<节点>/<文件>` 两层。 */
+function 列出文件(root) {
+  const out = [];
+  for (const node of readdirSync(root)) {
+    const dir = join(root, node);
+    if (!statSync(dir).isDirectory()) continue;
+    for (const name of readdirSync(dir)) {
+      out.push({ node, name, bytes: statSync(join(dir, name)).size });
+    }
+  }
+  return out;
+}
 const esc = (text) =>
   String(text ?? '')
     .replace(/\|/gu, '\\|')
@@ -156,17 +171,21 @@ if (可解释.length === 0) {
 
 // ── 产物 ────────────────────────────────────────────────────────────────────
 
-const artifacts = query(`SELECT * FROM artifact WHERE run_id = '${run.id}' ORDER BY rowid`);
+// 产物的真源是**磁盘**，不是 `artifact` 表 —— `run.artifacts` 也是扫目录的。
+// 第一版这里查了那张表，于是报告写着「产物（没有）」而磁盘上躺着 12 个文件。
+// 表里空着是既有事实（没有代码往里写），报告不该跟着它一起说假话。
+const 产物根 = run.workdir ? join(run.workdir, '.aiwf-artifacts', run.id) : null;
+const artifacts = 产物根 && existsSync(产物根) ? 列出文件(产物根) : [];
+
 console.log('## 产物\n');
 if (artifacts.length === 0) {
   console.log('（没有）\n');
 } else {
-  console.log('| 路径 | 类型 | 字节 | 截断 |');
-  console.log('| --- | --- | --- | --- |');
+  console.log(`目录：\`${产物根}\`\n`);
+  console.log('| 节点 | 文件 | 字节 |');
+  console.log('| --- | --- | --- |');
   for (const item of artifacts) {
-    console.log(
-      `| \`${esc(item.path)}\` | ${item.kind} | ${item.bytes} | ${item.truncated ? '是' : '否'} |`,
-    );
+    console.log(`| ${esc(item.node)} | \`${esc(item.name)}\` | ${item.bytes} |`);
   }
   console.log();
 }
