@@ -43,7 +43,29 @@ pub struct NodeExecutor {
     memories: Vec<(String, String)>,
     /// 实际注入了哪几条。上层据此写 system.memory_injected 事件。
     injected: std::sync::Mutex<Vec<String>>,
+    /**
+     * 权限档（图纸「05 设置与环境」的三档）。
+     *
+     * 缺省按**最严的一档**办：默认放宽等于替用户做了一个
+     * 他不知道自己做过的决定。
+     */
+    permission_preset: String,
+    /// 已经被用户批准过的节点。恢复执行时不该又停在同一个节点上。
+    approved_nodes: Vec<String>,
 }
+
+/// 有副作用因而受权限档管的节点类型。
+///
+/// transform 只改内存里的数据、分支只看条件 —— 逐项审批它们没有意义，
+/// 而每个节点都弹一次的话用户会直接把最严那一档关掉。
+const SIDE_EFFECT_NODES: &[&str] = &[
+    "script.shell",
+    "script.python",
+    "git.worktree",
+    "git.commit",
+    "github.pr",
+    "mcp.tool",
+];
 
 impl NodeExecutor {
     pub fn new(workdir: PathBuf) -> Self {
@@ -57,7 +79,39 @@ impl NodeExecutor {
             acp_override: None,
             memories: Vec::new(),
             injected: std::sync::Mutex::new(Vec::new()),
+            // 没设过就按最严的办
+            permission_preset: "review_every_change".to_string(),
+            approved_nodes: Vec::new(),
         }
+    }
+
+    /// 这次运行按哪一档权限执行。
+    ///
+    /// `review_every_change` 下有副作用的节点会先挂起等审批 ——
+    /// 图纸这一档的原话就是「文件写入、命令与外部写操作逐项审批」。
+    /// 界面能选而引擎不按档位拦截的话，那是假的安全感，比没有更糟。
+    #[must_use]
+    pub fn with_permission_preset(mut self, preset: &str) -> Self {
+        self.permission_preset = preset.to_string();
+        self
+    }
+
+    /// 已经被用户批准过的节点。恢复执行时靠它跳过重复的审批。
+    #[must_use]
+    pub fn with_approved_nodes(mut self, node_ids: &[String]) -> Self {
+        self.approved_nodes = node_ids.to_vec();
+        self
+    }
+
+    /// 这个节点在当前权限档下需不需要先问一句。
+    fn needs_permission_approval(&self, node: &GraphNode) -> bool {
+        if self.permission_preset != "review_every_change" {
+            return false;
+        }
+        if self.approved_nodes.iter().any(|id| id == &node.id) {
+            return false;
+        }
+        SIDE_EFFECT_NODES.contains(&node.node_type.as_str())
     }
 
     /// 传入会注入 AI 节点的记忆。
@@ -112,6 +166,13 @@ impl NodeExecutor {
     }
 
     pub fn execute(&self, node: &GraphNode, scope: &mut Scope) -> Result<NodeOutcome> {
+        // 权限档先说话。「Review Every Change」这一档的原话是
+        //「文件写入、命令与外部写操作逐项审批」—— 引擎不拦的话，
+        // 设置屏那三张卡就只是三个好看的卡片
+        if self.needs_permission_approval(node) {
+            return Ok(NodeOutcome::NeedsApproval);
+        }
+
         match node.node_type.as_str() {
             "entry" | "end" | "notify" => Ok(NodeOutcome::Succeeded {
                 port: "success".to_string(),

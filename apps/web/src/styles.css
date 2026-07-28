@@ -4424,21 +4424,121 @@
 }
 
 /* ── 运行环境健康（图纸「05 设置与环境」）───────────────────────────── */
+/* 图纸「05 设置与环境」：左边 184px 分组导航 + 右边内容 */
+.settings-shell {
+  display: flex;
+  width: 100%;
+  min-height: 0;
+}
+
+.settings-nav {
+  width: 184px;
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 20px 12px;
+  border-right: 1px solid var(--color-divider);
+}
+
+.settings-nav__title {
+  margin: 0 0 10px;
+  padding: 0 10px;
+  font-size: 11px;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--color-neutral-600);
+}
+
+.settings-nav__item {
+  height: 30px;
+  display: flex;
+  align-items: center;
+  padding: 0 10px;
+  border: none;
+  border-radius: 7px;
+  background: none;
+  color: var(--color-neutral-400);
+  font-size: 12.5px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.settings-nav__item:hover {
+  background: rgb(233 233 237 / 5%);
+  color: var(--color-neutral-200);
+}
+
+.settings-nav__item[aria-selected='true'] {
+  background: rgb(233 233 237 / 8%);
+  color: var(--color-neutral-100);
+}
+
 .settings {
+  flex: 1;
+  min-width: 0;
   display: flex;
   flex-direction: column;
   gap: 22px;
-  padding: 24px 28px;
+  padding: 26px 30px;
   overflow: auto;
 }
 
-/* 设置页的内容自然堆叠，滚动交给外层的 .page —— 两层都能滚的话
-   用户要在两个滚动区之间猜哪个才是自己想滚的那个 */
-.settings {
-  overflow: visible;
-  /* 内容宽度跟着窗口走。图纸的 10 个屏容器一个 max-width 都没有，
-     宽屏用户买的宽度不是用来留白的 */
-  width: 100%;
+/* 权限策略：三张并排卡，选中的带强调边框（图纸第 1022 行） */
+.permission__title {
+  margin: 0 0 10px;
+  font-size: 14px;
+  font-weight: 400;
+}
+
+.permission__cards {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+}
+
+.permission__card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 14px;
+  border: 1px solid var(--color-divider);
+  border-radius: 10px;
+  background: var(--color-surface);
+  cursor: pointer;
+}
+
+.permission__card[data-active='true'] {
+  border-color: var(--color-accent-600);
+  background: linear-gradient(180deg, rgb(145 132 217 / 12%), transparent);
+}
+
+.permission__card-name {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+}
+
+.permission__card[data-active='true'] .permission__card-name {
+  color: var(--color-accent-200);
+}
+
+.permission__card-detail {
+  font-size: 11.5px;
+  line-height: 1.6;
+  color: var(--color-neutral-500);
+}
+
+.permission__card[data-active='true'] .permission__card-detail {
+  color: var(--color-neutral-400);
+}
+
+.permission__note {
+  margin: 12px 0 0;
+  font-size: 11.5px;
+  line-height: 1.8;
+  color: var(--color-neutral-500);
 }
 
 .env h4 {

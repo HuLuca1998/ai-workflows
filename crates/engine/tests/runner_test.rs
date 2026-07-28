@@ -38,6 +38,12 @@ const WITH_APPROVAL: &str = r#"{
 
 fn setup(graph_json: &str) -> (Store, String) {
     let store = Store::open_in_memory().unwrap();
+    // 显式声明权限档：默认是 review_every_change（有副作用的节点先挂起
+    // 等审批），而这些用例测的是「跑起来之后发生什么」。
+    // 声明比放宽默认好 —— 默认放宽等于替用户做了一个他不知道的决定。
+    store
+        .set_workspace_setting("permissionPreset", "workspace_safe")
+        .unwrap();
     let workflow = store
         .create_workflow_with_graph("测试流程", None, graph_json)
         .unwrap();

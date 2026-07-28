@@ -51,6 +51,11 @@ fn 后台运行真的执行脚本并留下副作用() {
     let path = db("effect");
     let marker = path.parent().unwrap().join("marker.txt");
     let store = Store::open(&path).unwrap();
+    // 这些用例测的是「跑起来之后发生什么」。默认权限档是
+    // review_every_change（有副作用的节点先挂起等审批）—— 那是有意的默认
+    store
+        .set_workspace_setting("permissionPreset", "workspace_safe")
+        .unwrap();
     let workflow = store
         .create_workflow_with_graph(
             "写文件",
@@ -92,6 +97,11 @@ fn 同一工作流的两个并行运行互不影响() {
     let path = db("parallel");
     let dir = path.parent().unwrap().to_path_buf();
     let store = Store::open(&path).unwrap();
+    // 这些用例测的是「跑起来之后发生什么」。默认权限档是
+    // review_every_change（有副作用的节点先挂起等审批）—— 那是有意的默认
+    store
+        .set_workspace_setting("permissionPreset", "workspace_safe")
+        .unwrap();
 
     // 脚本把 run id 写进各自的文件：串了的话文件内容会互相覆盖
     let graph = serde_json::json!({
@@ -159,6 +169,11 @@ fn 取消能让运行停下而不是跑到底() {
     let path = db("cancel");
     let dir = path.parent().unwrap().to_path_buf();
     let store = Store::open(&path).unwrap();
+    // 这些用例测的是「跑起来之后发生什么」。默认权限档是
+    // review_every_change（有副作用的节点先挂起等审批）—— 那是有意的默认
+    store
+        .set_workspace_setting("permissionPreset", "workspace_safe")
+        .unwrap();
 
     // 第一个节点慢，第二个节点写文件：取消后第二个不该留下痕迹
     let graph = serde_json::json!({
@@ -224,6 +239,11 @@ fn 运行到审批就停下等人_不占着线程() {
     let path = db("approval");
     let dir = path.parent().unwrap().to_path_buf();
     let store = Store::open(&path).unwrap();
+    // 这些用例测的是「跑起来之后发生什么」。默认权限档是
+    // review_every_change（有副作用的节点先挂起等审批）—— 那是有意的默认
+    store
+        .set_workspace_setting("permissionPreset", "workspace_safe")
+        .unwrap();
     let graph = serde_json::json!({
         "nodes": [
             {"id": "entry", "type": "entry", "title": "入口", "config": {}},
@@ -270,6 +290,11 @@ fn 审批通过后能继续跑到结束() {
     let path = db("resume");
     let dir = path.parent().unwrap().to_path_buf();
     let store = Store::open(&path).unwrap();
+    // 这些用例测的是「跑起来之后发生什么」。默认权限档是
+    // review_every_change（有副作用的节点先挂起等审批）—— 那是有意的默认
+    store
+        .set_workspace_setting("permissionPreset", "workspace_safe")
+        .unwrap();
     let graph = serde_json::json!({
         "nodes": [
             {"id": "entry", "type": "entry", "title": "入口", "config": {}},
@@ -354,6 +379,11 @@ fn 杀掉进程后重新打开数据库_能回到同一审批点并跑完() {
     // ── 第一次「启动应用」──────────────────────────────────────────────
     let run_id = {
         let store = Store::open(&path).unwrap();
+        // 这些用例测的是「跑起来之后发生什么」。默认权限档是
+        // review_every_change（有副作用的节点先挂起等审批）—— 那是有意的默认
+        store
+            .set_workspace_setting("permissionPreset", "workspace_safe")
+            .unwrap();
         let workflow = store
             .create_workflow_with_graph("重启", None, &graph)
             .unwrap();
@@ -385,6 +415,11 @@ fn 杀掉进程后重新打开数据库_能回到同一审批点并跑完() {
 
     // ── 第二次「启动应用」──────────────────────────────────────────────
     let store = Store::open(&path).unwrap();
+    // 这些用例测的是「跑起来之后发生什么」。默认权限档是
+    // review_every_change（有副作用的节点先挂起等审批）—— 那是有意的默认
+    store
+        .set_workspace_setting("permissionPreset", "workspace_safe")
+        .unwrap();
     let supervisor = Supervisor::new(path.clone());
 
     // 重启后仍然知道卡在哪个审批上
@@ -417,6 +452,11 @@ fn 事件流可完整回放_从第一条到最后一条连续无缺口() {
     let path = db("replay");
     let dir = path.parent().unwrap().to_path_buf();
     let store = Store::open(&path).unwrap();
+    // 这些用例测的是「跑起来之后发生什么」。默认权限档是
+    // review_every_change（有副作用的节点先挂起等审批）—— 那是有意的默认
+    store
+        .set_workspace_setting("permissionPreset", "workspace_safe")
+        .unwrap();
 
     let graph = serde_json::json!({
         "nodes": [
@@ -500,6 +540,11 @@ fn 重复提交审批不会让同一个运行跑起两个线程() {
     let path = db("double_approve");
     let dir = path.parent().unwrap().to_path_buf();
     let store = Store::open(&path).unwrap();
+    // 这些用例测的是「跑起来之后发生什么」。默认权限档是
+    // review_every_change（有副作用的节点先挂起等审批）—— 那是有意的默认
+    store
+        .set_workspace_setting("permissionPreset", "workspace_safe")
+        .unwrap();
 
     let graph = serde_json::json!({
         "nodes": [
@@ -569,6 +614,11 @@ fn 审批决定必须指向当前真正在等的那个节点() {
     let path = db("wrong_approve");
     let dir = path.parent().unwrap().to_path_buf();
     let store = Store::open(&path).unwrap();
+    // 这些用例测的是「跑起来之后发生什么」。默认权限档是
+    // review_every_change（有副作用的节点先挂起等审批）—— 那是有意的默认
+    store
+        .set_workspace_setting("permissionPreset", "workspace_safe")
+        .unwrap();
 
     let graph = serde_json::json!({
         "nodes": [
@@ -632,6 +682,11 @@ fn 已经结束的运行不能被迟到的取消改状态() {
     let path = db("late_cancel");
     let dir = path.parent().unwrap().to_path_buf();
     let store = Store::open(&path).unwrap();
+    // 这些用例测的是「跑起来之后发生什么」。默认权限档是
+    // review_every_change（有副作用的节点先挂起等审批）—— 那是有意的默认
+    store
+        .set_workspace_setting("permissionPreset", "workspace_safe")
+        .unwrap();
     let workflow = store
         .create_workflow_with_graph(
             "迟到取消",
@@ -677,6 +732,11 @@ fn 已取消的运行不能被恢复() {
     let path = db("resume_cancelled");
     let dir = path.parent().unwrap().to_path_buf();
     let store = Store::open(&path).unwrap();
+    // 这些用例测的是「跑起来之后发生什么」。默认权限档是
+    // review_every_change（有副作用的节点先挂起等审批）—— 那是有意的默认
+    store
+        .set_workspace_setting("permissionPreset", "workspace_safe")
+        .unwrap();
     let workflow = store
         .create_workflow_with_graph(
             "恢复已取消",

@@ -306,6 +306,30 @@ impl Runner {
         }
     }
 
+    /// 用户已经批准过的节点。
+    ///
+    /// 从事件流里算而不是另存一张表：审批的事实本来就写在
+    /// `approval.decided` 事件里，再存一份就有了两个可能不一致的真相。
+    fn approved_nodes(&self, store: &Store, run_id: &str) -> Result<Vec<String>> {
+        let mut approved = Vec::new();
+        let mut from_seq = 0_i64;
+        loop {
+            let page = store.events(run_id, from_seq, 500)?;
+            if page.is_empty() {
+                break;
+            }
+            from_seq = page.last().map_or(from_seq, |event| event.seq);
+            for event in page {
+                if event.kind == "approval.decided"
+                    && let Some(node_id) = event.node_id
+                {
+                    approved.push(node_id);
+                }
+            }
+        }
+        Ok(approved)
+    }
+
     /// 用真实执行器一路跑到结束或挂起。
     ///
     /// 每个节点完成后都落一次检查点（带 Scope 快照）——
@@ -340,9 +364,23 @@ impl Runner {
             .map(|memory| (memory.key, memory.value))
             .collect();
 
+        // 权限档来自工作区设置。没设过就按最严的一档办 ——
+        // 默认放宽等于替用户做了一个他不知道自己做过的决定。
+        //
+        // 已批准的节点从事件流里算：用户在审批那一步点过通过之后，
+        // 恢复执行不该又停在同一个节点上。
+        let preset = store
+            .workspace_settings()
+            .ok()
+            .and_then(|settings| settings.permission_preset)
+            .unwrap_or_else(|| "review_every_change".to_string());
+        let approved = self.approved_nodes(store, run_id)?;
+
         let executor = NodeExecutor::new(workdir)
             .with_run_id(run_id)
-            .with_memories(&memories);
+            .with_memories(&memories)
+            .with_permission_preset(&preset)
+            .with_approved_nodes(&approved);
 
         // 「记忆注入可在事件中溯源」：在**取快照时**就写下，
         // 而不是等某个 AI 节点跑完 —— 那个节点可能失败、可能被取消，

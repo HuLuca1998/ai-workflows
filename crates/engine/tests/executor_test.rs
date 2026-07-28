@@ -26,8 +26,20 @@ fn workdir() -> std::path::PathBuf {
     dir
 }
 
+/// 测节点本身行为的用例都用这个：显式声明 workspace_safe。
+///
+/// 默认档是 review_every_change（有副作用的节点先挂起等审批）——
+/// 那是**有意**的默认，但它会让「shell 节点真的执行脚本」这类用例
+/// 停在审批上。声明档位比放宽默认好：默认放宽等于替用户做了一个
+/// 他不知道自己做过的决定。
+/// 测节点本身行为的用例都用这个：显式声明 workspace_safe。
+///
+/// 默认档是 review_every_change（有副作用的节点先挂起等审批）——
+/// 那是**有意**的默认，但它会让「shell 节点真的执行脚本」这类用例
+/// 停在审批上。声明档位比放宽默认好：默认放宽等于替用户做了一个
+/// 他不知道自己做过的决定。
 fn executor() -> NodeExecutor {
-    NodeExecutor::new(workdir())
+    NodeExecutor::new(workdir()).with_permission_preset("workspace_safe")
 }
 
 #[test]
@@ -221,7 +233,9 @@ fn 脚本输出落成产物文件_事件里只留摘要() {
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
 
-    let executor = NodeExecutor::new(dir.clone()).with_run_id("run_art");
+    let executor = NodeExecutor::new(dir.clone())
+        .with_run_id("run_art")
+        .with_permission_preset("workspace_safe");
     let mut scope = Scope::new("run_art");
     executor
         .execute(
@@ -257,7 +271,9 @@ fn 没有输出的脚本不留空产物文件() {
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
 
-    let executor = NodeExecutor::new(dir).with_run_id("run_art2");
+    let executor = NodeExecutor::new(dir)
+        .with_run_id("run_art2")
+        .with_permission_preset("workspace_safe");
     executor
         .execute(
             &node(
@@ -280,7 +296,9 @@ fn 失败的脚本也要留下日志产物() {
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
 
-    let executor = NodeExecutor::new(dir).with_run_id("run_fail");
+    let executor = NodeExecutor::new(dir)
+        .with_run_id("run_fail")
+        .with_permission_preset("workspace_safe");
     let outcome = executor
         .execute(
             &node(
@@ -391,6 +409,7 @@ fn 插值出的值原样传给脚本_不因转义而变形() {
     scope.set_inputs(serde_json::json!({ "text": "a b'c\"d;e$f" }));
 
     NodeExecutor::new(dir)
+        .with_permission_preset("workspace_safe")
         .execute(
             &node(
                 "echo",
@@ -574,7 +593,9 @@ fn 未插值的引用不会被发给_agent() {
 #[test]
 fn adapter_没装时说清楚要装什么_而不是假装成功() {
     let dir = ai_dir("noadapter");
-    let executor = NodeExecutor::new(dir).with_acp_command("definitely-not-an-adapter", &[]);
+    let executor = NodeExecutor::new(dir)
+        .with_acp_command("definitely-not-an-adapter", &[])
+        .with_permission_preset("workspace_safe");
 
     let outcome = executor
         .execute(
@@ -717,7 +738,9 @@ fn 没有记忆时提示词里不留空段() {
     // 留一句「已知的长期上下文：」后面什么都没有，
     // 模型会以为上下文被截断了
     let (command, args) = mock_acp();
-    let executor = NodeExecutor::new(workdir()).with_acp_command(&command, &args);
+    let executor = NodeExecutor::new(workdir())
+        .with_acp_command(&command, &args)
+        .with_permission_preset("workspace_safe");
 
     let mut scope = Scope::new("run_mem");
     executor.execute(&ai_节点(), &mut scope).unwrap();
@@ -744,4 +767,113 @@ fn 非_ai_节点不注入记忆() {
     executor.execute(&node, &mut scope).unwrap();
 
     assert!(executor.injected_memory_keys().is_empty());
+}
+
+/// 权限档真的改变引擎的行为 —— 否则设置屏那三档只是三个好看的卡片。
+///
+/// 图纸「05 设置与环境」的权限策略：
+/// - Review Every Change：文件写入、命令与外部写操作**逐项审批**
+/// - Workspace Safe：授权目录内可读写与执行已声明命令
+/// - Trusted Workflow：对指定已发布版本沿用保存策略
+///
+/// 界面能选而引擎不按档位拦截的话，那是假的安全感 —— 比没有更糟。
+mod 权限档改变行为 {
+    use super::*;
+
+    fn shell节点(script: &str) -> GraphNode {
+        node(
+            "s1",
+            "script.shell",
+            serde_json::json!({ "interpreter": "zsh", "script": script }),
+        )
+    }
+
+    #[test]
+    fn review_every_change_下命令要先审批() {
+        let dir = tempfile::tempdir().unwrap();
+        let executor = NodeExecutor::new(dir.path().to_path_buf())
+            .with_permission_preset("review_every_change");
+        let mut scope = Scope::new("run_perm");
+
+        let outcome = executor
+            .execute(&shell节点("echo hello"), &mut scope)
+            .unwrap();
+
+        assert!(
+            matches!(outcome, NodeOutcome::NeedsApproval),
+            "这一档要求命令逐项审批，实际：{outcome:?}"
+        );
+    }
+
+    #[test]
+    fn workspace_safe_下已声明的命令直接跑() {
+        // 「授权目录内可读写与执行已声明命令」—— 节点配置里写死的 script
+        // 就是已声明的，每次都问等于把这一档变成上一档
+        let dir = tempfile::tempdir().unwrap();
+        let executor =
+            NodeExecutor::new(dir.path().to_path_buf()).with_permission_preset("workspace_safe");
+        let mut scope = Scope::new("run_perm");
+
+        let outcome = executor
+            .execute(&shell节点("echo hello"), &mut scope)
+            .unwrap();
+
+        assert!(
+            matches!(outcome, NodeOutcome::Succeeded { .. }),
+            "已声明的命令不该被拦，实际：{outcome:?}"
+        );
+    }
+
+    #[test]
+    fn 没设过权限档时按最严的一档办() {
+        // 首次配置写的就是 review_every_change，但万一没有 ——
+        // 默认放宽等于替用户做了一个他不知道自己做过的决定
+        let dir = tempfile::tempdir().unwrap();
+        let executor = NodeExecutor::new(dir.path().to_path_buf());
+        let mut scope = Scope::new("run_perm");
+
+        let outcome = executor
+            .execute(&shell节点("echo hello"), &mut scope)
+            .unwrap();
+
+        assert!(
+            matches!(outcome, NodeOutcome::NeedsApproval),
+            "没设过就该按最严的办，实际：{outcome:?}"
+        );
+    }
+
+    #[test]
+    fn 审批过的命令不再问第二次() {
+        // 用户在审批那一步点了通过，恢复执行时不该又停在同一个节点上
+        let dir = tempfile::tempdir().unwrap();
+        let executor = NodeExecutor::new(dir.path().to_path_buf())
+            .with_permission_preset("review_every_change")
+            .with_approved_nodes(&["s1".to_string()]);
+        let mut scope = Scope::new("run_perm");
+
+        let outcome = executor
+            .execute(&shell节点("echo hello"), &mut scope)
+            .unwrap();
+
+        assert!(
+            matches!(outcome, NodeOutcome::Succeeded { .. }),
+            "批准过还再问，运行会永远卡在这里：{outcome:?}"
+        );
+    }
+
+    #[test]
+    fn 不涉及副作用的节点不受影响() {
+        // 入口只是起点，逐项审批它没有任何意义 ——
+        // 每个节点都弹一次的话用户会直接把最严那一档关掉
+        let dir = tempfile::tempdir().unwrap();
+        let executor = NodeExecutor::new(dir.path().to_path_buf())
+            .with_permission_preset("review_every_change");
+        let mut scope = Scope::new("run_perm");
+
+        let outcome = executor
+            .execute(&node("e1", "entry", serde_json::json!({})), &mut scope)
+            .unwrap();
+
+        assert!(matches!(outcome, NodeOutcome::Succeeded { .. }));
+    }
 }
