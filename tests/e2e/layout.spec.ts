@@ -32,6 +32,54 @@ const SPLIT_PAGES = [
   { path: '/models', root: '.models', list: '.models__list-body', detail: '.models__detail' },
 ] as const;
 
+test.describe('左栏内容不溢出', () => {
+  for (const { path, list } of SPLIT_PAGES) {
+    test(`${path} 的左栏被约束在自己的高度里`, async ({ page }) => {
+      await page.setViewportSize(SHORT);
+      await page.goto(path);
+      await page.waitForTimeout(500);
+
+      const pane = (await page.locator('.split__left').boundingBox())!;
+      const inner = await page.locator('.split__left > *').first().boundingBox();
+
+      // 内容比容器高就是溢出 —— 截图里的症状是列表一直流到窗口外，
+      // 而左栏底部那句常驻说明被挤没了
+      expect(inner!.height, '左栏内容溢出容器').toBeLessThanOrEqual(pane.height + 1);
+
+      // 底部的常驻说明要还在
+      const foot = page.locator('.models__foot, .prompts__foot').first();
+      if ((await foot.count()) > 0) {
+        const footBox = (await foot.boundingBox())!;
+        expect(footBox.y + footBox.height, '底部说明被挤出可视区').toBeLessThanOrEqual(
+          pane.y + pane.height + 1,
+        );
+      }
+
+      // 列表体自己滚，而不是把整栏撑开
+      const body = (await page.locator(list).boundingBox())!;
+      expect(body.height, '列表体高度塌了').toBeGreaterThan(60);
+    });
+
+    test(`${path} 的左栏内容跟着拖动变宽`, async ({ page }) => {
+      await page.goto(path);
+      await page.waitForTimeout(400);
+
+      const handle = page.locator('.split__handle');
+      const box = (await handle.boundingBox())!;
+      await page.mouse.move(box.x + box.width / 2, box.y + 200);
+      await page.mouse.down();
+      await page.mouse.move(box.x + 140, box.y + 200, { steps: 8 });
+      await page.mouse.up();
+      await page.waitForTimeout(200);
+
+      const pane = (await page.locator('.split__left').boundingBox())!;
+      const inner = (await page.locator('.split__left > *').first().boundingBox())!;
+      // 内层自带固定 width 的话，拖宽了内容也不跟着走 —— 右边留一条空白
+      expect(Math.abs(inner.width - pane.width), '左栏内容没跟着拖动变宽').toBeLessThan(2);
+    });
+  }
+});
+
 test.describe('分栏可以拖动', () => {
   for (const { path } of SPLIT_PAGES) {
     test(`${path} 拖动分隔条改变栏宽，刷新后还记得`, async ({ page }) => {
