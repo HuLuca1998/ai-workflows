@@ -174,3 +174,106 @@ describe('能力声明（引擎强制，Prompt 无法越权）', () => {
     expect(getNodeDefinition('transform').externalWrite).toBe(false);
   });
 });
+
+describe('契约要表达得了 UI 需要的一切', () => {
+  /**
+   * CLAUDE.md 的核心设计承诺：「新增节点类型不改 UI 代码。
+   * 如果发现必须改 UI，说明 Schema 表达力不够，那才是要解决的问题」。
+   *
+   * 第 5 轮审查 B1-C7 用最硬的办法验了它 —— 往契约里加一个真节点类型、
+   * 一行 UI 代码不改，然后用真实浏览器看：**七种控件够用，9 种字段形状
+   * 全部正确渲染**，SchemaField 与 NodeConfigDialog 确实一行都不用改。
+   *
+   * 坏消息是它们之外还有三张按节点类型穷举的 `Record<NodeType, X>`：
+   * TITLES / SEEDS / ICONS。`Record` 要求每个键都在，所以那三处是**强制**的，
+   * 加节点类型时 CI 直接打回；更糟的是运行期 —— Vite 不做类型检查，
+   * 界面照样起得来，但**节点拖不进画布**，用户看到一句
+   * 「节点配置不合法」，而他什么都还没填。
+   *
+   * 按那条判据逐张看：TITLES 完全冗余（兜底就是 definition.title），
+   * SEEDS 与 ICONS 是契约表达力不够 —— 补在这里。
+   */
+  it('每个节点都有图标 —— 节点库里不能有一个通用圆圈', () => {
+    for (const type of NODE_TYPES) {
+      const icon = getNodeDefinition(type).icon;
+      expect(icon, `${type} 没有图标`).toBeTruthy();
+      // Phosphor 的类名，界面直接用
+      expect(icon).toMatch(/^ph-/u);
+    }
+  });
+
+  it('必填字段有占位值 —— 没有的话节点根本加不进画布', () => {
+    for (const type of NODE_TYPES) {
+      const definition = getNodeDefinition(type);
+      const seed = definition.seed ?? {};
+      // 用占位值去过一遍自己的 Schema：过不了就说明缺了必填项
+      const parsed = definition.configSchema.safeParse(seed);
+      expect(
+        parsed.success,
+        `${type} 的占位值过不了自己的 configSchema：${JSON.stringify(parsed.error?.issues?.slice(0, 2))}`,
+      ).toBe(true);
+    }
+  });
+
+  it('图标各不相同 —— 一眼分不出类型的话图标就白给了', () => {
+    const icons = NODE_TYPES.map((type) => getNodeDefinition(type).icon);
+    const 重复 = icons.filter((icon, index) => icons.indexOf(icon) !== index);
+    expect([...new Set(重复)], `这些图标被多个节点共用：${重复.join('、')}`).toEqual([]);
+  });
+});
+
+describe('新增节点类型不改 UI 代码 —— 这条承诺要能被验证', () => {
+  /**
+   * CLAUDE.md：「节点配置表单由 Schema 驱动渲染 —— 新增节点类型不改 UI 代码。
+   * 如果发现必须改 UI，说明 Schema 表达力不够，那才是要解决的问题」。
+   *
+   * 第 5 轮审查发现三张按节点类型穷举的 `Record<NodeType, X>` 让这条不成立。
+   * 那三张表已经搬进契约（icon / seed）或删掉（TITLES 完全冗余）。
+   *
+   * 这条守卫盯着别再长出第四张：UI 代码里不该有任何
+   * `Record<NodeType, …>` —— 它一出现，加节点类型就必须改 UI。
+   */
+  it('UI 代码里没有按节点类型穷举的表', async () => {
+    const { readFileSync, readdirSync } = await import('node:fs');
+    const { join } = await import('node:path');
+
+    const 违规: string[] = [];
+    const 扫 = (dir: string) => {
+      for (const entry of readdirSync(dir, { withFileTypes: true })) {
+        const path = join(dir, entry.name);
+        if (entry.isDirectory()) {
+          扫(path);
+          continue;
+        }
+        if (!/\.tsx?$/.test(entry.name)) continue;
+        // 先去掉注释：解释「为什么不该有这张表」的文字里必然提到它
+        const text = readFileSync(path, 'utf8')
+          .replace(/\/\*[\s\S]*?\*\//gu, '')
+          .replace(/^\s*\/\/.*$/gmu, '');
+        // Record<NodeType, X> 要求每个键都在 —— 加节点类型时 CI 直接打回
+        if (/Record<\s*NodeType\s*,/u.test(text)) 违规.push(path);
+      }
+    };
+    扫(join(import.meta.dirname, '../../../apps/web/src'));
+
+    expect(
+      违规,
+      `这些文件按节点类型穷举，新增类型时必须改它们：${违规.join('、')}\n` +
+        `需要什么信息就加到 NodeDefinition 上，别在 UI 里另立一张表`,
+    ).toEqual([]);
+  });
+
+  it('契约给齐了渲染一个节点所需的全部信息', () => {
+    // 节点库要 icon + title + summary + group；画布要 ports；
+    // 配置弹层要 configSchema；拖进来要 seed
+    for (const type of NODE_TYPES) {
+      const d = getNodeDefinition(type);
+      expect(d.icon, `${type} 缺 icon`).toBeTruthy();
+      expect(d.title, `${type} 缺 title`).toBeTruthy();
+      expect(d.summary, `${type} 缺 summary`).toBeTruthy();
+      expect(d.group, `${type} 缺 group`).toBeTruthy();
+      expect(d.ports, `${type} 缺 ports`).toBeTruthy();
+      expect(d.configSchema, `${type} 缺 configSchema`).toBeTruthy();
+    }
+  });
+});

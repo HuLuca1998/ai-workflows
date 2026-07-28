@@ -52,6 +52,23 @@ export interface NodeDefinition {
   externalWrite: boolean;
   /** 全图唯一（入口节点）。 */
   singleton?: boolean;
+  /**
+   * Phosphor 图标类名。节点库与画布上的节点都用它。
+   *
+   * 放在契约里而不是 UI 的一张 `Record<NodeType, string>`：那张表
+   * 是**强制**的（Record 要求每个键都在），新增节点类型时 CI 直接打回 ——
+   * 而 CLAUDE.md 的承诺是「新增节点类型不改 UI 代码」。
+   */
+  icon: string;
+  /**
+   * 必填字段的占位值。
+   *
+   * 拖进画布时用它填一份能过 configSchema 的初始配置。没有的话
+   * 节点**加不进来** —— 用户看到一句「节点配置不合法」，而他什么都还没填。
+   *
+   * 可选字段的默认值由 Zod 的 `.default()` 表达，不用写在这儿。
+   */
+  seed?: Record<string, unknown>;
 }
 
 const IN: Port = { id: 'input', label: 'input' };
@@ -96,6 +113,8 @@ const JsonSchemaObject = z.record(z.string(), z.unknown());
 const DEFINITIONS: Record<NodeType, NodeDefinition> = {
   'ai.analyze': {
     type: 'ai.analyze',
+    icon: 'ph-magnifying-glass',
+    seed: { agentProfileId: '待选择角色', instruction: '待填写指令', target: '待填写对象' },
     title: 'AI · 分析',
     group: 'ai',
     summary: '读取分析对象，产出多篇 Markdown 与结构化摘要',
@@ -115,6 +134,8 @@ const DEFINITIONS: Record<NodeType, NodeDefinition> = {
 
   'ai.review': {
     type: 'ai.review',
+    icon: 'ph-eyes',
+    seed: { agentProfileId: '待选择角色', instruction: '待填写指令', target: '待填写对象' },
     title: 'AI · 审查',
     group: 'ai',
     summary: '按清单审查对象，输出分级问题与结论',
@@ -139,6 +160,8 @@ const DEFINITIONS: Record<NodeType, NodeDefinition> = {
 
   'ai.decide': {
     type: 'ai.decide',
+    icon: 'ph-scales',
+    seed: { agentProfileId: '待选择角色', instruction: '待填写指令' },
     title: 'AI · 决策',
     group: 'ai',
     summary: 'L1–L3 分级判定，超出自动层级则转人工',
@@ -175,6 +198,8 @@ const DEFINITIONS: Record<NodeType, NodeDefinition> = {
 
   'ai.execute': {
     type: 'ai.execute',
+    icon: 'ph-hammer',
+    seed: { agentProfileId: '待选择角色', instruction: '待填写指令' },
     title: 'AI · 执行',
     group: 'ai',
     summary: '在引擎指定的工作目录内改代码并跑验证命令',
@@ -199,6 +224,8 @@ const DEFINITIONS: Record<NodeType, NodeDefinition> = {
 
   entry: {
     type: 'entry',
+    icon: 'ph-sign-in',
+    seed: { trigger: 'manual', inputSchema: { type: 'object' } },
     title: '入口设置',
     group: 'flow',
     summary: '触发方式、工作目录来源与输入参数 Schema（启动表单由它生成）',
@@ -223,6 +250,8 @@ const DEFINITIONS: Record<NodeType, NodeDefinition> = {
 
   subworkflow: {
     type: 'subworkflow',
+    icon: 'ph-tree-structure',
+    seed: { workflowId: '待选择工作流', versionRef: 'latest' },
     title: '调用子工作流',
     group: 'flow',
     summary: '同步或并行多实例调用另一个工作流，子 Run 独立会话与环境快照',
@@ -255,6 +284,8 @@ const DEFINITIONS: Record<NodeType, NodeDefinition> = {
 
   branch: {
     type: 'branch',
+    icon: 'ph-git-fork',
+    seed: { cases: [{ port: 'case_1', when: '待填写条件' }] },
     title: '条件分支',
     group: 'flow',
     summary: '按结构化字段分流，端口由配置决定',
@@ -284,6 +315,8 @@ const DEFINITIONS: Record<NodeType, NodeDefinition> = {
 
   transform: {
     type: 'transform',
+    icon: 'ph-shuffle',
+    seed: { mappings: [{ from: '$.待填写', to: '待填写' }] },
     title: '数据转换',
     group: 'flow',
     summary: 'JSONPath 映射与输出 Schema',
@@ -301,6 +334,8 @@ const DEFINITIONS: Record<NodeType, NodeDefinition> = {
 
   end: {
     type: 'end',
+    icon: 'ph-flag-checkered',
+    seed: { outcome: 'success' },
     title: '结束',
     group: 'flow',
     summary: '标记成功失败与最终产物',
@@ -315,6 +350,8 @@ const DEFINITIONS: Record<NodeType, NodeDefinition> = {
 
   approval: {
     type: 'approval',
+    icon: 'ph-user-check',
+    seed: { title: '待填写标题', interaction: 'confirm' },
     title: '人工审批',
     group: 'human',
     summary: '把决定权交回给人：单选 / 多选 / 确认 / 补充',
@@ -351,6 +388,8 @@ const DEFINITIONS: Record<NodeType, NodeDefinition> = {
 
   notify: {
     type: 'notify',
+    icon: 'ph-bell-ringing',
+    seed: { title: '待填写标题', body: '待填写正文' },
     title: '系统通知',
     group: 'human',
     summary: 'macOS 系统通知，点击可跳回运行',
@@ -381,6 +420,8 @@ const DEFINITIONS: Record<NodeType, NodeDefinition> = {
 
   'script.shell': {
     type: 'script.shell',
+    icon: 'ph-terminal-window',
+    seed: { interpreter: 'zsh', script: '# 待填写命令' },
     title: 'Shell 脚本',
     group: 'execution',
     summary: '非交互执行，带超时与输出上限',
@@ -415,6 +456,8 @@ const DEFINITIONS: Record<NodeType, NodeDefinition> = {
 
   'script.python': {
     type: 'script.python',
+    icon: 'ph-file-py',
+    seed: { interpreter: 'python3', script: '# 待填写脚本' },
     title: 'Python 脚本',
     group: 'execution',
     summary: '用 App 管理的独立 Python 运行时执行，不依赖系统 Python',
@@ -447,6 +490,8 @@ const DEFINITIONS: Record<NodeType, NodeDefinition> = {
 
   'git.worktree': {
     type: 'git.worktree',
+    icon: 'ph-git-branch',
+    seed: { repoRoot: '待填写仓库根', baseBranch: 'main' },
     title: 'Git worktree',
     group: 'execution',
     summary: '在隔离 worktree 里工作，绝不污染当前分支',
@@ -475,6 +520,8 @@ const DEFINITIONS: Record<NodeType, NodeDefinition> = {
 
   env: {
     type: 'env',
+    icon: 'ph-sliders-horizontal',
+    seed: { operations: [{ op: 'set', key: 'KEY', value: '', scope: 'run' }] },
     title: '环境变量',
     group: 'execution',
     summary: '按作用域读写删环境变量，可导出 .env',
@@ -499,6 +546,8 @@ const DEFINITIONS: Record<NodeType, NodeDefinition> = {
 
   'mcp.tool': {
     type: 'mcp.tool',
+    icon: 'ph-plugs-connected',
+    seed: { serverId: '待选择 Server', toolAllowlist: ['待选择工具'] },
     title: 'MCP 工具',
     group: 'integration',
     summary: '调用外部 MCP Server 的白名单工具',

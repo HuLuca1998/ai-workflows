@@ -27,28 +27,8 @@ export const TONE_VISUALS: Record<NodeTone, ToneVisual> = {
   ghost: { badge: '新增', badgeFilled: true },
 };
 
-/** 节点类型 → Phosphor 图标，取自图纸里各示例节点。 */
-const ICONS: Record<NodeType, string> = {
-  'ai.analyze': 'ph-magnifying-glass',
-  'ai.review': 'ph-eyes',
-  'ai.decide': 'ph-scales',
-  'ai.execute': 'ph-hammer',
-  entry: 'ph-sign-in',
-  subworkflow: 'ph-tree-structure',
-  branch: 'ph-git-fork',
-  transform: 'ph-shuffle',
-  end: 'ph-flag-checkered',
-  approval: 'ph-user-check',
-  notify: 'ph-bell-ringing',
-  'script.shell': 'ph-terminal-window',
-  'script.python': 'ph-file-py',
-  'git.worktree': 'ph-git-branch',
-  env: 'ph-sliders-horizontal',
-  'mcp.tool': 'ph-plugs-connected',
-};
-
 export function iconFor(type: NodeType): string {
-  return ICONS[type] ?? 'ph-circle';
+  return getNodeDefinition(type).icon;
 }
 
 /** AI 节点的图标用强调色（图纸：n.ai ? accent-400 : neutral-300）。 */
