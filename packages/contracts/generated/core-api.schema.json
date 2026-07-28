@@ -3498,6 +3498,10 @@
           "type": "string",
           "minLength": 1
         },
+        "historySaved": {
+          "default": true,
+          "type": "boolean"
+        },
         "proposal": {
           "type": "object",
           "properties": {

@@ -1505,6 +1505,8 @@ pub fn memory_delete(store: &Store, id: String) -> ApiResult<()> {
 pub struct SupervisorAnswer {
     pub text: String,
     pub tool_calls: u32,
+    /// 这轮对话有没有进历史。落库失败时答案照给，但要说出来。
+    pub history_saved: bool,
     /// 这轮所属的会话。界面据此把后续问题接到同一条。
     #[serde(skip_serializing_if = "Option::is_none")]
     pub session_id: Option<String>,
@@ -1620,8 +1622,10 @@ pub fn supervisor_ask(
     // 落会话。不存的话每次关掉抽屉对话就没了 ——
     // 而用户常常是隔天回来接着问「上次它说那个来着」。
     //
-    // 存失败不该让整个回答丢掉：用户已经等了几十秒，
-    // 拿不到答案比丢掉历史糟得多
+    // 存失败**不丢答案**：用户已经等了几十秒，拿不到答案比丢掉历史糟得多。
+    // 但也不能假装成功 —— 他隔天回来找不到这条对话会以为是自己记错了。
+    // 所以答案照给，把「没存住」放进返回值里说出来。
+    let mut history_saved = true;
     let session = session_id.or_else(|| {
         let workflow_id = context_json
             .as_deref()
@@ -1632,14 +1636,27 @@ pub fn supervisor_ask(
                     .and_then(serde_json::Value::as_str)
                     .map(str::to_string)
             });
-        store
-            .create_supervisor_session(&question, workflow_id.as_deref(), None)
-            .ok()
+        match store.create_supervisor_session(&question, workflow_id.as_deref(), None) {
+            Ok(id) => Some(id),
+            Err(error) => {
+                eprintln!("[supervisor] 建会话失败，这轮对话不会进历史：{error}");
+                history_saved = false;
+                None
+            }
+        }
     });
 
-    if let Some(id) = &session {
-        let _ = store.append_supervisor_message(id, "user", &question);
-        let _ = store.append_supervisor_message(id, "agent", &text);
+    match &session {
+        Some(id) => {
+            for (role, body) in [("user", &question), ("agent", &text)] {
+                if let Err(error) = store.append_supervisor_message(id, role, body) {
+                    eprintln!("[supervisor] 存 {role} 消息失败：{error}");
+                    history_saved = false;
+                }
+            }
+        }
+        // 会话没建起来时消息无处可放 —— 上面已经标过了
+        None => history_saved = false,
     }
 
     Ok(SupervisorAnswer {
@@ -1647,6 +1664,7 @@ pub fn supervisor_ask(
         tool_calls,
         proposal,
         session_id: session,
+        history_saved,
     })
 }
 

@@ -980,3 +980,38 @@ describe('MCP 写操作的确认通道', () => {
     }
   });
 });
+
+describe('主管 AI 的回答要说清历史存没存住', () => {
+  /**
+   * 第 5 轮审查 B2：「主管 AI 的三次写库全部『失败也不管』，
+   * 接口照常返回成功 → 对话可能没进历史而用户毫不知情」。
+   *
+   * 但「存失败就把回答一起丢掉」也不对：用户已经等了几十秒，
+   * 拿不到答案比丢掉历史糟得多。
+   *
+   * 正解是两者都不选：**回答照给，但把「没存住」说出来** ——
+   * 用户至少知道这条对话隔天回来找不到。
+   */
+  it('答案里带一个「历史存住了没有」的标记', () => {
+    const spec = getMethodSpec('supervisor.ask');
+    const parsed = spec.output.safeParse({
+      text: '这条工作流缺一个结束节点。',
+      toolCalls: 2,
+      historySaved: false,
+    });
+    expect(parsed.success).toBe(true);
+  });
+
+  it('缺省算存住了 —— 绝大多数时候它就是存住的', () => {
+    const spec = getMethodSpec('supervisor.ask');
+    const parsed = spec.output.parse({ text: '答案', toolCalls: 0 });
+    expect((parsed as { historySaved: boolean }).historySaved).toBe(true);
+  });
+
+  it('没存住时 sessionId 可以缺席 —— 会话都没建起来', () => {
+    const spec = getMethodSpec('supervisor.ask');
+    expect(spec.output.safeParse({ text: '答案', toolCalls: 0, historySaved: false }).success).toBe(
+      true,
+    );
+  });
+});

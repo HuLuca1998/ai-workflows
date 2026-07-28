@@ -155,6 +155,37 @@ describe('对话', () => {
     expect(call).not.toHaveBeenCalledWith('supervisor.ask', expect.anything());
   });
 
+  it('历史没存住时说出来 —— 隔天回来找不到这条对话会以为是自己记错了', async () => {
+    // 第 5 轮审查 B2：三次写库全部「失败也不管」，接口照常返回成功。
+    // 不丢答案是对的（用户等了几十秒），但不能假装成功
+    respond({
+      'supervisor.ask': () => ({
+        text: '这条工作流缺一个结束节点。',
+        toolCalls: 0,
+        historySaved: false,
+      }),
+    });
+    const user = userEvent.setup();
+    view();
+    await user.type(screen.getByLabelText(/问主管 AI/u), '缺什么？');
+    await user.keyboard('{Enter}');
+
+    // 答案照常显示
+    expect(await screen.findByText('这条工作流缺一个结束节点。')).toBeTruthy();
+    // 但要说清这条没进历史
+    expect(await screen.findByText(/没能存进历史/u)).toBeTruthy();
+  });
+
+  it('存住了就不提 —— 那是常态，说了是噪音', async () => {
+    const user = userEvent.setup();
+    view();
+    await user.type(screen.getByLabelText(/问主管 AI/u), '缺什么？');
+    await user.keyboard('{Enter}');
+    await screen.findByText('这条工作流缺一个结束节点。');
+
+    expect(screen.queryByText(/没能存进历史/u)).toBeNull();
+  });
+
   it('失败时报错，并且不留一个空气泡', async () => {
     respond({
       'supervisor.ask': () => {
