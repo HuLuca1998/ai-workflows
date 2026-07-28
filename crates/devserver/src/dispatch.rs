@@ -265,6 +265,10 @@ pub fn dispatch(
             string(input, "id")?,
             string(input, "versionId")?,
         )?),
+        "workflow_discard_if_empty" => to_value(api::workflow_discard_if_empty(
+            &store,
+            string(input, "id")?,
+        )?),
         "workflow_rename" => to_value(api::workflow_rename(
             &store,
             string(input, "id")?,

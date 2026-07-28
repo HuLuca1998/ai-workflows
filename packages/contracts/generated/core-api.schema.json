@@ -1992,6 +1992,37 @@
       ]
     }
   },
+  "workflow.discardIfEmpty": {
+    "summary": "丢弃从没被用过的空草稿",
+    "scope": "workflow:write-draft",
+    "mutates": true,
+    "audited": true,
+    "input": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "id"
+      ]
+    },
+    "output": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "discarded": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "discarded"
+      ]
+    }
+  },
   "workflow.delete": {
     "summary": "归档 / 删除工作流（需单独确认）",
     "scope": "workflow:write-draft",

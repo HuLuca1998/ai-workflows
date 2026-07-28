@@ -201,6 +201,18 @@ export const useEditor = create<EditorState>((set, get) => ({
 
   setSelection: (ids: string[]) => set({ selection: ids }),
 
+  /**
+   * 离开编辑器。
+   *
+   * **不在这里自动丢空草稿**。试过，代价太大：effect 的 cleanup 分不出
+   * 「切换工作流」与「真的离开」，而 React 的双次挂载会让它在用户
+   * 刚新建、还没来得及做任何事时就触发 —— 实测的请求序列是
+   * `create → discard_if_empty → save_draft`，用户刚拖的节点保存到了
+   * 一个已经被删掉的工作流上。
+   *
+   * 少几条垃圾草稿配不上误删用户正在做的东西的风险。
+   * 清理改成概览页的显式入口（workflow.discardIfEmpty 仍然可用）。
+   */
   clear: () => {
     unsubscribeDraft?.();
     unsubscribeDraft = null;

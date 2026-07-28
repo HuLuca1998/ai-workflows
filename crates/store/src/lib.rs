@@ -1174,6 +1174,51 @@ impl Store {
         Ok((rows.collect::<std::result::Result<Vec<_>, _>>()?, total))
     }
 
+    /// 丢弃一条**从没被用过**的空草稿，返回是否真的丢了。
+    ///
+    /// 点一次「新建工作流」就落一条持久草稿，只为了看看编辑器长什么样
+    /// 也会留下垃圾 —— 真实库里已经有 82 条「从没跑过的未命名工作流」。
+    ///
+    /// 四条都满足才丢，任何一条不满足都说明用户是有意在建东西：
+    /// - 名字还是「未命名工作流 N」（改过名 = 明确的「我要用它」）
+    /// - 图里一个节点都没有
+    /// - 没跑过（运行记录引用着它，丢掉会让记录指向不存在的东西）
+    /// - 没发布过
+    pub fn discard_if_empty(&self, id: &str) -> Result<bool> {
+        let Some(row) = self.get_workflow(id)? else {
+            // 离开编辑器时触发，那时它可能已经被别处删了
+            return Ok(false);
+        };
+
+        if !row.name.starts_with("未命名工作流") {
+            return Ok(false);
+        }
+
+        let used: i64 = self.conn.query_row(
+            "SELECT (SELECT COUNT(*) FROM run WHERE workflow_id = ?1)
+                  + (SELECT COUNT(*) FROM workflow_version WHERE workflow_id = ?1)",
+            params![id],
+            |r| r.get(0),
+        )?;
+        if used > 0 {
+            return Ok(false);
+        }
+
+        // 最新草稿里有没有节点。图是 JSON，这里只要判断空不空，
+        // 完整解析没必要 —— 空图的 nodes 一定是 `"nodes":[]`
+        let rev = self.draft_revision(id)?.unwrap_or(0);
+        let has_nodes = self
+            .get_draft(id, rev)?
+            .map(|graph| !graph.replace(' ', "").contains("\"nodes\":[]"))
+            .unwrap_or(false);
+        if has_nodes {
+            return Ok(false);
+        }
+
+        self.delete_workflow(id)?;
+        Ok(true)
+    }
+
     /// 给工作流改名。
     ///
     /// 新建时只能得到「未命名工作流 N」，没有改名入口的话列表很快

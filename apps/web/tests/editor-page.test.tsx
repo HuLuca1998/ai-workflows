@@ -71,7 +71,7 @@ beforeEach(() => {
     error: null,
     // 页面挂载时会调 load，这里换成 noop 避免真的走 IPC
     load: async () => {},
-    clear: () => {},
+    clear: async () => {},
   });
 });
 

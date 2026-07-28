@@ -252,6 +252,18 @@ const SPECS = {
     scope: 'workflow:write-draft',
     summary: '给工作流改名',
   },
+  'workflow.discardIfEmpty': {
+    // 点一次「新建工作流」就落一条持久草稿，只为了看看编辑器长什么样
+    // 也会留下垃圾。离开编辑器时调它，从没被用过的空草稿自己清掉。
+    //
+    // 判断放在后端：前端只知道「我这次没改过」，不知道别的窗口有没有动过它。
+    input: z.object({ id: z.string().min(1) }),
+    output: z.object({ discarded: z.boolean() }),
+    mutates: true,
+    audited: true,
+    scope: 'workflow:write-draft',
+    summary: '丢弃从没被用过的空草稿',
+  },
   'workflow.delete': {
     input: idOnly,
     output: ok,

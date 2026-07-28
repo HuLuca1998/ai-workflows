@@ -251,3 +251,46 @@ test.describe('键盘', () => {
     await expect(page.locator('.react-flow__node.selected')).toHaveCount(0);
   });
 });
+
+test.describe('离开编辑器不会删掉任何东西', () => {
+  /**
+   * 曾经在离开时顺手丢空草稿，回退了 —— 实测的请求序列是
+   * `create → discard_if_empty → save_draft`：React 的双次挂载让清理
+   * 在用户刚新建、还没做任何事时就跑了，用户随后拖的节点保存到了
+   * 一个已经被删掉的工作流上。
+   *
+   * 这条守住「别再加回去」。
+   */
+  test('新建后拖节点保存，工作流还在', async ({ page }) => {
+    const discards: string[] = [];
+    page.on('request', (request) => {
+      if (request.url().includes('discard_if_empty')) discards.push(request.url());
+    });
+
+    await page.goto('/');
+    await page.getByRole('button', { name: /新建工作流/ }).click();
+    await expect(page).toHaveURL(/\/editor\/wf_/, { timeout: 15_000 });
+    const id = new URL(page.url()).pathname.split('/').pop()!;
+
+    await dragNodeToCanvas(page, '入口设置');
+    await expect(page.locator('.react-flow__node')).toHaveCount(1);
+    await page.getByRole('button', { name: '保存草稿' }).click();
+    await page.waitForTimeout(800);
+
+    await page.goto('/');
+    await page.waitForTimeout(800);
+
+    expect(discards, '离开编辑器时不该发丢弃请求').toEqual([]);
+
+    const status = await page.evaluate(async (wfId) => {
+      const response = await fetch('http://127.0.0.1:5177/ipc/workflow_get', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ id: wfId }),
+      });
+      return response.status;
+    }, id);
+
+    expect(status, '用户建的工作流被删了').toBe(200);
+  });
+});

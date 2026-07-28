@@ -107,6 +107,7 @@
     "workflow.rollback",
     "workflow.publish",
     "workflow.rename",
+    "workflow.discardIfEmpty",
     "workflow.delete",
     "run.start",
     "run.dryRun",

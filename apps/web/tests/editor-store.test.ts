@@ -1,8 +1,9 @@
 // @vitest-environment node
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { CoreApiClient, DraftStore, MemoryTransport } from '@aiwf/client-core';
 import type { WorkflowGraph } from '@aiwf/contracts';
 import { __setDraftForTest, useEditor } from '../src/editor/editorStore.js';
+import { coreClient } from '../src/data/workspace.js';
 
 /**
  * 编辑器状态。这里测的是「界面能不能正确反映草稿的真实状态」：
@@ -155,5 +156,44 @@ describe('发布', () => {
     const version = await useEditor.getState().publish();
     expect(version).toBeNull();
     expect(useEditor.getState().error).toMatch(/先保存草稿/u);
+  });
+});
+
+describe('离开编辑器不删任何东西', () => {
+  /**
+   * 曾经在 clear 里顺手丢空草稿，回退了。
+   *
+   * effect 的 cleanup 分不出「切换工作流」与「真的离开」，而 React 的
+   * 双次挂载会让它在用户刚新建、还没做任何事时就触发。实测的请求序列是
+   * `create → discard_if_empty → save_draft` —— 用户刚拖的节点保存到了
+   * 一个已经被删掉的工作流上。
+   *
+   * 这条用例守住「别再加回去」。清理走概览页的显式入口。
+   */
+  it('clear 不发任何写请求', () => {
+    const calls: string[] = [];
+    vi.spyOn(coreClient, 'call').mockImplementation(async (method: string) => {
+      calls.push(method);
+      return {};
+    });
+
+    useEditor.setState({ workflowId: 'wf_1', dirty: false });
+    useEditor.getState().clear();
+
+    expect(calls).toEqual([]);
+    expect(useEditor.getState().workflowId).toBeNull();
+  });
+
+  it('clear 是同步的 —— 状态在返回时就已经清干净', () => {
+    // 异步版本踩过：clear 的 set() 跑在 await 之后，那时下一个 load
+    // 可能已经完成，于是刚加载的工作流被清成空白。
+    // 症状是「改名刷新后名字变回旧的」，而原因离症状很远。
+    useEditor.setState({ workflowId: 'wf_1', name: '旧的', dirty: true });
+    const result = useEditor.getState().clear();
+
+    expect(result).toBeUndefined();
+    expect(useEditor.getState().workflowId).toBeNull();
+    expect(useEditor.getState().name).toBe('');
+    expect(useEditor.getState().dirty).toBe(false);
   });
 });

@@ -172,6 +172,7 @@ pub const COMMANDS: &[&str] = &[
     "workflow_version_graph",
     "workflow_rollback",
     "workflow_rename",
+    "workflow_discard_if_empty",
     "workflow_delete",
 ];
 
@@ -1552,6 +1553,19 @@ pub fn supervisor_ask(
         proposal,
         session_id: session,
     })
+}
+
+/// 丢弃从没被用过的空草稿。判断在存储层。
+pub fn workflow_discard_if_empty(store: &Store, id: String) -> ApiResult<DiscardResult> {
+    Ok(DiscardResult {
+        discarded: store.discard_if_empty(&id)?,
+    })
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DiscardResult {
+    pub discarded: bool,
 }
 
 pub fn workflow_rename(store: &Store, id: String, name: String) -> ApiResult<()> {

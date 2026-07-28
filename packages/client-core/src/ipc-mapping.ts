@@ -32,6 +32,7 @@ const COMMANDS: Partial<Record<CoreApiMethod, string>> = {
   'workflow.rollback': 'workflow_rollback',
   'workflow.publish': 'workflow_publish',
   'workflow.rename': 'workflow_rename',
+  'workflow.discardIfEmpty': 'workflow_discard_if_empty',
   'workflow.delete': 'workflow_delete',
   'run.start': 'run_start',
   'run.dryRun': 'run_dry_run',
@@ -367,6 +368,7 @@ export function fromIpcResult(method: CoreApiMethod, raw: unknown): unknown {
     case 'workspace.stats':
     case 'env.health':
     case 'run.diagnostics':
+    case 'workflow.discardIfEmpty':
       return raw;
 
     // 分页的列表：后端已经发 { items, total }，原样带过来。

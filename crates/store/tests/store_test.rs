@@ -2184,3 +2184,68 @@ fn 已经存进去的明文在读出来时也被遮掉() {
         "列表里还是明文 —— 而那正是它被发现的地方"
     );
 }
+
+// ── 空草稿的清理 ──────────────────────────────────────────────────────────
+//
+// codex 两轮都报：点一次「新建工作流」就落一条持久草稿，
+// 只为了看看编辑器长什么样也会留下垃圾。真实库里已经有 82 条
+// 「从没跑过的未命名工作流」。
+
+#[test]
+fn 空草稿可以被丢弃() {
+    let store = Store::open_in_memory().unwrap();
+    let id = store.create_workflow("未命名工作流 1", None).unwrap();
+
+    assert!(store.discard_if_empty(&id).unwrap(), "空草稿应当被丢弃");
+    assert!(store.get_workflow(&id).unwrap().is_none());
+}
+
+#[test]
+fn 有节点的草稿不丢() {
+    // 用户拖了节点就是有意在建东西，哪怕还没改名
+    let store = Store::open_in_memory().unwrap();
+    let graph = r#"{"nodes":[{"id":"n1","type":"entry","title":"入口",
+                   "position":{"x":0,"y":0},"config":{}}],"edges":[],"groups":[]}"#;
+    let id = store
+        .create_workflow_with_graph("未命名工作流 2", None, graph)
+        .unwrap();
+
+    assert!(!store.discard_if_empty(&id).unwrap(), "有节点就不该丢");
+    assert!(store.get_workflow(&id).unwrap().is_some());
+}
+
+#[test]
+fn 改过名字的空草稿不丢() {
+    // 改名是「我要用它」的明确信号 —— 哪怕还没来得及拖节点
+    let store = Store::open_in_memory().unwrap();
+    let id = store.create_workflow("我的新流程", None).unwrap();
+
+    assert!(!store.discard_if_empty(&id).unwrap(), "改过名就不该丢");
+}
+
+#[test]
+fn 跑过的空草稿不丢() {
+    // 极端情况：建完直接跑（空图会在 preflight 失败），但那条运行记录
+    // 引用着它 —— 丢掉工作流会让运行记录指向一个不存在的东西
+    let store = Store::open_in_memory().unwrap();
+    let id = store.create_workflow("未命名工作流 3", None).unwrap();
+    store.create_run(&id, None, Some(1), "{}").unwrap();
+
+    assert!(!store.discard_if_empty(&id).unwrap(), "跑过就不该丢");
+}
+
+#[test]
+fn 发布过的空草稿不丢() {
+    let store = Store::open_in_memory().unwrap();
+    let id = store.create_workflow("未命名工作流 4", None).unwrap();
+    store.publish(&id, 0, "本地用户").unwrap();
+
+    assert!(!store.discard_if_empty(&id).unwrap(), "发布过就不该丢");
+}
+
+#[test]
+fn 丢一个不存在的返回_false_而不是报错() {
+    // 离开编辑器时触发，那时工作流可能已经被别处删了
+    let store = Store::open_in_memory().unwrap();
+    assert!(!store.discard_if_empty("wf_ghost").unwrap());
+}
