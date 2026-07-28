@@ -121,6 +121,20 @@ enum Incoming {
     },
 }
 
+/// 一个要接给 agent 的 MCP server。
+///
+/// 只做 HTTP：这个应用的系统 MCP 是进程内的 HTTP 服务，没有 stdio 形态。
+/// 两个 adapter 都声明了 `mcpCapabilities.http`（实测 codex-acp 1.1.7
+/// 与 claude-agent-acp 都是 true）——不支持的 agent 会拿到一个空列表，
+/// 那时它仍然能跑，只是没有工具。
+#[derive(Debug, Clone)]
+pub struct McpHttpServer {
+    pub name: String,
+    pub url: String,
+    /// 请求头。系统 MCP 的令牌走 `Authorization: Bearer`。
+    pub headers: Vec<(String, String)>,
+}
+
 pub struct AcpClient {
     child: Child,
     stdin: ChildStdin,
@@ -230,7 +244,51 @@ impl AcpClient {
 
     /// 新建会话。`cwd` 是 agent 的工作目录 —— 它读写文件都在这里面。
     pub fn new_session(&mut self, cwd: &str) -> Result<Session> {
-        let result = self.request("session/new", json!({ "cwd": cwd, "mcpServers": [] }))?;
+        self.new_session_with_mcp(cwd, &[])
+    }
+
+    /// 新建会话，并把这些 MCP server 接给 agent。
+    ///
+    /// 这是「让 AI 真的能操作这个系统」的那一环：不接的话，AI 节点与
+    /// 主管 AI 都只能凭提示词里的文字描述工作 —— 它们读不到当前有哪些
+    /// 工作流、改不动草稿、也看不到自己上一步跑出了什么。
+    ///
+    /// agent 不支持 http 传输时不发这一段：发过去多半会让 `session/new`
+    /// 直接失败，而那比「没有工具」糟得多。
+    pub fn new_session_with_mcp(
+        &mut self,
+        cwd: &str,
+        servers: &[McpHttpServer],
+    ) -> Result<Session> {
+        let supports_http = self
+            .capabilities
+            .get("mcpCapabilities")
+            .and_then(|caps| caps.get("http"))
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
+
+        let mcp_servers: Vec<Value> = if supports_http {
+            servers
+                .iter()
+                .map(|server| {
+                    json!({
+                        "type": "http",
+                        "name": server.name,
+                        "url": server.url,
+                        "headers": server.headers.iter().map(|(name, value)| json!({
+                            "name": name, "value": value,
+                        })).collect::<Vec<_>>(),
+                    })
+                })
+                .collect()
+        } else {
+            Vec::new()
+        };
+
+        let result = self.request(
+            "session/new",
+            json!({ "cwd": cwd, "mcpServers": mcp_servers }),
+        )?;
 
         let id = result
             .get("sessionId")

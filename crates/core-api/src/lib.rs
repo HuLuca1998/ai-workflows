@@ -1823,6 +1823,16 @@ pub fn supervisor_ask(
         });
     };
 
+    // 把系统 MCP 接给它。
+    //
+    // 这是「主管 AI 能真的操作这个系统」的那一环。不接的话它只能凭
+    // 提示词里的文字描述工作：读不到当前有哪些工作流、改不动草稿、
+    // 也查不到那次运行到底停在哪一步 —— 于是只能建议用户自己去点。
+    //
+    // 令牌走 Authorization 头而不是 URL：这条 URL 会出现在 adapter 的
+    // 日志与错误信息里。
+    let mcp = system_mcp_server(data_dir);
+
     // 把上下文与可注入的记忆拼进提示词。
     // 记忆只取启用且未过期的（memories_for_injection 保证这一点）
     let memories = store
@@ -1838,6 +1848,11 @@ pub fn supervisor_ask(
             .as_deref()
             .filter(|c| *c != "{}" && !c.is_empty()),
         context_graph.as_deref(),
+        if mcp.is_empty() {
+            SupervisorTools::None
+        } else {
+            SupervisorTools::SystemMcp
+        },
     );
 
     let mut client = AcpClient::connect(
@@ -1854,7 +1869,7 @@ pub fn supervisor_ask(
     })?;
 
     let session = client
-        .new_session(&data_dir.display().to_string())
+        .new_session_with_mcp(&data_dir.display().to_string(), mcp.as_slice())
         .map_err(|error| ApiError {
             code: "EXTERNAL".to_string(),
             message: format!("建会话失败：{error}"),
@@ -2271,6 +2286,44 @@ pub fn run_rewind_to_approval(store: &Store, run_id: String) -> ApiResult<Rewind
     })
 }
 
+/// 这一轮主管 AI 有没有工具。
+///
+/// 不是装饰性的参数：有没有工具是两种完全不同的工作方式，
+/// 提示词说错哪一边都会坏事 —— 说有而实际没有，它会「调用 workflow_list」
+/// 然后凭空编一份清单；说没有而实际有，它会一路建议用户自己去点，
+/// 而它本可以做完。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SupervisorTools {
+    /// 接上了系统 MCP，能直接操作这个应用。
+    SystemMcp,
+    /// 没有工具，只能基于给定的上下文回答。
+    None,
+}
+
+/// 系统 MCP 的接入声明，交给 ACP 会话。
+///
+/// 服务没起来时返回空 —— 那时 agent 仍然能对话，只是没有工具，
+/// 而提示词会照实说「这次没有工具可用」。给它一个连不上的地址
+/// 只会让它在每次工具调用上白等一轮超时。
+#[must_use]
+pub fn system_mcp_server(data_dir: &std::path::Path) -> Vec<aiwf_engine::acp::McpHttpServer> {
+    let Ok(config) = mcp_config::load_or_create(data_dir) else {
+        return Vec::new();
+    };
+    if !mcp_alive(config.port, &config.token) {
+        return Vec::new();
+    }
+
+    vec![aiwf_engine::acp::McpHttpServer {
+        name: mcp_clients::SERVER_NAME.to_string(),
+        url: format!("http://127.0.0.1:{}/mcp", config.port),
+        headers: vec![(
+            "Authorization".to_string(),
+            format!("Bearer {}", config.token),
+        )],
+    }]
+}
+
 /// 主管 AI 的提示词。
 ///
 /// **应用说明必须在最前面**。codex 自主体验时问「怎么创建并运行一个最简单的
@@ -2285,10 +2338,12 @@ pub fn supervisor_prompt(
     memories: &[(String, String)],
     context_json: Option<&str>,
     graph_json: Option<&str>,
+    tools: SupervisorTools,
 ) -> String {
     let mut prompt = String::from(
         "你是 AI Workflows 这个桌面应用里的主管 AI。用户正在使用它，\
-         你的任务是回答关于**这个应用**的问题，并在需要时提议修改他打开的工作流。\
+         你的任务是帮他把事情办成：回答关于**这个应用**的问题、设计与修改工作流、\
+         起运行、读运行数据找出问题在哪。\
          \n\n\
          这个应用是什么：一个本地优先的 AI 工作流编排工具。用户在画布上搭出\
          由节点组成的流程（入口、Shell/Python 脚本、AI 分析/审查/决策/执行、\
@@ -2304,18 +2359,59 @@ pub fn supervisor_prompt(
          - **Agent 角色**：Agent 的目标、人设、可用工具、权限与模型\n\
          - **提示词库**：分段的提示词模板与变量，按版本保存\n\
          - **模型**：已登记的模型与它们的运行时、上下文窗口、能力\n\
-         - **设置与环境**：依赖工具的健康检查与权限策略\n\
+         - **设置与环境**：依赖工具的健康检查、权限策略、MCP 接入\n\
          \n\
-         两个最容易被问到的概念：\n\
+         几个必须分清的概念：\n\
          - **草稿**（rev，单调递增）是可变的编辑现场，改它不影响正在跑的东西\n\
-         - **版本**（v，不可变快照）是发布出来的，运行永远引用某个版本或某个草稿修订\n\
-         \n\
-         你的权限边界：你能读工作流、改草稿、读记忆。\
-         **你不能发布版本，也不能发起运行** —— 那两件事只有用户自己能做，\
-         界面上也是这么写的。别承诺你做不到的事。\
-         \n\n\
-         回答用中文，简短、具体，直接说用户该点哪里。\
-         你看不到用户的屏幕，也不需要看 —— 上面这些就是这个应用的全部形态。\n\n",
+         - **版本**（v，不可变快照，带 config_hash）是发布出来的；\
+         运行永远引用某个版本或某个草稿修订，所以改草稿不会影响运行中的版本\n\
+         - **结构化 Patch** 是唯一的写入形态：只接受 addNode / connect / setConfig \
+         这类操作，刻意没有「整份回写」—— 那会绕过版本守卫与 Diff\n\
+         - **运行状态只有一份真源**：事件流。对话、节点进度、产物、\
+         「为什么这么做」的证据全是同一条流的不同投影\n\
+         \n",
+    );
+
+    // 有没有工具，是两种完全不同的工作方式 —— 提示词必须说对。
+    //
+    // 说有而实际没有：它会「调用 workflow_list」然后凭空编一份清单出来。
+    // 说没有而实际有：它会一路建议用户「你去点这里」，而它本可以自己做完。
+    // 后者正是这条提示词长期的样子。
+    match tools {
+        SupervisorTools::SystemMcp => prompt.push_str(
+            "\n**你接着这个应用的系统 MCP，能直接操作它。** 工具名形如 \
+             workflow_list / workflow_get / workflow_patch / workflow_validate / \
+             run_dry_run / run_start / run_events / memory_create。\
+             \n\n\
+             动手之前先读这几份资源，别靠猜：\n\
+             - `aiwf://guide/build-and-run`：设计并跑通一条工作流该按什么顺序调哪个工具\n\
+             - `aiwf://catalog/nodes`：16 种节点的端口与配置字段（连线的 port 必须来自这里）\n\
+             - `aiwf://workspace/inventory`：现在有哪些 Agent 角色和模型\
+             （AI 节点的 agentProfileId 必须来自这里，编一个会在 Dry Run 才暴露）\n\
+             - `aiwf://guide/read-run-data`：一次运行的数据分别从哪来\n\
+             \n\
+             几条硬要求：\n\
+             1. 改图走 workflow_patch，一次把该改的都带上 —— 分很多次发，\
+             中间任何一次失败都会留下半张图\n\
+             2. 每次 patch 都要带当前的 baseRevision。不符会返回 REVISION_CONFLICT，\
+             那时重新 workflow_get 再基于新 rev 重来，别硬试\n\
+             3. Dry Run 没过就别起运行 —— 起了也是当场失败，还多一条脏记录\n\
+             4. 起了运行之后要**读事件流确认它真的跑通了**，别只说「已发起」\n\
+             \n\
+             写操作是否需要用户先确认，取决于「设置与环境」里的权限档。\
+             被挡住时工具会告诉你，那时把「在等什么」说给用户听，别反复重试。\n",
+        ),
+        SupervisorTools::None => prompt.push_str(
+            "\n**这次没有工具可用**（系统 MCP 没在跑，或者这个 adapter 不支持）。\
+             所以你只能基于下面给出的上下文回答，并告诉用户该去点哪里 ——\
+             不要说「我来帮你查一下」然后编一个结果出来。\
+             要恢复工具，去「设置与环境 · MCP 与集成」看服务起没起来。\n",
+        ),
+    }
+
+    prompt.push_str(
+        "\n回答用中文，简短、具体。做过的事说清楚做了什么、结果是什么；\
+         做不到的事直说做不到。你看不到用户的屏幕，也不需要看。\n\n",
     );
 
     if !memories.is_empty() {

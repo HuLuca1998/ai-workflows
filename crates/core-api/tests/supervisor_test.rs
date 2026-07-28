@@ -140,11 +140,17 @@ fn patch_操作名与契约一致() {
 /// 而抽屉顶上写着「掌握全部功能：工作流、节点、运行、记忆、提示词、模型、设置」——
 /// 提示词里一个字都没提这些，那句话就是假的。
 mod 应用上下文 {
-    use aiwf_core_api::supervisor_prompt;
+    use aiwf_core_api::{SupervisorTools, supervisor_prompt};
 
     #[test]
     fn 开头就说清它是谁_在哪() {
-        let prompt = supervisor_prompt("怎么新建工作流？", &[], None, None);
+        let prompt = supervisor_prompt(
+            "怎么新建工作流？",
+            &[],
+            None,
+            None,
+            SupervisorTools::SystemMcp,
+        );
         assert!(
             prompt.contains("AI Workflows"),
             "没告诉它应用叫什么：{prompt}"
@@ -154,7 +160,13 @@ mod 应用上下文 {
 
     #[test]
     fn 列出用户能去的每一屏() {
-        let prompt = supervisor_prompt("这个应用能做什么？", &[], None, None);
+        let prompt = supervisor_prompt(
+            "这个应用能做什么？",
+            &[],
+            None,
+            None,
+            SupervisorTools::SystemMcp,
+        );
         for 屏 in [
             "工作流",
             "画布编辑器",
@@ -171,45 +183,98 @@ mod 应用上下文 {
 
     #[test]
     fn 说清草稿与版本的区别_那是最容易问到的概念() {
-        let prompt = supervisor_prompt("rev 和 v 有什么区别？", &[], None, None);
+        let prompt = supervisor_prompt(
+            "rev 和 v 有什么区别？",
+            &[],
+            None,
+            None,
+            SupervisorTools::SystemMcp,
+        );
         assert!(prompt.contains("草稿"), "没解释草稿");
         assert!(prompt.contains("版本"), "没解释版本");
     }
 
     #[test]
-    fn 写明它不能发布也不能运行() {
-        // 抽屉底部常驻「本次会话授予：workflow:read / write-draft / memory:read，
-        // 发布与运行未授权」。提示词不说的话，模型会承诺它做不到的事
-        let prompt = supervisor_prompt("帮我发布并运行这条流程", &[], None, None);
-        assert!(
-            prompt.contains("发布") && prompt.contains("运行"),
-            "没写明权限边界：{prompt}"
+    fn 有工具时说清它能直接操作_并指路到该先读什么() {
+        // 说没有工具而实际有，它会一路建议用户「你去点这里」，
+        // 而它本可以自己做完 —— 那正是这条提示词长期的样子
+        let prompt = supervisor_prompt(
+            "帮我搭一条修 issue 的工作流并跑起来",
+            &[],
+            None,
+            None,
+            SupervisorTools::SystemMcp,
         );
+        assert!(prompt.contains("系统 MCP"), "没说它有工具：{prompt}");
+        for 指路 in [
+            "aiwf://guide/build-and-run",
+            "aiwf://catalog/nodes",
+            "aiwf://workspace/inventory",
+        ] {
+            assert!(prompt.contains(指路), "没指路到 {指路}");
+        }
+        // 三条最容易踩的：端口靠猜、baseRevision 硬试、跳过 Dry Run
+        assert!(prompt.contains("baseRevision"), "没提版本守卫");
+        assert!(prompt.contains("Dry Run"), "没提先做依赖检查");
+    }
+
+    #[test]
+    fn 没工具时明说没有_而不是假装查过() {
+        // 说有而实际没有，它会「调用 workflow_list」然后凭空编一份清单出来
+        let prompt =
+            supervisor_prompt("现在有哪些工作流？", &[], None, None, SupervisorTools::None);
+        assert!(prompt.contains("没有工具可用"), "{prompt}");
+        assert!(
+            prompt.contains("MCP 与集成"),
+            "要告诉用户去哪儿恢复：{prompt}"
+        );
+        // 不该同时出现「你能直接操作」那一段
+        assert!(!prompt.contains("你接着这个应用的系统 MCP"), "两段说反了");
+    }
+
+    #[test]
+    fn 写操作要不要确认由权限档决定_提示词说清这件事() {
+        // 被挡住时反复重试是最常见的失败方式 —— 提示词要先说清
+        let prompt = supervisor_prompt("发布这条流程", &[], None, None, SupervisorTools::SystemMcp);
+        assert!(prompt.contains("权限档"), "{prompt}");
+        assert!(prompt.contains("别反复重试"), "{prompt}");
     }
 
     #[test]
     fn 用户的问题在最后_不被前面的说明淹掉() {
-        let prompt = supervisor_prompt("我的问题", &[], None, None);
+        let prompt = supervisor_prompt("我的问题", &[], None, None, SupervisorTools::SystemMcp);
         assert!(prompt.trim_end().ends_with("我的问题"), "问题不在末尾");
     }
 
     #[test]
     fn 有记忆时把记忆也拼进去() {
         let memories = [("worktree.cleanup".to_string(), "PR 合并前保留".to_string())];
-        let prompt = supervisor_prompt("怎么清理 worktree？", &memories, None, None);
+        let prompt = supervisor_prompt(
+            "怎么清理 worktree？",
+            &memories,
+            None,
+            None,
+            SupervisorTools::SystemMcp,
+        );
         assert!(prompt.contains("worktree.cleanup"));
         assert!(prompt.contains("PR 合并前保留"));
     }
 
     #[test]
     fn 有草稿图时才教它怎么提改动() {
-        let 无图 = supervisor_prompt("你好", &[], None, None);
+        let 无图 = supervisor_prompt("你好", &[], None, None, SupervisorTools::SystemMcp);
         assert!(
             !无图.contains("aiwf-proposal"),
             "没打开任何工作流时教它提改动，它会对着空气提"
         );
 
-        let 有图 = supervisor_prompt("加个审批节点", &[], None, Some(r#"{"nodes":[]}"#));
+        let 有图 = supervisor_prompt(
+            "加个审批节点",
+            &[],
+            None,
+            Some(r#"{"nodes":[]}"#),
+            SupervisorTools::SystemMcp,
+        );
         assert!(有图.contains("aiwf-proposal"));
     }
 }
