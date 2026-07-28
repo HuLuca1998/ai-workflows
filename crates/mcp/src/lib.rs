@@ -13,9 +13,54 @@
 //! 那会绕过版本守卫与审计（技术选型 §6）。
 
 pub mod catalog;
+pub mod clients;
+pub mod config;
 pub mod http;
 pub mod knowledge;
 pub mod protocol;
 
 pub use http::{ServerHandle, serve};
 pub use protocol::{McpContext, handle_message};
+
+/// 起服务，端口被占就往后挪，挪成了就把新端口存回配置。
+///
+/// 不挪的话，本机上任何一个占了 5178 的东西都会让 MCP 起不来，
+/// 而症状是「一键接入点了没反应」——用户无从知道是端口冲突。
+/// 挪完必须存回去：客户端配置里写的是那个地址，不存下次就指错了。
+///
+/// # Errors
+/// 连挪 10 个端口都起不来时返回 Err。那多半不是冲突，是别的问题。
+pub fn start(
+    data_dir: &std::path::Path,
+    db_path: std::path::PathBuf,
+    config: config::McpConfig,
+) -> Result<ServerHandle, String> {
+    let mut last = String::new();
+    for offset in 0..10_u16 {
+        let port = config.port.saturating_add(offset);
+        match serve(
+            port,
+            config.token.clone(),
+            db_path.clone(),
+            data_dir.to_path_buf(),
+        ) {
+            Ok(handle) => {
+                if handle.port != config.port {
+                    let _ = config::save(
+                        data_dir,
+                        &config::McpConfig {
+                            port: handle.port,
+                            token: config.token.clone(),
+                        },
+                    );
+                }
+                return Ok(handle);
+            }
+            Err(error) => last = error,
+        }
+    }
+    Err(format!(
+        "MCP 起不来（从 {} 起连试 10 个端口）：{last}",
+        config.port
+    ))
+}

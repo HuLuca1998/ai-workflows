@@ -18,3 +18,7 @@ tiny_http = "0.12"
 
 [dev-dependencies]
 tempfile = "3.27.0"
+
+[[bin]]
+name = "aiwf-mcp"
+path = "src/bin.rs"
