@@ -94,6 +94,65 @@ const paged = <T extends z.ZodTypeAny>(item: T) =>
 
 const SPECS = {
   // ── Workflow ────────────────────────────────────────────────────────────
+  'mcp.requestConfirm': {
+    // MCP 进程提交一条待确认的写操作。
+    //
+    //「AI 的改动一律先出 Diff，用户确认才落草稿」是核心规则 ——
+    // 主管 AI 遵守了，MCP 之前不能：那个进程弹不出应用里的对话框，
+    // 于是写工具只能整体关掉（AIWF_MCP_ALLOW_WRITE=1 才开，
+    // 开了就没有确认那一步）。这条通道让它也能遵守。
+    input: z.object({
+      tool: z.string().min(1),
+      /** 入参原文。用户要看清「它到底要改什么」才能决定。 */
+      inputJson: z.string().min(1),
+    }),
+    output: z.object({ id: z.string().min(1) }),
+    mutates: true,
+    audited: true,
+    // MCP 进程自己调它，所以要有 Scope；写草稿那一档
+    scope: 'workflow:write-draft',
+    summary: '提交一条待用户确认的 MCP 写操作',
+  },
+  'mcp.confirmStatus': {
+    // MCP 侧轮询它等结果。
+    input: z.object({ id: z.string().min(1) }),
+    output: z.object({
+      status: z.enum(['pending', 'approved', 'rejected', 'expired']),
+    }),
+    mutates: false,
+    audited: false,
+    scope: 'workflow:read',
+    summary: '查一条确认的结果',
+  },
+  'mcp.pendingConfirms': {
+    // 应用轮询它来显示确认卡。
+    input: z.object({}),
+    output: z.object({
+      items: z.array(
+        z.object({
+          id: z.string().min(1),
+          tool: z.string().min(1),
+          inputJson: z.string(),
+          /** 提交时间。用户要知道它等了多久。 */
+          createdAt: z.iso.datetime(),
+        }),
+      ),
+    }),
+    mutates: false,
+    audited: false,
+    // 只给本地 UI：让 MCP 看得见待确认队列，它就能自己找到自己那条
+    scope: null,
+    summary: '列出等待用户确认的 MCP 写操作',
+  },
+  'mcp.decideConfirm': {
+    input: z.object({ id: z.string().min(1), approved: z.boolean() }),
+    output: z.object({ ok: z.literal(true) }),
+    mutates: true,
+    audited: true,
+    // 决定只能由本地 UI 做 —— 给远端 Scope 就等于自己批准自己
+    scope: null,
+    summary: '用户对一条 MCP 写操作的决定',
+  },
   'workspace.settings': {
     // 顶栏的工作目录、侧栏的权限档与环境状态都读这里。
     //

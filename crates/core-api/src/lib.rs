@@ -166,6 +166,10 @@ pub const COMMANDS: &[&str] = &[
     "workflow_list",
     "workspace_stats",
     "workspace_settings",
+    "mcp_request_confirm",
+    "mcp_confirm_status",
+    "mcp_pending_confirms",
+    "mcp_decide_confirm",
     "env_diagnostics",
     "workspace_update_settings",
     "env_health",
@@ -2138,4 +2142,67 @@ fn probe_runtime(
         ));
     };
     probe(&command)
+}
+
+/// 一条待用户确认的 MCP 写操作。
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ConfirmationDto {
+    pub id: String,
+    pub tool: String,
+    pub input_json: String,
+    pub created_at: String,
+}
+
+/// 确认的当前状态。
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ConfirmStatusDto {
+    pub status: String,
+}
+
+/// 没人理的写操作多久算过期。
+///
+/// **默认拒绝**：三分钟没人理，多半是用户根本不在电脑前，
+/// 而一条写操作在几小时后突然生效比它没生效糟得多。
+const CONFIRM_TTL_SECS: i64 = 180;
+
+/// MCP 提交一条待确认的写操作。
+pub fn mcp_request_confirm(store: &Store, tool: String, input_json: String) -> ApiResult<String> {
+    // 顺手清理过期的：没有后台定时器，就在每次有人碰这张表时收拾一下
+    store.expire_confirmations(CONFIRM_TTL_SECS)?;
+    Ok(store.create_confirmation(&tool, &input_json)?)
+}
+
+/// MCP 侧轮询结果。
+pub fn mcp_confirm_status(store: &Store, id: String) -> ApiResult<ConfirmStatusDto> {
+    store.expire_confirmations(CONFIRM_TTL_SECS)?;
+    let row = store
+        .get_confirmation(&id)?
+        .ok_or(aiwf_store::StoreError::NotFound {
+            kind: "确认",
+            id: id.clone(),
+        })?;
+    Ok(ConfirmStatusDto { status: row.status })
+}
+
+/// 应用轮询待确认队列。
+pub fn mcp_pending_confirms(store: &Store) -> ApiResult<Vec<ConfirmationDto>> {
+    store.expire_confirmations(CONFIRM_TTL_SECS)?;
+    Ok(store
+        .pending_confirmations()?
+        .into_iter()
+        .map(|row| ConfirmationDto {
+            id: row.id,
+            tool: row.tool,
+            input_json: row.input_json,
+            created_at: row.created_at,
+        })
+        .collect())
+}
+
+/// 用户的决定。
+pub fn mcp_decide_confirm(store: &Store, id: String, approved: bool) -> ApiResult<()> {
+    store.decide_confirmation(&id, approved)?;
+    Ok(())
 }

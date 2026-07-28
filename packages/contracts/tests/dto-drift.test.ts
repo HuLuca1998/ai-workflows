@@ -41,6 +41,9 @@ const 映射: { dto: string; method: CoreApiMethod; 字段路径?: string }[] = 
   { dto: 'DryRunDto', method: 'run.dryRun' },
   { dto: 'WorkspaceStatsDto', method: 'workspace.stats' },
   { dto: 'WorkspaceSettingsDto', method: 'workspace.settings' },
+  { dto: 'ConfirmationDto', method: 'mcp.pendingConfirms', 字段路径: 'items' },
+  { dto: 'ConfirmStatusDto', method: 'mcp.confirmStatus' },
+  { dto: 'ModelTestResult', method: 'model.test' },
   // sectionsJson / varsJson 在映射层解析成 sections / vars（引擎不理解它们的结构），
   // 字段名对不上是**有意**的，所以豁免而不是登记
 ];

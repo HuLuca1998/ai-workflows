@@ -30,6 +30,7 @@ import {
 } from '@aiwf/client-core';
 import type { CoreApiMethod } from '@aiwf/contracts';
 import { serve } from './stdio.js';
+import { createConfirmViaApp } from './confirm.js';
 
 const base = process.env['AIWF_API'] ?? 'http://127.0.0.1:5177';
 
@@ -62,26 +63,25 @@ const client = new CoreApiClient({
 });
 
 /**
- * 写工具默认不开放。
+ * 写工具要开，但每一次写都要用户确认。
  *
- * 这个进程弹不出应用里的确认对话框，而「AI 的改动一律先出 Diff」
- * 是这个产品的核心规则 —— 主管 AI 遵守了，MCP 不该例外。
+ * 「AI 的改动一律先出 Diff，用户确认才落草稿」是这个产品的核心规则。
+ * 主管 AI 遵守了，MCP 之前不能 —— 这个进程弹不出应用里的对话框，
+ * 于是写工具只能整体关掉。
  *
- * `AIWF_MCP_ALLOW_WRITE=1` 显式接受：写入仍然过 Core API 的
- * baseRevision 守卫与审计，改的也只是草稿（不是已发布版本），
- * 用户能在版本抽屉里看到 Diff 并回滚。但确认那一步没有了。
+ * 现在走 `createConfirmViaApp`：提交待确认 → 应用里弹确认卡 →
+ * 用户决定 → 这边读到结果。出错、超时一律不放行。
+ *
+ * `AIWF_MCP_SKIP_CONFIRM=1` 跳过确认，只给自动化用（比如 e2e）。
+ * 它不是「方便一点」的开关 —— 开了之后 AI 就能不经过任何人写你的草稿。
  */
-const allowWrite = process.env['AIWF_MCP_ALLOW_WRITE'] === '1';
+const skipConfirm = process.env['AIWF_MCP_SKIP_CONFIRM'] === '1';
+const confirmWrite = skipConfirm ? async () => true : createConfirmViaApp(client);
 
-process.stderr.write(`[aiwf-mcp] 已连到 ${base}（${allowWrite ? '可写' : '只读'}）\n`);
-
-serve(
-  {
-    client,
-    // 已经显式开了写：这里就不再逐次问 —— 真正的确认要接到桌面壳，
-    // 那是 M4 剩下的一件事
-    ...(allowWrite ? { confirmWrite: async () => true } : {}),
-  },
-  process.stdin,
-  process.stdout,
+process.stderr.write(
+  `[aiwf-mcp] 已连到 ${base}（写操作${
+    skipConfirm ? '不需确认 —— 只应在自动化里这样用' : '需在应用里确认'
+  }）\n`,
 );
+
+serve({ client, confirmWrite }, process.stdin, process.stdout);

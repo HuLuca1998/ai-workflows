@@ -241,6 +241,18 @@ pub fn dispatch(
             opt_bool(input, "recheck").unwrap_or(false),
         )?),
         "workspace_stats" => to_value(api::workspace_stats(&store, Some(data_dir))?),
+        "mcp_request_confirm" => to_value(api::mcp_request_confirm(
+            &store,
+            string(input, "tool")?,
+            string(input, "inputJson")?,
+        )?),
+        "mcp_confirm_status" => to_value(api::mcp_confirm_status(&store, string(input, "id")?)?),
+        "mcp_pending_confirms" => to_value(api::mcp_pending_confirms(&store)?),
+        "mcp_decide_confirm" => to_value(api::mcp_decide_confirm(
+            &store,
+            string(input, "id")?,
+            boolean(input, "approved"),
+        )?),
         "workspace_settings" => to_value(api::workspace_settings(&store)?),
         "workspace_update_settings" => to_value(api::workspace_update_settings(
             &store,

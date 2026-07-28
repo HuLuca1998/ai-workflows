@@ -107,3 +107,47 @@ describe('Scope 守卫', () => {
     });
   });
 });
+
+describe('每个方法的返回值都能过契约', () => {
+  /**
+   * 引擎返回的形状与契约 output 不一致时，症状是「返回值不合契约」——
+   * 而报错发生在**调用方**那里，离原因很远。
+   *
+   * 踩过三次：
+   * - `workflow.create` 返回裸 id 字符串，契约要 { id, rev }
+   * - `mcp.requestConfirm` 同样返回裸 id —— MCP 的写确认整条链因此断掉，
+   *   而表现是「改动未确认」，看起来像用户拒绝了
+   * - `run.cancel` 返回 ()，契约要 { ok: true }
+   *
+   * 这条守卫扫映射表：每个映射了 IPC 命令的方法，
+   * 它的 output 要么能接住引擎的原样返回，要么在 fromIpcOutput 里有分支。
+   */
+  it('返回形状特殊的方法都在 fromIpcOutput 里有分支', async () => {
+    const { readFileSync } = await import('node:fs');
+    const { fileURLToPath } = await import('node:url');
+    const { dirname, resolve } = await import('node:path');
+
+    const 源 = readFileSync(
+      resolve(dirname(fileURLToPath(import.meta.url)), '../src/ipc-mapping.ts'),
+      'utf8',
+    );
+
+    // 这些方法的引擎返回值与契约 output 形状不同，必须有转换分支
+    const 需要分支 = [
+      'workflow.create',
+      'run.cancel',
+      'run.resume',
+      'mcp.requestConfirm',
+      'mcp.pendingConfirms',
+      'mcp.decideConfirm',
+      'workspace.updateSettings',
+      'prompt.versions',
+    ];
+
+    const 漏掉的 = 需要分支.filter((method) => !源.includes(`case '${method}'`));
+    expect(
+      漏掉的,
+      `这些方法的引擎返回值形状与契约不同，却没有转换分支：${漏掉的.join('、')}`,
+    ).toEqual([]);
+  });
+});

@@ -1,0 +1,115 @@
+import { useEffect, useState } from 'react';
+import { coreClient } from '../data/workspace.js';
+
+/**
+ * MCP 写操作的确认卡。
+ *
+ * 「AI 的改动一律先出 Diff，用户确认才落草稿」是这个产品的核心规则。
+ * 主管 AI 遵守了（提议 → Diff → 确认），MCP 之前不能 ——
+ * 那个进程弹不出应用里的对话框，于是写工具只能整体关掉。
+ *
+ * 现在它把待确认放进信箱，这里轮询到之后显示。用户决定后 MCP 那边
+ * 的轮询读到结果。**没人理会超时，而超时等于拒绝** ——
+ * 一条写操作在几小时后突然生效，比它没生效糟得多。
+ *
+ * 这张卡不在图纸里：图纸画的是 M1 的形态，那时 MCP 还没有写工具。
+ */
+
+interface Pending {
+  id: string;
+  tool: string;
+  inputJson: string;
+  createdAt: string;
+}
+
+/** 多久看一眼信箱。用户按下批准到 MCP 那边生效，最坏是这个数 + 它的轮询间隔。 */
+const POLL_MS = 1200;
+
+export function McpConfirmCard() {
+  const [pending, setPending] = useState<Pending | null>(null);
+  const [deciding, setDeciding] = useState(false);
+
+  useEffect(() => {
+    let stopped = false;
+
+    const poll = async () => {
+      try {
+        const result = (await coreClient.call('mcp.pendingConfirms', {})) as { items: Pending[] };
+        if (!stopped) setPending(result.items[0] ?? null);
+      } catch {
+        // 查不到就不显示。这条报错帮不上用户 ——
+        // 他此刻在做的是别的事，而 MCP 那边会自己超时
+      }
+    };
+
+    void poll();
+    const timer = setInterval(() => void poll(), POLL_MS);
+    return () => {
+      stopped = true;
+      clearInterval(timer);
+    };
+  }, []);
+
+  if (!pending) return null;
+
+  const decide = async (approved: boolean) => {
+    setDeciding(true);
+    try {
+      await coreClient.call('mcp.decideConfirm', { id: pending.id, approved });
+      setPending(null);
+    } catch {
+      // 决定没发出去：留着卡片，用户能再按一次。
+      // 静默消失的话他会以为已经批准了
+    } finally {
+      setDeciding(false);
+    }
+  };
+
+  return (
+    <aside className="mcp-confirm" role="alertdialog" aria-label="MCP 写入确认">
+      <p className="mcp-confirm__head">
+        <i className="ph-fill ph-plugs-connected" aria-hidden="true" />
+        <span>
+          MCP 客户端要写入：<code>{pending.tool}</code>
+        </span>
+      </p>
+
+      {/* 入参原样摊开：用户得看清它到底要改什么，
+          而不是只看到一个工具名就决定 */}
+      <pre className="mcp-confirm__input">{prettify(pending.inputJson)}</pre>
+
+      <p className="mcp-confirm__note">
+        批准后这次写入会走 Core API 的版本守卫与审计，改的是草稿而不是已发布版本。
+        不理它的话会自动拒绝。
+      </p>
+
+      <div className="mcp-confirm__actions">
+        <button
+          type="button"
+          className="runs__action"
+          disabled={deciding}
+          onClick={() => void decide(false)}
+        >
+          拒绝
+        </button>
+        <button
+          type="button"
+          className="runs__action runs__action--primary"
+          disabled={deciding}
+          onClick={() => void decide(true)}
+        >
+          批准这次写入
+        </button>
+      </div>
+    </aside>
+  );
+}
+
+/** 入参排版成人能读的样子。坏了就原样显示 —— 那本身也是有用的信息。 */
+function prettify(json: string): string {
+  try {
+    return JSON.stringify(JSON.parse(json), null, 2);
+  } catch {
+    return json;
+  }
+}

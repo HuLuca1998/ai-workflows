@@ -96,6 +96,10 @@
     "deleteGroup"
   ],
   "methods": [
+    "mcp.requestConfirm",
+    "mcp.confirmStatus",
+    "mcp.pendingConfirms",
+    "mcp.decideConfirm",
     "workspace.settings",
     "workspace.updateSettings",
     "workspace.stats",

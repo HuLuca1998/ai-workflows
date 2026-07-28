@@ -468,6 +468,34 @@ fn model_test(state: State<'_, AppState>, id: String) -> IpcResult<api::ModelTes
 }
 
 #[tauri::command]
+fn mcp_request_confirm(
+    state: State<'_, AppState>,
+    tool: String,
+    input_json: String,
+) -> IpcResult<String> {
+    let store = lock(&state)?;
+    api::mcp_request_confirm(&store, tool, input_json)
+}
+
+#[tauri::command]
+fn mcp_confirm_status(state: State<'_, AppState>, id: String) -> IpcResult<api::ConfirmStatusDto> {
+    let store = lock(&state)?;
+    api::mcp_confirm_status(&store, id)
+}
+
+#[tauri::command]
+fn mcp_pending_confirms(state: State<'_, AppState>) -> IpcResult<Vec<api::ConfirmationDto>> {
+    let store = lock(&state)?;
+    api::mcp_pending_confirms(&store)
+}
+
+#[tauri::command]
+fn mcp_decide_confirm(state: State<'_, AppState>, id: String, approved: bool) -> IpcResult<()> {
+    let store = lock(&state)?;
+    api::mcp_decide_confirm(&store, id, approved)
+}
+
+#[tauri::command]
 fn workspace_settings(state: State<'_, AppState>) -> IpcResult<api::WorkspaceSettingsDto> {
     let store = lock(&state)?;
     api::workspace_settings(&store)
@@ -720,6 +748,10 @@ pub fn run() {
             workflow_list,
             workspace_stats,
             workspace_settings,
+            mcp_request_confirm,
+            mcp_confirm_status,
+            mcp_pending_confirms,
+            mcp_decide_confirm,
             model_test,
             run_rewind_to_approval,
             env_diagnostics,

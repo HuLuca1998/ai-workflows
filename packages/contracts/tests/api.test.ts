@@ -908,3 +908,75 @@ describe('模型连通性测试', () => {
     expect(MCP_FIRST_RELEASE_TOOLS).not.toContain('model.test');
   });
 });
+
+describe('MCP 写操作的确认通道', () => {
+  /**
+   * M4 剩下的那一件事。「AI 的改动一律先出 Diff，用户确认才落草稿」
+   * 是核心规则 —— 主管 AI 遵守了，MCP 之前不能：那个进程弹不出应用里的
+   * 对话框，于是写工具只能整体关掉。
+   *
+   * 这四个方法是两个进程之间的信箱。
+   */
+  it('提交时带上工具名与入参 —— 用户要看清它到底要改什么', () => {
+    const spec = getMethodSpec('mcp.requestConfirm');
+    expect(
+      spec.input.safeParse({ tool: 'workflow.patch', inputJson: '{"id":"wf_1"}' }).success,
+    ).toBe(true);
+    expect(spec.input.safeParse({ tool: 'workflow.patch' }).success).toBe(false);
+  });
+
+  it('提交只返回一个 id —— 决定要等用户，不在这一次调用里', () => {
+    const spec = getMethodSpec('mcp.requestConfirm');
+    expect(spec.output.safeParse({ id: 'mcpc_1' }).success).toBe(true);
+  });
+
+  it('查状态返回四种之一', () => {
+    const spec = getMethodSpec('mcp.confirmStatus');
+    for (const status of ['pending', 'approved', 'rejected', 'expired']) {
+      expect(spec.output.safeParse({ status }).success, status).toBe(true);
+    }
+    expect(spec.output.safeParse({ status: '随便' }).success).toBe(false);
+  });
+
+  it('待确认列表带上提交时间 —— 用户要知道它等了多久', () => {
+    const spec = getMethodSpec('mcp.pendingConfirms');
+    const parsed = spec.output.safeParse({
+      items: [
+        {
+          id: 'mcpc_1',
+          tool: 'workflow.patch',
+          inputJson: '{}',
+          createdAt: '2026-07-28T10:00:00Z',
+        },
+      ],
+    });
+    expect(parsed.success).toBe(true);
+  });
+
+  it('决定是布尔 —— 没有「稍后再说」，那等同于拒绝', () => {
+    const spec = getMethodSpec('mcp.decideConfirm');
+    expect(spec.input.safeParse({ id: 'mcpc_1', approved: true }).success).toBe(true);
+    expect(spec.input.safeParse({ id: 'mcpc_1' }).success).toBe(false);
+  });
+
+  it('提交与决定都要留痕', () => {
+    expect(getMethodSpec('mcp.requestConfirm').audited).toBe(true);
+    expect(getMethodSpec('mcp.decideConfirm').audited).toBe(true);
+  });
+
+  it('决定只能由本地 UI 做 —— 给远端 Scope 就等于自己批准自己', () => {
+    expect(getMethodSpec('mcp.decideConfirm').scope).toBeNull();
+    expect(getMethodSpec('mcp.pendingConfirms').scope).toBeNull();
+  });
+
+  it('这四个都不在 MCP 首发工具清单里 —— 否则 MCP 能自己批准自己', () => {
+    for (const method of [
+      'mcp.requestConfirm',
+      'mcp.confirmStatus',
+      'mcp.pendingConfirms',
+      'mcp.decideConfirm',
+    ] as const) {
+      expect(MCP_FIRST_RELEASE_TOOLS).not.toContain(method);
+    }
+  });
+});

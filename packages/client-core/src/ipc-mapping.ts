@@ -19,6 +19,10 @@ const COMMANDS: Partial<Record<CoreApiMethod, string>> = {
   'workflow.list': 'workflow_list',
   'workspace.stats': 'workspace_stats',
   'run.rewindToApproval': 'run_rewind_to_approval',
+  'mcp.requestConfirm': 'mcp_request_confirm',
+  'mcp.confirmStatus': 'mcp_confirm_status',
+  'mcp.pendingConfirms': 'mcp_pending_confirms',
+  'mcp.decideConfirm': 'mcp_decide_confirm',
   'workspace.settings': 'workspace_settings',
   'env.diagnostics': 'env_diagnostics',
   'workspace.updateSettings': 'workspace_update_settings',
@@ -367,6 +371,18 @@ export function fromIpcResult(method: CoreApiMethod, raw: unknown): unknown {
     case 'run.artifacts':
     case 'run.artifactContent':
       return raw;
+
+    // 引擎返回裸 id 字符串（与 workflow.create 一样），契约要 { id }
+    case 'mcp.requestConfirm':
+      return { id: raw };
+
+    // 引擎返回数组，契约要 { items }
+    case 'mcp.pendingConfirms':
+      return { items: raw ?? [] };
+
+    // 引擎返回 ()，契约要 { ok: true }
+    case 'mcp.decideConfirm':
+      return { ok: true };
 
     case 'prompt.versions': {
       // Rust 侧把分段与变量作为 JSON 字符串带回来（引擎不需要理解它们的结构）

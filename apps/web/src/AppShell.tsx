@@ -5,6 +5,7 @@ import { SideNav } from './layout/SideNav.js';
 import { SupervisorDrawer } from './supervisor/SupervisorDrawer.js';
 import { useEditor } from './editor/editorStore.js';
 import { TitleBar } from './layout/TitleBar.js';
+import { McpConfirmCard } from './mcp/McpConfirmCard.js';
 import {
   environmentDisplay,
   permissionDisplay,
@@ -75,6 +76,10 @@ export function AppShell() {
           onClose={() => setDrawerOpen(false)}
         />
       </div>
+
+      {/* MCP 客户端要写东西时弹出来。放在最外层是有意的：
+          它是一条打断性的确认，用户在哪一屏都得看见 */}
+      <McpConfirmCard />
     </div>
   );
 }

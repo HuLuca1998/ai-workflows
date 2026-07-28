@@ -2772,3 +2772,98 @@ impl Store {
         Ok(format!("{UNTITLED_PREFIX}{}", max + 1))
     }
 }
+
+/// MCP 提交的一条待确认写操作。
+#[derive(Debug, Clone)]
+pub struct ConfirmationRow {
+    pub id: String,
+    pub tool: String,
+    pub input_json: String,
+    /// pending / approved / rejected / expired
+    pub status: String,
+    pub created_at: String,
+    pub decided_at: Option<String>,
+}
+
+impl Store {
+    /// MCP 提交一条待确认的写操作。
+    ///
+    /// 入参会原样显示给用户 —— 他要看清楚「它到底要改什么」才能决定，
+    /// 所以这里也拒明文密钥（那份内容会留在库里，也会出现在界面上）。
+    pub fn create_confirmation(&self, tool: &str, input_json: &str) -> Result<String> {
+        reject_secret_like(input_json)?;
+
+        let id = new_id("mcpc");
+        self.conn.execute(
+            "INSERT INTO mcp_confirmation (id, tool, input_json, status, created_at)
+             VALUES (?1, ?2, ?3, 'pending', ?4)",
+            params![id, tool, input_json, now_iso()],
+        )?;
+        Ok(id)
+    }
+
+    pub fn get_confirmation(&self, id: &str) -> Result<Option<ConfirmationRow>> {
+        let row = self
+            .conn
+            .query_row(
+                "SELECT id, tool, input_json, status, created_at, decided_at
+                 FROM mcp_confirmation WHERE id = ?1",
+                params![id],
+                map_confirmation,
+            )
+            .optional()?;
+        Ok(row)
+    }
+
+    /// 还没决定的那些。应用轮询它来显示确认卡。
+    pub fn pending_confirmations(&self) -> Result<Vec<ConfirmationRow>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, tool, input_json, status, created_at, decided_at
+             FROM mcp_confirmation WHERE status = 'pending' ORDER BY created_at",
+        )?;
+        let rows = stmt.query_map([], map_confirmation)?;
+        Ok(rows.collect::<std::result::Result<Vec<_>, _>>()?)
+    }
+
+    /// 用户的决定。**只能决定一次** —— 否则同一条写操作可能被批准两次，
+    /// 或者批准后又被改成拒绝，而 MCP 那边可能已经读到第一个结果动手了。
+    pub fn decide_confirmation(&self, id: &str, approved: bool) -> Result<()> {
+        let status = if approved { "approved" } else { "rejected" };
+        let changed = self.conn.execute(
+            "UPDATE mcp_confirmation SET status = ?2, decided_at = ?3
+             WHERE id = ?1 AND status = 'pending'",
+            params![id, status, now_iso()],
+        )?;
+
+        if changed == 0 {
+            return Err(StoreError::Invalid(format!(
+                "确认 {id} 不存在或已经决定过了"
+            )));
+        }
+        Ok(())
+    }
+
+    /// 把超过 `ttl_secs` 还没人理的标成过期，返回处理了几条。
+    ///
+    /// **默认拒绝**：没人理的写操作不该在几小时后突然生效。
+    pub fn expire_confirmations(&self, ttl_secs: i64) -> Result<usize> {
+        let changed = self.conn.execute(
+            "UPDATE mcp_confirmation SET status = 'expired', decided_at = ?2
+             WHERE status = 'pending'
+               AND (julianday(?2) - julianday(created_at)) * 86400.0 >= ?1",
+            params![ttl_secs, now_iso()],
+        )?;
+        Ok(changed)
+    }
+}
+
+fn map_confirmation(row: &rusqlite::Row<'_>) -> rusqlite::Result<ConfirmationRow> {
+    Ok(ConfirmationRow {
+        id: row.get(0)?,
+        tool: row.get(1)?,
+        input_json: row.get(2)?,
+        status: row.get(3)?,
+        created_at: row.get(4)?,
+        decided_at: row.get(5)?,
+    })
+}

@@ -2555,3 +2555,109 @@ mod 提示词版本历史 {
         assert!(store.prompt_versions(&id).unwrap().is_empty());
     }
 }
+
+/// MCP 写操作的确认队列 —— M4 剩下的那一件事。
+///
+/// 「AI 的改动一律先出 Diff，用户确认才落草稿」是核心规则。
+/// 主管 AI 遵守了，MCP 之前不能：那个进程弹不出应用里的对话框，
+/// 于是写工具只能整体关掉。这张表是两个进程之间的信箱。
+mod mcp确认队列 {
+    use super::*;
+
+    #[test]
+    fn 提交后是待确认状态() {
+        let store = store();
+        let id = store
+            .create_confirmation("workflow.patch", r#"{"id":"wf_1"}"#)
+            .unwrap();
+
+        let 记录 = store.get_confirmation(&id).unwrap().expect("存在");
+        assert_eq!(记录.status, "pending");
+        assert_eq!(记录.tool, "workflow.patch");
+        assert!(记录.decided_at.is_none());
+    }
+
+    #[test]
+    fn 待确认列表只给还没决定的() {
+        let store = store();
+        let 待定 = store.create_confirmation("workflow.patch", "{}").unwrap();
+        let 已决 = store.create_confirmation("memory.create", "{}").unwrap();
+        store.decide_confirmation(&已决, true).unwrap();
+
+        let 列表 = store.pending_confirmations().unwrap();
+        assert_eq!(列表.len(), 1);
+        assert_eq!(列表[0].id, 待定);
+    }
+
+    #[test]
+    fn 批准之后状态与时间都落下来() {
+        let store = store();
+        let id = store.create_confirmation("workflow.patch", "{}").unwrap();
+        store.decide_confirmation(&id, true).unwrap();
+
+        let 记录 = store.get_confirmation(&id).unwrap().unwrap();
+        assert_eq!(记录.status, "approved");
+        assert!(记录.decided_at.is_some());
+    }
+
+    #[test]
+    fn 拒绝也一样记下来() {
+        let store = store();
+        let id = store.create_confirmation("workflow.patch", "{}").unwrap();
+        store.decide_confirmation(&id, false).unwrap();
+
+        assert_eq!(
+            store.get_confirmation(&id).unwrap().unwrap().status,
+            "rejected"
+        );
+    }
+
+    #[test]
+    fn 决定过的不能再改() {
+        // 否则同一条写操作可能被批准两次，或者批准后又被改成拒绝
+        let store = store();
+        let id = store.create_confirmation("workflow.patch", "{}").unwrap();
+        store.decide_confirmation(&id, true).unwrap();
+
+        assert!(
+            store.decide_confirmation(&id, false).is_err(),
+            "已经决定过的还能改"
+        );
+    }
+
+    #[test]
+    fn 过期的自动变成拒绝_而不是一直挂着() {
+        // 没人理的写操作不该在几小时后突然生效
+        let store = store();
+        let id = store.create_confirmation("workflow.patch", "{}").unwrap();
+
+        // 0 秒超时：立刻就算过期
+        let 过期数 = store.expire_confirmations(0).unwrap();
+        assert_eq!(过期数, 1);
+        assert_eq!(
+            store.get_confirmation(&id).unwrap().unwrap().status,
+            "expired"
+        );
+    }
+
+    #[test]
+    fn 还没到期的不动它() {
+        let store = store();
+        let id = store.create_confirmation("workflow.patch", "{}").unwrap();
+
+        assert_eq!(store.expire_confirmations(3600).unwrap(), 0);
+        assert_eq!(
+            store.get_confirmation(&id).unwrap().unwrap().status,
+            "pending"
+        );
+    }
+
+    #[test]
+    fn 入参里的密钥进不来() {
+        // 确认卡会把入参显示给用户，也会留在库里
+        let store = store();
+        let 结果 = store.create_confirmation("memory.create", r#"{"v":"sk-proj-abcdefghij"}"#);
+
+        assert!(结果.is_err(), "明文密钥写进了确认队列");
+    }
+}
