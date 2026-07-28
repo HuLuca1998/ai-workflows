@@ -73,6 +73,10 @@ interface WorkspaceState {
     activeWorktrees: number;
   };
   load: (offset?: number) => Promise<void>;
+  /** 筛选与搜索都在后端做 —— 前端过滤只能过滤当前页。 */
+  setFilter: (status: string | null, query: string) => Promise<void>;
+  status: string | null;
+  query: string;
   /**
    * 新建工作流。给了 operations 就在建完后立刻应用（模板）。
    * 模板走的是与手工搭建完全相同的 patch 路径，因此同样被校验守住。
@@ -87,9 +91,18 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
   workflows: [],
   total: 0,
   offset: 0,
+  status: null,
+  query: '',
   loading: false,
   error: null,
   stats: { waitingApproval: 0, runsToday: 0, runsSucceeded: 0, activeWorktrees: 0 },
+
+  setFilter: async (status: string | null, query: string) => {
+    // 换条件时回到第一页：停在第 29 页的话，筛完可能一条都没有，
+    // 而用户以为是「没有失败的工作流」
+    set({ status, query, offset: 0 });
+    await get().load(0);
+  },
 
   load: async (offset?: number) => {
     const next = offset ?? get().offset;
@@ -98,7 +111,10 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
       // 原样收下：coreClient 已经拿契约校验过一遍，
       // 在这里再挑一遍字段只会把新增的（latestVersion、lastRun）漏掉 ——
       // 而那种漏法不报错，只是界面上永远没有那些信息
+      const { status, query } = get();
       const result = (await coreClient.call('workflow.list', {
+        ...(status ? { status } : {}),
+        ...(query ? { query } : {}),
         limit: LIST_PAGE_SIZE,
         offset: next,
       })) as { items: WorkflowSummary[]; total: number };

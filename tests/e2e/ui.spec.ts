@@ -343,3 +343,54 @@ test.describe('执行记录', () => {
     await expect(page.getByText('同一工作流可用不同参数并行运行，环境快照互不影响')).toBeVisible();
   });
 });
+
+test.describe('列表分页', () => {
+  test('执行记录翻页真的换数据，不只是换页码', async ({ page }) => {
+    // codex 复测报的：「12 页的首尾 ID 完全相同，可真正的末 505 条
+    // 运行完全不可见」。根因是 IPC 转换层把 limit/offset 丢了 ——
+    // 那层是白名单式的，漏写一个字段就静默丢掉
+    await page.goto('/runs');
+    await expect(page.locator('.runs__item').first()).toBeVisible({ timeout: 15_000 });
+
+    const next = page.getByRole('button', { name: '下一页' });
+    if ((await next.count()) === 0) test.skip(true, '数据不足一页');
+
+    const snapshot = async () =>
+      page.locator('.runs__item').evaluateAll((els) => els.map((e) => e.textContent ?? ''));
+
+    const first = await snapshot();
+    await next.click();
+    await expect(page.locator('.pager__range').first()).toContainText('51');
+    const second = await snapshot();
+
+    // 「进行中」那一组不分页（进行中的运行总是全部显示），所以只要求
+    // 大部分换掉，而不是完全不重叠
+    const overlap = first.filter((row) => second.includes(row)).length;
+    expect(overlap, '翻页后列表几乎没变 —— 分页参数多半丢了').toBeLessThan(first.length * 0.6);
+  });
+
+  test('模型与 Agent 页也有分页 —— 超过 50 条不该被静默截断', async ({ page }) => {
+    // 静默截断比报错更糟：用户以为那就是全部
+    for (const path of ['/models', '/agents']) {
+      await page.goto(path);
+      await page.waitForTimeout(500);
+
+      const total = await page.evaluate(async () => {
+        const command = location.pathname === '/models' ? 'model_list' : 'agent_list';
+        const response = await fetch(`http://127.0.0.1:5177/ipc/${command}`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ limit: 1 }),
+        });
+        return ((await response.json()) as { total: number }).total;
+      });
+
+      if (total > 50) {
+        await expect(
+          page.getByRole('navigation', { name: '分页' }),
+          `${path} 有 ${total} 条却没有分页`,
+        ).toBeVisible();
+      }
+    }
+  });
+});

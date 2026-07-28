@@ -2096,3 +2096,52 @@ fn 时间相同时用_rowid_兜底_翻页不重不漏() {
     }
     assert_eq!(seen.len(), 30, "有条目一页都没出现过");
 }
+
+#[test]
+fn 工作流列表按状态与关键词筛选_且_total_跟着走() {
+    // 分页之后前端过滤只能过滤当前页 —— 用户停在第 29 页点「失败」，
+    // 看到的是「这 50 条里恰好失败的那些」，而不是全部失败的运行。
+    let store = Store::open_in_memory().unwrap();
+
+    let failed = store.create_workflow("会失败的", None).unwrap();
+    let run = store.create_run(&failed, None, Some(1), "{}").unwrap();
+    store.advance_run_status(&run, "failed", None).unwrap();
+
+    let ok = store.create_workflow("跑成功的", None).unwrap();
+    let run2 = store.create_run(&ok, None, Some(1), "{}").unwrap();
+    store.advance_run_status(&run2, "succeeded", None).unwrap();
+
+    store.create_workflow("没跑过的草稿", None).unwrap();
+
+    let (rows, total) = store
+        .list_workflows_filtered(Some("failed"), None, 50, 0)
+        .unwrap();
+    assert_eq!(total, 1, "total 要是筛选后的数");
+    assert_eq!(rows.first().map(|w| w.id.as_str()), Some(failed.as_str()));
+
+    // 草稿 = 没发布过版本
+    let (drafts, draft_total) = store
+        .list_workflows_filtered(Some("draft"), None, 50, 0)
+        .unwrap();
+    assert_eq!(draft_total, 3, "三条都没发布过");
+    assert_eq!(drafts.len(), 3);
+
+    // 关键词也在后端搜，而不是过滤当前页
+    let (found, found_total) = store
+        .list_workflows_filtered(None, Some("成功"), 50, 0)
+        .unwrap();
+    assert_eq!(found_total, 1);
+    assert_eq!(found.first().map(|w| w.id.as_str()), Some(ok.as_str()));
+}
+
+#[test]
+fn 筛选不到时返回空而不是报错() {
+    let store = Store::open_in_memory().unwrap();
+    store.create_workflow("只有草稿", None).unwrap();
+
+    let (rows, total) = store
+        .list_workflows_filtered(Some("running"), None, 50, 0)
+        .unwrap();
+    assert!(rows.is_empty());
+    assert_eq!(total, 0);
+}

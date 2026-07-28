@@ -807,10 +807,18 @@ pub fn approval_decide(
 
 pub fn workflow_list(
     store: &Store,
+    status: Option<String>,
+    query: Option<String>,
     limit: Option<i64>,
     offset: Option<i64>,
 ) -> ApiResult<Page<WorkflowSummary>> {
-    let (rows, total) = store.list_workflows_paged(page_limit(limit), page_offset(offset))?;
+    // 筛选与搜索都在后端做：分页之后前端过滤只能过滤当前页
+    let (rows, total) = store.list_workflows_filtered(
+        status.as_deref(),
+        query.as_deref(),
+        page_limit(limit),
+        page_offset(offset),
+    )?;
     Ok(Page {
         total,
         items: rows

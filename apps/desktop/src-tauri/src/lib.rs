@@ -421,11 +421,13 @@ fn approval_decide(
 #[tauri::command]
 fn workflow_list(
     state: State<'_, AppState>,
+    status: Option<String>,
+    query: Option<String>,
     limit: Option<i64>,
     offset: Option<i64>,
 ) -> IpcResult<api::Page<WorkflowSummary>> {
     let store = lock(&state)?;
-    api::workflow_list(&store, limit, offset)
+    api::workflow_list(&store, status, query, limit, offset)
 }
 
 #[tauri::command]

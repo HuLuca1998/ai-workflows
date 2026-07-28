@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router';
 import { Button, type RunStatusName, StatusBadge, Tag } from '@aiwf/ui';
 import { WORKFLOW_TEMPLATES, type Workflow } from '@aiwf/contracts';
@@ -43,10 +43,27 @@ const RUN_STATUS_LABELS: Record<string, string> = {
 const FILTERS = ['全部', '运行中', '草稿', '失败'] as const;
 type Filter = (typeof FILTERS)[number];
 
+/** chip → 后端认的状态。「全部」不带这个参数。 */
+const FILTER_STATUS: Record<Filter, string | null> = {
+  全部: null,
+  运行中: 'running',
+  草稿: 'draft',
+  失败: 'failed',
+};
+
 export function OverviewPage() {
   const navigate = useNavigate();
-  const { workflows, total, offset, loading, error, load, createWorkflow, importWorkflow } =
-    useWorkspace();
+  const {
+    workflows,
+    total,
+    offset,
+    loading,
+    error,
+    load,
+    setFilter: setServerFilter,
+    createWorkflow,
+    importWorkflow,
+  } = useWorkspace();
   const [filter, setFilter] = useState<Filter>('全部');
   const [query, setQuery] = useState('');
   const [creating, setCreating] = useState(false);
@@ -71,20 +88,11 @@ export function OverviewPage() {
       .catch(() => setStats(null));
   }, [load]);
 
-  const visible = useMemo(() => {
-    const keyword = query.trim().toLowerCase();
-    return workflows.filter((w) => {
-      const status = w.lastRun?.status;
-      if (filter === '运行中' && status !== 'running' && status !== 'waiting_approval') {
-        return false;
-      }
-      if (filter === '失败' && status !== 'failed') return false;
-      // 「草稿」指没发布过 —— 发布过但这次没跑的仍是已发布状态
-      if (filter === '草稿' && w.latestVersion !== undefined) return false;
-      if (!keyword) return true;
-      return w.name.toLowerCase().includes(keyword);
-    });
-  }, [workflows, filter, query]);
+  // 筛选与搜索都在后端做了，这里直接用返回的那一页 ——
+  // 前端再过滤一次的话，翻到第 29 页点「失败」只会过滤那 50 条
+  const visible = workflows;
+  /** 有没有加着条件。空列表的两种含义靠它区分。 */
+  const filtered = filter !== '全部' || query.trim() !== '';
 
   const onCreate = async (templateId?: string) => {
     if (creatingRef.current) return;
@@ -108,17 +116,24 @@ export function OverviewPage() {
     <article className="overview">
       <header className="overview__head">
         <div>
-          <p className="kicker">本地优先 · {workflows.length} 个工作流</p>
+          {/* 用总数而不是当前页的行数 —— 这句话看起来就是全量统计 */}
+          <p className="kicker">本地优先 · {total.toLocaleString('en-US')} 个工作流</p>
           <h1>工作流</h1>
         </div>
         <span className="overview__grow" />
         <label className="search">
           <i className="ph ph-magnifying-glass" aria-hidden="true" />
+          {/* 占位文案里写明要回车 —— 不写的话「输入后等几秒列表没变」
+              很像搜索失效，而搜索是在后端做的（前端过滤只能过滤当前页） */}
           <input
             type="search"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="搜索工作流、运行或产物"
+            onKeyDown={(event) => {
+              // 搜索发给后端 —— 前端过滤只能过滤当前页
+              if (event.key === 'Enter') void setServerFilter(FILTER_STATUS[filter], query);
+            }}
+            placeholder="搜索工作流、运行或产物（回车搜索）"
             aria-label="搜索工作流"
           />
         </label>
@@ -192,7 +207,10 @@ export function OverviewPage() {
                 role="tab"
                 aria-selected={filter === f}
                 className="chip"
-                onClick={() => setFilter(f)}
+                onClick={() => {
+                  setFilter(f);
+                  void setServerFilter(FILTER_STATUS[f], query);
+                }}
               >
                 {f}
               </button>
@@ -214,7 +232,10 @@ export function OverviewPage() {
 
         {loading && workflows.length === 0 ? <p className="list__hint">正在读取…</p> : null}
 
-        {!loading && workflows.length === 0 && !error ? (
+        {/* 「一条都没有」与「筛选后没有」是两回事：
+            前者该给模板引导，后者该给一个清掉条件的出口。
+            混成一个的话，用户筛完看到「还没有工作流」会以为数据丢了 */}
+        {!loading && workflows.length === 0 && !error && !filtered ? (
           <div className="empty">
             <i className="ph ph-flow-arrow" aria-hidden="true" />
             <p className="empty__title">还没有工作流</p>
@@ -241,7 +262,7 @@ export function OverviewPage() {
           </div>
         ) : null}
 
-        {workflows.length > 0 ? (
+        {workflows.length > 0 || filtered ? (
           <table className="wf-table">
             <thead>
               <tr>
@@ -324,11 +345,21 @@ export function OverviewPage() {
                   </td>
                 </tr>
               ))}
-              {visible.length === 0 ? (
+              {visible.length === 0 && filtered ? (
                 <tr>
                   <td colSpan={5} className="wf-table__empty">
                     当前筛选下没有工作流
-                    <button type="button" className="link-button" onClick={() => setFilter('全部')}>
+                    <button
+                      type="button"
+                      className="link-button"
+                      onClick={() => {
+                        setFilter('全部');
+                        setQuery('');
+                        // 条件也要清到后端 —— 只改前端 state 的话
+                        // 列表还是筛过的那一页
+                        void setServerFilter(null, '');
+                      }}
+                    >
                       清除筛选
                     </button>
                   </td>

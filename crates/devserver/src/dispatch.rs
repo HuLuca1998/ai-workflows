@@ -218,6 +218,8 @@ pub fn dispatch(
         )?),
         "workflow_list" => to_value(api::workflow_list(
             &store,
+            opt_string(input, "status"),
+            opt_string(input, "query"),
             opt_int(input, "limit"),
             opt_int(input, "offset"),
         )?),

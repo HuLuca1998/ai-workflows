@@ -125,6 +125,13 @@ const SPECS = {
     input: z.object({
       query: z.string().optional(),
       archived: z.boolean().optional(),
+      /**
+       * 首页那四个筛选 chip。
+       *
+       * 分页之后前端过滤只能过滤**当前页** —— 用户停在第 29 页点「失败」，
+       * 看到的是「这 50 条里恰好失败的那些」，而不是全部失败的运行。
+       */
+      status: z.enum(['running', 'draft', 'failed']).optional(),
       ...PAGING,
     }),
     output: paged(WorkflowSchema),
@@ -702,7 +709,8 @@ const SPECS = {
   'env.health': {
     input: z.object({ recheck: z.boolean().default(false) }),
     output: z.object({
-      status: z.enum(['ready', 'needs_attention']),
+      /** 必需项是否都就绪。可选项缺失不影响它。 */
+      ready: z.boolean(),
       items: z.array(EnvHealthItemSchema),
     }),
     mutates: false,

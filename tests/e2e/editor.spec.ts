@@ -59,8 +59,11 @@ test.describe('概览页', () => {
     await seedWorkflow(page, `另一个 beta ${stamp}`);
     await page.goto('/');
 
-    // 概览页与节点库都有搜索框；这里要的是概览页那个
+    // 概览页与节点库都有搜索框；这里要的是概览页那个。
+    // 搜索发给后端，按回车才触发 —— 每敲一个字母打一次后端是浪费，
+    // 而前端过滤在分页之后只能过滤当前页
     await page.getByPlaceholder(/搜索工作流/).fill(`alpha ${stamp}`);
+    await page.keyboard.press('Enter');
 
     const names = page.locator('.wf-table__name');
     await expect(names.filter({ hasText: `搜索目标 alpha ${stamp}` })).toHaveCount(1);

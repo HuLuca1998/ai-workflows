@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { AGENT_RUNTIMES, type Model } from '@aiwf/contracts';
 import { SplitPane } from '../layout/SplitPane.js';
+import { Pager } from '../layout/Pager.js';
 import { coreClient } from '../data/workspace.js';
 
 /**
@@ -34,19 +35,29 @@ function runtimeLabel(runtime: string): string {
   return RUNTIME_LABELS[runtime as (typeof AGENT_RUNTIMES)[number]] ?? runtime;
 }
 
+/** 列表一页多少条。与契约的 LIST_PAGE_SIZE 一致。 */
+const LIST_PAGE_SIZE = 50;
+
 export function ModelsPage() {
   const [items, setItems] = useState<ModelRow[] | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  /** 满足条件的总条数与当前页起点。后端早就分页了，缺的是界面这一层。 */
+  const [total, setTotal] = useState(0);
+  const [offset, setOffset] = useState(0);
 
-  const load = async () => {
+  const load = async (nextOffset = offset) => {
+    setOffset(nextOffset);
     try {
-      const result = (await coreClient.call('model.list', { enabledOnly: false })) as {
-        items: ModelRow[];
-      };
+      const result = (await coreClient.call('model.list', {
+        enabledOnly: false,
+        limit: LIST_PAGE_SIZE,
+        offset: nextOffset,
+      })) as { items: ModelRow[]; total: number };
       setItems(result.items);
+      setTotal(result.total);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     }
@@ -133,6 +144,13 @@ export function ModelsPage() {
             </div>
           ))}
         </div>
+
+        <Pager
+          total={total}
+          pageSize={LIST_PAGE_SIZE}
+          offset={offset}
+          onChange={(next) => void load(next)}
+        />
 
         <p className="models__foot">
           系统内所有模型下拉只列出这里已启用的条目，AI 无法引用未登记的模型。

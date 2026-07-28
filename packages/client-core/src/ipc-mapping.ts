@@ -70,7 +70,30 @@ export function ipcCommandFor(method: CoreApiMethod): string | null {
 
 export function toIpcInput(method: CoreApiMethod, input: unknown): Record<string, unknown> {
   const record = (input ?? {}) as Record<string, unknown>;
+  // 这一层是白名单式的：每个分支只挑自己认识的字段，漏一个就静默丢掉。
+  // run.list 就这么把 limit/offset 丢过 —— 症状是「页码在走，数据不换」，
+  // 而原因离症状很远。分页参数统一在出口补回来，不再逐个分支去记。
+  return withPaging(record, shapeFor(method, record));
+}
 
+/**
+ * 分页参数原样带上。
+ *
+ * 只有列表方法有它们；其余方法的 record 里根本没有这两个键，
+ * 所以无条件补是安全的。
+ */
+function withPaging(
+  record: Record<string, unknown>,
+  shaped: Record<string, unknown>,
+): Record<string, unknown> {
+  return {
+    ...shaped,
+    ...(record.limit === undefined ? {} : { limit: record.limit }),
+    ...(record.offset === undefined ? {} : { offset: record.offset }),
+  };
+}
+
+function shapeFor(method: CoreApiMethod, record: Record<string, unknown>): Record<string, unknown> {
   if (method === 'workflow.create') {
     // Rust 侧参数是 snake_case
     return {

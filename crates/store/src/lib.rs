@@ -577,6 +577,68 @@ impl Store {
         Ok((rows.collect::<std::result::Result<Vec<_>, _>>()?, total))
     }
 
+    /// 带筛选与搜索的列表。
+    ///
+    /// 筛选必须在**后端**做：分页之后前端过滤只能过滤当前页 ——
+    /// 用户停在第 29 页点「失败」，看到的是「这 50 条里恰好失败的那些」，
+    /// 而不是全部失败的运行。
+    ///
+    /// `status` 取值与首页的四个 chip 对应：
+    /// - `running` —— 最近一次运行还没结束（含等待审批）
+    /// - `failed` —— 最近一次运行失败了
+    /// - `draft` —— 从没发布过版本
+    pub fn list_workflows_filtered(
+        &self,
+        status: Option<&str>,
+        query: Option<&str>,
+        limit: i64,
+        offset: i64,
+    ) -> Result<(Vec<WorkflowRow>, i64)> {
+        // 最近一次运行的状态：与 list_workflows_paged 用同一个子查询，
+        // 两处对「最近」的定义必须一致，否则筛选出来的和列表显示的对不上
+        const LAST_RUN: &str =
+            "(SELECT status FROM run WHERE workflow_id = w.id ORDER BY rowid DESC LIMIT 1)";
+
+        let status_clause = match status {
+            Some("running") => format!(
+                " AND {LAST_RUN} IN ('created','queued','running','waiting_approval','resuming')"
+            ),
+            Some("failed") => format!(" AND {LAST_RUN} = 'failed'"),
+            Some("draft") => {
+                " AND NOT EXISTS (SELECT 1 FROM workflow_version WHERE workflow_id = w.id)"
+                    .to_string()
+            }
+            _ => String::new(),
+        };
+
+        let like = query.map(|q| format!("%{q}%"));
+        let where_clause = format!("WHERE (?1 IS NULL OR w.name LIKE ?1){status_clause}");
+
+        let total: i64 = self.conn.query_row(
+            &format!("SELECT COUNT(*) FROM workflow w {where_clause}"),
+            params![like],
+            |row| row.get(0),
+        )?;
+
+        let sql = format!(
+            "SELECT w.id, w.name, w.folder, w.created_at, w.updated_at, w.archived,
+                    (SELECT MAX(version) FROM workflow_version WHERE workflow_id = w.id),
+                    r.id, r.status, r.started_at, r.ended_at, r.current_node,
+                    (SELECT version FROM workflow_version WHERE id = r.version_id)
+             FROM workflow w
+             LEFT JOIN run r ON r.id = (
+                 SELECT id FROM run WHERE workflow_id = w.id ORDER BY rowid DESC LIMIT 1
+             )
+             {where_clause}
+             ORDER BY w.updated_at DESC, w.rowid DESC
+             LIMIT ?2 OFFSET ?3"
+        );
+
+        let mut stmt = self.conn.prepare(&sql)?;
+        let rows = stmt.query_map(params![like, limit, offset], map_workflow)?;
+        Ok((rows.collect::<std::result::Result<Vec<_>, _>>()?, total))
+    }
+
     /// 列出工作流，**带最近一次运行**。
     ///
     /// 用关联子查询而不是「先列工作流、再逐条查运行」：后者在 300 条的

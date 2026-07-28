@@ -183,15 +183,32 @@ test.describe('记忆管理（图纸「04 记忆管理」）', () => {
   });
 });
 
-test.describe('尚未实现的屏', () => {
-  for (const [path, label] of [['/onboarding', '首次配置']] as const) {
-    test(`${label} 说明自己在等哪个里程碑，而不是白屏`, async ({ page }) => {
-      await page.goto(path);
-      await expect(page.getByRole('heading', { level: 1 })).toContainText(label);
-      // 骨架页会写明所属里程碑
-      await expect(page.getByText(/M[1-6]/)).toBeVisible();
-    });
-  }
+test.describe('首次配置（图纸「06 首次安装与检测」）', () => {
+  test.beforeEach(async ({ page }) => {
+    await page.goto('/onboarding');
+    await expect(page.getByRole('heading', { level: 1 })).toContainText('环境检测与依赖补齐');
+  });
+
+  test('四步照图纸，且真的探测了环境', async ({ page }) => {
+    const steps = page.getByRole('list', { name: '配置步骤' }).getByRole('listitem');
+    await expect(steps).toHaveCount(4);
+
+    // 真实探测：这台机器上 git 一定在
+    await expect(page.locator('[data-capability="git"]')).toContainText('就绪');
+  });
+
+  test('不是死路 —— 有一个能往下走的按钮', async ({ page }) => {
+    // codex 两轮都报这一屏「只有阶段占位文案，没有任何控件」
+    const skip = page.getByRole('button', { name: /跳过配置/ });
+    await expect(skip).toBeVisible();
+    await skip.click();
+    await expect(page).toHaveURL(/\/$/);
+  });
+
+  test('写明 Secret 不进这些目录', async ({ page }) => {
+    const region = page.getByRole('region', { name: '将写入的位置' });
+    await expect(region).toContainText('Secret 只保存在 Keychain');
+  });
 });
 
 test.describe('节点配置弹层', () => {

@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { SplitPane } from '../layout/SplitPane.js';
+import { Pager } from '../layout/Pager.js';
 import { coreClient } from '../data/workspace.js';
 
 /**
@@ -57,6 +58,9 @@ const ON_MISSING_LABELS: Record<string, string> = {
   default: '用默认值',
 };
 
+/** 列表一页多少条。与契约的 LIST_PAGE_SIZE 一致。 */
+const LIST_PAGE_SIZE = 50;
+
 export function PromptsPage() {
   const [items, setItems] = useState<Prompt[] | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -65,6 +69,9 @@ export function PromptsPage() {
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  /** 满足条件的总条数与当前页起点。后端早就分页了，缺的是界面这一层。 */
+  const [total, setTotal] = useState(0);
+  const [offset, setOffset] = useState(0);
 
   /**
    * 编辑中的分段。null 表示「没动过」。
@@ -74,12 +81,16 @@ export function PromptsPage() {
    */
   const [sections, setSections] = useState<Section[] | null>(null);
 
-  const load = async (search?: string) => {
+  const load = async (search?: string, nextOffset = offset) => {
+    setOffset(nextOffset);
     try {
-      const result = (await coreClient.call('prompt.list', search ? { query: search } : {})) as {
-        items: Prompt[];
-      };
+      const result = (await coreClient.call('prompt.list', {
+        ...(search ? { query: search } : {}),
+        limit: LIST_PAGE_SIZE,
+        offset: nextOffset,
+      })) as { items: Prompt[]; total: number };
       setItems(result.items);
+      setTotal(result.total);
     } catch (err) {
       setError(describe(err));
     }
@@ -238,6 +249,13 @@ export function PromptsPage() {
             </div>
           ))}
         </div>
+
+        <Pager
+          total={total}
+          pageSize={LIST_PAGE_SIZE}
+          offset={offset}
+          onChange={(next) => void load(query || undefined, next)}
+        />
 
         <p className="models__foot">
           系统调用 AI 的每一处都在这里：节点、⌘K 协作、记忆提议、通知与失败归因。

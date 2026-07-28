@@ -71,6 +71,14 @@
         "archived": {
           "type": "boolean"
         },
+        "status": {
+          "type": "string",
+          "enum": [
+            "running",
+            "draft",
+            "failed"
+          ]
+        },
         "limit": {
           "default": 50,
           "type": "integer",
@@ -5336,12 +5344,8 @@
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "type": "object",
       "properties": {
-        "status": {
-          "type": "string",
-          "enum": [
-            "ready",
-            "needs_attention"
-          ]
+        "ready": {
+          "type": "boolean"
         },
         "items": {
           "type": "array",
@@ -5349,6 +5353,10 @@
             "type": "object",
             "properties": {
               "capability": {
+                "type": "string",
+                "minLength": 1
+              },
+              "label": {
                 "type": "string",
                 "minLength": 1
               },
@@ -5377,10 +5385,32 @@
               },
               "detail": {
                 "type": "string"
+              },
+              "installHint": {
+                "type": "object",
+                "properties": {
+                  "command": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "source": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "url": {
+                    "type": "string",
+                    "format": "uri"
+                  }
+                },
+                "required": [
+                  "command",
+                  "source"
+                ]
               }
             },
             "required": [
               "capability",
+              "label",
               "source",
               "status"
             ]
@@ -5388,7 +5418,7 @@
         }
       },
       "required": [
-        "status",
+        "ready",
         "items"
       ]
     }

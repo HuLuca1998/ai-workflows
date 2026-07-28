@@ -8,6 +8,7 @@ import { AgentsPage } from '../agents/AgentsPage.js';
 import { PromptsPage } from '../prompts/PromptsPage.js';
 import { MemoryPage } from '../memory/MemoryPage.js';
 import { PlaceholderPage } from './PlaceholderPage.js';
+import { OnboardingPage } from '../onboarding/OnboardingPage.js';
 import { SettingsPage } from './SettingsPage.js';
 
 /**
@@ -47,6 +48,7 @@ const FULL_SCREENS: Record<string, ReactElement> = {
   '/agents': <AgentsPage />,
   '/prompts': <PromptsPage />,
   '/memory': <MemoryPage />,
+  '/onboarding': <OnboardingPage />,
 };
 
 /** 需要额外注册带参数的子路由的屏。 */

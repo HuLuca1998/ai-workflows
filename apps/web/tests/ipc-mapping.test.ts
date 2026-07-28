@@ -243,3 +243,28 @@ describe('保存类方法的返回值不能被转换层吃掉', () => {
     expect(sent).toMatchObject({ id: 'prompt_1', ver: 4 });
   });
 });
+
+describe('分页参数不能被转换层吃掉', () => {
+  it('run.list 的 limit 与 offset 要发出去', () => {
+    // 丢掉的话每一页都请求 offset=0 —— 页码在走，数据不换。
+    // codex 复测时的原话：「12 页的首尾 ID 完全相同，
+    // 可真正的末 505 条运行完全不可见」。
+    // 与之前 prompt.update 丢 ver 是同一类错误：这层白名单式的转换
+    // 只要漏写一个字段就静默丢掉，而症状离原因很远
+    const sent = toIpcInput('run.list', { status: ['failed'], limit: 50, offset: 100 });
+    expect(sent).toMatchObject({ limit: 50, offset: 100 });
+  });
+
+  it('其余列表方法的分页参数也要穿过去', () => {
+    for (const method of [
+      'workflow.list',
+      'memory.list',
+      'prompt.list',
+      'model.list',
+      'agent.list',
+    ] as const) {
+      const sent = toIpcInput(method, { limit: 50, offset: 100 });
+      expect(sent, `${method} 丢了分页参数`).toMatchObject({ limit: 50, offset: 100 });
+    }
+  });
+});

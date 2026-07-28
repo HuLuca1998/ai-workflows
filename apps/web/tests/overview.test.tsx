@@ -1,5 +1,5 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { MemoryRouter } from 'react-router';
 import { OverviewPage } from '../src/pages/OverviewPage.js';
 import { useWorkspace } from '../src/data/workspace.js';
@@ -138,22 +138,37 @@ describe('列表与筛选', () => {
     expect(screen.getByText('GitHub Issue 修复')).toBeInTheDocument();
   });
 
-  it('搜索按名称过滤', () => {
+  it('搜索交给后端，回车才发 —— 前端过滤只能过滤当前页', () => {
+    // 分页之后前端过滤是错的：用户搜三个月前的工作流，
+    // 而那条根本不在当前这 50 条里
+    const setFilter = vi.fn().mockResolvedValue(undefined);
     seed();
+    useWorkspace.setState({ setFilter });
     renderPage();
-    fireEvent.change(screen.getByLabelText('搜索工作流'), { target: { value: '归因' } });
-    expect(screen.queryByText('GitHub Issue 修复')).toBeNull();
-    expect(screen.getByText('错误日志归因')).toBeInTheDocument();
+
+    const input = screen.getByLabelText('搜索工作流');
+    fireEvent.change(input, { target: { value: '归因' } });
+    // 光输入不发请求 —— 每敲一个字母打一次后端是浪费
+    expect(setFilter).not.toHaveBeenCalled();
+
+    fireEvent.keyDown(input, { key: 'Enter' });
+    expect(setFilter).toHaveBeenCalledWith(null, '归因');
   });
 
   it('筛选无结果时提示并提供清除筛选', () => {
-    seed();
+    // 后端筛完返回空列表时的空态。清除筛选把条件交回 store
+    const setFilter = vi.fn().mockResolvedValue(undefined);
+    useWorkspace.setState({ workflows: [], total: 0, loading: false, error: null, setFilter });
     renderPage();
-    fireEvent.click(screen.getByRole('tab', { name: '运行中' }));
-    expect(screen.getByText(/当前筛选下没有工作流/u)).toBeInTheDocument();
 
+    // 加一个条件：这时的空列表是「筛选后没有」，不是「一条都没有」——
+    // 两者混在一起的话，用户筛完看到「还没有工作流」会以为数据丢了
+    fireEvent.click(screen.getByRole('tab', { name: '运行中' }));
+
+    expect(screen.getByText(/当前筛选下没有工作流/u)).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: '清除筛选' }));
-    expect(screen.getByText('GitHub Issue 修复')).toBeInTheDocument();
+    // 点 chip 那次也调过 setFilter，所以看最后一次
+    expect(setFilter).toHaveBeenLastCalledWith(null, '');
   });
 
   it('读取失败时报出原因，而不是显示空列表假装正常', () => {

@@ -32,11 +32,17 @@ const { OverviewPage } = await import('../src/pages/OverviewPage.js');
  * 这里测的是页面拿到数据后怎么渲染。
  */
 function seed(items: unknown[]) {
+  // 只覆盖数据，**load 与 setFilter 都保留真实实现** ——
+  // 换掉的话「筛选发给后端」就测不到了。
+  // load 走的是被 mock 的 coreClient，所以不会真的打网络
   useWorkspace.setState({
     workflows: items as never,
+    total: items.length,
+    offset: 0,
+    status: null,
+    query: '',
     loading: false,
     error: null,
-    load: async () => {},
   });
 }
 
@@ -210,26 +216,6 @@ describe('列表状态跟着运行走', () => {
     expect(tr.textContent).toContain('节点 3');
     expect(within(tr).getByRole('button', { name: /重试/u })).toBeTruthy();
   });
-
-  it('筛选「运行中」只留运行中的 —— 原来它对任何数据都返回空', async () => {
-    seed([
-      BASE,
-      {
-        ...BASE,
-        id: 'wf_2',
-        name: '正在跑的',
-        lastRun: { id: 'run_2', status: 'running', startedAt: '2026-07-28T09:12:00Z' },
-      },
-    ]);
-    const user = userEvent.setup();
-    view();
-    await row('正在跑的');
-
-    await user.click(screen.getByRole('tab', { name: '运行中' }));
-    const table = screen.getByRole('table');
-    expect(within(table).getByText('正在跑的')).toBeTruthy();
-    expect(within(table).queryByText('GitHub Issue 修复')).toBeNull();
-  });
 });
 
 describe('新建不能建出多条', () => {
@@ -258,5 +244,58 @@ describe('新建不能建出多条', () => {
     await Promise.all(Array.from({ length: 5 }, () => user.click(button).catch(() => undefined)));
 
     await waitFor(() => expect(created).toHaveLength(1));
+  });
+});
+
+describe('筛选与搜索交给后端', () => {
+  /**
+   * 页面这一层的责任是「点了 chip 就把条件交给 store」。
+   *
+   * store 真正发什么请求由它自己的用例覆盖（workspace-paging.test.ts）——
+   * 这里换不掉 store 内部的 coreClient（它闭包捕获的是原模块那个），
+   * 硬测的话只会打到真实网络。
+   */
+  it('点筛选 chip 把状态交给 store，而不是在前端过滤', async () => {
+    // codex 复测：「停在第 29 页点『失败』，页码仍显示 1401–1424，
+    // 页面只剩当前页内的一条失败记录」
+    const setFilter = vi.fn().mockResolvedValue(undefined);
+    seed([BASE]);
+    useWorkspace.setState({ setFilter });
+
+    const user = userEvent.setup();
+    view();
+    await row('GitHub Issue 修复');
+
+    await user.click(screen.getByRole('tab', { name: '失败' }));
+    expect(setFilter).toHaveBeenCalledWith('failed', '');
+  });
+
+  it('搜索按回车时把关键词交给 store', async () => {
+    const setFilter = vi.fn().mockResolvedValue(undefined);
+    seed([BASE]);
+    useWorkspace.setState({ setFilter });
+
+    const user = userEvent.setup();
+    view();
+    await row('GitHub Issue 修复');
+
+    await user.type(screen.getByLabelText('搜索工作流'), '归档');
+    await user.keyboard('{Enter}');
+    expect(setFilter).toHaveBeenCalledWith(null, '归档');
+  });
+
+  it('占位文案写明要回车 —— 不写的话很像搜索失效', async () => {
+    seed([BASE]);
+    view();
+    expect(await screen.findByPlaceholderText(/回车搜索/u)).toBeTruthy();
+  });
+
+  it('「N 个工作流」用总数，不是当前页的行数', async () => {
+    // codex 复测：「翻到最后一页时标题变成『本地优先 · 24 个工作流』，
+    // 而分页总数是 1,424」——这个文案看起来像全量统计
+    seed([BASE]);
+    useWorkspace.setState({ total: 1424 });
+    view();
+    expect(await screen.findByText(/本地优先 · 1,?424 个工作流/u)).toBeTruthy();
   });
 });

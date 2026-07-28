@@ -137,6 +137,8 @@ describe('路由', () => {
     const SELF_DRAWN_TITLES: Record<string, string> = {
       '/': '工作流',
       '/memory': '记忆管理',
+      // 图纸「06 首次安装与检测」的大标题就是这句
+      '/onboarding': '环境检测与依赖补齐',
     };
 
     for (const item of NAV_ITEMS.filter((nav) => !SELF_DRAWN_WITHOUT_H1.has(nav.path))) {

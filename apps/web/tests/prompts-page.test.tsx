@@ -75,7 +75,8 @@ describe('列表', () => {
     await user.keyboard('{Enter}');
 
     await waitFor(() => {
-      expect(call).toHaveBeenCalledWith('prompt.list', { query: '根因' });
+      // 分页参数每次都带，这里只关心搜索词有没有发出去
+      expect(call).toHaveBeenCalledWith('prompt.list', expect.objectContaining({ query: '根因' }));
     });
   });
 

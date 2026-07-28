@@ -205,13 +205,32 @@ export const ArtifactSchema = z.object({
 });
 export type Artifact = z.infer<typeof ArtifactSchema>;
 
+/**
+ * 缺工具时给的一条可复制命令。
+ *
+ * 应用**自己不装任何东西**：替用户执行下载意味着要为「从哪下载、
+ * 怎么校验签名、装坏了怎么回滚」全都做决定，而每个决定都是新的攻击面。
+ */
+export const InstallHintSchema = z.object({
+  /** 复制得走的一行。绝不含 sudo。 */
+  command: z.string().min(1),
+  /** 出处。「复制这行到终端」是让用户执行我们给的代码，得说清它哪来的。 */
+  source: z.string().min(1),
+  url: z.string().url().optional(),
+});
+export type InstallHint = z.infer<typeof InstallHintSchema>;
+
 export const EnvHealthItemSchema = z.object({
   capability: z.string().min(1),
+  /** 面向用户的名字。capability 是 id，界面显示的是这个。 */
+  label: z.string().min(1),
   version: z.string().optional(),
   path: z.string().optional(),
   source: z.enum(['system', 'app_managed', 'missing']),
   status: z.enum(['ready', 'needs_attention', 'optional', 'missing']),
   detail: z.string().optional(),
+  /** 缺了才给。已就绪还给的话用户会以为该重装。 */
+  installHint: InstallHintSchema.optional(),
 });
 export type EnvHealthItem = z.infer<typeof EnvHealthItemSchema>;
 

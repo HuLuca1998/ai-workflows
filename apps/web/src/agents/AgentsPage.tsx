@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import type { AGENT_RUNTIMES } from '@aiwf/contracts';
 import { SplitPane } from '../layout/SplitPane.js';
+import { Pager } from '../layout/Pager.js';
 import { coreClient } from '../data/workspace.js';
 
 /**
@@ -56,6 +57,9 @@ const CAPABILITY_LABELS: Record<string, string> = {
   approval: '审批',
 };
 
+/** 列表一页多少条。与契约的 LIST_PAGE_SIZE 一致。 */
+const LIST_PAGE_SIZE = 50;
+
 export function AgentsPage() {
   const [items, setItems] = useState<Agent[] | null>(null);
   const [models, setModels] = useState<ModelOption[] | null>(null);
@@ -63,6 +67,9 @@ export function AgentsPage() {
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  /** 满足条件的总条数与当前页起点。后端早就分页了，缺的是界面这一层。 */
+  const [total, setTotal] = useState(0);
+  const [offset, setOffset] = useState(0);
 
   /**
    * 详情区的本地改动。
@@ -72,10 +79,15 @@ export function AgentsPage() {
    */
   const [draft, setDraft] = useState<Partial<Agent>>({});
 
-  const load = async () => {
+  const load = async (nextOffset = offset) => {
+    setOffset(nextOffset);
     try {
-      const result = (await coreClient.call('agent.list', {})) as { items: Agent[] };
+      const result = (await coreClient.call('agent.list', {
+        limit: LIST_PAGE_SIZE,
+        offset: nextOffset,
+      })) as { items: Agent[]; total: number };
       setItems(result.items);
+      setTotal(result.total);
     } catch (err) {
       setError(describe(err));
     }
@@ -245,6 +257,13 @@ export function AgentsPage() {
             </button>
           ))}
         </div>
+
+        <Pager
+          total={total}
+          pageSize={LIST_PAGE_SIZE}
+          offset={offset}
+          onChange={(next) => void load(next)}
+        />
 
         <p className="models__foot">
           节点引用角色而不是复制 Prompt；角色升级后引用它的节点一并生效。

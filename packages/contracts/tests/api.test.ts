@@ -546,3 +546,76 @@ describe('列表分页', () => {
     }
   });
 });
+
+describe('env.health 的返回形状', () => {
+  const spec = () => getMethodSpec('env.health');
+
+  it('每一项都带显示名 —— capability 是 id，界面要的是能读的名字', () => {
+    const parsed = spec().output.safeParse({
+      ready: false,
+      items: [
+        {
+          capability: 'acp.claude',
+          label: 'Claude Code（ACP）',
+          source: 'app_managed',
+          status: 'ready',
+        },
+      ],
+    });
+    expect(parsed.success).toBe(true);
+  });
+
+  it('缺失项带安装建议，且建议要说清出处', () => {
+    // 「复制这行到终端」是让用户执行我们给的代码，得说清它哪来的
+    const parsed = spec().output.safeParse({
+      ready: false,
+      items: [
+        {
+          capability: 'node',
+          label: 'Node.js',
+          source: 'missing',
+          status: 'missing',
+          installHint: { command: 'brew install node@22', source: 'Homebrew' },
+        },
+      ],
+    });
+    expect(parsed.success).toBe(true);
+  });
+
+  it('安装建议不带 command 不合法 —— 那就没有任何可操作的东西', () => {
+    const parsed = spec().output.safeParse({
+      ready: false,
+      items: [
+        {
+          capability: 'node',
+          label: 'Node.js',
+          source: 'missing',
+          status: 'missing',
+          installHint: { source: 'Homebrew' },
+        },
+      ],
+    });
+    expect(parsed.success).toBe(false);
+  });
+
+  it('整体用布尔的 ready —— 比 status 枚举少一层解码', () => {
+    expect(spec().output.safeParse({ ready: true, items: [] }).success, 'ready 应当是布尔').toBe(
+      true,
+    );
+  });
+});
+
+describe('workflow.list 的筛选', () => {
+  it('收状态筛选 —— 分页之后前端过滤只能过滤当前页', () => {
+    // codex 复测：「停在第 29 页点『失败』，页码仍显示 1401–1424，
+    // 页面只剩当前页内的一条失败记录」。筛选必须在后端做。
+    const spec = getMethodSpec('workflow.list');
+    expect(spec.input.safeParse({ status: 'failed' }).success).toBe(true);
+    expect(spec.input.safeParse({ status: 'running' }).success).toBe(true);
+    expect(spec.input.safeParse({ status: 'draft' }).success).toBe(true);
+  });
+
+  it('自造的状态被拒', () => {
+    expect(getMethodSpec('workflow.list').input.safeParse({ status: '乱写' }).success).toBe(false);
+  });
+});
