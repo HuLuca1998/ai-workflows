@@ -113,7 +113,12 @@ jobs:
           cache: pnpm
 
       - name: 安装 Rust 工具链
-        run: rustup toolchain install stable --profile minimal --target aarch64-apple-darwin
+        # universal 包要把两个架构都编出来再合并，所以两个 target 都得装。
+        # 公司里的 Mac 有 Apple Silicon 也可能有 Intel —— 只出 aarch64
+        # 的话，Intel 机器上双击没有任何反应
+        run: |
+          rustup toolchain install stable --profile minimal \
+            --target aarch64-apple-darwin --target x86_64-apple-darwin
 
       # 缓存要**写**：CI 那边跑的是 cargo check（debug profile，产物是 rmeta），
       # 与这里的 release 构建不共享编译产物，只共享 crates 下载。
@@ -163,7 +168,7 @@ jobs:
             echo "apple=true" >> "$GITHUB_OUTPUT"
           else
             echo "apple=false" >> "$GITHUB_OUTPUT"
-            echo "::notice::未配置 Apple 证书：产物做 ad-hoc 签名，用户首次打开需右键 → 打开"
+            echo "::notice::未配置 Apple 证书（内部分发）：产物做 ad-hoc 签名，装的时候跑 scripts/install-app.sh"
           fi
 
       - name: 构建并发布（含 Apple 签名与公证）
@@ -190,7 +195,7 @@ jobs:
           releaseDraft: false
           prerelease: ${{ needs.plan.outputs.prerelease }}
           includeUpdaterJson: true
-          args: --target aarch64-apple-darwin
+          args: --target universal-apple-darwin
 
       - name: 构建并发布（ad-hoc 签名，未公证）
         if: ${{ !inputs.dry_run && steps.signing.outputs.apple != 'true' }}
@@ -200,9 +205,11 @@ jobs:
           # 更新包仍然签名——那用的是自己的 minisign 密钥，与 Apple 证书无关。
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-          # ad-hoc 签名（identity "-"）：Apple Silicon 要求 arm64 可执行文件必须有签名。
-          # 只靠链接器那份 linker-signed 签名不覆盖 bundle，Gatekeeper 会直接判「已损坏」，
-          # 连右键打开都绕不过。加上这行才退化成正常的「未认证开发者」提示。
+          # ad-hoc 签名（identity "-"）：免费、不需要任何 Apple 账号。
+          # Apple Silicon 要求 arm64 可执行文件必须有签名 —— 只靠链接器那份
+          # linker-signed 不覆盖 bundle，Gatekeeper 会直接判「已损坏」。
+          # 加上这行才退化成正常的「未认证开发者」提示，那一层由
+          # scripts/install-app.sh 解除隔离标记来过。
           APPLE_SIGNING_IDENTITY: '-'
         with:
           projectPath: apps/desktop
@@ -211,13 +218,18 @@ jobs:
           releaseBody: |
             通道：${{ needs.plan.outputs.channel }} · 提交 ${{ github.sha }}
 
-            ⚠️ 未经 Apple 公证：首次打开请右键 → 打开。
+            ⚠️ 未经 Apple 公证（内部分发，不买 Developer ID）。
+
+            **首次安装**：下载 dmg 之后跑一次
+            `bash scripts/install-app.sh ~/Downloads/<下载的.dmg>`。
+            它会装到 /Applications 并解除隔离标记 —— macOS 15 起
+            「右键 → 打开」不再绕得过 Gatekeeper，那条老办法已经失效。
 
             应用内「设置与环境 → 检查更新」可一键更新；更新包经签名校验后才安装。
           releaseDraft: false
           prerelease: ${{ needs.plan.outputs.prerelease }}
           includeUpdaterJson: true
-          args: --target aarch64-apple-darwin
+          args: --target universal-apple-darwin
 
       - name: 只构建不发布
         if: ${{ inputs.dry_run }}
@@ -226,7 +238,7 @@ jobs:
         # 必须用 exec 直传：`pnpm run build -- --target ...` 里的 `--` 会把参数
         # 交给 cargo 而不是 tauri，结果 cargo 编到 target/<triple>/ 而 bundler
         # 仍去找 target/release/，报 "can't open main binary"
-        run: pnpm --filter @aiwf/desktop exec tauri build --target aarch64-apple-darwin
+        run: pnpm --filter @aiwf/desktop exec tauri build --target universal-apple-darwin
 
       - name: 摘要
         if: always()

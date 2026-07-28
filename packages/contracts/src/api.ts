@@ -85,6 +85,33 @@ const PAGING = {
 };
 
 /** 列表的返回：这一页 + 总数。界面靠 total 画分页控件。 */
+/**
+ * 把一个实体 Schema 变成 patch 入参：**全可选，且没有默认值**。
+ *
+ * `.partial()` 只让字段可选，**不去掉 `.default()`** —— 缺席时 Zod 照样
+ * 填默认值。于是界面只发 `{id, ver, goal}`，校验之后变成
+ * `{id, ver, goal, persona: '', tools: [], outputContract: ''…}`，
+ * 后端 COALESCE 收到的是空字符串而不是 NULL，照写。
+ *
+ * codex 亲手踩到：新建 Agent 时填了「性格与指令」，之后只改「目标」
+ * 点保存，那段指令被清空了 —— 静默数据丢失，刷新之后才发现，
+ * 而那时原文已经没了。
+ *
+ * 显式发空串仍然是「改成空」：那是用户的意思，与「没发」是两回事。
+ */
+const patchOf = <T extends z.ZodRawShape>(schema: z.ZodObject<T>) => {
+  const shape: Record<string, z.ZodTypeAny> = {};
+  for (const [key, field] of Object.entries(schema.shape)) {
+    let inner = field as z.ZodTypeAny;
+    // 剥到没有 default 为止：可能是 default(optional(...)) 这种叠了两层
+    while (inner instanceof z.ZodDefault) {
+      inner = inner.def.innerType as z.ZodTypeAny;
+    }
+    shape[key] = inner.optional();
+  }
+  return z.object(shape);
+};
+
 const paged = <T extends z.ZodTypeAny>(item: T) =>
   z.object({
     items: z.array(item),
@@ -733,7 +760,7 @@ const SPECS = {
     summary: '新建提示词',
   },
   'prompt.update': {
-    input: PromptSchema.partial().extend({
+    input: patchOf(PromptSchema).extend({
       id: z.string().min(1),
       ver: z.number().int().min(1),
       /**
@@ -805,7 +832,7 @@ const SPECS = {
     summary: '登记模型（ACP 握手不返回模型列表，需手动登记或从 CLI 导入）',
   },
   'model.update': {
-    input: ModelSchema.partial().extend({ id: z.string().min(1) }),
+    input: patchOf(ModelSchema).extend({ id: z.string().min(1) }),
     output: ok,
     mutates: true,
     audited: true,
@@ -858,7 +885,7 @@ const SPECS = {
     summary: '新建 Agent 角色',
   },
   'agent.update': {
-    input: AgentProfileSchema.partial().extend({
+    input: patchOf(AgentProfileSchema).extend({
       id: z.string().min(1),
       ver: z.number().int().min(1),
     }),

@@ -4610,7 +4610,6 @@
           }
         },
         "vars": {
-          "default": [],
           "type": "array",
           "items": {
             "type": "object",
@@ -4648,7 +4647,6 @@
           "maximum": 9007199254740991
         },
         "builtin": {
-          "default": false,
           "type": "boolean"
         },
         "updatedAt": {
@@ -5060,7 +5058,6 @@
           "minLength": 1
         },
         "effort": {
-          "default": "medium",
           "type": "string",
           "enum": [
             "minimal",
@@ -5075,7 +5072,6 @@
           "maximum": 9007199254740991
         },
         "capabilities": {
-          "default": [],
           "type": "array",
           "items": {
             "type": "string"
@@ -5086,7 +5082,6 @@
           "minLength": 1
         },
         "enabled": {
-          "default": true,
           "type": "boolean"
         },
         "lastLatencyMs": {
@@ -5525,11 +5520,9 @@
           "minLength": 1
         },
         "goal": {
-          "default": "",
           "type": "string"
         },
         "persona": {
-          "default": "",
           "type": "string"
         },
         "runtime": {
@@ -5549,7 +5542,6 @@
           "minLength": 1
         },
         "tools": {
-          "default": [],
           "type": "array",
           "items": {
             "type": "string"
@@ -5605,17 +5597,14 @@
           }
         },
         "outputContract": {
-          "default": "",
           "type": "string"
         },
         "turnLimit": {
-          "default": 12,
           "type": "integer",
           "exclusiveMinimum": 0,
           "maximum": 9007199254740991
         },
         "timeoutMs": {
-          "default": 900000,
           "type": "integer",
           "exclusiveMinimum": 0,
           "maximum": 9007199254740991
@@ -5626,7 +5615,6 @@
           "maximum": 9007199254740991
         },
         "builtin": {
-          "default": false,
           "type": "boolean"
         }
       },

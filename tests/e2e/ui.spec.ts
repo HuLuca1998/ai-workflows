@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
-import { seedWorkflow } from './_api.js';
+import { seedWorkflow, 允许直接执行 } from './_api.js';
 
 /**
  * 浏览器端到端：真实点击 → 真实引擎。
@@ -159,6 +159,18 @@ test.describe('模型登记（真实写库）', () => {
 });
 
 test.describe('运行一个真实工作流', () => {
+  /**
+   * 这组测的是「跑起来之后发生什么」，所以要把权限档声明成 workspace_safe。
+   *
+   * 默认档是 review_every_change —— 有副作用的节点（脚本、worktree、
+   * commit、PR、MCP 工具）执行前会挂起等审批。那是**有意**的默认，
+   * 但它会让这几条停在审批上。声明前置条件比依赖「库里恰好是什么」可靠。
+   */
+  test.beforeEach(async ({ page }) => {
+    await page.goto('/');
+    await 允许直接执行(page);
+  });
+
   test('启动表单 → 依赖检查 → 开始 → 执行记录显示真实事件', async ({ page }) => {
     const workflowId = await createWorkflow(page, 'UI 测试 · 打招呼', SCRIPT_GRAPH);
     await page.goto(`/editor/${workflowId}`);
@@ -392,5 +404,60 @@ test.describe('列表分页', () => {
         ).toBeVisible();
       }
     }
+  });
+});
+
+test.describe('权限档真的改变运行行为', () => {
+  /**
+   * 图纸「05 设置与环境」的权限策略三档。界面能选而引擎不按档位拦截
+   * 的话，那是假的安全感 —— 比没有更糟。
+   *
+   * 这条用同一条工作流跑两次，只改档位，断言结果不同。
+   */
+  const 设档 = async (page: Page, preset: string) => {
+    await page.evaluate(async (value) => {
+      await fetch('http://127.0.0.1:5177/ipc/workspace_update_settings', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ permissionPreset: value }),
+      });
+    }, preset);
+  };
+
+  test('Review Every Change 下脚本节点停在审批，换档后跑完', async ({ page }) => {
+    const workflowId = await createWorkflow(page, '权限档 e2e', SCRIPT_GRAPH);
+
+    await page.goto('/');
+    await 设档(page, 'review_every_change');
+
+    const 跑一次 = async () => {
+      const 结果 = await page.evaluate(async (id) => {
+        const start = await fetch('http://127.0.0.1:5177/ipc/run_start', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          // SCRIPT_GRAPH 的入口 schema 要这两个字段，不给的话
+          // 会因为「未定义的引用」失败，而那与权限档无关
+          body: JSON.stringify({
+            workflowId: id,
+            draftRev: 1,
+            inputsJson: JSON.stringify({ who: '世界', greeting: '你好' }),
+          }),
+        });
+        const runId = (await start.json()) as string;
+        await new Promise((r) => setTimeout(r, 2500));
+        const got = await fetch('http://127.0.0.1:5177/ipc/run_get', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ runId }),
+        });
+        return (await got.json()) as { status: string };
+      }, workflowId);
+      return 结果.status;
+    };
+
+    expect(await 跑一次(), '严格档下脚本节点该停在审批').toBe('waiting_approval');
+
+    await 设档(page, 'workspace_safe');
+    expect(await 跑一次(), '宽松档下已声明的命令该直接跑').toBe('succeeded');
   });
 });

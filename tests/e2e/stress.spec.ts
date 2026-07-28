@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { api } from './_api.js';
+import { api, 允许直接执行 } from './_api.js';
 
 /**
  * 边界与压力。
@@ -38,6 +38,11 @@ function chain(count: number) {
 }
 
 test.describe('规模', () => {
+  test.beforeEach(async ({ page }) => {
+    await page.goto('/');
+    await 允许直接执行(page);
+  });
+
   test('200 节点的画布能打开，节点数显示正确', async ({ page }) => {
     const id = (await api(page, 'workflow_create', { name: '200 节点' })) as string;
     await api(page, 'workflow_save_draft', {
@@ -188,6 +193,11 @@ test.describe('规模', () => {
 });
 
 test.describe('并发', () => {
+  test.beforeEach(async ({ page }) => {
+    await page.goto('/');
+    await 允许直接执行(page);
+  });
+
   test('同时启动 5 个运行，界面全都跟得上', async ({ page }) => {
     // 5 个运行 × 4 个节点，每个节点起一次真实进程。
     // 默认 30s 的用例预算不够 —— 这条本来就是压力测试

@@ -41,3 +41,18 @@ export async function seedWorkflow(
   })) as number;
   return { id, rev };
 }
+
+/**
+ * 把权限档设成 `workspace_safe`。
+ *
+ * 默认档是 `review_every_change` —— 有副作用的节点（脚本、worktree、
+ * commit、PR、MCP 工具）执行前会挂起等审批。那是**有意**的默认：
+ * 没设过就按最严的办，默认放宽等于替用户做了一个他不知道的决定。
+ *
+ * 但「跑起来之后发生什么」这类用例会因此停在审批上。
+ * 声明前置条件比依赖「库里恰好是什么」可靠 —— 后者会让测试的
+ * 成败取决于上一条用例留下了什么。
+ */
+export async function 允许直接执行(page: Page): Promise<void> {
+  await api(page, 'workspace_update_settings', { permissionPreset: 'workspace_safe' });
+}
