@@ -1404,7 +1404,7 @@ impl Store {
 
         let sql = format!(
             r#"SELECT {PROMPT_COLUMNS} FROM prompt {where_clause}
-               ORDER BY "group" ASC, name ASC, rowid ASC
+               ORDER BY updated_at DESC, rowid DESC
                LIMIT ?3 OFFSET ?4"#
         );
         let mut stmt = self.conn.prepare(&sql)?;
@@ -1517,8 +1517,9 @@ impl Store {
         self.conn.execute(
             "INSERT INTO agent_profile(id, name, role, goal, persona, runtime, model_ref,
                                        fallback_model_ref, tools_json, policy_json,
-                                       output_contract, turn_limit, timeout_ms, ver, builtin)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, 1, ?14)",
+                                       output_contract, turn_limit, timeout_ms, ver, builtin,
+                                       created_at, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, 1, ?14, ?15, ?15)",
             params![
                 id,
                 agent.name,
@@ -1534,6 +1535,7 @@ impl Store {
                 agent.turn_limit,
                 agent.timeout_ms,
                 i64::from(builtin),
+                now_iso(),
             ],
         )?;
         Ok(id)
@@ -1567,8 +1569,11 @@ impl Store {
             .query_row("SELECT COUNT(*) FROM agent_profile", [], |row| row.get(0))?;
 
         let sql = format!(
+            // 最近动过的排最前：按名字排的话，新建的会被埋在中间某一页。
+            // rowid 兜底 —— 同一毫秒的几条按时间排顺序不稳定，
+            // 翻页会重复看到一些、永远看不到另一些
             "SELECT {AGENT_COLUMNS} FROM agent_profile
-             ORDER BY name ASC, rowid ASC LIMIT ?1 OFFSET ?2"
+             ORDER BY updated_at DESC, rowid DESC LIMIT ?1 OFFSET ?2"
         );
         let mut stmt = self.conn.prepare(&sql)?;
         let rows = stmt.query_map(params![limit, offset], map_agent_row)?;
@@ -1605,13 +1610,16 @@ impl Store {
         });
 
         let changed = self.conn.execute(
+            // updated_at 一起推：列表按它排，不推的话改过的角色
+            // 仍然停在原来的位置，用户以为自己没保存成功
             "UPDATE agent_profile SET
                 name      = COALESCE(?3, name),
                 goal      = COALESCE(?4, goal),
                 persona   = COALESCE(?5, persona),
                 model_ref = COALESCE(?6, model_ref),
                 fallback_model_ref = CASE WHEN ?8 THEN ?7 ELSE fallback_model_ref END,
-                ver       = ver + 1
+                ver       = ver + 1,
+                updated_at = ?9
              WHERE id = ?1 AND ver = ?2",
             params![
                 id,
@@ -1622,6 +1630,7 @@ impl Store {
                 model_ref,
                 fallback.clone().flatten(),
                 fallback.is_some(),
+                now_iso(),
             ],
         )?;
 
@@ -1698,8 +1707,9 @@ impl Store {
         let caps = serde_json::to_string(&model.capabilities)
             .map_err(|e| StoreError::Invalid(e.to_string()))?;
         self.conn.execute(
-            "INSERT INTO model(id, name, runtime, model_id, effort, ctx, caps_json, cred_ref, enabled)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+            "INSERT INTO model(id, name, runtime, model_id, effort, ctx, caps_json, cred_ref,
+                               enabled, created_at, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?10)",
             params![
                 id,
                 model.name,
@@ -1710,6 +1720,7 @@ impl Store {
                 caps,
                 model.credential_ref,
                 i64::from(model.enabled),
+                now_iso(),
             ],
         )?;
         Ok(id)
@@ -1762,7 +1773,7 @@ impl Store {
             "SELECT id, name, runtime, model_id, effort, ctx, caps_json, cred_ref, enabled, last_latency_ms
              FROM model
              WHERE (?1 = 0 OR enabled = 1)
-             ORDER BY runtime ASC, name ASC, rowid ASC
+             ORDER BY updated_at DESC, rowid DESC
              LIMIT ?2 OFFSET ?3",
         )?;
         let rows = stmt.query_map(params![flag, limit, offset], map_model_row)?;
@@ -1796,7 +1807,9 @@ impl Store {
                 effort   = COALESCE(?5, effort),
                 ctx      = COALESCE(?6, ctx),
                 caps_json = COALESCE(?7, caps_json),
-                enabled  = COALESCE(?8, enabled)
+                enabled  = COALESCE(?8, enabled),
+                -- 列表按 updated_at 排，不推的话改过的条目停在原位
+                updated_at = ?9
              WHERE id = ?1",
             params![
                 id,
@@ -1807,6 +1820,7 @@ impl Store {
                 context_window,
                 caps,
                 enabled.map(i64::from),
+                now_iso(),
             ],
         )?;
         Ok(())

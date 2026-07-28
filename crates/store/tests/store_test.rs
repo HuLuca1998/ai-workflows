@@ -2011,3 +2011,88 @@ fn 其余四个列表也分页() {
     assert_eq!(agents.len(), 5);
     assert_eq!(agent_total, 15);
 }
+
+// ── 列表按时间倒序 ────────────────────────────────────────────────────────
+//
+// 按名字排的话，新建的东西会被埋在中间某一页 ——
+// 而用户刚建完最想看到的就是它。
+
+#[test]
+fn agent_列表最新的排最前() {
+    let store = Store::open_in_memory().unwrap();
+    let first = store.create_agent(&agent("先建的")).unwrap();
+    let second = store.create_agent(&agent("后建的")).unwrap();
+
+    let (rows, _) = store.list_agents_paged(10, 0).unwrap();
+    assert_eq!(rows.first().map(|a| a.id.as_str()), Some(second.as_str()));
+    assert_eq!(rows.get(1).map(|a| a.id.as_str()), Some(first.as_str()));
+}
+
+#[test]
+fn 改过的_agent_排到最前() {
+    // 「最近动过的」比「最近建的」更接近用户的心理模型
+    let store = Store::open_in_memory().unwrap();
+    let old = store.create_agent(&agent("老的")).unwrap();
+    let _new = store.create_agent(&agent("新的")).unwrap();
+
+    // 时间戳精度到毫秒。同一毫秒内建完就改的话两条时间相同，
+    // 排序退回 rowid 兜底 —— 那时「改过的排最前」不成立。
+    // 真实使用里没人能在 1ms 内建完再改，这里等一下更贴近现实
+    std::thread::sleep(std::time::Duration::from_millis(3));
+
+    let ver = store.get_agent(&old).unwrap().unwrap().ver;
+    store
+        .update_agent(
+            &old,
+            ver,
+            &AgentPatch {
+                name: Some("老的（改过）"),
+                ..AgentPatch::default()
+            },
+        )
+        .unwrap();
+
+    let (rows, _) = store.list_agents_paged(10, 0).unwrap();
+    assert_eq!(rows.first().map(|a| a.id.as_str()), Some(old.as_str()));
+}
+
+#[test]
+fn 模型列表也是最新的排最前() {
+    let store = Store::open_in_memory().unwrap();
+    let first = store.create_model(&model("先登记的")).unwrap();
+    let second = store.create_model(&model("后登记的")).unwrap();
+
+    let (rows, _) = store.list_models_paged(false, 10, 0).unwrap();
+    assert_eq!(rows.first().map(|m| m.id.as_str()), Some(second.as_str()));
+    assert_eq!(rows.get(1).map(|m| m.id.as_str()), Some(first.as_str()));
+}
+
+#[test]
+fn 提示词列表也是最新的排最前() {
+    let store = Store::open_in_memory().unwrap();
+    let first = store.create_prompt(&prompt("先写的")).unwrap();
+    let second = store.create_prompt(&prompt("后写的")).unwrap();
+
+    let (rows, _) = store.list_prompts_paged(None, None, 10, 0).unwrap();
+    assert_eq!(rows.first().map(|p| p.id.as_str()), Some(second.as_str()));
+    assert_eq!(rows.get(1).map(|p| p.id.as_str()), Some(first.as_str()));
+}
+
+#[test]
+fn 时间相同时用_rowid_兜底_翻页不重不漏() {
+    // 同一毫秒建出来的几条，按时间排的顺序在两次查询间可能不同 ——
+    // 翻页会看到重复的条目，而另一些永远看不到
+    let store = Store::open_in_memory().unwrap();
+    for i in 0..30 {
+        store.create_agent(&agent(&format!("角色 {i:02}"))).unwrap();
+    }
+
+    let mut seen = std::collections::BTreeSet::new();
+    for page in 0..3 {
+        let (rows, _) = store.list_agents_paged(10, page * 10).unwrap();
+        for row in rows {
+            assert!(seen.insert(row.id.clone()), "{} 出现了两次", row.name);
+        }
+    }
+    assert_eq!(seen.len(), 30, "有条目一页都没出现过");
+}

@@ -8,7 +8,7 @@ use rusqlite::Connection;
 use crate::Result;
 
 /// 当前 schema 版本。新增迁移时同时更新这里与 `MIGRATIONS`。
-pub const EXPECTED_SCHEMA_VERSION: i64 = 6;
+pub const EXPECTED_SCHEMA_VERSION: i64 = 7;
 
 /// (版本号, 说明, SQL)
 const MIGRATIONS: &[(i64, &str, &str)] = &[
@@ -37,6 +37,11 @@ const MIGRATIONS: &[(i64, &str, &str)] = &[
         6,
         "主管 AI 的会话与消息",
         include_str!("sql/006_supervisor_session.sql"),
+    ),
+    (
+        7,
+        "Agent 与模型加时间戳，列表按最近改动排",
+        include_str!("sql/007_list_ordering.sql"),
     ),
 ];
 
