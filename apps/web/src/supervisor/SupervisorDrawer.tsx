@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { describeError } from '../data/describeError.js';
 import { ChatInput } from '../chat/ChatInput.js';
 import {
   applyPatch,
@@ -177,7 +178,7 @@ export function SupervisorDrawer({
       setHistoryOpen(false);
       setProposal(null);
     } catch (err) {
-      setError(describe(err));
+      setError(describeError(err));
     }
   };
 
@@ -243,14 +244,14 @@ export function SupervisorDrawer({
           // AI 引用了一个不存在的节点 —— 多半是图变了而它拿的是旧的。
           // 给一个空 Diff 会让用户以为「没什么改动」然后点确认
           setProposal(null);
-          setError(`这次的提议应用不上：${describe(err)}`);
+          setError(`这次的提议应用不上：${describeError(err)}`);
         }
       }
     } catch (err) {
       if (seq !== askSeq.current) return;
       // 失败时把那条空的 agent 消息去掉 —— 留一个空气泡比没有更糟
       setMessages((prev) => prev.filter((message) => !message.streaming));
-      setError(describe(err));
+      setError(describeError(err));
     } finally {
       if (seq === askSeq.current) setBusy(false);
     }
@@ -526,8 +527,4 @@ function formatWhen(iso: string): string {
     hour12: false,
     ...(today ? { hour: '2-digit', minute: '2-digit' } : { month: 'numeric', day: 'numeric' }),
   });
-}
-
-function describe(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }

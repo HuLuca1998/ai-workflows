@@ -77,7 +77,11 @@ describe('列表与筛选', () => {
 
     await user.click(screen.getByRole('button', { name: '全局' }));
     await waitFor(() => {
-      expect(call).toHaveBeenCalledWith('memory.list', { scope: 'global' });
+      expect(call).toHaveBeenCalledWith('memory.list', {
+        scope: 'global',
+        limit: 50,
+        offset: 0,
+      });
     });
   });
 
@@ -91,7 +95,11 @@ describe('列表与筛选', () => {
     await user.keyboard('{Enter}');
 
     await waitFor(() => {
-      expect(call).toHaveBeenCalledWith('memory.list', { query: 'worktree' });
+      expect(call).toHaveBeenCalledWith('memory.list', {
+        query: 'worktree',
+        limit: 50,
+        offset: 0,
+      });
     });
   });
 
@@ -174,18 +182,112 @@ describe('条目操作', () => {
     expect(await screen.findByText('已过期')).toBeTruthy();
   });
 
-  it('删除一条记忆', async () => {
+  it('删除要按两次 —— 与模型、Agent、提示词三页一致', async () => {
+    // 第 5 轮审查 F3：「记忆页删除没有二次确认，与其余三个同类页不一致」。
+    // 记忆是用户攒出来的长期上下文，误删之后没有回收站
     const user = userEvent.setup();
     view();
     await user.click(await screen.findByRole('button', { name: '删除 worktree.cleanup' }));
+
+    expect(call).not.toHaveBeenCalledWith('memory.delete', expect.anything());
+    expect(await screen.findByRole('button', { name: '确认删除 worktree.cleanup' })).toBeTruthy();
+  });
+
+  it('按第二次才真删', async () => {
+    const user = userEvent.setup();
+    view();
+    await user.click(await screen.findByRole('button', { name: '删除 worktree.cleanup' }));
+    await user.click(await screen.findByRole('button', { name: '确认删除 worktree.cleanup' }));
 
     await waitFor(() => {
       expect(call).toHaveBeenCalledWith('memory.delete', { id: 'mem_1' });
     });
   });
 
+  it('点别的地方就取消确认 —— 别让那个红按钮一直悬着', async () => {
+    const user = userEvent.setup();
+    view();
+    await user.click(await screen.findByRole('button', { name: '删除 worktree.cleanup' }));
+    await user.click(screen.getByRole('button', { name: '停用 worktree.cleanup' }));
+
+    expect(screen.queryByRole('button', { name: /确认删除/u })).toBeNull();
+  });
+
   it('显示版本号 —— 更新带乐观锁，用户要看得到自己在改第几版', async () => {
     view();
     expect(await screen.findByText(/v2/u)).toBeTruthy();
+  });
+});
+
+describe('分页 —— 超过一页的记忆要拿得到', () => {
+  /**
+   * 第 5 轮审查 F3：「记忆页拿不到第 51 条记忆，条数显示永远封顶 50」。
+   *
+   * 契约的 memory.list 一直支持分页，只是界面没接：不传 limit/offset
+   * 就拿默认的第一页，而顶部那句「N 条」显示的是**这一页的行数**，
+   * 于是无论库里有多少，界面永远说 50 条。
+   */
+  it('请求带上分页参数', async () => {
+    view();
+    await waitFor(() => {
+      expect(call).toHaveBeenCalledWith(
+        'memory.list',
+        expect.objectContaining({ limit: 50, offset: 0 }),
+      );
+    });
+  });
+
+  it('条数显示后端给的总数，不是当前页的行数', async () => {
+    respond({ 'memory.list': () => ({ items: [SAVED], total: 137 }) });
+    view();
+    // 限定到顶部那个计数：分页控件也会显示总数
+    await screen.findByText('worktree.cleanup');
+    expect(document.querySelector('.memory__count')?.textContent).toBe('137 条');
+  });
+
+  it('超过一页时给翻页控件', async () => {
+    respond({
+      'memory.list': () => ({ items: Array.from({ length: 50 }, () => SAVED), total: 137 }),
+    });
+    view();
+    expect(await screen.findByRole('button', { name: '下一页' })).toBeTruthy();
+  });
+
+  it('翻页真的换数据 —— offset 跟着走', async () => {
+    const user = userEvent.setup();
+    respond({
+      'memory.list': () => ({ items: Array.from({ length: 50 }, () => SAVED), total: 137 }),
+    });
+    view();
+    await user.click(await screen.findByRole('button', { name: '下一页' }));
+
+    await waitFor(() => {
+      expect(call).toHaveBeenCalledWith('memory.list', expect.objectContaining({ offset: 50 }));
+    });
+  });
+
+  it('只有一页时不显示翻页控件 —— 那是噪音', async () => {
+    respond({ 'memory.list': () => ({ items: [SAVED], total: 1 }) });
+    view();
+    await screen.findByText('worktree.cleanup');
+    expect(screen.queryByRole('button', { name: '下一页' })).toBeNull();
+  });
+
+  it('换筛选条件时回第一页', async () => {
+    // 停在第 3 页时切作用域，筛完可能一条都没有 ——
+    // 而用户以为是「这个作用域没有记忆」
+    const user = userEvent.setup();
+    respond({
+      'memory.list': () => ({ items: Array.from({ length: 50 }, () => SAVED), total: 137 }),
+    });
+    view();
+    await user.click(await screen.findByRole('button', { name: '下一页' }));
+    call.mockClear();
+
+    await user.click(screen.getByRole('button', { name: '全局' }));
+
+    await waitFor(() => {
+      expect(call).toHaveBeenCalledWith('memory.list', expect.objectContaining({ offset: 0 }));
+    });
   });
 });

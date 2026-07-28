@@ -71,7 +71,7 @@ export function UpdateCard({ versionInfo, backend, autoCheck = true }: UpdateCar
       <p className="update-card__meta">
         {isDevVersion(currentVersion)
           ? '开发构建不检查更新（没有对应的发布版本）'
-          : describe(state.status, state.latest)}
+          : describeUpdateStatus(state.status, state.latest)}
       </p>
       {state.notes ? <p className="update-card__notes">{state.notes}</p> : null}
       {state.message ? <p className="update-card__error">{state.message}</p> : null}
@@ -108,7 +108,9 @@ export function UpdateCard({ versionInfo, backend, autoCheck = true }: UpdateCar
   );
 }
 
-function describe(status: string, latest?: string): string {
+/** 更新状态的一句话说明。**不叫 describe** —— 那个名字与 vitest 注入的
+    全局撞，忘了定义时 TypeScript 不会拦，运行时才炸。 */
+function describeUpdateStatus(status: string, latest?: string): string {
   switch (status) {
     case 'checking':
       return '正在检查更新…';

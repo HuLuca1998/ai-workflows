@@ -1,4 +1,5 @@
 import { useEffect, useLayoutEffect, useState } from 'react';
+import { describeError } from '../data/describeError.js';
 import { SplitPane } from '../layout/SplitPane.js';
 import { Pager } from '../layout/Pager.js';
 import { coreClient } from '../data/workspace.js';
@@ -92,7 +93,7 @@ export function PromptsPage() {
       setItems(result.items);
       setTotal(result.total);
     } catch (err) {
-      setError(describe(err));
+      setError(describeError(err));
     }
   };
 
@@ -122,7 +123,7 @@ export function PromptsPage() {
       setError(null);
       await load(query);
     } catch (err) {
-      setError(describe(err));
+      setError(describeError(err));
     }
   };
 
@@ -146,7 +147,7 @@ export function PromptsPage() {
       setTab('template');
       await load(query);
     } catch (err) {
-      setError(describe(err));
+      setError(describeError(err));
     }
   };
 
@@ -159,7 +160,7 @@ export function PromptsPage() {
       });
       await load(query);
     } catch (err) {
-      setError(describe(err));
+      setError(describeError(err));
     }
   };
 
@@ -171,7 +172,7 @@ export function PromptsPage() {
       setConfirmDelete(false);
       await load(query);
     } catch (err) {
-      setError(describe(err));
+      setError(describeError(err));
     }
   };
 
@@ -711,8 +712,4 @@ function groupBy(prompts: readonly Prompt[]): [string, Prompt[]][] {
 function formatTime(iso: string): string {
   const date = new Date(iso);
   return Number.isNaN(date.getTime()) ? iso : date.toLocaleString('zh-CN', { hour12: false });
-}
-
-function describe(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }

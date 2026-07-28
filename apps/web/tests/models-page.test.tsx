@@ -333,3 +333,59 @@ describe('测试连通性（图纸「07 模型」）', () => {
     });
   });
 });
+
+describe('失败时要说话', () => {
+  /**
+   * 第 5 轮审查 F3：「模型页启用/停用与删除没有错误处理，
+   * 失败时界面一声不吭」。
+   *
+   * 用户点了「停用」，什么都没发生 —— 他会再点几次，
+   * 然后开始怀疑是不是自己没点上。而真正的原因（乐观锁冲突、
+   * 数据库忙）一个字都没露出来。
+   */
+  const 打开模型 = async () => {
+    const user = userEvent.setup();
+    view();
+    await user.click(await screen.findByRole('button', { name: /Opus 5 · high/u }));
+    return user;
+  };
+
+  it('停用失败时把原因显示出来', async () => {
+    respond({
+      'model.list': () => ({ items: [MODEL], total: 1 }),
+      'model.update': () => {
+        throw new Error('版本冲突：这条模型在别处改过了');
+      },
+    });
+    const user = await 打开模型();
+    await user.click(screen.getByRole('button', { name: '停用' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('版本冲突');
+  });
+
+  it('删除失败时把原因显示出来，且不清空选中', async () => {
+    respond({
+      'model.list': () => ({ items: [MODEL], total: 1 }),
+      'model.delete': () => {
+        throw new Error('还有工作流在引用它');
+      },
+    });
+    const user = await 打开模型();
+    await user.click(screen.getByRole('button', { name: '删除' }));
+    await user.click(screen.getByRole('button', { name: '确认删除' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('还有工作流在引用它');
+    // 详情区还在：清空的话用户连重试都找不到入口
+    expect(screen.getByRole('button', { name: '停用' })).toBeTruthy();
+  });
+
+  it('成功时不留报错', async () => {
+    const user = await 打开模型();
+    await user.click(screen.getByRole('button', { name: '停用' }));
+
+    await waitFor(() => {
+      expect(call).toHaveBeenCalledWith('model.update', expect.anything());
+    });
+    expect(screen.queryByRole('alert')).toBeNull();
+  });
+});

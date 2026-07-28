@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { describeError } from '../data/describeError.js';
 import { useDebouncedSearch } from '../hooks/useDebouncedSearch.js';
 import { LIST_PAGE_LIMIT_MAX } from '@aiwf/contracts';
 import type { AGENT_RUNTIMES } from '@aiwf/contracts';
@@ -119,7 +120,7 @@ export function AgentsPage() {
       setItems(result.items);
       setTotal(result.total);
     } catch (err) {
-      setError(describe(err));
+      setError(describeError(err));
     }
   };
 
@@ -171,7 +172,7 @@ export function AgentsPage() {
       setError(null);
       await load();
     } catch (err) {
-      setError(describe(err));
+      setError(describeError(err));
     }
   };
 
@@ -217,7 +218,7 @@ export function AgentsPage() {
         ];
       });
     } catch (err) {
-      setError(describe(err));
+      setError(describeError(err));
     }
   };
 
@@ -230,7 +231,7 @@ export function AgentsPage() {
       });
       await load();
     } catch (err) {
-      setError(describe(err));
+      setError(describeError(err));
     }
   };
 
@@ -242,7 +243,7 @@ export function AgentsPage() {
       setConfirmDelete(false);
       await load();
     } catch (err) {
-      setError(describe(err));
+      setError(describeError(err));
     }
   };
 
@@ -757,8 +758,4 @@ function AgentForm({
       </div>
     </form>
   );
-}
-
-function describe(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }

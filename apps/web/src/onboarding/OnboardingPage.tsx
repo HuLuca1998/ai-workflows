@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { describeError } from '../data/describeError.js';
 import { useNavigate } from 'react-router';
 import { coreClient } from '../data/workspace.js';
 
@@ -88,7 +89,7 @@ export function OnboardingPage() {
     } catch (err) {
       // 写失败就留在这一屏。跳走的话用户看到的还是「尚未授权」，
       // 而他刚刚明明点过按钮 —— 那种不一致会让人怀疑整个应用
-      setError(describe(err));
+      setError(describeError(err));
     } finally {
       setAuthorizing(false);
     }
@@ -100,7 +101,7 @@ export function OnboardingPage() {
       const result = (await coreClient.call('env.diagnostics', {})) as { path: string };
       setDiagnosticsPath(result.path);
     } catch (err) {
-      setError(describe(err));
+      setError(describeError(err));
     }
   };
 
@@ -286,8 +287,4 @@ function Row({ item }: { item: HealthItem }) {
       ) : null}
     </div>
   );
-}
-
-function describe(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }

@@ -1,6 +1,6 @@
 import { create } from 'zustand';
+import { describeError } from '../data/describeError.js';
 import {
-  CoreApiError,
   DraftStore,
   type PatchOperation,
   type ValidationResult,
@@ -113,7 +113,7 @@ export const useEditor = create<EditorState>((set, get) => ({
         loading: false,
       });
     } catch (error) {
-      set({ loading: false, error: describe(error) });
+      set({ loading: false, error: describeError(error) });
     }
   },
 
@@ -123,7 +123,7 @@ export const useEditor = create<EditorState>((set, get) => ({
       draft.apply(operations);
     } catch (error) {
       // 非法操作不改草稿，把原因显示出来而不是静默丢弃
-      set({ error: describe(error) });
+      set({ error: describeError(error) });
     }
   },
 
@@ -140,7 +140,7 @@ export const useEditor = create<EditorState>((set, get) => ({
         saving: false,
         graph: draft.graph,
         dirty: draft.isDirty,
-        error: describe(error),
+        error: describeError(error),
       });
     }
   },
@@ -163,7 +163,7 @@ export const useEditor = create<EditorState>((set, get) => ({
       set({ saving: false });
       return result.version;
     } catch (error) {
-      set({ saving: false, error: describe(error) });
+      set({ saving: false, error: describeError(error) });
       return null;
     }
   },
@@ -186,7 +186,7 @@ export const useEditor = create<EditorState>((set, get) => ({
       await get().load(workflowId);
       set({ saving: false });
     } catch (error) {
-      set({ saving: false, error: describe(error) });
+      set({ saving: false, error: describeError(error) });
     }
   },
 
@@ -198,7 +198,7 @@ export const useEditor = create<EditorState>((set, get) => ({
       await coreClient.call('workflow.rename', { id: workflowId, name });
       set({ name });
     } catch (error) {
-      set({ error: describe(error) });
+      set({ error: describeError(error) });
     }
   },
 
@@ -240,13 +240,6 @@ export const useEditor = create<EditorState>((set, get) => ({
     });
   },
 }));
-
-function describe(error: unknown): string {
-  if (error instanceof CoreApiError) {
-    return error.hint ? `${error.message}（${error.hint}）` : error.message;
-  }
-  return error instanceof Error ? error.message : String(error);
-}
 
 /** 测试用：直接注入一份草稿，跳过 IPC。 */
 export function __setDraftForTest(next: DraftStore | null): void {

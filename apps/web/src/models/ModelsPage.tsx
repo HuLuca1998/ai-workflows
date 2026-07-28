@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { describeError } from '../data/describeError.js';
 import { AGENT_RUNTIMES, type Model } from '@aiwf/contracts';
 import { SplitPane } from '../layout/SplitPane.js';
 import { Pager } from '../layout/Pager.js';
@@ -99,18 +100,37 @@ export function ModelsPage() {
   const selected = items?.find((model) => model.id === selectedId) ?? null;
   const grouped = groupByRuntime(items ?? []);
 
+  /**
+   * 启用 / 停用。
+   *
+   * 失败要说话：用户点了「停用」而界面一声不吭的话，他会再点几次，
+   * 然后开始怀疑是不是自己没点上 —— 而真正的原因（乐观锁冲突、
+   * 数据库忙）一个字都没露出来。
+   */
   const onToggle = async () => {
     if (!selected) return;
-    await coreClient.call('model.update', { id: selected.id, enabled: !selected.enabled });
-    await load();
+    setError(null);
+    try {
+      await coreClient.call('model.update', { id: selected.id, enabled: !selected.enabled });
+      await load();
+    } catch (err) {
+      setError(describeError(err));
+    }
   };
 
   const onDelete = async () => {
     if (!selected) return;
-    await coreClient.call('model.delete', { id: selected.id });
-    setSelectedId(null);
-    setConfirmDelete(false);
-    await load();
+    setError(null);
+    try {
+      await coreClient.call('model.delete', { id: selected.id });
+      // 只有真删掉了才清空选中：失败还清的话，
+      // 用户连重试的入口都找不到
+      setSelectedId(null);
+      setConfirmDelete(false);
+      await load();
+    } catch (err) {
+      setError(describeError(err));
+    }
   };
 
   return (

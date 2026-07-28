@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { describeError } from '../data/describeError.js';
 import type { Run, RunEvent as ContractRunEvent } from '@aiwf/contracts';
 import { coreClient } from '../data/workspace.js';
 
@@ -119,7 +120,7 @@ export const useRuns = create<RunsState>((set, get) => ({
       set({ items: result.items, total: result.total, loading: false });
     } catch (error) {
       // 保留已有列表：清空会让用户以为运行记录丢了
-      set({ loading: false, error: describe(error) });
+      set({ loading: false, error: describeError(error) });
     }
   },
 
@@ -176,7 +177,7 @@ export const useRuns = create<RunsState>((set, get) => ({
 
       set({ truncated: true });
     } catch (error) {
-      set({ error: describe(error) });
+      set({ error: describeError(error) });
     }
   },
 
@@ -204,7 +205,7 @@ export const useRuns = create<RunsState>((set, get) => ({
     try {
       await coreClient.call('run.cancel', { runId });
     } catch (error) {
-      set({ error: describe(error) });
+      set({ error: describeError(error) });
     }
     await get().load();
   },
@@ -213,7 +214,7 @@ export const useRuns = create<RunsState>((set, get) => ({
     try {
       await coreClient.call('run.resume', { runId });
     } catch (error) {
-      set({ error: describe(error) });
+      set({ error: describeError(error) });
     }
     await get().load();
   },
@@ -240,7 +241,7 @@ export const useRuns = create<RunsState>((set, get) => ({
       await get().select(result.runId);
       return result.runId;
     } catch (error) {
-      set({ error: describe(error) });
+      set({ error: describeError(error) });
       return null;
     }
   },
@@ -261,7 +262,7 @@ export const useRuns = create<RunsState>((set, get) => ({
       await get().select(result.runId);
       return result.runId;
     } catch (error) {
-      set({ error: describe(error) });
+      set({ error: describeError(error) });
       return null;
     }
   },
@@ -272,7 +273,7 @@ export const useRuns = create<RunsState>((set, get) => ({
     try {
       await coreClient.call('approval.decide', { runId: selectedId, nodeId, decision });
     } catch (error) {
-      set({ error: describe(error) });
+      set({ error: describeError(error) });
       return;
     }
     await get().pollEvents();
@@ -324,7 +325,3 @@ export const useRuns = create<RunsState>((set, get) => ({
     return items.find((run) => run.id === selectedId) ?? null;
   },
 }));
-
-function describe(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}

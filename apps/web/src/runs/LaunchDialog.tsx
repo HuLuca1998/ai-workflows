@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { describeError } from '../data/describeError.js';
 import type { WorkflowGraph } from '../editor/editorDeps.js';
 import { coreClient } from '../data/workspace.js';
 
@@ -93,7 +94,7 @@ export function LaunchDialog({
         if (!cancelled) setReport(result as DryRunReport);
       })
       .catch((err: unknown) => {
-        if (!cancelled) setError(describe(err));
+        if (!cancelled) setError(describeError(err));
       });
     return () => {
       cancelled = true;
@@ -123,7 +124,7 @@ export function LaunchDialog({
       onStarted(result.runId);
     } catch (err) {
       // 留在表单里：关掉的话用户填的参数就没了，还得重来一遍
-      setError(describe(err));
+      setError(describeError(err));
     } finally {
       setStarting(false);
     }
@@ -414,8 +415,4 @@ function coerce(fields: readonly Field[], values: Record<string, string>): Recor
     }
   }
   return out;
-}
-
-function describe(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }
