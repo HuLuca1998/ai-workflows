@@ -52,6 +52,17 @@ pub struct NodeExecutor {
     permission_preset: String,
     /// 已经被用户批准过的节点。恢复执行时不该又停在同一个节点上。
     approved_nodes: Vec<String>,
+    /**
+     * 这次运行所挂 Agent 角色声明的能力。
+     *
+     * 图纸「05 Agent 角色」写着「权限（引擎强制，Prompt 无法越权）」——
+     * 不在这里拦的话那句话是空的：界面上摆着一排权限，
+     * 而 Agent 想干什么还是干什么。
+     *
+     * None 表示这次运行没挂角色（比如直接跑一条脚本工作流）——
+     * 那时不拦，否则所有现成的工作流都跑不了。
+     */
+    capabilities: Option<serde_json::Value>,
 }
 
 /// 有副作用因而受权限档管的节点类型。
@@ -82,6 +93,50 @@ impl NodeExecutor {
             // 没设过就按最严的办
             permission_preset: "review_every_change".to_string(),
             approved_nodes: Vec::new(),
+            capabilities: None,
+        }
+    }
+
+    /// Agent 角色声明的能力。不传表示这次运行没挂角色。
+    #[must_use]
+    pub fn with_capabilities(mut self, capabilities: &serde_json::Value) -> Self {
+        self.capabilities = Some(capabilities.clone());
+        self
+    }
+
+    /// 这个节点要的能力，角色给了没有。
+    ///
+    /// 返回 Err 里带的是**面向用户的**说明：「命令执行未授权」比
+    /// 「capability denied」有用得多 —— 用户要知道去哪儿改。
+    fn check_capability(&self, node: &GraphNode) -> std::result::Result<(), String> {
+        let Some(caps) = &self.capabilities else {
+            return Ok(());
+        };
+        let level = |key: &str| {
+            caps.get(key)
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or("none")
+                .to_string()
+        };
+
+        // 用 match guard 而不是嵌 if：每一支就是「哪种节点 + 缺哪项能力」
+        match node.node_type.as_str() {
+            "script.shell" | "script.python" if level("command") == "none" => {
+                Err("这个角色的「命令」权限是「不允许」，跑不了脚本节点。\
+                 在「Agent 角色」里改它的权限声明"
+                    .to_string())
+            }
+            "git.worktree" | "git.commit" if level("file") != "read-write" => {
+                Err("这个角色的「文件」权限不是「可读写」，动不了工作目录。\
+                 在「Agent 角色」里改它的权限声明"
+                    .to_string())
+            }
+            "github.pr" if level("network") == "none" => {
+                Err("这个角色的「网络」权限是「禁止」，发不了 PR。\
+                 在「Agent 角色」里改它的权限声明"
+                    .to_string())
+            }
+            _ => Ok(()),
         }
     }
 
@@ -171,6 +226,12 @@ impl NodeExecutor {
         // 设置屏那三张卡就只是三个好看的卡片
         if self.needs_permission_approval(node) {
             return Ok(NodeOutcome::NeedsApproval);
+        }
+
+        // 能力检查在**起进程之前**：拦晚了脚本已经写了文件才报错，
+        // 而那时副作用已经发生
+        if let Err(message) = self.check_capability(node) {
+            return Ok(NodeOutcome::Failed { message });
         }
 
         match node.node_type.as_str() {
@@ -389,11 +450,14 @@ impl NodeExecutor {
             prefixed
         };
 
+        // 节点没指定时默认 codex：这个应用本身跑在 Claude Code 里开发，
+        // 用 claude 的 adapter 会与开发环境互相干扰 —— 嵌套的 agent 会话、
+        // 共用的登录态、同一份配额
         let runtime = node
             .config
             .get("runtime")
             .and_then(serde_json::Value::as_str)
-            .unwrap_or("acp.claude");
+            .unwrap_or("acp.codex");
 
         let (command, args) = match &self.acp_override {
             Some((command, args)) => (command.clone(), args.clone()),

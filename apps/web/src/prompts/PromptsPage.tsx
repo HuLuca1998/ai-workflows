@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useLayoutEffect, useState } from 'react';
 import { SplitPane } from '../layout/SplitPane.js';
 import { Pager } from '../layout/Pager.js';
 import { coreClient } from '../data/workspace.js';
@@ -373,15 +373,38 @@ function TemplateTab({
 }) {
   /** 正在添加的新分段的标题；null 表示没在添加。 */
   const [adding, setAdding] = useState<string | null>(null);
+  /** 插入变量之后要把光标放回哪里。见 insertVar 的说明。 */
+  const [pendingCaret, setPendingCaret] = useState<{ title: string; at: number } | null>(null);
+
+  useLayoutEffect(() => {
+    if (!pendingCaret) return;
+    const box = document.getElementById(`section-${pendingCaret.title}`);
+    if (box instanceof HTMLTextAreaElement) {
+      box.focus();
+      box.setSelectionRange(pendingCaret.at, pendingCaret.at);
+    }
+    setPendingCaret(null);
+  }, [pendingCaret]);
 
   const insertVar = (index: number) => {
     const section = sections[index];
     if (!section) return;
     const next = [...sections];
-    // 插在末尾而不是光标处：受控 textarea 拿光标位置要额外接一层 ref，
-    // 而这个按钮的目的是「让用户看见语法」，插哪儿都能达到
     next[index] = { title: section.title, body: `${section.body}${VAR_PLACEHOLDER}` };
     onChange(next);
+
+    // 焦点与光标一起交回正文，光标停在 `${input.` 和 `}` 之间。
+    //
+    // 不交的话焦点留在按钮上，用户紧接着打的字进不了正文 ——
+    // 他得再点回文本框、自己把光标挪到花括号里。
+    // 插入的价值就在于「接着往下打」，少了这一步它只是个贴字符串的按钮。
+    //
+    // 记下要把光标放哪儿，等这次渲染把新 value 写进 DOM 之后再设 ——
+    // 现在设的话会被随后的渲染覆盖掉
+    setPendingCaret({
+      title: section.title,
+      at: section.body.length + VAR_PLACEHOLDER.length - 1,
+    });
   };
 
   return (

@@ -4880,8 +4880,8 @@
               "runtime": {
                 "type": "string",
                 "enum": [
-                  "acp.claude",
                   "acp.codex",
+                  "acp.claude",
                   "provider.api"
                 ]
               },
@@ -4962,8 +4962,8 @@
         "runtime": {
           "type": "string",
           "enum": [
-            "acp.claude",
             "acp.codex",
+            "acp.claude",
             "provider.api"
           ]
         },
@@ -5048,8 +5048,8 @@
         "runtime": {
           "type": "string",
           "enum": [
-            "acp.claude",
             "acp.codex",
+            "acp.claude",
             "provider.api"
           ]
         },
@@ -5240,8 +5240,8 @@
               "runtime": {
                 "type": "string",
                 "enum": [
-                  "acp.claude",
                   "acp.codex",
+                  "acp.claude",
                   "provider.api"
                 ]
               },
@@ -5386,8 +5386,8 @@
         "runtime": {
           "type": "string",
           "enum": [
-            "acp.claude",
             "acp.codex",
+            "acp.claude",
             "provider.api"
           ]
         },
@@ -5528,8 +5528,8 @@
         "runtime": {
           "type": "string",
           "enum": [
-            "acp.claude",
             "acp.codex",
+            "acp.claude",
             "provider.api"
           ]
         },

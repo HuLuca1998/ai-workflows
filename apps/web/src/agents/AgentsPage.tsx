@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useDebouncedSearch } from '../hooks/useDebouncedSearch.js';
 import { LIST_PAGE_LIMIT_MAX } from '@aiwf/contracts';
 import type { AGENT_RUNTIMES } from '@aiwf/contracts';
 import { SplitPane } from '../layout/SplitPane.js';
@@ -48,15 +49,35 @@ const RUNTIME_LABELS: Record<(typeof AGENT_RUNTIMES)[number], string> = {
   'provider.api': 'API 提供商',
 };
 
-/** 权限项的显示名。键与契约的 CapabilitiesSchema 对应。 */
-const CAPABILITY_LABELS: Record<string, string> = {
-  fileRead: '文件读',
-  fileWrite: '文件写',
-  network: '网络',
-  command: '命令',
-  memory: '记忆',
-  approval: '审批',
+/**
+ * 权限项。键、取值都照契约的 `CapabilitiesSchema`。
+ *
+ * 图纸「05 Agent 角色」的权限块画的是纯展示（五行），
+ * 但同一屏有「保存新版本」——详情区本来就是编辑区，原型只是画了
+ *「配好之后长什么样」。不给入口的话，「引擎强制，Prompt 无法越权」
+ * 这句就没有下文：引擎确实会拦，而用户无处声明允许什么。
+ */
+const CAPABILITY_FIELDS: { key: string; label: string; options: string[] }[] = [
+  { key: 'file', label: '文件', options: ['none', 'read', 'read-write'] },
+  { key: 'command', label: '命令', options: ['none', 'declared', 'any'] },
+  { key: 'network', label: '网络', options: ['none', 'allowlist', 'any'] },
+  { key: 'memory', label: '记忆', options: ['none', 'read', 'read-write'] },
+];
+
+/** 取值的中文说法。存的是契约里那些英文 id。 */
+const CAPABILITY_VALUE_LABELS: Record<string, string> = {
+  none: '不允许',
+  read: '只读',
+  'read-write': '可读写',
+  declared: '仅已声明的命令',
+  any: '不限',
+  allowlist: '白名单内',
 };
+
+/** 结构相同就算没改。对象与数组比不了引用 —— 每次渲染都是新的。 */
+function same(a: unknown, b: unknown): boolean {
+  return JSON.stringify(a) === JSON.stringify(b);
+}
 
 /** 列表一页多少条。与契约的 LIST_PAGE_SIZE 一致。 */
 const LIST_PAGE_SIZE = 50;
@@ -68,6 +89,12 @@ export function AgentsPage() {
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  /** 正在输入的工具名；null 表示没在添加。 */
+  const [addingTool, setAddingTool] = useState<string | null>(null);
+  /** 搜索发给后端 —— 前端过滤只能过滤当前页。 */
+  // 换条件时回第一页：停在第 3 页的话，搜完可能一条都没有，
+  // 而用户以为是「没有这个角色」
+  const search = useDebouncedSearch((query) => void load(0, query));
   /** 满足条件的总条数与当前页起点。后端早就分页了，缺的是界面这一层。 */
   const [total, setTotal] = useState(0);
   const [offset, setOffset] = useState(0);
@@ -80,10 +107,12 @@ export function AgentsPage() {
    */
   const [draft, setDraft] = useState<Partial<Agent>>({});
 
-  const load = async (nextOffset = offset) => {
+  const load = async (nextOffset = offset, query?: string) => {
     setOffset(nextOffset);
     try {
       const result = (await coreClient.call('agent.list', {
+        // 搜索发给后端：前端过滤只能过滤当前页，而列表有一百多条
+        ...(query ? { query } : {}),
         limit: LIST_PAGE_SIZE,
         offset: nextOffset,
       })) as { items: Agent[]; total: number };
@@ -113,9 +142,23 @@ export function AgentsPage() {
     // 而 agent.update 的契约本来就是 partial。
     // ver 是乐观锁，必带 —— 少发它的话后端无从判断这次改动基于哪一版
     const changed: Record<string, unknown> = { id: selected.id, ver: selected.ver };
-    for (const key of ['name', 'goal', 'persona', 'modelRef', 'fallbackModelRef'] as const) {
+    for (const key of [
+      'name',
+      'goal',
+      'persona',
+      'modelRef',
+      'fallbackModelRef',
+      'outputContract',
+    ] as const) {
       const next = draft[key];
       if (next !== undefined && next !== selected[key]) changed[key] = next;
+    }
+    // 这两个是对象/数组，比不了引用，用序列化后的内容判断
+    if (draft.capabilities && !same(draft.capabilities, selected.capabilities)) {
+      changed['capabilities'] = draft.capabilities;
+    }
+    if (draft.tools && !same(draft.tools, selected.tools)) {
+      changed['tools'] = draft.tools;
     }
     if (Object.keys(changed).length === 2) {
       setError('没有改动可保存。');
@@ -222,6 +265,21 @@ export function AgentsPage() {
             <i className="ph ph-plus" aria-hidden="true" />
           </button>
         </div>
+
+        {/* 图纸左栏顶部就有它。100 多条角色靠翻页找是不可行的 ——
+            输入即搜（300ms 防抖），与首页、执行记录同一套交互 */}
+        <label className="runs__search agents__search">
+          <i className="ph ph-magnifying-glass" aria-hidden="true" />
+          <input
+            type="search"
+            placeholder="搜索角色、目标或工具"
+            value={search.value}
+            onChange={(event) => search.onChange(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter') search.onEnter();
+            }}
+          />
+        </label>
 
         <div className="agents__list-body">
           {items !== null && items.length === 0 ? (
@@ -433,14 +491,42 @@ export function AgentsPage() {
                   <i className="ph ph-shield-check" aria-hidden="true" />
                   权限（引擎强制，Prompt 无法越权）
                 </p>
-                <dl className="models__kv">
-                  {Object.entries(selected.capabilities).map(([key, value]) => (
-                    <div key={key} className="agents__kv-row">
-                      <dt>{CAPABILITY_LABELS[key] ?? key}</dt>
-                      <dd>{formatCapability(value)}</dd>
-                    </div>
-                  ))}
-                </dl>
+                <div className="agents__caps" role="group" aria-label="权限（引擎强制）">
+                  {CAPABILITY_FIELDS.map((field) => {
+                    const current =
+                      (draft.capabilities ?? selected.capabilities)[field.key] ?? 'none';
+                    return (
+                      <div key={field.key} className="agents__kv-row">
+                        <label htmlFor={`cap-${field.key}`}>{field.label}</label>
+                        {selected.builtin ? (
+                          // 内置角色只读：改它等于改掉系统某处调用的行为，
+                          // 而那处调用别人也在用。复制一份是有意的一步
+                          <span>{CAPABILITY_VALUE_LABELS[String(current)] ?? String(current)}</span>
+                        ) : (
+                          <select
+                            id={`cap-${field.key}`}
+                            value={String(current)}
+                            onChange={(event) =>
+                              setDraft((prev) => ({
+                                ...prev,
+                                capabilities: {
+                                  ...(prev.capabilities ?? selected.capabilities),
+                                  [field.key]: event.target.value,
+                                },
+                              }))
+                            }
+                          >
+                            {field.options.map((option) => (
+                              <option key={option} value={option}>
+                                {CAPABILITY_VALUE_LABELS[option] ?? option}
+                              </option>
+                            ))}
+                          </select>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
               </div>
 
               <div className="models__card">
@@ -449,12 +535,72 @@ export function AgentsPage() {
                   工具与 MCP 白名单
                 </p>
                 <ul className="models__caps" aria-label="工具与 MCP 白名单">
-                  {selected.tools.map((tool) => (
-                    <li key={tool}>{tool}</li>
+                  {(draft.tools ?? selected.tools).map((tool) => (
+                    <li key={tool}>
+                      {tool}
+                      {selected.builtin ? null : (
+                        <button
+                          type="button"
+                          className="agents__tool-remove"
+                          aria-label={`移除 ${tool}`}
+                          onClick={() =>
+                            setDraft((prev) => ({
+                              ...prev,
+                              tools: (prev.tools ?? selected.tools).filter((t) => t !== tool),
+                            }))
+                          }
+                        >
+                          <i className="ph ph-x" aria-hidden="true" />
+                        </button>
+                      )}
+                    </li>
                   ))}
                 </ul>
-                <p className="models__label agents__spaced">输出契约</p>
-                <p className="agents__inline">{selected.outputContract || '未声明'}</p>
+                {selected.builtin ? null : addingTool !== null ? (
+                  <form
+                    className="agents__tool-add"
+                    onSubmit={(event) => {
+                      event.preventDefault();
+                      const name = addingTool.trim();
+                      const current = draft.tools ?? selected.tools;
+                      if (!name || current.includes(name)) return;
+                      setDraft((prev) => ({ ...prev, tools: [...current, name] }));
+                      setAddingTool(null);
+                    }}
+                  >
+                    <input
+                      aria-label="工具名"
+                      value={addingTool}
+                      placeholder="gh.pr_create"
+                      onChange={(event) => setAddingTool(event.target.value)}
+                    />
+                  </form>
+                ) : (
+                  <button
+                    type="button"
+                    className="agents__tool-add-btn"
+                    onClick={() => setAddingTool('')}
+                  >
+                    + 添加
+                  </button>
+                )}
+
+                <label className="models__label agents__spaced" htmlFor="agent-output">
+                  输出契约
+                </label>
+                {selected.builtin ? (
+                  <p className="agents__inline">{selected.outputContract || '未声明'}</p>
+                ) : (
+                  <textarea
+                    id="agent-output"
+                    className="agents__persona agents__editable"
+                    rows={2}
+                    value={draft.outputContract ?? selected.outputContract}
+                    onChange={(event) =>
+                      setDraft((prev) => ({ ...prev, outputContract: event.target.value }))
+                    }
+                  />
+                )}
               </div>
             </div>
 
@@ -500,7 +646,9 @@ function AgentForm({
   const [role, setRole] = useState('');
   const [goal, setGoal] = useState('');
   const [persona, setPersona] = useState('');
-  const [runtime, setRuntime] = useState('acp.claude');
+  // 默认 codex：这个应用本身跑在 Claude Code 里开发，
+  // 用 claude 的 adapter 会与开发环境互相干扰（见 docs/TESTING.md）
+  const [runtime, setRuntime] = useState('acp.codex');
   const [modelRef, setModelRef] = useState('');
 
   /**
@@ -600,14 +748,6 @@ function AgentForm({
       </div>
     </form>
   );
-}
-
-/** 权限值可能是布尔、字符串或数组，都要显示成人能读的。 */
-function formatCapability(value: unknown): string {
-  if (typeof value === 'boolean') return value ? '允许' : '禁止';
-  if (Array.isArray(value)) return value.length > 0 ? value.join('、') : '无';
-  if (value === null || value === undefined) return '未声明';
-  return String(value);
 }
 
 function describe(error: unknown): string {

@@ -1145,10 +1145,12 @@ pub fn workflow_delete(store: &Store, id: String) -> ApiResult<()> {
 
 pub fn agent_list(
     store: &Store,
+    query: Option<String>,
     limit: Option<i64>,
     offset: Option<i64>,
 ) -> ApiResult<Page<AgentDto>> {
-    let (rows, total) = store.list_agents_paged(page_limit(limit), page_offset(offset))?;
+    let (rows, total) =
+        store.list_agents_paged(query.as_deref(), page_limit(limit), page_offset(offset))?;
     Ok(Page {
         items: rows.into_iter().map(AgentDto::from).collect(),
         total,
@@ -1271,6 +1273,11 @@ pub struct AgentEdit {
     pub persona: Option<String>,
     pub model_ref: Option<String>,
     pub fallback_model_ref: Option<String>,
+    /// 能力声明（JSON）。引擎按它拦截，所以它必须可改 ——
+    /// 只拦不让改的话，那条拦截就只会挡人、不会放行。
+    pub capabilities_json: Option<String>,
+    pub tools: Option<Vec<String>>,
+    pub output_contract: Option<String>,
 }
 
 pub fn agent_update(
@@ -1288,6 +1295,9 @@ pub fn agent_update(
             persona: edit.persona.as_deref(),
             model_ref: edit.model_ref.as_deref(),
             fallback_model_ref: edit.fallback_model_ref.as_deref(),
+            capabilities_json: edit.capabilities_json.as_deref(),
+            tools: edit.tools.as_deref(),
+            output_contract: edit.output_contract.as_deref(),
         },
     )?;
     Ok(VerOnly { ver })
@@ -1533,7 +1543,15 @@ pub fn supervisor_ask(
 
     use aiwf_engine::acp::{AcpClient, SessionUpdate, adapter_installed, env_to_remove};
 
-    let runtime = "acp.claude";
+    // 优先 codex：这个应用本身跑在 Claude Code 里开发，用 claude 的 adapter
+    // 会与开发环境互相干扰（嵌套的 agent 会话、共用的登录态、同一份配额）。
+    // 「尽可能」不是「绝不」—— 只装了 claude 的机器上仍然能用
+    let installed: Vec<&str> = ACP_RUNTIMES
+        .iter()
+        .copied()
+        .filter(|rt| adapter_installed(rt).is_some())
+        .collect();
+    let runtime = preferred_acp_runtime(&installed).unwrap_or("acp.codex");
     let Some(command) = adapter_installed(runtime) else {
         return Err(ApiError {
             code: "VALIDATION".to_string(),
@@ -2205,4 +2223,24 @@ pub fn mcp_pending_confirms(store: &Store) -> ApiResult<Vec<ConfirmationDto>> {
 pub fn mcp_decide_confirm(store: &Store, id: String, approved: bool) -> ApiResult<()> {
     store.decide_confirmation(&id, approved)?;
     Ok(())
+}
+
+/// 已知的 ACP 运行时，**按偏好排序**。
+pub const ACP_RUNTIMES: &[&str] = &["acp.codex", "acp.claude"];
+
+/// 从装好的这些里挑一个用。
+///
+/// 优先 codex：这个应用本身跑在 Claude Code 里开发，用 claude 的 adapter
+/// 做测试会与开发环境互相干扰 —— 嵌套的 agent 会话、共用的登录态、
+/// 同一份配额。写死用 claude 的话，一跑测试就把开发会话搅乱。
+///
+/// 「尽可能」不是「绝不」：只装了 claude 的机器上仍然要能用。
+#[must_use]
+pub fn preferred_acp_runtime<'a>(installed: &[&'a str]) -> Option<&'a str> {
+    for preferred in ACP_RUNTIMES {
+        if let Some(found) = installed.iter().find(|rt| *rt == preferred) {
+            return Some(found);
+        }
+    }
+    installed.first().copied()
 }

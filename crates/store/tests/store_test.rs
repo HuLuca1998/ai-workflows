@@ -850,6 +850,7 @@ fn 保存新版本会让版本号递增_而不是覆盖() {
                 persona: None,
                 model_ref: None,
                 fallback_model_ref: None,
+                ..Default::default()
             },
         )
         .unwrap();
@@ -867,6 +868,7 @@ fn 保存新版本会让版本号递增_而不是覆盖() {
                 persona: None,
                 model_ref: None,
                 fallback_model_ref: None,
+                ..Default::default()
             },
         )
         .unwrap();
@@ -888,6 +890,7 @@ fn 部分更新不清空其他字段() {
                 persona: None,
                 model_ref: None,
                 fallback_model_ref: None,
+                ..Default::default()
             },
         )
         .unwrap();
@@ -1386,6 +1389,7 @@ fn 更新_agent_返回新版本号() {
                 persona: None,
                 model_ref: None,
                 fallback_model_ref: None,
+                ..Default::default()
             },
         )
         .unwrap();
@@ -1411,6 +1415,7 @@ fn 带着旧版本号更新_agent_会被拒() {
                 persona: None,
                 model_ref: None,
                 fallback_model_ref: None,
+                ..Default::default()
             },
         )
         .unwrap();
@@ -1426,6 +1431,7 @@ fn 带着旧版本号更新_agent_会被拒() {
                 persona: None,
                 model_ref: None,
                 fallback_model_ref: None,
+                ..Default::default()
             },
         )
         .unwrap_err();
@@ -1453,6 +1459,7 @@ fn 更新_agent_能清空降级模型() {
                 persona: None,
                 model_ref: None,
                 fallback_model_ref: Some(""),
+                ..Default::default()
             },
         )
         .unwrap();
@@ -2008,7 +2015,7 @@ fn 其余四个列表也分页() {
     assert_eq!(prompts.len(), 5);
     assert_eq!(prompt_total, 15);
 
-    let (agents, agent_total) = store.list_agents_paged(5, 0).unwrap();
+    let (agents, agent_total) = store.list_agents_paged(None, 5, 0).unwrap();
     assert_eq!(agents.len(), 5);
     assert_eq!(agent_total, 15);
 }
@@ -2024,7 +2031,7 @@ fn agent_列表最新的排最前() {
     let first = store.create_agent(&agent("先建的")).unwrap();
     let second = store.create_agent(&agent("后建的")).unwrap();
 
-    let (rows, _) = store.list_agents_paged(10, 0).unwrap();
+    let (rows, _) = store.list_agents_paged(None, 10, 0).unwrap();
     assert_eq!(rows.first().map(|a| a.id.as_str()), Some(second.as_str()));
     assert_eq!(rows.get(1).map(|a| a.id.as_str()), Some(first.as_str()));
 }
@@ -2053,7 +2060,7 @@ fn 改过的_agent_排到最前() {
         )
         .unwrap();
 
-    let (rows, _) = store.list_agents_paged(10, 0).unwrap();
+    let (rows, _) = store.list_agents_paged(None, 10, 0).unwrap();
     assert_eq!(rows.first().map(|a| a.id.as_str()), Some(old.as_str()));
 }
 
@@ -2090,7 +2097,7 @@ fn 时间相同时用_rowid_兜底_翻页不重不漏() {
 
     let mut seen = std::collections::BTreeSet::new();
     for page in 0..3 {
-        let (rows, _) = store.list_agents_paged(10, page * 10).unwrap();
+        let (rows, _) = store.list_agents_paged(None, 10, page * 10).unwrap();
         for row in rows {
             assert!(seen.insert(row.id.clone()), "{} 出现了两次", row.name);
         }
@@ -2659,5 +2666,204 @@ mod mcp确认队列 {
         let 结果 = store.create_confirmation("memory.create", r#"{"v":"sk-proj-abcdefghij"}"#);
 
         assert!(结果.is_err(), "明文密钥写进了确认队列");
+    }
+}
+
+/// Agent 列表的搜索。
+///
+/// codex 第三轮：「共有 138 条、每页 50 条，只有上一页 / 下一页，
+/// 没有搜索框……寻找旧角色只能逐页浏览」。图纸左栏顶部就有搜索框，
+/// 而搜索必须在**后端**做 —— 前端只看得到当前页。
+mod agent搜索 {
+    use super::*;
+
+    fn 建角色(store: &Store, name: &str, goal: &str) -> String {
+        store
+            .create_agent(&aiwf_store::NewAgent {
+                name: name.to_string(),
+                role: "测试".to_string(),
+                goal: goal.to_string(),
+                persona: String::new(),
+                runtime: "acp.claude".to_string(),
+                model_ref: "m".to_string(),
+                fallback_model_ref: None,
+                tools: vec!["read_file".to_string()],
+                capabilities_json: "{}".to_string(),
+                output_contract: String::new(),
+                turn_limit: 12,
+                timeout_ms: 900_000,
+            })
+            .unwrap()
+    }
+
+    #[test]
+    fn 按名字搜() {
+        let store = store();
+        建角色(&store, "Builder", "实现变更");
+        建角色(&store, "Analyzer", "定位根因");
+
+        let (rows, total) = store.list_agents_paged(Some("Build"), 50, 0).unwrap();
+        assert_eq!(total, 1, "总数没跟着筛 —— 分页控件会显示错的页数");
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].name, "Builder");
+    }
+
+    #[test]
+    fn 也能按目标搜_那是用户记得住的部分() {
+        let store = store();
+        建角色(&store, "A1", "定位根因并给出方案");
+        建角色(&store, "A2", "执行发布步骤");
+
+        let (rows, _) = store.list_agents_paged(Some("根因"), 50, 0).unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].name, "A1");
+    }
+
+    #[test]
+    fn 不传搜索词时返回全部() {
+        let store = store();
+        建角色(&store, "A1", "x");
+        建角色(&store, "A2", "y");
+
+        let (_, total) = store.list_agents_paged(None, 50, 0).unwrap();
+        assert_eq!(total, 2);
+    }
+
+    #[test]
+    fn 搜不到时返回空而不是全部() {
+        // 「搜不到就把全部给你」是最糟的降级：用户以为搜到了 138 条匹配
+        let store = store();
+        建角色(&store, "A1", "x");
+
+        let (rows, total) = store
+            .list_agents_paged(Some("不存在的东西"), 50, 0)
+            .unwrap();
+        assert!(rows.is_empty());
+        assert_eq!(total, 0);
+    }
+
+    #[test]
+    fn 大小写不敏感_英文名字用户不会记得大小写() {
+        let store = store();
+        建角色(&store, "Builder", "x");
+
+        let (rows, _) = store.list_agents_paged(Some("builder"), 50, 0).unwrap();
+        assert_eq!(rows.len(), 1);
+    }
+}
+
+/// Agent 的能力、工具白名单、输出契约要能改。
+///
+/// codex 第三轮：「新建表单明确提示『权限、工具白名单和输出契约建完再调』，
+/// 但建完后……详情中可操作的只有名称、目标、性格指令、模型」。
+/// 引擎已经按能力拦截了（见 executor 的「能力声明是硬的」），
+/// 而用户无处声明允许什么 —— 那条拦截就只会挡人，不会放行。
+mod agent能力可改 {
+    use super::*;
+
+    fn 建() -> (Store, String) {
+        let store = store();
+        let id = store
+            .create_agent(&aiwf_store::NewAgent {
+                name: "可改验证".to_string(),
+                role: "测试".to_string(),
+                goal: "x".to_string(),
+                persona: "y".to_string(),
+                runtime: "acp.claude".to_string(),
+                model_ref: "m".to_string(),
+                fallback_model_ref: None,
+                tools: vec!["read_file".to_string()],
+                capabilities_json: r#"{"file":"none","command":"none"}"#.to_string(),
+                output_contract: String::new(),
+                turn_limit: 12,
+                timeout_ms: 900_000,
+            })
+            .unwrap();
+        (store, id)
+    }
+
+    #[test]
+    fn 改能力声明() {
+        let (store, id) = 建();
+        store
+            .update_agent(
+                &id,
+                1,
+                &aiwf_store::AgentPatch {
+                    capabilities_json: Some(r#"{"file":"read-write","command":"declared"}"#),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+
+        let row = store.get_agent(&id).unwrap().unwrap();
+        assert!(
+            row.capabilities_json.contains("declared"),
+            "{}",
+            row.capabilities_json
+        );
+    }
+
+    #[test]
+    fn 改工具白名单() {
+        let (store, id) = 建();
+        store
+            .update_agent(
+                &id,
+                1,
+                &aiwf_store::AgentPatch {
+                    tools: Some(&["read_file".to_string(), "gh.pr_create".to_string()]),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+
+        let row = store.get_agent(&id).unwrap().unwrap();
+        assert!(
+            row.tools.contains(&"gh.pr_create".to_string()),
+            "{:?}",
+            row.tools
+        );
+    }
+
+    #[test]
+    fn 改输出契约() {
+        let (store, id) = 建();
+        store
+            .update_agent(
+                &id,
+                1,
+                &aiwf_store::AgentPatch {
+                    output_contract: Some("Diff + 测试结果"),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+
+        assert_eq!(
+            store.get_agent(&id).unwrap().unwrap().output_contract,
+            "Diff + 测试结果"
+        );
+    }
+
+    #[test]
+    fn 没带的字段不动() {
+        // 与 persona 那次同一条教训：patch 语义下「没带」就是「别动」
+        let (store, id) = 建();
+        store
+            .update_agent(
+                &id,
+                1,
+                &aiwf_store::AgentPatch {
+                    output_contract: Some("只改这个"),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+
+        let row = store.get_agent(&id).unwrap().unwrap();
+        assert_eq!(row.persona, "y", "persona 被清了");
+        assert!(row.capabilities_json.contains("none"), "能力被清了");
+        assert_eq!(row.tools, vec!["read_file".to_string()], "工具被清了");
     }
 }

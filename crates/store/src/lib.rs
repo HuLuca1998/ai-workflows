@@ -55,6 +55,12 @@ pub struct AgentPatch<'a> {
     pub model_ref: Option<&'a str>,
     /// 空串表示「不降级」——用 `None` 就与「没改」撞了。
     pub fallback_model_ref: Option<&'a str>,
+    /// 能力声明（JSON）。引擎按它拦截，所以它必须可改 ——
+    /// 只拦不让改的话，那条拦截就只会挡人、不会放行。
+    pub capabilities_json: Option<&'a str>,
+    /// 工具与 MCP 白名单。
+    pub tools: Option<&'a [String]>,
+    pub output_contract: Option<&'a str>,
 }
 
 // ── 行结构 ──────────────────────────────────────────────────────────────────
@@ -1727,20 +1733,59 @@ impl Store {
     ///
     /// name 可能重名（复制出来的副本就叫「X 副本」），补 rowid 保证全序 ——
     /// 排序不稳定的话翻页会看到重复的条目。
-    pub fn list_agents_paged(&self, limit: i64, offset: i64) -> Result<(Vec<AgentRow>, i64)> {
-        let total: i64 = self
-            .conn
-            .query_row("SELECT COUNT(*) FROM agent_profile", [], |row| row.get(0))?;
+    /// 列出角色，可按名字或目标搜。
+    ///
+    /// 搜索必须在**后端**做：界面只看得到当前页（50 条），
+    /// 而角色有一百多条 —— 前端过滤等于「在这一页里找」，
+    /// 用户以为搜不到，其实只是不在这一页。
+    ///
+    /// 目标也参与匹配：名字是用户随手起的，而「定位根因」这种描述
+    /// 反而是他记得住的部分。
+    pub fn list_agents_paged(
+        &self,
+        query: Option<&str>,
+        limit: i64,
+        offset: i64,
+    ) -> Result<(Vec<AgentRow>, i64)> {
+        // LIKE 在 SQLite 里对 ASCII 默认就不区分大小写；中文没有大小写之分。
+        // 用户不会记得自己当初把角色叫 Builder 还是 builder
+        let pattern = query
+            .map(str::trim)
+            .filter(|text| !text.is_empty())
+            .map(|text| format!("%{text}%"));
 
+        let (filter, params_vec): (&str, Vec<Box<dyn rusqlite::ToSql>>) = match &pattern {
+            Some(like) => (
+                "WHERE name LIKE ?1 OR goal LIKE ?1",
+                vec![Box::new(like.clone())],
+            ),
+            None => ("", Vec::new()),
+        };
+
+        let total: i64 = self.conn.query_row(
+            &format!("SELECT COUNT(*) FROM agent_profile {filter}"),
+            rusqlite::params_from_iter(params_vec.iter().map(std::convert::AsRef::as_ref)),
+            |row| row.get(0),
+        )?;
+
+        // 最近动过的排最前：按名字排的话，新建的会被埋在中间某一页。
+        // rowid 兜底 —— 同一毫秒的几条按时间排顺序不稳定，
+        // 翻页会重复看到一些、永远看不到另一些
         let sql = format!(
-            // 最近动过的排最前：按名字排的话，新建的会被埋在中间某一页。
-            // rowid 兜底 —— 同一毫秒的几条按时间排顺序不稳定，
-            // 翻页会重复看到一些、永远看不到另一些
-            "SELECT {AGENT_COLUMNS} FROM agent_profile
-             ORDER BY updated_at DESC, rowid DESC LIMIT ?1 OFFSET ?2"
+            "SELECT {AGENT_COLUMNS} FROM agent_profile {filter}
+             ORDER BY updated_at DESC, rowid DESC LIMIT ?{} OFFSET ?{}",
+            params_vec.len() + 1,
+            params_vec.len() + 2
         );
+        let mut all: Vec<Box<dyn rusqlite::ToSql>> = params_vec;
+        all.push(Box::new(limit));
+        all.push(Box::new(offset));
+
         let mut stmt = self.conn.prepare(&sql)?;
-        let rows = stmt.query_map(params![limit, offset], map_agent_row)?;
+        let rows = stmt.query_map(
+            rusqlite::params_from_iter(all.iter().map(std::convert::AsRef::as_ref)),
+            map_agent_row,
+        )?;
         Ok((rows.collect::<std::result::Result<Vec<_>, _>>()?, total))
     }
 
@@ -1763,7 +1808,14 @@ impl Store {
             persona,
             model_ref,
             fallback_model_ref,
+            capabilities_json,
+            tools,
+            output_contract,
         } = *patch;
+
+        // 工具是数组，存成 JSON。None 表示没改
+        let tools_json =
+            tools.map(|list| serde_json::to_string(list).unwrap_or_else(|_| "[]".to_string()));
 
         let fallback = fallback_model_ref.map(|value| {
             if value.is_empty() {
@@ -1782,6 +1834,9 @@ impl Store {
                 persona   = COALESCE(?5, persona),
                 model_ref = COALESCE(?6, model_ref),
                 fallback_model_ref = CASE WHEN ?8 THEN ?7 ELSE fallback_model_ref END,
+                policy_json = COALESCE(?10, policy_json),
+                tools_json = COALESCE(?11, tools_json),
+                output_contract = COALESCE(?12, output_contract),
                 ver       = ver + 1,
                 updated_at = ?9
              WHERE id = ?1 AND ver = ?2",
@@ -1795,6 +1850,9 @@ impl Store {
                 fallback.clone().flatten(),
                 fallback.is_some(),
                 now_iso(),
+                capabilities_json,
+                tools_json,
+                output_contract,
             ],
         )?;
 

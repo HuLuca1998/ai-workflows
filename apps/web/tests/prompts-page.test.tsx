@@ -370,6 +370,33 @@ describe('分段编辑照图纸', () => {
     expect(role.value).toMatch(/\$\{[^}]+\}/u);
   });
 
+  it('插入之后焦点回到正文，接着打字就能补完变量名', async () => {
+    // codex 的原话：「点击『插入变量』会把 ${input.} 写入 textarea……
+    // 但焦点仍留在按钮，紧接着键入 topic 时正文没有变化。
+    // 用户必须再点回文本框并自己定位光标」。
+    //
+    // 插入的价值就在于「接着往下打」——不把焦点交回去的话，
+    // 它只是个把字符串贴进去的按钮
+    const user = await open();
+    const role = screen.getByLabelText('Role') as HTMLTextAreaElement;
+
+    await user.click(screen.getAllByRole('button', { name: '插入变量' })[0]!);
+    expect(document.activeElement, '焦点没回到正文').toBe(role);
+
+    await user.keyboard('topic');
+    expect(role.value).toContain('topic');
+  });
+
+  it('光标落在占位符里面 —— 打出来的字要进 ${input.…} 而不是跟在后面', async () => {
+    const user = await open();
+    const role = screen.getByLabelText('Role') as HTMLTextAreaElement;
+
+    await user.click(screen.getAllByRole('button', { name: '插入变量' })[0]!);
+    await user.keyboard('topic');
+
+    expect(role.value).toContain('${input.topic}');
+  });
+
   it('底部有「添加分段」，文案照图纸给出例子', async () => {
     await open();
     expect(

@@ -213,3 +213,39 @@ mod 应用上下文 {
         assert!(有图.contains("aiwf-proposal"));
     }
 }
+
+/// 主管 AI 优先用 codex 的 adapter。
+///
+/// 用户的要求：「测试和尝试不要使用 claude 的 acp，尽可能使用 codex 的 acp」。
+/// 这个应用本身跑在 Claude Code 里开发，用 claude 的 adapter 做测试会
+/// 与开发环境互相干扰（嵌套的 agent 会话、共用的登录态、同一份配额）。
+mod adapter选择 {
+    use aiwf_core_api::preferred_acp_runtime;
+
+    #[test]
+    fn 两个都装了时选_codex() {
+        assert_eq!(
+            preferred_acp_runtime(&["acp.claude", "acp.codex"]),
+            Some("acp.codex")
+        );
+    }
+
+    #[test]
+    fn 只有_claude_时也能用_它是能跑的() {
+        // 「尽可能」不是「绝不」——只装了 claude 的机器上仍要能用
+        assert_eq!(preferred_acp_runtime(&["acp.claude"]), Some("acp.claude"));
+    }
+
+    #[test]
+    fn 一个都没装时返回_none() {
+        assert_eq!(preferred_acp_runtime(&[]), None);
+    }
+
+    #[test]
+    fn 顺序不影响结果() {
+        assert_eq!(
+            preferred_acp_runtime(&["acp.codex", "acp.claude"]),
+            Some("acp.codex")
+        );
+    }
+}

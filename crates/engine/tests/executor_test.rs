@@ -877,3 +877,111 @@ mod 权限档改变行为 {
         assert!(matches!(outcome, NodeOutcome::Succeeded { .. }));
     }
 }
+
+/// 能力声明由引擎强制 —— 图纸「05 Agent 角色」的原话是
+/// 「权限（引擎强制，Prompt 无法越权）」。
+///
+/// 契约的说法：节点声明自己需要什么，Agent 角色声明自己允许什么，
+/// 运行时取两者交集。不在引擎里拦的话，那两句话都是空的：
+/// 界面上摆着一排权限，而 Agent 想干什么还是干什么。
+mod 能力声明是硬的 {
+    use super::*;
+
+    fn shell(script: &str) -> GraphNode {
+        node(
+            "s1",
+            "script.shell",
+            serde_json::json!({ "interpreter": "zsh", "script": script }),
+        )
+    }
+
+    /// 只允许 file 读、不允许执行命令的一份能力。
+    fn 只读能力() -> serde_json::Value {
+        serde_json::json!({
+            "file": "read",
+            "command": "none",
+            "network": "none",
+            "memory": "none",
+            "secret": []
+        })
+    }
+
+    fn 可执行能力() -> serde_json::Value {
+        serde_json::json!({
+            "file": "read-write",
+            "command": "declared",
+            "network": "none",
+            "memory": "none",
+            "secret": []
+        })
+    }
+
+    #[test]
+    fn command_为_none_时脚本节点被拒() {
+        let dir = tempfile::tempdir().unwrap();
+        let executor = NodeExecutor::new(dir.path().to_path_buf())
+            .with_permission_preset("workspace_safe")
+            .with_capabilities(&只读能力());
+        let mut scope = Scope::new("run_cap");
+
+        let outcome = executor.execute(&shell("echo hi"), &mut scope).unwrap();
+
+        match outcome {
+            NodeOutcome::Failed { message } => {
+                assert!(
+                    message.contains("命令") || message.contains("command"),
+                    "错误信息要说清是哪一项能力不够：{message}"
+                );
+            }
+            other => panic!("command=none 却让脚本跑了：{other:?}"),
+        }
+    }
+
+    #[test]
+    fn command_为_declared_时放行() {
+        let dir = tempfile::tempdir().unwrap();
+        let executor = NodeExecutor::new(dir.path().to_path_buf())
+            .with_permission_preset("workspace_safe")
+            .with_capabilities(&可执行能力());
+        let mut scope = Scope::new("run_cap2");
+
+        let outcome = executor.execute(&shell("echo hi"), &mut scope).unwrap();
+        assert!(
+            matches!(outcome, NodeOutcome::Succeeded { .. }),
+            "{outcome:?}"
+        );
+    }
+
+    #[test]
+    fn 没声明能力时不拦_那是没配过角色的运行() {
+        // 直接跑一条脚本工作流（不挂 Agent）时没有能力声明，
+        // 拦下来的话所有现成的工作流都跑不了了
+        let dir = tempfile::tempdir().unwrap();
+        let executor =
+            NodeExecutor::new(dir.path().to_path_buf()).with_permission_preset("workspace_safe");
+        let mut scope = Scope::new("run_cap3");
+
+        let outcome = executor.execute(&shell("echo hi"), &mut scope).unwrap();
+        assert!(
+            matches!(outcome, NodeOutcome::Succeeded { .. }),
+            "{outcome:?}"
+        );
+    }
+
+    #[test]
+    fn 拒绝发生在执行之前_不留副作用() {
+        // 「拦」必须在起进程之前，否则脚本已经写了文件才报错
+        let dir = tempfile::tempdir().unwrap();
+        let marker = dir.path().join("不该出现.txt");
+        let executor = NodeExecutor::new(dir.path().to_path_buf())
+            .with_permission_preset("workspace_safe")
+            .with_capabilities(&只读能力());
+        let mut scope = Scope::new("run_cap4");
+
+        let _ = executor
+            .execute(&shell(&format!("touch '{}'", marker.display())), &mut scope)
+            .unwrap();
+
+        assert!(!marker.exists(), "脚本已经跑了才拦，副作用已经发生");
+    }
+}

@@ -189,6 +189,18 @@ function shapeFor(method: CoreApiMethod, record: Record<string, unknown>): Recor
     };
   }
 
+  if (method === 'agent.update' || method === 'agent.create') {
+    // capabilities 是对象。桌面壳收字符串（与 sectionsJson 同一条理由：
+    // 让 serde 解任意 Value 会把「能力长什么样」从契约里糊掉），
+    // 而 devserver 直接读 input.capabilities —— 两边都给，各取所需
+    return {
+      ...record,
+      ...(record.capabilities === undefined
+        ? {}
+        : { capabilitiesJson: JSON.stringify(record.capabilities) }),
+    };
+  }
+
   if (method === 'approval.decide') {
     // selected 与 supplement 属于审批的完整语义，等 M2 后半段的
     // 审批面板接上时再传；现在发过去 Rust 侧只会报参数不认识

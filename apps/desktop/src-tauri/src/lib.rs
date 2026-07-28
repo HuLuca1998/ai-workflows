@@ -172,11 +172,12 @@ fn prompt_delete(state: State<'_, AppState>, id: String) -> IpcResult<()> {
 #[tauri::command]
 fn agent_list(
     state: State<'_, AppState>,
+    query: Option<String>,
     limit: Option<i64>,
     offset: Option<i64>,
 ) -> IpcResult<api::Page<api::AgentDto>> {
     let store = lock(&state)?;
-    api::agent_list(&store, limit, offset)
+    api::agent_list(&store, query, limit, offset)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -227,6 +228,9 @@ fn agent_update(
     persona: Option<String>,
     model_ref: Option<String>,
     fallback_model_ref: Option<String>,
+    capabilities_json: Option<String>,
+    tools: Option<Vec<String>>,
+    output_contract: Option<String>,
 ) -> IpcResult<api::VerOnly> {
     let store = lock(&state)?;
     api::agent_update(
@@ -239,6 +243,9 @@ fn agent_update(
             persona,
             model_ref,
             fallback_model_ref,
+            capabilities_json,
+            tools,
+            output_contract,
         },
     )
 }

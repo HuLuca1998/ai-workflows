@@ -101,6 +101,7 @@ pub fn dispatch(
         "prompt_delete" => to_value(api::prompt_delete(&store, string(input, "id")?)?),
         "agent_list" => to_value(api::agent_list(
             &store,
+            opt_string(input, "query"),
             opt_int(input, "limit"),
             opt_int(input, "offset"),
         )?),
@@ -129,6 +130,18 @@ pub fn dispatch(
                 persona: opt_string(input, "persona"),
                 model_ref: opt_string(input, "modelRef"),
                 fallback_model_ref: opt_string(input, "fallbackModelRef"),
+                // capabilities 是对象，原样序列化回字符串交给存储层 ——
+                // 让 serde 解一个任意 Value 会把「能力长什么样」从契约里糊掉
+                capabilities_json: input.get("capabilities").map(ToString::to_string),
+                tools: input
+                    .get("tools")
+                    .and_then(|value| value.as_array())
+                    .map(|list| {
+                        list.iter()
+                            .filter_map(|item| item.as_str().map(str::to_string))
+                            .collect()
+                    }),
+                output_contract: opt_string(input, "outputContract"),
             },
         )?),
         "agent_duplicate" => to_value(api::agent_duplicate(

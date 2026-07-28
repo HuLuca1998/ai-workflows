@@ -177,7 +177,9 @@ describe('新建角色', () => {
         expect.objectContaining({
           name: '审查 Agent',
           role: '代码审查',
-          runtime: 'acp.claude',
+          // 默认 codex：这个应用本身跑在 Claude Code 里开发，
+          // 用 claude 的 adapter 会与开发环境互相干扰（见 docs/TESTING.md）
+          runtime: 'acp.codex',
           modelRef: 'model_1',
         }),
       );

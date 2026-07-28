@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
 /**
@@ -28,7 +28,7 @@ const AGENT = {
   runtime: 'acp.claude',
   modelRef: 'model_opus',
   tools: ['read', 'grep'],
-  capabilities: { fileRead: true, fileWrite: false, network: 'none' },
+  capabilities: { file: 'read', command: 'none', network: 'none', memory: 'none', secret: [] },
   outputContract: '结构化 JSON',
   turnLimit: 12,
   timeoutMs: 900_000,
@@ -208,5 +208,132 @@ describe('复制与删除', () => {
 
     expect(call).not.toHaveBeenCalledWith('agent.delete', expect.anything());
     expect(screen.getByText(/引用它的节点会失效/u)).toBeTruthy();
+  });
+});
+
+describe('权限、工具白名单、输出契约可配', () => {
+  /**
+   * codex 第三轮的原话：「新建表单明确提示『权限、工具白名单和输出契约
+   * 建完再调』，但建完后……详情中可操作的只有名称、目标、性格指令、模型」。
+   *
+   * 图纸「05 Agent 角色」的权限块画的是纯展示（五行 span），
+   * 但同一屏有「保存新版本」按钮 —— 详情区本来就是编辑区，
+   * 原型只是画了「配好之后长什么样」。不给入口的话，
+   * 「权限（引擎强制，Prompt 无法越权）」这句话就没有下文：
+   * 引擎确实会拦，而用户无处声明允许什么。
+   */
+  const 打开 = async () => {
+    const user = userEvent.setup();
+    view();
+    await user.click(await screen.findByRole('button', { name: /分析 Agent/u }));
+    return user;
+  };
+
+  it('五项权限都能改，取值照契约', async () => {
+    await 打开();
+    const 区 = await screen.findByRole('group', { name: /权限/u });
+
+    expect(within(区).getByLabelText('文件')).toBeTruthy();
+    expect(within(区).getByLabelText('命令')).toBeTruthy();
+    expect(within(区).getByLabelText('网络')).toBeTruthy();
+    expect(within(区).getByLabelText('记忆')).toBeTruthy();
+  });
+
+  it('文件权限的选项是 none / read / read-write', async () => {
+    await 打开();
+    const 区 = await screen.findByRole('group', { name: /权限/u });
+    const options = [...within(区).getByLabelText('文件').querySelectorAll('option')].map(
+      (el) => (el as HTMLOptionElement).value,
+    );
+    expect(options).toEqual(['none', 'read', 'read-write']);
+  });
+
+  it('改权限后保存，发给后端的是新值', async () => {
+    const user = await 打开();
+    const 区 = screen.getByRole('group', { name: /权限/u });
+
+    await user.selectOptions(within(区).getByLabelText('命令'), 'declared');
+    await user.click(screen.getByRole('button', { name: '保存新版本' }));
+
+    await waitFor(() => {
+      const 入参 = call.mock.calls.find((args) => args[0] === 'agent.update')?.[1] as
+        { capabilities?: { command?: string } } | undefined;
+      expect(入参?.capabilities?.command).toBe('declared');
+    });
+  });
+
+  it('那句「引擎强制，Prompt 无法越权」照图纸在位', async () => {
+    await 打开();
+    expect(await screen.findByText(/引擎强制，Prompt 无法越权/u)).toBeTruthy();
+  });
+
+  it('工具白名单能加能删 —— 图纸有「+ 添加」', async () => {
+    const user = await 打开();
+    await user.click(screen.getByRole('button', { name: /添加/u }));
+
+    const 输入 = await screen.findByLabelText('工具名');
+    await user.type(输入, 'gh.pr_create');
+    await user.keyboard('{Enter}');
+
+    expect(await screen.findByText('gh.pr_create')).toBeTruthy();
+  });
+
+  it('输出契约可编辑', async () => {
+    const user = await 打开();
+    const 契约 = screen.getByLabelText('输出契约');
+    await user.clear(契约);
+    await user.type(契约, 'Diff + 测试结果');
+    await user.click(screen.getByRole('button', { name: '保存新版本' }));
+
+    await waitFor(() => {
+      const 入参 = call.mock.calls.find((args) => args[0] === 'agent.update')?.[1] as
+        { outputContract?: string } | undefined;
+      expect(入参?.outputContract).toBe('Diff + 测试结果');
+    });
+  });
+
+  it('内置角色这几块只读 —— 改它等于改掉系统某处的行为', async () => {
+    respond({ 'agent.list': () => ({ items: [{ ...AGENT, builtin: true }], total: 1 }) });
+    const user = userEvent.setup();
+    view();
+    await user.click(await screen.findByRole('button', { name: /分析 Agent/u }));
+
+    const 区 = await screen.findByRole('group', { name: /权限/u });
+    expect(within(区).queryByLabelText('文件')).toBeNull();
+    expect(screen.queryByRole('button', { name: /添加/u })).toBeNull();
+  });
+});
+
+describe('Agent 列表能搜', () => {
+  /**
+   * codex：「共有 138 条、每页 50 条，只有上一页 / 下一页，
+   * 没有搜索框……寻找旧角色只能逐页浏览」。
+   * 图纸「05 Agent 角色」左栏顶部就有搜索框。
+   */
+  it('搜索框在，占位文案照图纸', async () => {
+    view();
+    expect(await screen.findByPlaceholderText(/搜索角色/u)).toBeTruthy();
+  });
+
+  it('输入即搜，发给后端 —— 前端过滤只能过滤当前页', async () => {
+    view();
+    await screen.findByPlaceholderText(/搜索角色/u);
+    call.mockClear();
+
+    fireEvent.change(screen.getByPlaceholderText(/搜索角色/u), {
+      target: { value: 'Builder' },
+    });
+
+    await waitFor(
+      () => {
+        expect(
+          call.mock.calls.some(
+            (args) =>
+              args[0] === 'agent.list' && (args[1] as { query?: string }).query === 'Builder',
+          ),
+        ).toBe(true);
+      },
+      { timeout: 2000 },
+    );
   });
 });

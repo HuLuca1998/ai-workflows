@@ -4484,6 +4484,76 @@
   overflow: auto;
 }
 
+/* Agent 的权限声明：每行一个下拉。图纸画的是只读的五行，
+   但同一屏有「保存新版本」—— 详情区本来就是编辑区 */
+.agents__caps {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  font-size: 12.5px;
+}
+
+.agents__caps label {
+  width: 64px;
+  flex: none;
+  color: var(--color-neutral-500);
+  font-size: 11.5px;
+}
+
+.agents__caps select {
+  flex: 1;
+  min-width: 0;
+  height: 26px;
+  padding: 0 8px;
+  border: 1px solid var(--color-divider);
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--color-bg) 82%, #000);
+  color: inherit;
+  font-size: 12px;
+}
+
+/* 工具白名单的标签：悬停时才露出移除按钮，免得一排 × 抢注意力 */
+.agents__tool-remove {
+  margin-left: 4px;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--color-neutral-600);
+  cursor: pointer;
+  opacity: 0;
+}
+
+.models__caps li:hover .agents__tool-remove,
+.agents__tool-remove:focus-visible {
+  opacity: 1;
+}
+
+.agents__tool-add-btn {
+  padding: 2px 8px;
+  border: 1px dashed var(--color-divider);
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--color-neutral-500);
+  font-size: 11.5px;
+  cursor: pointer;
+}
+
+.agents__tool-add input {
+  width: 100%;
+  height: 26px;
+  padding: 0 8px;
+  border: 1px solid var(--color-accent-600);
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--color-bg) 82%, #000);
+  color: inherit;
+  font-size: 12px;
+}
+
+/* 左栏顶部的搜索框（图纸「05 Agent 角色」） */
+.agents__search {
+  margin: 0 8px 8px;
+}
+
 /* 权限策略：三张并排卡，选中的带强调边框（图纸第 1022 行） */
 .permission__title {
   margin: 0 0 10px;
