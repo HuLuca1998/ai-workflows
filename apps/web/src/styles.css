@@ -688,6 +688,39 @@
   font-size: 12.5px;
 }
 
+/* 等待审批横幅（图纸「02 画布编辑器」第 178 行）：
+   紫色渐变自左向右淡出，底部一条同色分隔线 */
+.editor-approval {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 11px 16px;
+  background: linear-gradient(90deg, rgba(145, 132, 217, 0.18), rgba(145, 132, 217, 0.04));
+  border-bottom: 1px solid rgba(145, 132, 217, 0.35);
+}
+
+.editor-approval > i {
+  font-size: 16px;
+  color: var(--color-accent);
+}
+
+.editor-approval__text {
+  font-size: 12.5px;
+}
+
+.editor-approval__text b {
+  font-weight: 500;
+}
+
+.editor-approval__text span {
+  color: var(--color-neutral-400);
+}
+
+.editor-approval__grow {
+  flex: 1;
+}
+
 .editor-error {
   display: flex;
   align-items: center;

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { ApprovalBanner } from './ApprovalBanner.js';
 import { Link, useNavigate, useParams } from 'react-router';
 import {
   Background,
@@ -286,6 +287,10 @@ function EditorCanvas() {
           }}
         />
       ) : null}
+
+      {/* 图纸把它放在工具栏与画布之间：用户在这一屏做的是改流程，
+          而有个运行正卡在审批上等他 —— 那件事得先看见 */}
+      {workflowId ? <ApprovalBanner workflowId={workflowId} /> : null}
 
       {error ? (
         <p className="editor-error" role="alert">

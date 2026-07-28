@@ -294,3 +294,50 @@ test.describe('离开编辑器不会删掉任何东西', () => {
     expect(status, '用户建的工作流被删了').toBe(200);
   });
 });
+
+test.describe('等待审批横幅（图纸「02 画布编辑器」）', () => {
+  /**
+   * 用户在编辑器里改流程时，如果有个运行正卡在审批上等他，
+   * 那件事得先看见 —— 那个运行占着 worktree，也占着他的时间。
+   */
+  test('有运行在等审批时，编辑器顶部给出横幅与入口', async ({ page }) => {
+    // 找一条真的在等审批的运行，进它那条工作流的编辑器
+    const 运行 = await page.evaluate(async () => {
+      const response = await fetch('http://127.0.0.1:5177/ipc/run_list', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        // 直接打 IPC 时用的是**引擎侧**的字段名：契约叫 status，
+        // 到了 IPC 那层是 statuses（映射在 ipc-mapping.ts）
+        body: JSON.stringify({ statuses: ['waiting_approval'], limit: 1 }),
+      });
+      const body = (await response.json()) as {
+        items?: { id: string; workflowId: string }[];
+      };
+      return body.items?.[0] ?? null;
+    });
+
+    test.skip(!运行, '库里没有等待审批的运行');
+    if (!运行) return;
+
+    await page.goto(`/editor/${运行.workflowId}`);
+
+    const banner = page.locator('.editor-approval');
+    await expect(banner).toBeVisible({ timeout: 15_000 });
+    await expect(banner).toContainText('正在等待你的决定');
+    await expect(banner.getByRole('link', { name: '处理审批' })).toBeVisible();
+
+    // 点进去要落到那条运行上
+    await banner.getByRole('link', { name: '处理审批' }).click();
+    await expect(page).toHaveURL(new RegExp(运行.id));
+  });
+
+  test('没有等待审批的运行时不留一条空横幅', async ({ page }) => {
+    await page.goto('/');
+    await page.getByRole('button', { name: /新建工作流/ }).click();
+    await expect(page).toHaveURL(/\/editor\/wf_/, { timeout: 15_000 });
+    await page.waitForTimeout(800);
+
+    // 新建的工作流没跑过任何运行
+    await expect(page.locator('.editor-approval')).toHaveCount(0);
+  });
+});
