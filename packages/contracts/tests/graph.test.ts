@@ -66,14 +66,32 @@ describe('图校验', () => {
     expect(issue?.nodeId).toBe('x1');
   });
 
-  it('节点配置不合法时报 INVALID_CONFIG 并带上字段路径', () => {
+  it('节点配置不合法时报 INVALID_CONFIG 并说清是哪个字段', () => {
     const graph = minimalGraph();
     // 缺 agentProfileId
     graph.nodes.push(node('a1', 'ai.analyze', { instruction: '分析', target: 'issue' }));
     graph.edges.push(edge('e2', 'entry', 'success', 'a1'));
     const issue = validateGraph(graph).issues.find((i) => i.code === 'INVALID_CONFIG');
     expect(issue?.nodeId).toBe('a1');
-    expect(issue?.message).toMatch(/agentProfileId/);
+
+    // 说的是**中文字段名**，不是 `agentProfileId`。
+    //
+    // 这条断言原先匹配 /agentProfileId/ —— 那是 Zod 吐的英文原文，
+    // 而同一个问题在配置弹层里显示的是「Agent 角色是必填项」。
+    // 同一件事两处两句话，用户只会以为它们是两个问题。
+    // 现在两处都走 describeIssue（Rust 侧也是），见 nodes/issue-text.ts
+    expect(issue?.message).toBe('配置不合法 —— Agent 角色是必填项');
+  });
+
+  it('不再漏出 Zod 的英文原文 —— 那是实现细节，会跟着库的版本变', () => {
+    const graph = minimalGraph();
+    graph.nodes.push(node('sh', 'script.shell', {}));
+    const issues = validateGraph(graph).issues.filter((i) => i.code === 'INVALID_CONFIG');
+
+    expect(issues.length).toBeGreaterThan(0);
+    for (const issue of issues) {
+      expect(issue.message, issue.message).not.toMatch(/Invalid|expected|received|Too small/);
+    }
   });
 
   it('连线指向不存在的节点是错误', () => {

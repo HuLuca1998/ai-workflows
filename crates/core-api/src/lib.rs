@@ -254,6 +254,9 @@ pub const COMMANDS: &[&str] = &[
     "workflow_create",
     "workflow_get",
     "workflow_save_draft",
+    "workflow_patch",
+    "workflow_validate",
+    "workflow_diff",
     "workflow_publish",
     "workflow_version_graph",
     "workflow_rollback",
@@ -1184,6 +1187,162 @@ pub fn workflow_save_draft(
     graph_json: String,
 ) -> ApiResult<i64> {
     Ok(store.save_draft_guarded(&id, base_rev, &graph_json)?)
+}
+
+/// `workflow.patch` 的返回值。
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PatchDto {
+    pub rev: i64,
+    pub diff: aiwf_engine::patch::WorkflowDiff,
+    pub validation: aiwf_engine::validate::ValidationResult,
+}
+
+/// 结构化修改草稿 —— **引擎自己应用 Patch**。
+///
+/// ADR-0008 当时的决定是「客户端算好结果图捎带过来」，理由是 Rust 侧
+/// 没有 applyPatch，写第二份必然漂移。那条 ADR 也写了退出条件：
+/// 「一旦引擎侧要独立应用 Patch（例如让 MCP 直连引擎而不经过客户端），
+/// 就该在 Rust 侧实现 applyPatch，并把 graphJson 降级为可选校验用途。」
+/// 系统级 MCP 就是那个场景：Agent 不经过任何客户端，没人替它算那张图。
+///
+/// 漂移的对冲是 `crates/engine/tests/conformance_test.rs`：
+/// 43 组夹具由 TypeScript 那份算出期望值，Rust 逐字比对，含错误文案。
+///
+/// `graph_json` 仍然收，但只当交叉校验：两边算出的图不一致时留一行日志。
+/// 以引擎算的为准 —— 它是唯一能保证「操作列表与落库的图对得上」的一方。
+///
+/// # Errors
+/// baseRevision 与当前草稿不符时返回 REVISION_CONFLICT；操作不合法返回 VALIDATION。
+pub fn workflow_patch(
+    store: &Store,
+    id: String,
+    base_revision: i64,
+    operations_json: String,
+    graph_json: Option<String>,
+) -> ApiResult<PatchDto> {
+    let current = store
+        .draft_revision(&id)?
+        .ok_or(aiwf_store::StoreError::NotFound {
+            kind: "草稿",
+            id: id.clone(),
+        })?;
+    let graph_text = store
+        .get_draft(&id, current)?
+        .ok_or(aiwf_store::StoreError::NotFound {
+            kind: "草稿修订",
+            id: format!("{id}@{current}"),
+        })?;
+
+    let graph: serde_json::Value = serde_json::from_str(&graph_text)
+        .map_err(|error| ApiError::validation(format!("草稿不是合法 JSON：{error}")))?;
+    let operations: serde_json::Value = serde_json::from_str(&operations_json)
+        .map_err(|error| ApiError::validation(format!("operations 不是合法 JSON：{error}")))?;
+
+    let patch = serde_json::json!({ "baseRevision": base_revision, "operations": operations });
+    let result =
+        aiwf_engine::patch::apply_patch(&graph, current, &patch).map_err(|error| ApiError {
+            code: error.code().to_string(),
+            message: error.to_string(),
+            retriable: matches!(
+                error,
+                aiwf_engine::patch::PatchError::RevisionConflict { .. }
+            ),
+            hint: Some(error.hint().to_string()),
+        })?;
+
+    // 交叉校验。不一致是**实现 bug**，不是用户能修的东西 ——
+    // 所以不抛给用户，留一行日志给诊断包，落库以引擎算的为准
+    if graph_json
+        .as_deref()
+        .and_then(|text| serde_json::from_str::<serde_json::Value>(text).ok())
+        .is_some_and(|parsed| parsed != result.graph)
+    {
+        eprintln!(
+            "[workflow.patch] 客户端与引擎算出的图不一致（工作流 {id}，rev {current}）。\
+             以引擎为准；这说明 conformance 夹具漏了一种形态"
+        );
+    }
+
+    let next = serde_json::to_string(&result.graph)
+        .map_err(|error| ApiError::validation(format!("序列化结果图失败：{error}")))?;
+    let rev = store.save_draft_guarded(&id, base_revision, &next)?;
+
+    Ok(PatchDto {
+        rev,
+        diff: result.diff,
+        validation: result.validation,
+    })
+}
+
+/// 校验草稿（或某个历史修订）。
+///
+/// # Errors
+/// 工作流或修订不存在时返回 NOT_FOUND。
+pub fn workflow_validate(
+    store: &Store,
+    id: String,
+    rev: Option<i64>,
+) -> ApiResult<aiwf_engine::validate::ValidationResult> {
+    let rev = match rev {
+        Some(value) => value,
+        None => store
+            .draft_revision(&id)?
+            .ok_or(aiwf_store::StoreError::NotFound {
+                kind: "草稿",
+                id: id.clone(),
+            })?,
+    };
+    let graph_text = store
+        .get_draft(&id, rev)?
+        .ok_or(aiwf_store::StoreError::NotFound {
+            kind: "草稿修订",
+            id: format!("{id}@{rev}"),
+        })?;
+    let graph: serde_json::Value = serde_json::from_str(&graph_text)
+        .map_err(|error| ApiError::validation(format!("草稿不是合法 JSON：{error}")))?;
+
+    Ok(aiwf_engine::validate::validate_graph(&graph))
+}
+
+/// 对比两份图。`from` / `to` 可以是版本 id，也可以是字面量 `draft`。
+///
+/// # Errors
+/// 任一侧解析不出图时返回 VALIDATION。
+pub fn workflow_diff(
+    store: &Store,
+    id: String,
+    from: String,
+    to: String,
+) -> ApiResult<aiwf_engine::patch::WorkflowDiff> {
+    let 取图 = |which: &str| -> ApiResult<serde_json::Value> {
+        let text = if which == "draft" {
+            let rev = store
+                .draft_revision(&id)?
+                .ok_or(aiwf_store::StoreError::NotFound {
+                    kind: "草稿",
+                    id: id.clone(),
+                })?;
+            store
+                .get_draft(&id, rev)?
+                .ok_or(aiwf_store::StoreError::NotFound {
+                    kind: "草稿修订",
+                    id: format!("{id}@{rev}"),
+                })?
+        } else {
+            store
+                .get_version(which)?
+                .ok_or(aiwf_store::StoreError::NotFound {
+                    kind: "版本",
+                    id: which.to_string(),
+                })?
+                .graph_json
+        };
+        serde_json::from_str(&text)
+            .map_err(|error| ApiError::validation(format!("{which} 的图不是合法 JSON：{error}")))
+    };
+
+    Ok(aiwf_engine::diff::diff_graphs(&取图(&from)?, &取图(&to)?))
 }
 
 pub fn workflow_publish(store: &Store, id: String, rev: i64) -> ApiResult<PublishedDto> {

@@ -580,6 +580,45 @@ fn workflow_save_draft(
 }
 
 #[tauri::command]
+fn workflow_patch(
+    state: State<'_, AppState>,
+    id: String,
+    base_revision: i64,
+    operations: serde_json::Value,
+    graph_json: Option<String>,
+) -> IpcResult<api::PatchDto> {
+    let store = lock(&state)?;
+    api::workflow_patch(
+        &store,
+        id,
+        base_revision,
+        operations.to_string(),
+        graph_json,
+    )
+}
+
+#[tauri::command]
+fn workflow_validate(
+    state: State<'_, AppState>,
+    id: String,
+    rev: Option<i64>,
+) -> IpcResult<aiwf_engine::validate::ValidationResult> {
+    let store = lock(&state)?;
+    api::workflow_validate(&store, id, rev)
+}
+
+#[tauri::command]
+fn workflow_diff(
+    state: State<'_, AppState>,
+    id: String,
+    from: String,
+    to: String,
+) -> IpcResult<aiwf_engine::patch::WorkflowDiff> {
+    let store = lock(&state)?;
+    api::workflow_diff(&store, id, from, to)
+}
+
+#[tauri::command]
 fn workflow_publish(state: State<'_, AppState>, id: String, rev: i64) -> IpcResult<PublishedDto> {
     let store = lock(&state)?;
     api::workflow_publish(&store, id, rev)
@@ -771,6 +810,9 @@ pub fn run() {
             workflow_create,
             workflow_get,
             workflow_save_draft,
+            workflow_patch,
+            workflow_validate,
+            workflow_diff,
             workflow_publish,
             workflow_version_graph,
             workflow_rollback,

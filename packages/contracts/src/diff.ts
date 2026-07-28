@@ -122,9 +122,16 @@ function describeNodeChange(before: GraphNode, after: GraphNode): DiffEntry | nu
   };
 }
 
-/** 值太长时截断，Diff 行要能一眼看完。 */
+/**
+ * 值太长时截断，Diff 行要能一眼看完。
+ *
+ * 按**字符**而不是 UTF-16 码元切：`slice` 会把一个代理对劈成两半，
+ * 那一行在界面上就是一个乱码方块。Rust 侧（`crates/engine/src/diff.rs`）
+ * 用的是 `chars()`，两边要给出同一句话。
+ */
 function format(value: unknown): string {
   if (value === undefined) return '未设置';
   const text = typeof value === 'string' ? value : JSON.stringify(value);
-  return text.length > 24 ? `${text.slice(0, 24)}…` : text;
+  const chars = [...text];
+  return chars.length > 24 ? `${chars.slice(0, 24).join('')}…` : text;
 }

@@ -56,6 +56,7 @@ const 映射: {
   { dto: 'ConfirmationDto', method: 'mcp.pendingConfirms', 字段路径: 'items' },
   { dto: 'ConfirmStatusDto', method: 'mcp.confirmStatus' },
   { dto: 'ModelTestResult', method: 'model.test' },
+  { dto: 'PatchDto', method: 'workflow.patch' },
   // 这三个不叫 Dto，但同样会被序列化给前端 ——
   // WorkflowSummary 少 rename_all 正是这条守卫当初要防的那个坑
   { dto: 'WorkflowSummary', method: 'workflow.list', 字段路径: 'items' },

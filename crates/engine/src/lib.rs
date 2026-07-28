@@ -7,17 +7,22 @@
 
 pub mod acp;
 pub mod artifacts;
+pub mod catalog;
+pub mod diff;
 pub mod exec;
 pub mod executor;
 pub mod graph;
 pub mod interp;
+pub mod patch;
 pub mod path_guard;
 pub mod plan;
 pub mod preflight;
 pub mod redactor;
 pub mod runner;
+pub mod schema;
 pub mod status;
 pub mod supervisor;
+pub mod validate;
 pub mod worktree;
 
 pub use path_guard::PathGuard;

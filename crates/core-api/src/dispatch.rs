@@ -301,6 +301,34 @@ pub fn dispatch(
             int(input, "baseRev")?,
             string(input, "graphJson")?,
         )?),
+        // operations 是数组，原样序列化回字符串交给引擎 ——
+        // 在这一层解成结构体会把「合法操作长什么样」从契约里糊掉
+        "workflow_patch" => to_value(api::workflow_patch(
+            &store,
+            string(input, "id")?,
+            int(input, "baseRevision")?,
+            input
+                .get("operations")
+                .map(ToString::to_string)
+                .ok_or_else(|| ApiError {
+                    code: "VALIDATION".to_string(),
+                    message: "缺少参数 operations".to_string(),
+                    retriable: false,
+                    hint: None,
+                })?,
+            opt_string(input, "graphJson"),
+        )?),
+        "workflow_validate" => to_value(api::workflow_validate(
+            &store,
+            string(input, "id")?,
+            opt_int(input, "rev"),
+        )?),
+        "workflow_diff" => to_value(api::workflow_diff(
+            &store,
+            string(input, "id")?,
+            string(input, "from")?,
+            string(input, "to")?,
+        )?),
         "workflow_publish" => to_value(api::workflow_publish(
             &store,
             string(input, "id")?,

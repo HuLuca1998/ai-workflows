@@ -9,8 +9,8 @@ publish.workspace = true
 [dependencies]
 aiwf-store = { version = "0.0.0", path = "../store" }
 regex = "1.13.1"
-serde = { version = "1.0.229", features = ["derive"] }
-serde_json = "1.0.151"
+serde = { workspace = true }
+serde_json = { workspace = true }
 sha2 = "0.11.0"
 thiserror = "2.0.19"
 tokio = { version = "1.53.1", features = ["rt-multi-thread", "macros", "process", "time", "sync", "fs"] }

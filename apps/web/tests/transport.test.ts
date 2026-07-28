@@ -14,7 +14,12 @@ describe('方法名映射', () => {
   it('已接通的方法映射到对应 IPC 命令', () => {
     expect(ipcCommandFor('workflow.list')).toBe('workflow_list');
     expect(ipcCommandFor('workflow.get')).toBe('workflow_get');
-    expect(ipcCommandFor('workflow.patch')).toBe('workflow_save_draft');
+    // 不再是 workflow_save_draft（整份回写）：引擎自己应用结构化操作，
+    // 见 ADR-0009。走整份回写的那一版只能回一个 rev，于是 Diff 与
+    // 校验结果只好在映射层编出来
+    expect(ipcCommandFor('workflow.patch')).toBe('workflow_patch');
+    expect(ipcCommandFor('workflow.validate')).toBe('workflow_validate');
+    expect(ipcCommandFor('workflow.diff')).toBe('workflow_diff');
     expect(ipcCommandFor('workflow.publish')).toBe('workflow_publish');
     expect(ipcCommandFor('workflow.delete')).toBe('workflow_delete');
   });
@@ -28,21 +33,38 @@ describe('方法名映射', () => {
 });
 
 describe('入参转换', () => {
-  it('workflow.patch 把结构化操作应用后的整图与 baseRevision 一起送下去', () => {
+  it('workflow.patch 把结构化操作与 baseRevision 送下去', () => {
+    const operations = [{ op: 'removeNode', nodeId: 'n1' }];
     const graph = { nodes: [], edges: [], groups: [] };
     const input = toIpcInput('workflow.patch', {
       id: 'wf_1',
       baseRevision: 18,
-      operations: [],
+      operations,
       graphJson: JSON.stringify(graph),
     });
-    expect(input).toEqual({ id: 'wf_1', baseRev: 18, graphJson: JSON.stringify(graph) });
+    expect(input).toEqual({
+      id: 'wf_1',
+      baseRevision: 18,
+      operations,
+      graphJson: JSON.stringify(graph),
+    });
   });
 
-  it('patch 缺少 graphJson 时直接报错——静默发一个空图会清掉用户的工作流', () => {
+  it('结果图是可选的 —— MCP 那一侧没有客户端替它算', () => {
+    const operations = [{ op: 'removeNode', nodeId: 'n1' }];
+    expect(toIpcInput('workflow.patch', { id: 'wf_1', baseRevision: 1, operations })).toEqual({
+      id: 'wf_1',
+      baseRevision: 1,
+      operations,
+    });
+  });
+
+  it('operations 为空时直接报错 —— 结构化操作是唯一的写入形态', () => {
+    // 空操作列表送下去只会白写一个修订。而更要紧的是：
+    // 它意味着调用方本来想传的东西丢了，静默通过会让那次丢失无从发现
     expect(() =>
       toIpcInput('workflow.patch', { id: 'wf_1', baseRevision: 1, operations: [] }),
-    ).toThrow(/graphJson/u);
+    ).toThrow(/operations/u);
   });
 
   it('其余方法原样透传', () => {
@@ -111,9 +133,16 @@ describe('出参转换', () => {
     ).toThrow(/图数据/u);
   });
 
-  it('workflow.patch 返回新 rev 与空 diff（Diff 已在客户端算过）', () => {
-    const result = fromIpcResult('workflow.patch', 19) as { rev: number };
-    expect(result.rev).toBe(19);
+  it('workflow.patch 原样回传引擎算的 Diff 与校验结果', () => {
+    // 曾经在这一层编一个空 Diff 加「ok: true」。任何不经过 DraftStore
+    // 的调用方（MCP、脚本）都会收到「校验通过、什么都没改」，
+    // 而图可能已经坏了
+    const raw = {
+      rev: 19,
+      diff: { added: [{ kind: 'node', id: 'n2', label: 'node end「结束」' }], removed: [], changed: [] },
+      validation: { ok: false, issues: [{ level: 'error', code: 'ENTRY_MISSING', message: '缺入口' }] },
+    };
+    expect(fromIpcResult('workflow.patch', raw)).toEqual(raw);
   });
 });
 

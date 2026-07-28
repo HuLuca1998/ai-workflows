@@ -13,6 +13,11 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { z } from 'zod';
 import { CORE_API_METHODS, getMethodSpec } from '../src/api.js';
+import { CONFORMANCE_CASES, DIFF_CASES } from '../src/conformance.js';
+import { diffGraphs } from '../src/diff.js';
+import { CoreApiError } from '../src/errors.js';
+import { validateGraph } from '../src/graph.js';
+import { applyPatch } from '../src/patch.js';
 import { RunEventSchema, RUN_EVENT_TYPES, RUN_EVENT_CATEGORIES } from '../src/events.js';
 import { WorkflowGraphSchema } from '../src/graph.js';
 import { NODE_TYPES, getNodeDefinition } from '../src/nodes/index.js';
@@ -76,6 +81,44 @@ const files: Record<string, unknown> = {
       ];
     }),
   ),
+  /**
+   * 跨语言一致性夹具：输入在 `src/conformance.ts`，期望输出在这里算出来。
+   *
+   * Rust 侧读同一份文件逐条比对（`crates/engine/tests/conformance_test.rs`）。
+   * 两份实现里任何一份改了行为，这份生成物或那条测试就会红 ——
+   * 而不是等到用户对着「界面说行、MCP 说不行」不知道信谁。
+   */
+  'conformance.json': {
+    version: CONTRACTS_VERSION,
+    cases: CONFORMANCE_CASES.map((item) => {
+      const validation = validateGraph(item.graph);
+      if (!item.patch) return { name: item.name, graph: item.graph, validation };
+
+      const currentRevision = item.currentRevision ?? item.patch.baseRevision;
+      const 公共 = {
+        name: item.name,
+        graph: item.graph,
+        patch: item.patch,
+        currentRevision,
+      };
+
+      try {
+        const result = applyPatch(item.graph, currentRevision, item.patch);
+        return { ...公共, result: { ok: true, ...result } };
+      } catch (error) {
+        // 失败也是行为的一部分：错误码与文案同样要两边一致，
+        // 用户看到的那句话不该取决于他走的是界面还是 MCP
+        if (!(error instanceof CoreApiError)) throw error;
+        return { ...公共, result: { ok: false, error: { code: error.code, message: error.message } } };
+      }
+    }),
+    diffs: DIFF_CASES.map((item) => ({
+      name: item.name,
+      before: item.before,
+      after: item.after,
+      diff: diffGraphs(item.before, item.after),
+    })),
+  },
   'core-api.schema.json': Object.fromEntries(
     CORE_API_METHODS.map((method) => {
       const spec = getMethodSpec(method);

@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { CapabilitiesSchema } from './capabilities.js';
-import { NODE_TYPES, getNodeDefinition, resolveNodeOutputs } from './nodes/index.js';
+import { NODE_TYPES, describeIssue, getNodeDefinition, resolveNodeOutputs } from './nodes/index.js';
 
 /**
  * 工作流图。
@@ -133,10 +133,20 @@ export function validateGraph(graph: WorkflowGraph): ValidationResult {
       err('UNKNOWN_NODE_TYPE', `节点类型 ${node.type} 未登记`, { nodeId: node.id });
       continue;
     }
-    const parsed = getNodeDefinition(node.type).configSchema.safeParse(node.config);
+    const definition = getNodeDefinition(node.type);
+    const parsed = definition.configSchema.safeParse(node.config);
     if (!parsed.success) {
+      // 走 describeIssue 而不是 `i.message`。
+      //
+      // 后者漏的是 Zod 的英文（`Invalid input: expected string, received
+      // undefined`），于是同一个配置问题在配置弹层里是中文、在校验面板里
+      // 是半句英文 —— 而两处说的是同一件事。
+      //
+      // 还有一层：英文文案是 Zod 的实现细节，跟着它的版本走。
+      // Rust 侧要给出同一句话（`crates/engine/src/validate.rs`），
+      // 就不能把「用户看到什么」交给一个第三方库的版本号
       const detail = parsed.error.issues
-        .map((i) => `${i.path.join('.') || '(根)'}: ${i.message}`)
+        .map((issue) => describeIssue(issue, definition.configSchema))
         .join('；');
       err('INVALID_CONFIG', `配置不合法 —— ${detail}`, { nodeId: node.id });
     }

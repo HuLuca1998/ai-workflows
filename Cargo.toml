@@ -17,7 +17,13 @@ publish = false
 
 [workspace.dependencies]
 serde = { version = "1", features = ["derive"] }
-serde_json = "1"
+# preserve_order：JSON 对象保持文件里的键序。
+#
+# 契约生成物里字段的顺序就是 Zod schema 的声明顺序，而 Zod 报校验问题
+# 也按那个顺序。默认的 BTreeMap 会按字母重排，于是同一份坏配置在
+# TypeScript 那边报「解释器…；脚本内容…」，在这边报的是另一个次序 ——
+# 而 `conformance_test` 是逐字比的。
+serde_json = { version = "1", features = ["preserve_order"] }
 thiserror = "2"
 
 [workspace.lints.rust]

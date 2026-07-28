@@ -304,11 +304,12 @@ const SPECS = {
       baseRevision: z.number().int().min(0),
       operations: z.array(PatchOperationSchema).min(1),
       /**
-       * 客户端应用 Patch 后的结果图（JSON）。
+       * 调用方本地应用 Patch 后的结果图（JSON）。**可选，只当交叉校验。**
        *
-       * 结构化 Patch 的应用逻辑（applyPatch）在本包里，引擎侧没有对应实现，
-       * 所以由调用方算出 Diff 与新图后一并提交，引擎只做 baseRevision 守卫与落库。
-       * 不传时由实现方决定是否自行应用——见 docs/adr/0008。
+       * 引擎自己应用操作、算 Diff、跑校验（ADR-0009）——
+       * 从 MCP 连进来的 Agent 中间没有任何客户端，没人替它算那张图。
+       * 传了的话引擎会比一下：不一致说明一致性夹具漏了一种形态，
+       * 引擎留一行日志，落库仍以自己算的为准。
        */
       graphJson: z.string().min(1).optional(),
     }),

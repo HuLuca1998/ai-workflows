@@ -69,7 +69,10 @@ function fieldName(path: readonly PropertyKey[], schema: z.ZodType): string {
   if (path.length === 0) return '这一项';
 
   const described = describeAt(path, schema);
-  return described ?? path.map(String).join('.');
+  // `.describe()` 的第一行是标签，其余行是字段提示（约定见 fields.ts）。
+  // 整段拿来当字段名的话，一条校验错误会把「白名单：任意可执行文件会绕过
+  // 命令能力声明」这种整段说明塞进句子中间
+  return described?.split('\n')[0] || path.map(String).join('.');
 }
 
 /** 沿路径下钻找 `.describe()`。找不到返回 undefined。 */

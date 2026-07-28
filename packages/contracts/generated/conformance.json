@@ -1,0 +1,5315 @@
+{
+  "version": 1,
+  "cases": [
+    {
+      "name": "空图",
+      "graph": {
+        "nodes": [],
+        "edges": [],
+        "groups": []
+      },
+      "validation": {
+        "ok": false,
+        "issues": [
+          {
+            "level": "error",
+            "code": "ENTRY_MISSING",
+            "message": "工作流缺少入口节点，启动表单无从生成"
+          }
+        ]
+      }
+    },
+    {
+      "name": "最小可用图",
+      "graph": {
+        "nodes": [
+          {
+            "id": "entry",
+            "type": "entry",
+            "title": "入口",
+            "position": {
+              "x": 0,
+              "y": 0
+            },
+            "config": {
+              "trigger": "manual",
+              "inputSchema": {
+                "type": "object"
+              }
+            }
+          },
+          {
+            "id": "done",
+            "type": "end",
+            "title": "结束",
+            "position": {
+              "x": 0,
+              "y": 0
+            },
+            "config": {
+              "outcome": "success"
+            }
+          }
+        ],
+        "edges": [
+          {
+            "id": "e1",
+            "source": {
+              "nodeId": "entry",
+              "port": "success"
+            },
+            "target": {
+              "nodeId": "done",
+              "port": "input"
+            }
+          }
+        ],
+        "groups": []
+      },
+      "validation": {
+        "ok": true,
+        "issues": []
+      }
+    },
+    {
+      "name": "缺入口",
+      "graph": {
+        "nodes": [
+          {
+            "id": "done",
+            "type": "end",
+            "title": "结束",
+            "position": {
+              "x": 0,
+              "y": 0
+            },
+            "config": {
+              "outcome": "success"
+            }
+          }
+        ],
+        "edges": [],
+        "groups": []
+      },
+      "validation": {
+        "ok": false,
+        "issues": [
+          {
+            "level": "error",
+            "code": "ENTRY_MISSING",
+            "message": "工作流缺少入口节点，启动表单无从生成"
+          },
+          {
+            "level": "warning",
+            "code": "ORPHAN_NODE",
+            "message": "没有入口节点，无法判定可达性",
+            "nodeId": "done"
+          }
+        ]
+      }
+    },
+    {
+      "name": "两个入口",
+      "graph": {
+        "nodes": [
+          {
+            "id": "a",
+            "type": "entry",
+            "title": "入口 A",
+            "position": {
+              "x": 0,
+              "y": 0
+            },
+            "config": {
+              "trigger": "manual",
+              "inputSchema": {
+                "type": "object"
+              }
+            }
+          },
+          {
+            "id": "b",
+            "type": "entry",
+            "title": "入口 B",
+            "position": {
+              "x": 0,
+              "y": 0
+            },
+            "config": {
+              "trigger": "manual",
+              "inputSchema": {
+                "type": "object"
+              }
+            }
+          }
+        ],
+        "edges": [],
+        "groups": []
+      },
+      "validation": {
+        "ok": false,
+        "issues": [
+          {
+            "level": "error",
+            "code": "ENTRY_DUPLICATE",
+            "message": "入口节点必须全图唯一",
+            "nodeId": "b"
+          },
+          {
+            "level": "warning",
+            "code": "END_MISSING",
+            "message": "没有结束节点，运行结果不会被显式标记"
+          },
+          {
+            "level": "warning",
+            "code": "ORPHAN_NODE",
+            "message": "从入口连不到这个节点，但运行时它仍会被执行 —— 多半是忘了连线",
+            "nodeId": "b"
+          }
+        ]
+      }
+    },
+    {
+      "name": "入口有入边",
+      "graph": {
+        "nodes": [
+          {
+            "id": "entry",
+            "type": "entry",
+            "title": "入口",
+            "position": {
+              "x": 0,
+              "y": 0
+            },
+            "config": {
+              "trigger": "manual",
+              "inputSchema": {
+                "type": "object"
+              }
+            }
+          },
+          {
+            "id": "sh",
+            "type": "script.shell",
+            "title": "脚本",
+            "position": {
+              "x": 0,
+              "y": 0
+            },
+            "config": {
+              "interpreter": "zsh",
+              "script": "echo hi"
+            }
+          }
+        ],
+        "edges": [
+          {
+            "id": "e1",
+            "source": {
+              "nodeId": "entry",
+              "port": "success"
+            },
+            "target": {
+              "nodeId": "sh",
+              "port": "input"
+            }
+          },
+          {
+            "id": "e2",
+            "source": {
+              "nodeId": "sh",
+              "port": "success"
+            },
+            "target": {
+              "nodeId": "entry",
+              "port": "input"
+            }
+          }
+        ],
+        "groups": []
+      },
+      "validation": {
+        "ok": false,
+        "issues": [
+          {
+            "level": "warning",
+            "code": "END_MISSING",
+            "message": "没有结束节点，运行结果不会被显式标记"
+          },
+          {
+            "level": "error",
+            "code": "ENTRY_HAS_INPUT",
+            "message": "入口节点不能有入边",
+            "nodeId": "entry",
+            "edgeId": "e2"
+          },
+          {
+            "level": "error",
+            "code": "CYCLE",
+            "message": "节点位于环上，工作流必须是有向无环图",
+            "nodeId": "entry"
+          },
+          {
+            "level": "error",
+            "code": "CYCLE",
+            "message": "节点位于环上，工作流必须是有向无环图",
+            "nodeId": "sh"
+          }
+        ]
+      }
+    },
+    {
+      "name": "节点类型未登记",
+      "graph": {
+        "nodes": [
+          {
+            "id": "x",
+            "type": "ai.hallucinate",
+            "title": "不存在的类型",
+            "position": {
+              "x": 0,
+              "y": 0
+            },
+            "config": {}
+          }
+        ],
+        "edges": [],
+        "groups": []
+      },
+      "validation": {
+        "ok": false,
+        "issues": [
+          {
+            "level": "error",
+            "code": "UNKNOWN_NODE_TYPE",
+            "message": "节点类型 ai.hallucinate 未登记",
+            "nodeId": "x"
+          },
+          {
+            "level": "error",
+            "code": "ENTRY_MISSING",
+            "message": "工作流缺少入口节点，启动表单无从生成"
+          },
+          {
+            "level": "warning",
+            "code": "END_MISSING",
+            "message": "没有结束节点，运行结果不会被显式标记"
+          },
+          {
+            "level": "warning",
+            "code": "ORPHAN_NODE",
+            "message": "没有入口节点，无法判定可达性",
+            "nodeId": "x"
+          }
+        ]
+      }
+    },
+    {
+      "name": "配置不合法",
+      "graph": {
+        "nodes": [
+          {
+            "id": "entry",
+            "type": "entry",
+            "title": "入口",
+            "position": {
+              "x": 0,
+              "y": 0
+            },
+            "config": {
+              "trigger": "manual",
+              "inputSchema": {
+                "type": "object"
+              }
+            }
+          },
+          {
+            "id": "sh",
+            "type": "script.shell",
+            "title": "脚本",
+            "position": {
+              "x": 0,
+              "y": 0
+            },
+            "config": {}
+          }
+        ],
+        "edges": [],
+        "groups": []
+      },
+      "validation": {
+        "ok": false,
+        "issues": [
+          {
+            "level": "error",
+            "code": "INVALID_CONFIG",
+            "message": "配置不合法 —— 解释器只能是：zsh / bash / sh；脚本内容是必填项",
+            "nodeId": "sh"
+          },
+          {
+            "level": "warning",
+            "code": "END_MISSING",
+            "message": "没有结束节点，运行结果不会被显式标记"
+          },
+          {
+            "level": "warning",
+            "code": "ORPHAN_NODE",
+            "message": "从入口连不到这个节点，但运行时它仍会被执行 —— 多半是忘了连线",
+            "nodeId": "sh"
+          }
+        ]
+      }
+    },
+    {
+      "name": "节点 id 重复",
+      "graph": {
+        "nodes": [
+          {
+            "id": "dup",
+            "type": "entry",
+            "title": "入口",
+            "position": {
+              "x": 0,
+              "y": 0
+            },
+            "config": {
+              "trigger": "manual",
+              "inputSchema": {
+                "type": "object"
+              }
+            }
+          },
+          {
+            "id": "dup",
+            "type": "end",
+            "title": "结束",
+            "position": {
+              "x": 0,
+              "y": 0
+            },
+            "config": {
+              "outcome": "success"
+            }
+          }
+        ],
+        "edges": [],
+        "groups": []
+      },
+      "validation": {
+        "ok": false,
+        "issues": [
+          {
+            "level": "error",
+            "code": "DUPLICATE_NODE_ID",
+            "message": "节点 id dup 重复",
+            "nodeId": "dup"
+          },
+          {
+            "level": "warning",
+            "code": "END_MISSING",
+            "message": "没有结束节点，运行结果不会被显式标记"
+          }
+        ]
+      }
+    },
+    {
+      "name": "悬空连线",
+      "graph": {
+        "nodes": [
+          {
+            "id": "entry",
+            "type": "entry",
+            "title": "入口",
+            "position": {
+              "x": 0,
+              "y": 0
+            },
+            "config": {
+              "trigger": "manual",
+              "inputSchema": {
+                "type": "object"
+              }
+            }
+          }
+        ],
+        "edges": [
+          {
+            "id": "e1",
+            "source": {
+              "nodeId": "entry",
+              "port": "success"
+            },
+            "target": {
+              "nodeId": "不存在",
+              "port": "input"
+            }
+          }
+        ],
+        "groups": []
+      },
+      "validation": {
+        "ok": false,
+        "issues": [
+          {
+            "level": "warning",
+            "code": "END_MISSING",
+            "message": "没有结束节点，运行结果不会被显式标记"
+          },
+          {
+            "level": "error",
+            "code": "DANGLING_EDGE",
+            "message": "连线指向不存在的节点",
+            "edgeId": "e1"
+          }
+        ]
+      }
+    },
+    {
+      "name": "端口名不存在",
+      "graph": {
+        "nodes": [
+          {
+            "id": "entry",
+            "type": "entry",
+            "title": "入口",
+            "position": {
+              "x": 0,
+              "y": 0
+            },
+            "config": {
+              "trigger": "manual",
+              "inputSchema": {
+                "type": "object"
+              }
+            }
+          },
+          {
+            "id": "done",
+            "type": "end",
+            "title": "结束",
+            "position": {
+              "x": 0,
+              "y": 0
+            },
+            "config": {
+              "outcome": "success"
+            }
+          }
+        ],
+        "edges": [
+          {
+            "id": "e1",
+            "source": {
+              "nodeId": "entry",
+              "port": "并没有这个端口"
+            },
+            "target": {
+              "nodeId": "done",
+              "port": "也没有"
+            }
+          }
+        ],
+        "groups": []
+      },
+      "validation": {
+        "ok": false,
+        "issues": [
+          {
+            "level": "error",
+            "code": "UNKNOWN_PORT",
+            "message": "entry 没有输出端口 并没有这个端口",
+            "edgeId": "e1"
+          },
+          {
+            "level": "error",
+            "code": "UNKNOWN_PORT",
+            "message": "done 没有输入端口 也没有",
+            "edgeId": "e1"
+          }
+        ]
+      }
+    },
+    {
+      "name": "重复连线",
+      "graph": {
+        "nodes": [
+          {
+            "id": "entry",
+            "type": "entry",
+            "title": "入口",
+            "position": {
+              "x": 0,
+              "y": 0
+            },
+            "config": {
+              "trigger": "manual",
+              "inputSchema": {
+                "type": "object"
+              }
+            }
+          },
+          {
+            "id": "done",
+            "type": "end",
+            "title": "结束",
+            "position": {
+              "x": 0,
+              "y": 0
+            },
+            "config": {
+              "outcome": "success"
+            }
+          }
+        ],
+        "edges": [
+          {
+            "id": "e1",
+            "source": {
+              "nodeId": "entry",
+              "port": "success"
+            },
+            "target": {
+              "nodeId": "done",
+              "port": "input"
+            }
+          },
+          {
+            "id": "e2",
+            "source": {
+              "nodeId": "entry",
+              "port": "success"
+            },
+            "target": {
+              "nodeId": "done",
+              "port": "input"
+            }
+          }
+        ],
+        "groups": []
+      },
+      "validation": {
+        "ok": true,
+        "issues": [
+          {
+            "level": "warning",
+            "code": "DUPLICATE_EDGE",
+            "message": "重复连线",
+            "edgeId": "e2"
+          }
+        ]
+      }
+    },
+    {
+      "name": "环",
+      "graph": {
+        "nodes": [
+          {
+            "id": "entry",
+            "type": "entry",
+            "title": "入口",
+            "position": {
+              "x": 0,
+              "y": 0
+            },
+            "config": {
+              "trigger": "manual",
+              "inputSchema": {
+                "type": "object"
+              }
+            }
+          },
+          {
+            "id": "a",
+            "type": "script.shell",
+            "title": "A",
+            "position": {
+              "x": 0,
+              "y": 0
+            },
+            "config": {
+              "interpreter": "zsh",
+              "script": "echo a"
+            }
+          },
+          {
+            "id": "b",
+            "type": "script.shell",
+            "title": "B",
+            "position": {
+              "x": 0,
+              "y": 0
+            },
+            "config": {
+              "interpreter": "zsh",
+              "script": "echo b"
+            }
+          }
+        ],
+        "edges": [
+          {
+            "id": "e0",
+            "source": {
+              "nodeId": "entry",
+              "port": "success"
+            },
+            "target": {
+              "nodeId": "a",
+              "port": "input"
+            }
+          },
+          {
+            "id": "e1",
+            "source": {
+              "nodeId": "a",
+              "port": "success"
+            },
+            "target": {
+              "nodeId": "b",
+              "port": "input"
+            }
+          },
+          {
+            "id": "e2",
+            "source": {
+              "nodeId": "b",
+              "port": "success"
+            },
+            "target": {
+              "nodeId": "a",
+              "port": "input"
+            }
+          }
+        ],
+        "groups": []
+      },
+      "validation": {
+        "ok": false,
+        "issues": [
+          {
+            "level": "warning",
+            "code": "END_MISSING",
+            "message": "没有结束节点，运行结果不会被显式标记"
+          },
+          {
+            "level": "error",
+            "code": "CYCLE",
+            "message": "节点位于环上，工作流必须是有向无环图",
+            "nodeId": "a"
+          },
+          {
+            "level": "error",
+            "code": "CYCLE",
+            "message": "节点位于环上，工作流必须是有向无环图",
+            "nodeId": "b"
+          }
+        ]
+      }
+    },
+    {
+      "name": "孤立节点",
+      "graph": {
+        "nodes": [
+          {
+            "id": "entry",
+            "type": "entry",
+            "title": "入口",
+            "position": {
+              "x": 0,
+              "y": 0
+            },
+            "config": {
+              "trigger": "manual",
+              "inputSchema": {
+                "type": "object"
+              }
+            }
+          },
+          {
+            "id": "done",
+            "type": "end",
+            "title": "结束",
+            "position": {
+              "x": 0,
+              "y": 0
+            },
+            "config": {
+              "outcome": "success"
+            }
+          },
+          {
+            "id": "lonely",
+            "type": "script.shell",
+            "title": "没连线的",
+            "position": {
+              "x": 0,
+              "y": 0
+            },
+            "config": {
+              "interpreter": "zsh",
+              "script": "echo alone"
+            }
+          }
+        ],
+        "edges": [
+          {
+            "id": "e1",
+            "source": {
+              "nodeId": "entry",
+              "port": "success"
+            },
+            "target": {
+              "nodeId": "done",
+              "port": "input"
+            }
+          }
+        ],
+        "groups": []
+      },
+      "validation": {
+        "ok": true,
+        "issues": [
+          {
+            "level": "warning",
+            "code": "ORPHAN_NODE",
+            "message": "从入口连不到这个节点，但运行时它仍会被执行 —— 多半是忘了连线",
+            "nodeId": "lonely"
+          }
+        ]
+      }
+    },
+    {
+      "name": "Quorum 越界",
+      "graph": {
+        "nodes": [
+          {
+            "id": "entry",
+            "type": "entry",
+            "title": "入口",
+            "position": {
+              "x": 0,
+              "y": 0
+            },
+            "config": {
+              "trigger": "manual",
+              "inputSchema": {
+                "type": "object"
+              }
+            }
+          },
+          {
+            "id": "done",
+            "type": "end",
+            "title": "结束",
+            "position": {
+              "x": 0,
+              "y": 0
+            },
+            "config": {
+              "outcome": "success"
+            }
+          },
+          {
+            "id": "join",
+            "type": "transform",
+            "title": "汇聚",
+            "position": {
+              "x": 0,
+              "y": 0
+            },
+            "config": {
+              "language": "jsonata",
+              "expression": "$"
+            },
+            "join": {
+              "strategy": "quorum",
+              "quorum": 9,
+              "merge": "namespaced",
+              "onPartialFailure": "fail"
+            }
+          }
+        ],
+        "edges": [
+          {
+            "id": "e1",
+            "source": {
+              "nodeId": "entry",
+              "port": "success"
+            },
+            "target": {
+              "nodeId": "done",
+              "port": "input"
+            }
+          },
+          {
+            "id": "e2",
+            "source": {
+              "nodeId": "entry",
+              "port": "success"
+            },
+            "target": {
+              "nodeId": "join",
+              "port": "input"
+            }
+          }
+        ],
+        "groups": []
+      },
+      "validation": {
+        "ok": false,
+        "issues": [
+          {
+            "level": "error",
+            "code": "INVALID_CONFIG",
+            "message": "配置不合法 —— 字段映射是必填项",
+            "nodeId": "join"
+          },
+          {
+            "level": "error",
+            "code": "JOIN_QUORUM_INVALID",
+            "message": "Quorum 需在 1..1 之间，当前为 9",
+            "nodeId": "join"
+          }
+        ]
+      }
+    },
+    {
+      "name": "条件分支的动态端口",
+      "graph": {
+        "nodes": [
+          {
+            "id": "entry",
+            "type": "entry",
+            "title": "入口",
+            "position": {
+              "x": 0,
+              "y": 0
+            },
+            "config": {
+              "trigger": "manual",
+              "inputSchema": {
+                "type": "object"
+              }
+            }
+          },
+          {
+            "id": "br",
+            "type": "branch",
+            "title": "分支",
+            "position": {
+              "x": 0,
+              "y": 0
+            },
+            "config": {
+              "cases": [
+                {
+                  "port": "high",
+                  "when": "x > 3"
+                },
+                {
+                  "port": "low",
+                  "when": "x <= 3"
+                }
+              ],
+              "defaultPort": "兜底"
+            }
+          },
+          {
+            "id": "done",
+            "type": "end",
+            "title": "结束",
+            "position": {
+              "x": 0,
+              "y": 0
+            },
+            "config": {
+              "outcome": "success"
+            }
+          }
+        ],
+        "edges": [
+          {
+            "id": "e0",
+            "source": {
+              "nodeId": "entry",
+              "port": "success"
+            },
+            "target": {
+              "nodeId": "br",
+              "port": "input"
+            }
+          },
+          {
+            "id": "e1",
+            "source": {
+              "nodeId": "br",
+              "port": "high"
+            },
+            "target": {
+              "nodeId": "done",
+              "port": "input"
+            }
+          },
+          {
+            "id": "e2",
+            "source": {
+              "nodeId": "br",
+              "port": "default"
+            },
+            "target": {
+              "nodeId": "done",
+              "port": "input"
+            }
+          }
+        ],
+        "groups": []
+      },
+      "validation": {
+        "ok": false,
+        "issues": [
+          {
+            "level": "error",
+            "code": "UNKNOWN_PORT",
+            "message": "br 没有输出端口 default",
+            "edgeId": "e2"
+          }
+        ]
+      }
+    },
+    {
+      "name": "patch · 版本守卫拒绝陈旧的 baseRevision",
+      "graph": {
+        "nodes": [
+          {
+            "id": "entry",
+            "type": "entry",
+            "title": "入口",
+            "position": {
+              "x": 0,
+              "y": 0
+            },
+            "config": {
+              "trigger": "manual",
+              "inputSchema": {
+                "type": "object"
+              }
+            }
+          },
+          {
+            "id": "done",
+            "type": "end",
+            "title": "结束",
+            "position": {
+              "x": 0,
+              "y": 0
+            },
+            "config": {
+              "outcome": "success"
+            }
+          }
+        ],
+        "edges": [
+          {
+            "id": "e1",
+            "source": {
+              "nodeId": "entry",
+              "port": "success"
+            },
+            "target": {
+              "nodeId": "done",
+              "port": "input"
+            }
+          }
+        ],
+        "groups": []
+      },
+      "patch": {
+        "baseRevision": 7,
+        "operations": [
+          {
+            "op": "removeNode",
+            "nodeId": "done"
+          }
+        ]
+      },
+      "currentRevision": 12,
+      "result": {
+        "ok": false,
+        "error": {
+          "code": "REVISION_CONFLICT",
+          "message": "草稿已变化：baseRevision 7，当前 rev 12"
+        }
+      }
+    },
+    {
+      "name": "patch · addNode 固化 Schema 默认值",
+      "graph": {
+        "nodes": [
+          {
+            "id": "entry",
+            "type": "entry",
+            "title": "入口",
+            "position": {
+              "x": 0,
+              "y": 0
+            },
+            "config": {
+              "trigger": "manual",
+              "inputSchema": {
+                "type": "object"
+              }
+            }
+          },
+          {
+            "id": "done",
+            "type": "end",
+            "title": "结束",
+            "position": {
+              "x": 0,
+              "y": 0
+            },
+            "config": {
+              "outcome": "success"
+            }
+          }
+        ],
+        "edges": [
+          {
+            "id": "e1",
+            "source": {
+              "nodeId": "entry",
+              "port": "success"
+            },
+            "target": {
+              "nodeId": "done",
+              "port": "input"
+            }
+          }
+        ],
+        "groups": []
+      },
+      "patch": {
+        "baseRevision": 3,
+        "operations": [
+          {
+            "op": "addNode",
+            "nodeId": "sh",
+            "type": "script.shell",
+            "title": "脚本",
+            "position": {
+              "x": 10,
+              "y": 20
+            },
+            "config": {
+              "interpreter": "zsh",
+              "script": "echo hi"
+            }
+          }
+        ]
+      },
+      "currentRevision": 3,
+      "result": {
+        "ok": true,
+        "rev": 4,
+        "graph": {
+          "nodes": [
+            {
+              "id": "entry",
+              "type": "entry",
+              "title": "入口",
+              "position": {
+                "x": 0,
+                "y": 0
+              },
+              "config": {
+                "trigger": "manual",
+                "inputSchema": {
+                  "type": "object"
+                }
+              }
+            },
+            {
+              "id": "done",
+              "type": "end",
+              "title": "结束",
+              "position": {
+                "x": 0,
+                "y": 0
+              },
+              "config": {
+                "outcome": "success"
+              }
+            },
+            {
+              "id": "sh",
+              "type": "script.shell",
+              "title": "脚本",
+              "position": {
+                "x": 10,
+                "y": 20
+              },
+              "config": {
+                "interpreter": "zsh",
+                "script": "echo hi",
+                "env": {},
+                "secretEnv": {},
+                "outputParse": "none",
+                "successExitCodes": [
+                  0
+                ],
+                "outputLimitBytes": 1048576,
+                "timeoutMs": 900000
+              }
+            }
+          ],
+          "edges": [
+            {
+              "id": "e1",
+              "source": {
+                "nodeId": "entry",
+                "port": "success"
+              },
+              "target": {
+                "nodeId": "done",
+                "port": "input"
+              }
+            }
+          ],
+          "groups": []
+        },
+        "diff": {
+          "added": [
+            {
+              "kind": "node",
+              "id": "sh",
+              "label": "node script.shell「脚本」",
+              "after": {
+                "interpreter": "zsh",
+                "script": "echo hi",
+                "env": {},
+                "secretEnv": {},
+                "outputParse": "none",
+                "successExitCodes": [
+                  0
+                ],
+                "outputLimitBytes": 1048576,
+                "timeoutMs": 900000
+              }
+            }
+          ],
+          "removed": [],
+          "changed": []
+        },
+        "validation": {
+          "ok": true,
+          "issues": [
+            {
+              "level": "warning",
+              "code": "ORPHAN_NODE",
+              "message": "从入口连不到这个节点，但运行时它仍会被执行 —— 多半是忘了连线",
+              "nodeId": "sh"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "patch · addNode 不给 nodeId 时自动编号",
+      "graph": {
+        "nodes": [
+          {
+            "id": "entry",
+            "type": "entry",
+            "title": "入口",
+            "position": {
+              "x": 0,
+              "y": 0
+            },
+            "config": {
+              "trigger": "manual",
+              "inputSchema": {
+                "type": "object"
+              }
+            }
+          },
+          {
+            "id": "done",
+            "type": "end",
+            "title": "结束",
+            "position": {
+              "x": 0,
+              "y": 0
+            },
+            "config": {
+              "outcome": "success"
+            }
+          }
+        ],
+        "edges": [
+          {
+            "id": "e1",
+            "source": {
+              "nodeId": "entry",
+              "port": "success"
+            },
+            "target": {
+              "nodeId": "done",
+              "port": "input"
+            }
+          }
+        ],
+        "groups": []
+      },
+      "patch": {
+        "baseRevision": 0,
+        "operations": [
+          {
+            "op": "addNode",
+            "type": "notify",
+            "title": "通知",
+            "position": {
+              "x": 0,
+              "y": 0
+            },
+            "config": {
+              "title": "完成",
+              "body": "好了"
+            }
+          }
+        ]
+      },
+      "currentRevision": 0,
+      "result": {
+        "ok": true,
+        "rev": 1,
+        "graph": {
+          "nodes": [
+            {
+              "id": "entry",
+              "type": "entry",
+              "title": "入口",
+              "position": {
+                "x": 0,
+                "y": 0
+              },
+              "config": {
+                "trigger": "manual",
+                "inputSchema": {
+                  "type": "object"
+                }
+              }
+            },
+            {
+              "id": "done",
+              "type": "end",
+              "title": "结束",
+              "position": {
+                "x": 0,
+                "y": 0
+              },
+              "config": {
+                "outcome": "success"
+              }
+            },
+            {
+              "id": "notify_3",
+              "type": "notify",
+              "title": "通知",
+              "position": {
+                "x": 0,
+                "y": 0
+              },
+              "config": {
+                "title": "完成",
+                "body": "好了",
+                "on": [
+                  "completed",
+                  "failed",
+                  "waiting_approval"
+                ],
+                "clickAction": "open_run",
+                "onFailure": "ignore"
+              }
+            }
+          ],
+          "edges": [
+            {
+              "id": "e1",
+              "source": {
+                "nodeId": "entry",
+                "port": "success"
+              },
+              "target": {
+                "nodeId": "done",
+                "port": "input"
+              }
+            }
+          ],
+          "groups": []
+        },
+        "diff": {
+          "added": [
+            {
+              "kind": "node",
+              "id": "notify_3",
+              "label": "node notify「通知」",
+              "after": {
+                "title": "完成",
+                "body": "好了",
+                "on": [
+                  "completed",
+                  "failed",
+                  "waiting_approval"
+                ],
+                "clickAction": "open_run",
+                "onFailure": "ignore"
+              }
+            }
+          ],
+          "removed": [],
+          "changed": []
+        },
+        "validation": {
+          "ok": true,
+          "issues": [
+            {
+              "level": "warning",
+              "code": "ORPHAN_NODE",
+              "message": "从入口连不到这个节点，但运行时它仍会被执行 —— 多半是忘了连线",
+              "nodeId": "notify_3"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "patch · addNode 撞已有 id",
+      "graph": {
+        "nodes": [
+          {
+            "id": "entry",
+            "type": "entry",
+            "title": "入口",
+            "position": {
+              "x": 0,
+              "y": 0
+            },
+            "config": {
+              "trigger": "manual",
+              "inputSchema": {
+                "type": "object"
+              }
+            }
+          },
+          {
+            "id": "done",
+            "type": "end",
+            "title": "结束",
+            "position": {
+              "x": 0,
+              "y": 0
+            },
+            "config": {
+              "outcome": "success"
+            }
+          }
+        ],
+        "edges": [
+          {
+            "id": "e1",
+            "source": {
+              "nodeId": "entry",
+              "port": "success"
+            },
+            "target": {
+              "nodeId": "done",
+              "port": "input"
+            }
+          }
+        ],
+        "groups": []
+      },
+      "patch": {
+        "baseRevision": 0,
+        "operations": [
+          {
+            "op": "addNode",
+            "nodeId": "done",
+            "type": "end",
+            "title": "又一个结束",
+            "position": {
+              "x": 0,
+              "y": 0
+            },
+            "config": {
+              "outcome": "success"
+            }
+          }
+        ]
+      },
+      "currentRevision": 0,
+      "result": {
+        "ok": false,
+        "error": {
+          "code": "VALIDATION",
+          "message": "节点 id done 已存在"
+        }
+      }
+    },
+    {
+      "name": "patch · addNode 配置不合法整批作废",
+      "graph": {
+        "nodes": [
+          {
+            "id": "entry",
+            "type": "entry",
+            "title": "入口",
+            "position": {
+              "x": 0,
+              "y": 0
+            },
+            "config": {
+              "trigger": "manual",
+              "inputSchema": {
+                "type": "object"
+              }
+            }
+          },
+          {
+            "id": "done",
+            "type": "end",
+            "title": "结束",
+            "position": {
+              "x": 0,
+              "y": 0
+            },
+            "config": {
+              "outcome": "success"
+            }
+          }
+        ],
+        "edges": [
+          {
+            "id": "e1",
+            "source": {
+              "nodeId": "entry",
+              "port": "success"
+            },
+            "target": {
+              "nodeId": "done",
+              "port": "input"
+            }
+          }
+        ],
+        "groups": []
+      },
+      "patch": {
+        "baseRevision": 0,
+        "operations": [
+          {
+            "op": "renameNode",
+            "nodeId": "done",
+            "title": "先改个名"
+          },
+          {
+            "op": "addNode",
+            "nodeId": "sh",
+            "type": "script.shell",
+            "title": "脚本",
+            "position": {
+              "x": 0,
+              "y": 0
+            },
+            "config": {
+              "interpreter": "并不是白名单里的"
+            }
+          }
+        ]
+      },
+      "currentRevision": 0,
+      "result": {
+        "ok": false,
+        "error": {
+          "code": "VALIDATION",
+          "message": "第 2 个操作的节点配置不合法"
+        }
+      }
+    },
+    {
+      "name": "patch · removeNode 连带断线",
+      "graph": {
+        "nodes": [
+          {
+            "id": "entry",
+            "type": "entry",
+            "title": "入口",
+            "position": {
+              "x": 0,
+              "y": 0
+            },
+            "config": {
+              "trigger": "manual",
+              "inputSchema": {
+                "type": "object"
+              }
+            }
+          },
+          {
+            "id": "done",
+            "type": "end",
+            "title": "结束",
+            "position": {
+              "x": 0,
+              "y": 0
+            },
+            "config": {
+              "outcome": "success"
+            }
+          }
+        ],
+        "edges": [
+          {
+            "id": "e1",
+            "source": {
+              "nodeId": "entry",
+              "port": "success"
+            },
+            "target": {
+              "nodeId": "done",
+              "port": "input"
+            }
+          }
+        ],
+        "groups": []
+      },
+      "patch": {
+        "baseRevision": 0,
+        "operations": [
+          {
+            "op": "removeNode",
+            "nodeId": "done"
+          }
+        ]
+      },
+      "currentRevision": 0,
+      "result": {
+        "ok": true,
+        "rev": 1,
+        "graph": {
+          "nodes": [
+            {
+              "id": "entry",
+              "type": "entry",
+              "title": "入口",
+              "position": {
+                "x": 0,
+                "y": 0
+              },
+              "config": {
+                "trigger": "manual",
+                "inputSchema": {
+                  "type": "object"
+                }
+              }
+            }
+          ],
+          "edges": [],
+          "groups": []
+        },
+        "diff": {
+          "added": [],
+          "removed": [
+            {
+              "kind": "node",
+              "id": "done",
+              "label": "node end「结束」",
+              "before": {
+                "id": "done",
+                "type": "end",
+                "title": "结束",
+                "position": {
+                  "x": 0,
+                  "y": 0
+                },
+                "config": {
+                  "outcome": "success"
+                }
+              }
+            },
+            {
+              "kind": "edge",
+              "id": "e1",
+              "label": "edge entry → done",
+              "before": {
+                "id": "e1",
+                "source": {
+                  "nodeId": "entry",
+                  "port": "success"
+                },
+                "target": {
+                  "nodeId": "done",
+                  "port": "input"
+                }
+              }
+            }
+          ],
+          "changed": []
+        },
+        "validation": {
+          "ok": true,
+          "issues": [
+            {
+              "level": "warning",
+              "code": "END_MISSING",
+              "message": "没有结束节点，运行结果不会被显式标记"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "patch · removeNode 指向不存在的节点",
+      "graph": {
+        "nodes": [
+          {
+            "id": "entry",
+            "type": "entry",
+            "title": "入口",
+            "position": {
+              "x": 0,
+              "y": 0
+            },
+            "config": {
+              "trigger": "manual",
+              "inputSchema": {
+                "type": "object"
+              }
+            }
+          },
+          {
+            "id": "done",
+            "type": "end",
+            "title": "结束",
+            "position": {
+              "x": 0,
+              "y": 0
+            },
+            "config": {
+              "outcome": "success"
+            }
+          }
+        ],
+        "edges": [
+          {
+            "id": "e1",
+            "source": {
+              "nodeId": "entry",
+              "port": "success"
+            },
+            "target": {
+              "nodeId": "done",
+              "port": "input"
+            }
+          }
+        ],
+        "groups": []
+      },
+      "patch": {
+        "baseRevision": 0,
+        "operations": [
+          {
+            "op": "removeNode",
+            "nodeId": "查无此人"
+          }
+        ]
+      },
+      "currentRevision": 0,
+      "result": {
+        "ok": false,
+        "error": {
+          "code": "VALIDATION",
+          "message": "节点 查无此人 不存在"
+        }
+      }
+    },
+    {
+      "name": "patch · renameNode",
+      "graph": {
+        "nodes": [
+          {
+            "id": "entry",
+            "type": "entry",
+            "title": "入口",
+            "position": {
+              "x": 0,
+              "y": 0
+            },
+            "config": {
+              "trigger": "manual",
+              "inputSchema": {
+                "type": "object"
+              }
+            }
+          },
+          {
+            "id": "done",
+            "type": "end",
+            "title": "结束",
+            "position": {
+              "x": 0,
+              "y": 0
+            },
+            "config": {
+              "outcome": "success"
+            }
+          }
+        ],
+        "edges": [
+          {
+            "id": "e1",
+            "source": {
+              "nodeId": "entry",
+              "port": "success"
+            },
+            "target": {
+              "nodeId": "done",
+              "port": "input"
+            }
+          }
+        ],
+        "groups": []
+      },
+      "patch": {
+        "baseRevision": 1,
+        "operations": [
+          {
+            "op": "renameNode",
+            "nodeId": "done",
+            "title": "收工"
+          }
+        ]
+      },
+      "currentRevision": 1,
+      "result": {
+        "ok": true,
+        "rev": 2,
+        "graph": {
+          "nodes": [
+            {
+              "id": "entry",
+              "type": "entry",
+              "title": "入口",
+              "position": {
+                "x": 0,
+                "y": 0
+              },
+              "config": {
+                "trigger": "manual",
+                "inputSchema": {
+                  "type": "object"
+                }
+              }
+            },
+            {
+              "id": "done",
+              "type": "end",
+              "title": "收工",
+              "position": {
+                "x": 0,
+                "y": 0
+              },
+              "config": {
+                "outcome": "success"
+              }
+            }
+          ],
+          "edges": [
+            {
+              "id": "e1",
+              "source": {
+                "nodeId": "entry",
+                "port": "success"
+              },
+              "target": {
+                "nodeId": "done",
+                "port": "input"
+              }
+            }
+          ],
+          "groups": []
+        },
+        "diff": {
+          "added": [],
+          "removed": [],
+          "changed": [
+            {
+              "kind": "node",
+              "id": "done",
+              "label": "node done：标题 结束 → 收工",
+              "before": "结束",
+              "after": "收工"
+            }
+          ]
+        },
+        "validation": {
+          "ok": true,
+          "issues": []
+        }
+      }
+    },
+    {
+      "name": "patch · moveNode 不进 Diff",
+      "graph": {
+        "nodes": [
+          {
+            "id": "entry",
+            "type": "entry",
+            "title": "入口",
+            "position": {
+              "x": 0,
+              "y": 0
+            },
+            "config": {
+              "trigger": "manual",
+              "inputSchema": {
+                "type": "object"
+              }
+            }
+          },
+          {
+            "id": "done",
+            "type": "end",
+            "title": "结束",
+            "position": {
+              "x": 0,
+              "y": 0
+            },
+            "config": {
+              "outcome": "success"
+            }
+          }
+        ],
+        "edges": [
+          {
+            "id": "e1",
+            "source": {
+              "nodeId": "entry",
+              "port": "success"
+            },
+            "target": {
+              "nodeId": "done",
+              "port": "input"
+            }
+          }
+        ],
+        "groups": []
+      },
+      "patch": {
+        "baseRevision": 0,
+        "operations": [
+          {
+            "op": "moveNode",
+            "nodeId": "done",
+            "position": {
+              "x": 999,
+              "y": -12.5
+            }
+          }
+        ]
+      },
+      "currentRevision": 0,
+      "result": {
+        "ok": true,
+        "rev": 1,
+        "graph": {
+          "nodes": [
+            {
+              "id": "entry",
+              "type": "entry",
+              "title": "入口",
+              "position": {
+                "x": 0,
+                "y": 0
+              },
+              "config": {
+                "trigger": "manual",
+                "inputSchema": {
+                  "type": "object"
+                }
+              }
+            },
+            {
+              "id": "done",
+              "type": "end",
+              "title": "结束",
+              "position": {
+                "x": 999,
+                "y": -12.5
+              },
+              "config": {
+                "outcome": "success"
+              }
+            }
+          ],
+          "edges": [
+            {
+              "id": "e1",
+              "source": {
+                "nodeId": "entry",
+                "port": "success"
+              },
+              "target": {
+                "nodeId": "done",
+                "port": "input"
+              }
+            }
+          ],
+          "groups": []
+        },
+        "diff": {
+          "added": [],
+          "removed": [],
+          "changed": []
+        },
+        "validation": {
+          "ok": true,
+          "issues": []
+        }
+      }
+    },
+    {
+      "name": "patch · setConfig",
+      "graph": {
+        "nodes": [
+          {
+            "id": "entry",
+            "type": "entry",
+            "title": "入口",
+            "position": {
+              "x": 0,
+              "y": 0
+            },
+            "config": {
+              "trigger": "manual",
+              "inputSchema": {
+                "type": "object"
+              }
+            }
+          },
+          {
+            "id": "done",
+            "type": "end",
+            "title": "结束",
+            "position": {
+              "x": 0,
+              "y": 0
+            },
+            "config": {
+              "outcome": "success"
+            }
+          }
+        ],
+        "edges": [
+          {
+            "id": "e1",
+            "source": {
+              "nodeId": "entry",
+              "port": "success"
+            },
+            "target": {
+              "nodeId": "done",
+              "port": "input"
+            }
+          }
+        ],
+        "groups": []
+      },
+      "patch": {
+        "baseRevision": 0,
+        "operations": [
+          {
+            "op": "setConfig",
+            "nodeId": "done",
+            "config": {
+              "outcome": "failure"
+            }
+          }
+        ]
+      },
+      "currentRevision": 0,
+      "result": {
+        "ok": true,
+        "rev": 1,
+        "graph": {
+          "nodes": [
+            {
+              "id": "entry",
+              "type": "entry",
+              "title": "入口",
+              "position": {
+                "x": 0,
+                "y": 0
+              },
+              "config": {
+                "trigger": "manual",
+                "inputSchema": {
+                  "type": "object"
+                }
+              }
+            },
+            {
+              "id": "done",
+              "type": "end",
+              "title": "结束",
+              "position": {
+                "x": 0,
+                "y": 0
+              },
+              "config": {
+                "outcome": "failure",
+                "artifacts": []
+              }
+            }
+          ],
+          "edges": [
+            {
+              "id": "e1",
+              "source": {
+                "nodeId": "entry",
+                "port": "success"
+              },
+              "target": {
+                "nodeId": "done",
+                "port": "input"
+              }
+            }
+          ],
+          "groups": []
+        },
+        "diff": {
+          "added": [],
+          "removed": [],
+          "changed": [
+            {
+              "kind": "node",
+              "id": "done",
+              "label": "node done：配置更新",
+              "before": {
+                "outcome": "success"
+              },
+              "after": {
+                "outcome": "failure",
+                "artifacts": []
+              }
+            }
+          ]
+        },
+        "validation": {
+          "ok": true,
+          "issues": []
+        }
+      }
+    },
+    {
+      "name": "patch · setJoin",
+      "graph": {
+        "nodes": [
+          {
+            "id": "entry",
+            "type": "entry",
+            "title": "入口",
+            "position": {
+              "x": 0,
+              "y": 0
+            },
+            "config": {
+              "trigger": "manual",
+              "inputSchema": {
+                "type": "object"
+              }
+            }
+          },
+          {
+            "id": "done",
+            "type": "end",
+            "title": "结束",
+            "position": {
+              "x": 0,
+              "y": 0
+            },
+            "config": {
+              "outcome": "success"
+            }
+          }
+        ],
+        "edges": [
+          {
+            "id": "e1",
+            "source": {
+              "nodeId": "entry",
+              "port": "success"
+            },
+            "target": {
+              "nodeId": "done",
+              "port": "input"
+            }
+          }
+        ],
+        "groups": []
+      },
+      "patch": {
+        "baseRevision": 0,
+        "operations": [
+          {
+            "op": "setJoin",
+            "nodeId": "done",
+            "join": {
+              "strategy": "any",
+              "merge": "shallow",
+              "onPartialFailure": "continue"
+            }
+          }
+        ]
+      },
+      "currentRevision": 0,
+      "result": {
+        "ok": true,
+        "rev": 1,
+        "graph": {
+          "nodes": [
+            {
+              "id": "entry",
+              "type": "entry",
+              "title": "入口",
+              "position": {
+                "x": 0,
+                "y": 0
+              },
+              "config": {
+                "trigger": "manual",
+                "inputSchema": {
+                  "type": "object"
+                }
+              }
+            },
+            {
+              "id": "done",
+              "type": "end",
+              "title": "结束",
+              "position": {
+                "x": 0,
+                "y": 0
+              },
+              "config": {
+                "outcome": "success"
+              },
+              "join": {
+                "strategy": "any",
+                "merge": "shallow",
+                "onPartialFailure": "continue"
+              }
+            }
+          ],
+          "edges": [
+            {
+              "id": "e1",
+              "source": {
+                "nodeId": "entry",
+                "port": "success"
+              },
+              "target": {
+                "nodeId": "done",
+                "port": "input"
+              }
+            }
+          ],
+          "groups": []
+        },
+        "diff": {
+          "added": [],
+          "removed": [],
+          "changed": [
+            {
+              "kind": "node",
+              "id": "done",
+              "label": "node done：汇聚策略 → any",
+              "after": {
+                "strategy": "any",
+                "merge": "shallow",
+                "onPartialFailure": "continue"
+              }
+            }
+          ]
+        },
+        "validation": {
+          "ok": true,
+          "issues": []
+        }
+      }
+    },
+    {
+      "name": "patch · setCapabilities 是合并不是替换",
+      "graph": {
+        "nodes": [
+          {
+            "id": "entry",
+            "type": "entry",
+            "title": "入口",
+            "position": {
+              "x": 0,
+              "y": 0
+            },
+            "config": {
+              "trigger": "manual",
+              "inputSchema": {
+                "type": "object"
+              }
+            }
+          },
+          {
+            "id": "done",
+            "type": "end",
+            "title": "结束",
+            "position": {
+              "x": 0,
+              "y": 0
+            },
+            "config": {
+              "outcome": "success"
+            }
+          }
+        ],
+        "edges": [
+          {
+            "id": "e1",
+            "source": {
+              "nodeId": "entry",
+              "port": "success"
+            },
+            "target": {
+              "nodeId": "done",
+              "port": "input"
+            }
+          }
+        ],
+        "groups": []
+      },
+      "patch": {
+        "baseRevision": 0,
+        "operations": [
+          {
+            "op": "setCapabilities",
+            "nodeId": "done",
+            "capabilities": {
+              "file": "read"
+            }
+          },
+          {
+            "op": "setCapabilities",
+            "nodeId": "done",
+            "capabilities": {
+              "network": "allowlist"
+            }
+          }
+        ]
+      },
+      "currentRevision": 0,
+      "result": {
+        "ok": true,
+        "rev": 1,
+        "graph": {
+          "nodes": [
+            {
+              "id": "entry",
+              "type": "entry",
+              "title": "入口",
+              "position": {
+                "x": 0,
+                "y": 0
+              },
+              "config": {
+                "trigger": "manual",
+                "inputSchema": {
+                  "type": "object"
+                }
+              }
+            },
+            {
+              "id": "done",
+              "type": "end",
+              "title": "结束",
+              "position": {
+                "x": 0,
+                "y": 0
+              },
+              "config": {
+                "outcome": "success"
+              },
+              "capabilities": {
+                "file": "read",
+                "network": "allowlist"
+              }
+            }
+          ],
+          "edges": [
+            {
+              "id": "e1",
+              "source": {
+                "nodeId": "entry",
+                "port": "success"
+              },
+              "target": {
+                "nodeId": "done",
+                "port": "input"
+              }
+            }
+          ],
+          "groups": []
+        },
+        "diff": {
+          "added": [],
+          "removed": [],
+          "changed": [
+            {
+              "kind": "node",
+              "id": "done",
+              "label": "node done：能力声明变更（扩权会让已保存的信任策略失效）",
+              "after": {
+                "file": "read"
+              }
+            },
+            {
+              "kind": "node",
+              "id": "done",
+              "label": "node done：能力声明变更（扩权会让已保存的信任策略失效）",
+              "before": {
+                "file": "read"
+              },
+              "after": {
+                "file": "read",
+                "network": "allowlist"
+              }
+            }
+          ]
+        },
+        "validation": {
+          "ok": true,
+          "issues": []
+        }
+      }
+    },
+    {
+      "name": "patch · setRetry 是合并不是替换",
+      "graph": {
+        "nodes": [
+          {
+            "id": "entry",
+            "type": "entry",
+            "title": "入口",
+            "position": {
+              "x": 0,
+              "y": 0
+            },
+            "config": {
+              "trigger": "manual",
+              "inputSchema": {
+                "type": "object"
+              }
+            }
+          },
+          {
+            "id": "done",
+            "type": "end",
+            "title": "结束",
+            "position": {
+              "x": 0,
+              "y": 0
+            },
+            "config": {
+              "outcome": "success"
+            }
+          }
+        ],
+        "edges": [
+          {
+            "id": "e1",
+            "source": {
+              "nodeId": "entry",
+              "port": "success"
+            },
+            "target": {
+              "nodeId": "done",
+              "port": "input"
+            }
+          }
+        ],
+        "groups": []
+      },
+      "patch": {
+        "baseRevision": 0,
+        "operations": [
+          {
+            "op": "setRetry",
+            "nodeId": "done",
+            "retry": {
+              "maxAttempts": 3
+            }
+          },
+          {
+            "op": "setRetry",
+            "nodeId": "done",
+            "retry": {
+              "backoff": "fixed"
+            }
+          }
+        ]
+      },
+      "currentRevision": 0,
+      "result": {
+        "ok": true,
+        "rev": 1,
+        "graph": {
+          "nodes": [
+            {
+              "id": "entry",
+              "type": "entry",
+              "title": "入口",
+              "position": {
+                "x": 0,
+                "y": 0
+              },
+              "config": {
+                "trigger": "manual",
+                "inputSchema": {
+                  "type": "object"
+                }
+              }
+            },
+            {
+              "id": "done",
+              "type": "end",
+              "title": "结束",
+              "position": {
+                "x": 0,
+                "y": 0
+              },
+              "config": {
+                "outcome": "success"
+              },
+              "retry": {
+                "maxAttempts": 3,
+                "backoff": "fixed"
+              }
+            }
+          ],
+          "edges": [
+            {
+              "id": "e1",
+              "source": {
+                "nodeId": "entry",
+                "port": "success"
+              },
+              "target": {
+                "nodeId": "done",
+                "port": "input"
+              }
+            }
+          ],
+          "groups": []
+        },
+        "diff": {
+          "added": [],
+          "removed": [],
+          "changed": [
+            {
+              "kind": "node",
+              "id": "done",
+              "label": "node done：重试策略变更",
+              "after": {
+                "maxAttempts": 3
+              }
+            },
+            {
+              "kind": "node",
+              "id": "done",
+              "label": "node done：重试策略变更",
+              "before": {
+                "maxAttempts": 3
+              },
+              "after": {
+                "maxAttempts": 3,
+                "backoff": "fixed"
+              }
+            }
+          ]
+        },
+        "validation": {
+          "ok": true,
+          "issues": []
+        }
+      }
+    },
+    {
+      "name": "patch · connect 不给 edgeId 时自动编号",
+      "graph": {
+        "nodes": [
+          {
+            "id": "entry",
+            "type": "entry",
+            "title": "入口",
+            "position": {
+              "x": 0,
+              "y": 0
+            },
+            "config": {
+              "trigger": "manual",
+              "inputSchema": {
+                "type": "object"
+              }
+            }
+          },
+          {
+            "id": "done",
+            "type": "end",
+            "title": "结束",
+            "position": {
+              "x": 0,
+              "y": 0
+            },
+            "config": {
+              "outcome": "success"
+            }
+          }
+        ],
+        "edges": [
+          {
+            "id": "e1",
+            "source": {
+              "nodeId": "entry",
+              "port": "success"
+            },
+            "target": {
+              "nodeId": "done",
+              "port": "input"
+            }
+          }
+        ],
+        "groups": []
+      },
+      "patch": {
+        "baseRevision": 0,
+        "operations": [
+          {
+            "op": "addNode",
+            "nodeId": "sh",
+            "type": "script.shell",
+            "title": "脚本",
+            "position": {
+              "x": 0,
+              "y": 0
+            },
+            "config": {
+              "interpreter": "zsh",
+              "script": "echo hi"
+            }
+          },
+          {
+            "op": "connect",
+            "source": {
+              "nodeId": "entry",
+              "port": "success"
+            },
+            "target": {
+              "nodeId": "sh",
+              "port": "input"
+            }
+          }
+        ]
+      },
+      "currentRevision": 0,
+      "result": {
+        "ok": true,
+        "rev": 1,
+        "graph": {
+          "nodes": [
+            {
+              "id": "entry",
+              "type": "entry",
+              "title": "入口",
+              "position": {
+                "x": 0,
+                "y": 0
+              },
+              "config": {
+                "trigger": "manual",
+                "inputSchema": {
+                  "type": "object"
+                }
+              }
+            },
+            {
+              "id": "done",
+              "type": "end",
+              "title": "结束",
+              "position": {
+                "x": 0,
+                "y": 0
+              },
+              "config": {
+                "outcome": "success"
+              }
+            },
+            {
+              "id": "sh",
+              "type": "script.shell",
+              "title": "脚本",
+              "position": {
+                "x": 0,
+                "y": 0
+              },
+              "config": {
+                "interpreter": "zsh",
+                "script": "echo hi",
+                "env": {},
+                "secretEnv": {},
+                "outputParse": "none",
+                "successExitCodes": [
+                  0
+                ],
+                "outputLimitBytes": 1048576,
+                "timeoutMs": 900000
+              }
+            }
+          ],
+          "edges": [
+            {
+              "id": "e1",
+              "source": {
+                "nodeId": "entry",
+                "port": "success"
+              },
+              "target": {
+                "nodeId": "done",
+                "port": "input"
+              }
+            },
+            {
+              "id": "edge_2",
+              "source": {
+                "nodeId": "entry",
+                "port": "success"
+              },
+              "target": {
+                "nodeId": "sh",
+                "port": "input"
+              }
+            }
+          ],
+          "groups": []
+        },
+        "diff": {
+          "added": [
+            {
+              "kind": "node",
+              "id": "sh",
+              "label": "node script.shell「脚本」",
+              "after": {
+                "interpreter": "zsh",
+                "script": "echo hi",
+                "env": {},
+                "secretEnv": {},
+                "outputParse": "none",
+                "successExitCodes": [
+                  0
+                ],
+                "outputLimitBytes": 1048576,
+                "timeoutMs": 900000
+              }
+            },
+            {
+              "kind": "edge",
+              "id": "edge_2",
+              "label": "edge entry.success → sh",
+              "after": {
+                "id": "edge_2",
+                "source": {
+                  "nodeId": "entry",
+                  "port": "success"
+                },
+                "target": {
+                  "nodeId": "sh",
+                  "port": "input"
+                }
+              }
+            }
+          ],
+          "removed": [],
+          "changed": []
+        },
+        "validation": {
+          "ok": true,
+          "issues": []
+        }
+      }
+    },
+    {
+      "name": "patch · connect 指向不存在的节点",
+      "graph": {
+        "nodes": [
+          {
+            "id": "entry",
+            "type": "entry",
+            "title": "入口",
+            "position": {
+              "x": 0,
+              "y": 0
+            },
+            "config": {
+              "trigger": "manual",
+              "inputSchema": {
+                "type": "object"
+              }
+            }
+          },
+          {
+            "id": "done",
+            "type": "end",
+            "title": "结束",
+            "position": {
+              "x": 0,
+              "y": 0
+            },
+            "config": {
+              "outcome": "success"
+            }
+          }
+        ],
+        "edges": [
+          {
+            "id": "e1",
+            "source": {
+              "nodeId": "entry",
+              "port": "success"
+            },
+            "target": {
+              "nodeId": "done",
+              "port": "input"
+            }
+          }
+        ],
+        "groups": []
+      },
+      "patch": {
+        "baseRevision": 0,
+        "operations": [
+          {
+            "op": "connect",
+            "source": {
+              "nodeId": "entry",
+              "port": "success"
+            },
+            "target": {
+              "nodeId": "查无此人",
+              "port": "input"
+            }
+          }
+        ]
+      },
+      "currentRevision": 0,
+      "result": {
+        "ok": false,
+        "error": {
+          "code": "VALIDATION",
+          "message": "节点 查无此人 不存在"
+        }
+      }
+    },
+    {
+      "name": "patch · disconnect",
+      "graph": {
+        "nodes": [
+          {
+            "id": "entry",
+            "type": "entry",
+            "title": "入口",
+            "position": {
+              "x": 0,
+              "y": 0
+            },
+            "config": {
+              "trigger": "manual",
+              "inputSchema": {
+                "type": "object"
+              }
+            }
+          },
+          {
+            "id": "done",
+            "type": "end",
+            "title": "结束",
+            "position": {
+              "x": 0,
+              "y": 0
+            },
+            "config": {
+              "outcome": "success"
+            }
+          }
+        ],
+        "edges": [
+          {
+            "id": "e1",
+            "source": {
+              "nodeId": "entry",
+              "port": "success"
+            },
+            "target": {
+              "nodeId": "done",
+              "port": "input"
+            }
+          }
+        ],
+        "groups": []
+      },
+      "patch": {
+        "baseRevision": 0,
+        "operations": [
+          {
+            "op": "disconnect",
+            "edgeId": "e1"
+          }
+        ]
+      },
+      "currentRevision": 0,
+      "result": {
+        "ok": true,
+        "rev": 1,
+        "graph": {
+          "nodes": [
+            {
+              "id": "entry",
+              "type": "entry",
+              "title": "入口",
+              "position": {
+                "x": 0,
+                "y": 0
+              },
+              "config": {
+                "trigger": "manual",
+                "inputSchema": {
+                  "type": "object"
+                }
+              }
+            },
+            {
+              "id": "done",
+              "type": "end",
+              "title": "结束",
+              "position": {
+                "x": 0,
+                "y": 0
+              },
+              "config": {
+                "outcome": "success"
+              }
+            }
+          ],
+          "edges": [],
+          "groups": []
+        },
+        "diff": {
+          "added": [],
+          "removed": [
+            {
+              "kind": "edge",
+              "id": "e1",
+              "label": "edge entry.success → done",
+              "before": {
+                "id": "e1",
+                "source": {
+                  "nodeId": "entry",
+                  "port": "success"
+                },
+                "target": {
+                  "nodeId": "done",
+                  "port": "input"
+                }
+              }
+            }
+          ],
+          "changed": []
+        },
+        "validation": {
+          "ok": true,
+          "issues": [
+            {
+              "level": "warning",
+              "code": "ORPHAN_NODE",
+              "message": "从入口连不到这个节点，但运行时它仍会被执行 —— 多半是忘了连线",
+              "nodeId": "done"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "patch · disconnect 指向不存在的连线",
+      "graph": {
+        "nodes": [
+          {
+            "id": "entry",
+            "type": "entry",
+            "title": "入口",
+            "position": {
+              "x": 0,
+              "y": 0
+            },
+            "config": {
+              "trigger": "manual",
+              "inputSchema": {
+                "type": "object"
+              }
+            }
+          },
+          {
+            "id": "done",
+            "type": "end",
+            "title": "结束",
+            "position": {
+              "x": 0,
+              "y": 0
+            },
+            "config": {
+              "outcome": "success"
+            }
+          }
+        ],
+        "edges": [
+          {
+            "id": "e1",
+            "source": {
+              "nodeId": "entry",
+              "port": "success"
+            },
+            "target": {
+              "nodeId": "done",
+              "port": "input"
+            }
+          }
+        ],
+        "groups": []
+      },
+      "patch": {
+        "baseRevision": 0,
+        "operations": [
+          {
+            "op": "disconnect",
+            "edgeId": "查无此线"
+          }
+        ]
+      },
+      "currentRevision": 0,
+      "result": {
+        "ok": false,
+        "error": {
+          "code": "VALIDATION",
+          "message": "连线 查无此线 不存在"
+        }
+      }
+    },
+    {
+      "name": "patch · createGroup 与 deleteGroup",
+      "graph": {
+        "nodes": [
+          {
+            "id": "entry",
+            "type": "entry",
+            "title": "入口",
+            "position": {
+              "x": 0,
+              "y": 0
+            },
+            "config": {
+              "trigger": "manual",
+              "inputSchema": {
+                "type": "object"
+              }
+            }
+          },
+          {
+            "id": "done",
+            "type": "end",
+            "title": "结束",
+            "position": {
+              "x": 0,
+              "y": 0
+            },
+            "config": {
+              "outcome": "success"
+            }
+          }
+        ],
+        "edges": [
+          {
+            "id": "e1",
+            "source": {
+              "nodeId": "entry",
+              "port": "success"
+            },
+            "target": {
+              "nodeId": "done",
+              "port": "input"
+            }
+          }
+        ],
+        "groups": []
+      },
+      "patch": {
+        "baseRevision": 0,
+        "operations": [
+          {
+            "op": "createGroup",
+            "title": "第一组",
+            "nodeIds": [
+              "entry",
+              "done"
+            ]
+          },
+          {
+            "op": "createGroup",
+            "groupId": "第二组",
+            "title": "第二组",
+            "nodeIds": [
+              "done"
+            ]
+          },
+          {
+            "op": "deleteGroup",
+            "groupId": "第二组"
+          }
+        ]
+      },
+      "currentRevision": 0,
+      "result": {
+        "ok": true,
+        "rev": 1,
+        "graph": {
+          "nodes": [
+            {
+              "id": "entry",
+              "type": "entry",
+              "title": "入口",
+              "position": {
+                "x": 0,
+                "y": 0
+              },
+              "config": {
+                "trigger": "manual",
+                "inputSchema": {
+                  "type": "object"
+                }
+              }
+            },
+            {
+              "id": "done",
+              "type": "end",
+              "title": "结束",
+              "position": {
+                "x": 0,
+                "y": 0
+              },
+              "config": {
+                "outcome": "success"
+              }
+            }
+          ],
+          "edges": [
+            {
+              "id": "e1",
+              "source": {
+                "nodeId": "entry",
+                "port": "success"
+              },
+              "target": {
+                "nodeId": "done",
+                "port": "input"
+              }
+            }
+          ],
+          "groups": [
+            {
+              "id": "group_1",
+              "title": "第一组",
+              "nodeIds": [
+                "entry",
+                "done"
+              ]
+            }
+          ]
+        },
+        "diff": {
+          "added": [
+            {
+              "kind": "group",
+              "id": "group_1",
+              "label": "group「第一组」",
+              "after": {
+                "id": "group_1",
+                "title": "第一组",
+                "nodeIds": [
+                  "entry",
+                  "done"
+                ]
+              }
+            },
+            {
+              "kind": "group",
+              "id": "第二组",
+              "label": "group「第二组」",
+              "after": {
+                "id": "第二组",
+                "title": "第二组",
+                "nodeIds": [
+                  "done"
+                ]
+              }
+            }
+          ],
+          "removed": [
+            {
+              "kind": "group",
+              "id": "第二组",
+              "label": "group「第二组」",
+              "before": {
+                "id": "第二组",
+                "title": "第二组",
+                "nodeIds": [
+                  "done"
+                ]
+              }
+            }
+          ],
+          "changed": []
+        },
+        "validation": {
+          "ok": true,
+          "issues": []
+        }
+      }
+    },
+    {
+      "name": "patch · deleteGroup 指向不存在的分组",
+      "graph": {
+        "nodes": [
+          {
+            "id": "entry",
+            "type": "entry",
+            "title": "入口",
+            "position": {
+              "x": 0,
+              "y": 0
+            },
+            "config": {
+              "trigger": "manual",
+              "inputSchema": {
+                "type": "object"
+              }
+            }
+          },
+          {
+            "id": "done",
+            "type": "end",
+            "title": "结束",
+            "position": {
+              "x": 0,
+              "y": 0
+            },
+            "config": {
+              "outcome": "success"
+            }
+          }
+        ],
+        "edges": [
+          {
+            "id": "e1",
+            "source": {
+              "nodeId": "entry",
+              "port": "success"
+            },
+            "target": {
+              "nodeId": "done",
+              "port": "input"
+            }
+          }
+        ],
+        "groups": []
+      },
+      "patch": {
+        "baseRevision": 0,
+        "operations": [
+          {
+            "op": "deleteGroup",
+            "groupId": "查无此组"
+          }
+        ]
+      },
+      "currentRevision": 0,
+      "result": {
+        "ok": false,
+        "error": {
+          "code": "VALIDATION",
+          "message": "分组 查无此组 不存在"
+        }
+      }
+    },
+    {
+      "name": "patch · 内置模板从空图搭起来",
+      "graph": {
+        "nodes": [],
+        "edges": [],
+        "groups": []
+      },
+      "patch": {
+        "baseRevision": 0,
+        "operations": [
+          {
+            "op": "addNode",
+            "nodeId": "entry",
+            "type": "entry",
+            "title": "入口 · Issue 输入",
+            "position": {
+              "x": 40,
+              "y": 34
+            },
+            "config": {
+              "trigger": "manual",
+              "workdirSource": "prompt",
+              "inputSchema": {
+                "type": "object",
+                "required": [
+                  "issue",
+                  "repo"
+                ],
+                "properties": {
+                  "issue": {
+                    "type": "string",
+                    "title": "Issue 编号"
+                  },
+                  "repo": {
+                    "type": "string",
+                    "title": "仓库"
+                  },
+                  "base": {
+                    "type": "string",
+                    "title": "基础分支",
+                    "default": "main"
+                  }
+                }
+              },
+              "injectedFields": [
+                "run.id",
+                "run.startedAt"
+              ]
+            }
+          },
+          {
+            "op": "addNode",
+            "nodeId": "read_issue",
+            "type": "script.shell",
+            "title": "读取 Issue",
+            "position": {
+              "x": 290,
+              "y": 34
+            },
+            "config": {
+              "interpreter": "zsh",
+              "script": "gh issue view \"$ISSUE\" --repo \"$REPO\" --json title,body,labels",
+              "outputParse": "json",
+              "timeoutMs": 60000
+            }
+          },
+          {
+            "op": "addNode",
+            "nodeId": "analyze",
+            "type": "ai.analyze",
+            "title": "分析 · 根因与方案",
+            "position": {
+              "x": 540,
+              "y": 34
+            },
+            "config": {
+              "agentProfileId": "builtin:analyst",
+              "target": "${read_issue.success}",
+              "instruction": "定位根因，给出 2–3 个可选方案，写清每个方案的风险与验证方式。"
+            }
+          },
+          {
+            "op": "addNode",
+            "nodeId": "approve_plan",
+            "type": "approval",
+            "title": "审批 · 选择方案",
+            "position": {
+              "x": 790,
+              "y": 34
+            },
+            "config": {
+              "title": "选择修复方案",
+              "bodyMarkdown": "分析给出了多个方案，选一个继续。",
+              "interaction": "single",
+              "waitStrategy": "forever"
+            }
+          },
+          {
+            "op": "addNode",
+            "nodeId": "worktree",
+            "type": "git.worktree",
+            "title": "创建 Git worktree",
+            "position": {
+              "x": 790,
+              "y": 184
+            },
+            "config": {
+              "repoRoot": "${input.repo}",
+              "baseBranch": "${input.base}",
+              "branchTemplate": "fix/${input.issue}-${run.id}",
+              "cleanupPolicy": "manual"
+            }
+          },
+          {
+            "op": "addNode",
+            "nodeId": "fix",
+            "type": "ai.execute",
+            "title": "执行 · Fix Agent",
+            "position": {
+              "x": 540,
+              "y": 184
+            },
+            "config": {
+              "agentProfileId": "builtin:builder",
+              "instruction": "按选定方案修改代码，小步提交，每步可验证。",
+              "workdirSource": "worktree",
+              "verifyCommands": [
+                "pnpm test"
+              ]
+            }
+          },
+          {
+            "op": "addNode",
+            "nodeId": "review",
+            "type": "ai.review",
+            "title": "审查 · Diff 与风险",
+            "position": {
+              "x": 290,
+              "y": 184
+            },
+            "config": {
+              "agentProfileId": "builtin:reviewer",
+              "target": "${fix.success}",
+              "instruction": "只读检查 Diff、测试与风险，按严重度排序，最多 5 条。",
+              "checklist": [
+                "并发",
+                "缓存失效",
+                "错误分支",
+                "日志脱敏"
+              ]
+            }
+          },
+          {
+            "op": "addNode",
+            "nodeId": "decide",
+            "type": "ai.decide",
+            "title": "决策 · L1–L3 分级",
+            "position": {
+              "x": 40,
+              "y": 184
+            },
+            "config": {
+              "agentProfileId": "builtin:operator",
+              "instruction": "按影响面给出 L1–L3 分级；push 与建 PR 属于 L3。",
+              "autoDecideUpTo": "L2",
+              "onTimeout": "escalate"
+            }
+          },
+          {
+            "op": "addNode",
+            "nodeId": "approve_diff",
+            "type": "approval",
+            "title": "审批 · 检查 Diff",
+            "position": {
+              "x": 40,
+              "y": 334
+            },
+            "config": {
+              "title": "检查 Diff 与风险",
+              "bodyMarkdown": "将要发生的外部写操作：commit → push → 创建 PR。不会修改当前分支。",
+              "interaction": "confirm",
+              "waitStrategy": "forever"
+            }
+          },
+          {
+            "op": "addNode",
+            "nodeId": "push_pr",
+            "type": "script.shell",
+            "title": "Commit / Push / PR",
+            "position": {
+              "x": 290,
+              "y": 334
+            },
+            "config": {
+              "interpreter": "zsh",
+              "script": "git push -u origin HEAD && gh pr create --fill",
+              "timeoutMs": 300000
+            }
+          },
+          {
+            "op": "addNode",
+            "nodeId": "notify",
+            "type": "notify",
+            "title": "系统通知",
+            "position": {
+              "x": 540,
+              "y": 334
+            },
+            "config": {
+              "title": "Issue 修复完成",
+              "body": "PR 已创建，点击查看。",
+              "clickAction": "open_run"
+            }
+          },
+          {
+            "op": "addNode",
+            "nodeId": "done",
+            "type": "end",
+            "title": "结束",
+            "position": {
+              "x": 790,
+              "y": 334
+            },
+            "config": {
+              "outcome": "success"
+            }
+          },
+          {
+            "op": "connect",
+            "edgeId": "e_entry_read",
+            "source": {
+              "nodeId": "entry",
+              "port": "success"
+            },
+            "target": {
+              "nodeId": "read_issue",
+              "port": "input"
+            }
+          },
+          {
+            "op": "connect",
+            "edgeId": "e_read_analyze",
+            "source": {
+              "nodeId": "read_issue",
+              "port": "success"
+            },
+            "target": {
+              "nodeId": "analyze",
+              "port": "input"
+            }
+          },
+          {
+            "op": "connect",
+            "edgeId": "e_analyze_approve",
+            "source": {
+              "nodeId": "analyze",
+              "port": "success"
+            },
+            "target": {
+              "nodeId": "approve_plan",
+              "port": "input"
+            }
+          },
+          {
+            "op": "connect",
+            "edgeId": "e_approve_worktree",
+            "source": {
+              "nodeId": "approve_plan",
+              "port": "approved"
+            },
+            "target": {
+              "nodeId": "worktree",
+              "port": "input"
+            }
+          },
+          {
+            "op": "connect",
+            "edgeId": "e_worktree_fix",
+            "source": {
+              "nodeId": "worktree",
+              "port": "success"
+            },
+            "target": {
+              "nodeId": "fix",
+              "port": "input"
+            }
+          },
+          {
+            "op": "connect",
+            "edgeId": "e_fix_review",
+            "source": {
+              "nodeId": "fix",
+              "port": "success"
+            },
+            "target": {
+              "nodeId": "review",
+              "port": "input"
+            }
+          },
+          {
+            "op": "connect",
+            "edgeId": "e_review_decide",
+            "source": {
+              "nodeId": "review",
+              "port": "passed"
+            },
+            "target": {
+              "nodeId": "decide",
+              "port": "input"
+            }
+          },
+          {
+            "op": "connect",
+            "edgeId": "e_decide_approve",
+            "source": {
+              "nodeId": "decide",
+              "port": "escalated"
+            },
+            "target": {
+              "nodeId": "approve_diff",
+              "port": "input"
+            }
+          },
+          {
+            "op": "connect",
+            "edgeId": "e_approve_push",
+            "source": {
+              "nodeId": "approve_diff",
+              "port": "approved"
+            },
+            "target": {
+              "nodeId": "push_pr",
+              "port": "input"
+            }
+          },
+          {
+            "op": "connect",
+            "edgeId": "e_push_notify",
+            "source": {
+              "nodeId": "push_pr",
+              "port": "success"
+            },
+            "target": {
+              "nodeId": "notify",
+              "port": "input"
+            }
+          },
+          {
+            "op": "connect",
+            "edgeId": "e_notify_done",
+            "source": {
+              "nodeId": "notify",
+              "port": "success"
+            },
+            "target": {
+              "nodeId": "done",
+              "port": "input"
+            }
+          },
+          {
+            "op": "connect",
+            "edgeId": "e_review_back",
+            "source": {
+              "nodeId": "review",
+              "port": "changes_requested"
+            },
+            "target": {
+              "nodeId": "approve_diff",
+              "port": "input"
+            }
+          }
+        ]
+      },
+      "currentRevision": 0,
+      "result": {
+        "ok": true,
+        "rev": 1,
+        "graph": {
+          "nodes": [
+            {
+              "id": "entry",
+              "type": "entry",
+              "title": "入口 · Issue 输入",
+              "position": {
+                "x": 40,
+                "y": 34
+              },
+              "config": {
+                "trigger": "manual",
+                "workdirSource": "prompt",
+                "inputSchema": {
+                  "type": "object",
+                  "required": [
+                    "issue",
+                    "repo"
+                  ],
+                  "properties": {
+                    "issue": {
+                      "type": "string",
+                      "title": "Issue 编号"
+                    },
+                    "repo": {
+                      "type": "string",
+                      "title": "仓库"
+                    },
+                    "base": {
+                      "type": "string",
+                      "title": "基础分支",
+                      "default": "main"
+                    }
+                  }
+                },
+                "injectedFields": [
+                  "run.id",
+                  "run.startedAt"
+                ]
+              }
+            },
+            {
+              "id": "read_issue",
+              "type": "script.shell",
+              "title": "读取 Issue",
+              "position": {
+                "x": 290,
+                "y": 34
+              },
+              "config": {
+                "interpreter": "zsh",
+                "script": "gh issue view \"$ISSUE\" --repo \"$REPO\" --json title,body,labels",
+                "env": {},
+                "secretEnv": {},
+                "outputParse": "json",
+                "successExitCodes": [
+                  0
+                ],
+                "outputLimitBytes": 1048576,
+                "timeoutMs": 60000
+              }
+            },
+            {
+              "id": "analyze",
+              "type": "ai.analyze",
+              "title": "分析 · 根因与方案",
+              "position": {
+                "x": 540,
+                "y": 34
+              },
+              "config": {
+                "agentProfileId": "builtin:analyst",
+                "instruction": "定位根因，给出 2–3 个可选方案，写清每个方案的风险与验证方式。",
+                "turnLimit": 12,
+                "target": "${read_issue.success}"
+              }
+            },
+            {
+              "id": "approve_plan",
+              "type": "approval",
+              "title": "审批 · 选择方案",
+              "position": {
+                "x": 790,
+                "y": 34
+              },
+              "config": {
+                "title": "选择修复方案",
+                "bodyMarkdown": "分析给出了多个方案，选一个继续。",
+                "interaction": "single",
+                "options": [],
+                "waitStrategy": "forever"
+              }
+            },
+            {
+              "id": "worktree",
+              "type": "git.worktree",
+              "title": "创建 Git worktree",
+              "position": {
+                "x": 790,
+                "y": 184
+              },
+              "config": {
+                "repoRoot": "${input.repo}",
+                "baseBranch": "${input.base}",
+                "branchTemplate": "fix/${input.issue}-${run.id}",
+                "parentDir": "~/worktrees",
+                "fetch": true,
+                "conflictPolicy": "suffix",
+                "cleanupPolicy": "manual"
+              }
+            },
+            {
+              "id": "fix",
+              "type": "ai.execute",
+              "title": "执行 · Fix Agent",
+              "position": {
+                "x": 540,
+                "y": 184
+              },
+              "config": {
+                "agentProfileId": "builtin:builder",
+                "instruction": "按选定方案修改代码，小步提交，每步可验证。",
+                "turnLimit": 12,
+                "workdirSource": "worktree",
+                "verifyCommands": [
+                  "pnpm test"
+                ]
+              }
+            },
+            {
+              "id": "review",
+              "type": "ai.review",
+              "title": "审查 · Diff 与风险",
+              "position": {
+                "x": 290,
+                "y": 184
+              },
+              "config": {
+                "agentProfileId": "builtin:reviewer",
+                "instruction": "只读检查 Diff、测试与风险，按严重度排序，最多 5 条。",
+                "turnLimit": 12,
+                "target": "${fix.success}",
+                "checklist": [
+                  "并发",
+                  "缓存失效",
+                  "错误分支",
+                  "日志脱敏"
+                ],
+                "severities": [
+                  "blocker",
+                  "major",
+                  "minor"
+                ]
+              }
+            },
+            {
+              "id": "decide",
+              "type": "ai.decide",
+              "title": "决策 · L1–L3 分级",
+              "position": {
+                "x": 40,
+                "y": 184
+              },
+              "config": {
+                "agentProfileId": "builtin:operator",
+                "instruction": "按影响面给出 L1–L3 分级；push 与建 PR 属于 L3。",
+                "turnLimit": 12,
+                "rules": [],
+                "autoDecideUpTo": "L2",
+                "onTimeout": "escalate"
+              }
+            },
+            {
+              "id": "approve_diff",
+              "type": "approval",
+              "title": "审批 · 检查 Diff",
+              "position": {
+                "x": 40,
+                "y": 334
+              },
+              "config": {
+                "title": "检查 Diff 与风险",
+                "bodyMarkdown": "将要发生的外部写操作：commit → push → 创建 PR。不会修改当前分支。",
+                "interaction": "confirm",
+                "options": [],
+                "waitStrategy": "forever"
+              }
+            },
+            {
+              "id": "push_pr",
+              "type": "script.shell",
+              "title": "Commit / Push / PR",
+              "position": {
+                "x": 290,
+                "y": 334
+              },
+              "config": {
+                "interpreter": "zsh",
+                "script": "git push -u origin HEAD && gh pr create --fill",
+                "env": {},
+                "secretEnv": {},
+                "outputParse": "none",
+                "successExitCodes": [
+                  0
+                ],
+                "outputLimitBytes": 1048576,
+                "timeoutMs": 300000
+              }
+            },
+            {
+              "id": "notify",
+              "type": "notify",
+              "title": "系统通知",
+              "position": {
+                "x": 540,
+                "y": 334
+              },
+              "config": {
+                "title": "Issue 修复完成",
+                "body": "PR 已创建，点击查看。",
+                "on": [
+                  "completed",
+                  "failed",
+                  "waiting_approval"
+                ],
+                "clickAction": "open_run",
+                "onFailure": "ignore"
+              }
+            },
+            {
+              "id": "done",
+              "type": "end",
+              "title": "结束",
+              "position": {
+                "x": 790,
+                "y": 334
+              },
+              "config": {
+                "outcome": "success",
+                "artifacts": []
+              }
+            }
+          ],
+          "edges": [
+            {
+              "id": "e_entry_read",
+              "source": {
+                "nodeId": "entry",
+                "port": "success"
+              },
+              "target": {
+                "nodeId": "read_issue",
+                "port": "input"
+              }
+            },
+            {
+              "id": "e_read_analyze",
+              "source": {
+                "nodeId": "read_issue",
+                "port": "success"
+              },
+              "target": {
+                "nodeId": "analyze",
+                "port": "input"
+              }
+            },
+            {
+              "id": "e_analyze_approve",
+              "source": {
+                "nodeId": "analyze",
+                "port": "success"
+              },
+              "target": {
+                "nodeId": "approve_plan",
+                "port": "input"
+              }
+            },
+            {
+              "id": "e_approve_worktree",
+              "source": {
+                "nodeId": "approve_plan",
+                "port": "approved"
+              },
+              "target": {
+                "nodeId": "worktree",
+                "port": "input"
+              }
+            },
+            {
+              "id": "e_worktree_fix",
+              "source": {
+                "nodeId": "worktree",
+                "port": "success"
+              },
+              "target": {
+                "nodeId": "fix",
+                "port": "input"
+              }
+            },
+            {
+              "id": "e_fix_review",
+              "source": {
+                "nodeId": "fix",
+                "port": "success"
+              },
+              "target": {
+                "nodeId": "review",
+                "port": "input"
+              }
+            },
+            {
+              "id": "e_review_decide",
+              "source": {
+                "nodeId": "review",
+                "port": "passed"
+              },
+              "target": {
+                "nodeId": "decide",
+                "port": "input"
+              }
+            },
+            {
+              "id": "e_decide_approve",
+              "source": {
+                "nodeId": "decide",
+                "port": "escalated"
+              },
+              "target": {
+                "nodeId": "approve_diff",
+                "port": "input"
+              }
+            },
+            {
+              "id": "e_approve_push",
+              "source": {
+                "nodeId": "approve_diff",
+                "port": "approved"
+              },
+              "target": {
+                "nodeId": "push_pr",
+                "port": "input"
+              }
+            },
+            {
+              "id": "e_push_notify",
+              "source": {
+                "nodeId": "push_pr",
+                "port": "success"
+              },
+              "target": {
+                "nodeId": "notify",
+                "port": "input"
+              }
+            },
+            {
+              "id": "e_notify_done",
+              "source": {
+                "nodeId": "notify",
+                "port": "success"
+              },
+              "target": {
+                "nodeId": "done",
+                "port": "input"
+              }
+            },
+            {
+              "id": "e_review_back",
+              "source": {
+                "nodeId": "review",
+                "port": "changes_requested"
+              },
+              "target": {
+                "nodeId": "approve_diff",
+                "port": "input"
+              }
+            }
+          ],
+          "groups": []
+        },
+        "diff": {
+          "added": [
+            {
+              "kind": "node",
+              "id": "entry",
+              "label": "node entry「入口 · Issue 输入」",
+              "after": {
+                "trigger": "manual",
+                "workdirSource": "prompt",
+                "inputSchema": {
+                  "type": "object",
+                  "required": [
+                    "issue",
+                    "repo"
+                  ],
+                  "properties": {
+                    "issue": {
+                      "type": "string",
+                      "title": "Issue 编号"
+                    },
+                    "repo": {
+                      "type": "string",
+                      "title": "仓库"
+                    },
+                    "base": {
+                      "type": "string",
+                      "title": "基础分支",
+                      "default": "main"
+                    }
+                  }
+                },
+                "injectedFields": [
+                  "run.id",
+                  "run.startedAt"
+                ]
+              }
+            },
+            {
+              "kind": "node",
+              "id": "read_issue",
+              "label": "node script.shell「读取 Issue」",
+              "after": {
+                "interpreter": "zsh",
+                "script": "gh issue view \"$ISSUE\" --repo \"$REPO\" --json title,body,labels",
+                "env": {},
+                "secretEnv": {},
+                "outputParse": "json",
+                "successExitCodes": [
+                  0
+                ],
+                "outputLimitBytes": 1048576,
+                "timeoutMs": 60000
+              }
+            },
+            {
+              "kind": "node",
+              "id": "analyze",
+              "label": "node ai.analyze「分析 · 根因与方案」",
+              "after": {
+                "agentProfileId": "builtin:analyst",
+                "instruction": "定位根因，给出 2–3 个可选方案，写清每个方案的风险与验证方式。",
+                "turnLimit": 12,
+                "target": "${read_issue.success}"
+              }
+            },
+            {
+              "kind": "node",
+              "id": "approve_plan",
+              "label": "node approval「审批 · 选择方案」",
+              "after": {
+                "title": "选择修复方案",
+                "bodyMarkdown": "分析给出了多个方案，选一个继续。",
+                "interaction": "single",
+                "options": [],
+                "waitStrategy": "forever"
+              }
+            },
+            {
+              "kind": "node",
+              "id": "worktree",
+              "label": "node git.worktree「创建 Git worktree」",
+              "after": {
+                "repoRoot": "${input.repo}",
+                "baseBranch": "${input.base}",
+                "branchTemplate": "fix/${input.issue}-${run.id}",
+                "parentDir": "~/worktrees",
+                "fetch": true,
+                "conflictPolicy": "suffix",
+                "cleanupPolicy": "manual"
+              }
+            },
+            {
+              "kind": "node",
+              "id": "fix",
+              "label": "node ai.execute「执行 · Fix Agent」",
+              "after": {
+                "agentProfileId": "builtin:builder",
+                "instruction": "按选定方案修改代码，小步提交，每步可验证。",
+                "turnLimit": 12,
+                "workdirSource": "worktree",
+                "verifyCommands": [
+                  "pnpm test"
+                ]
+              }
+            },
+            {
+              "kind": "node",
+              "id": "review",
+              "label": "node ai.review「审查 · Diff 与风险」",
+              "after": {
+                "agentProfileId": "builtin:reviewer",
+                "instruction": "只读检查 Diff、测试与风险，按严重度排序，最多 5 条。",
+                "turnLimit": 12,
+                "target": "${fix.success}",
+                "checklist": [
+                  "并发",
+                  "缓存失效",
+                  "错误分支",
+                  "日志脱敏"
+                ],
+                "severities": [
+                  "blocker",
+                  "major",
+                  "minor"
+                ]
+              }
+            },
+            {
+              "kind": "node",
+              "id": "decide",
+              "label": "node ai.decide「决策 · L1–L3 分级」",
+              "after": {
+                "agentProfileId": "builtin:operator",
+                "instruction": "按影响面给出 L1–L3 分级；push 与建 PR 属于 L3。",
+                "turnLimit": 12,
+                "rules": [],
+                "autoDecideUpTo": "L2",
+                "onTimeout": "escalate"
+              }
+            },
+            {
+              "kind": "node",
+              "id": "approve_diff",
+              "label": "node approval「审批 · 检查 Diff」",
+              "after": {
+                "title": "检查 Diff 与风险",
+                "bodyMarkdown": "将要发生的外部写操作：commit → push → 创建 PR。不会修改当前分支。",
+                "interaction": "confirm",
+                "options": [],
+                "waitStrategy": "forever"
+              }
+            },
+            {
+              "kind": "node",
+              "id": "push_pr",
+              "label": "node script.shell「Commit / Push / PR」",
+              "after": {
+                "interpreter": "zsh",
+                "script": "git push -u origin HEAD && gh pr create --fill",
+                "env": {},
+                "secretEnv": {},
+                "outputParse": "none",
+                "successExitCodes": [
+                  0
+                ],
+                "outputLimitBytes": 1048576,
+                "timeoutMs": 300000
+              }
+            },
+            {
+              "kind": "node",
+              "id": "notify",
+              "label": "node notify「系统通知」",
+              "after": {
+                "title": "Issue 修复完成",
+                "body": "PR 已创建，点击查看。",
+                "on": [
+                  "completed",
+                  "failed",
+                  "waiting_approval"
+                ],
+                "clickAction": "open_run",
+                "onFailure": "ignore"
+              }
+            },
+            {
+              "kind": "node",
+              "id": "done",
+              "label": "node end「结束」",
+              "after": {
+                "outcome": "success",
+                "artifacts": []
+              }
+            },
+            {
+              "kind": "edge",
+              "id": "e_entry_read",
+              "label": "edge entry.success → read_issue",
+              "after": {
+                "id": "e_entry_read",
+                "source": {
+                  "nodeId": "entry",
+                  "port": "success"
+                },
+                "target": {
+                  "nodeId": "read_issue",
+                  "port": "input"
+                }
+              }
+            },
+            {
+              "kind": "edge",
+              "id": "e_read_analyze",
+              "label": "edge read_issue.success → analyze",
+              "after": {
+                "id": "e_read_analyze",
+                "source": {
+                  "nodeId": "read_issue",
+                  "port": "success"
+                },
+                "target": {
+                  "nodeId": "analyze",
+                  "port": "input"
+                }
+              }
+            },
+            {
+              "kind": "edge",
+              "id": "e_analyze_approve",
+              "label": "edge analyze.success → approve_plan",
+              "after": {
+                "id": "e_analyze_approve",
+                "source": {
+                  "nodeId": "analyze",
+                  "port": "success"
+                },
+                "target": {
+                  "nodeId": "approve_plan",
+                  "port": "input"
+                }
+              }
+            },
+            {
+              "kind": "edge",
+              "id": "e_approve_worktree",
+              "label": "edge approve_plan.approved → worktree",
+              "after": {
+                "id": "e_approve_worktree",
+                "source": {
+                  "nodeId": "approve_plan",
+                  "port": "approved"
+                },
+                "target": {
+                  "nodeId": "worktree",
+                  "port": "input"
+                }
+              }
+            },
+            {
+              "kind": "edge",
+              "id": "e_worktree_fix",
+              "label": "edge worktree.success → fix",
+              "after": {
+                "id": "e_worktree_fix",
+                "source": {
+                  "nodeId": "worktree",
+                  "port": "success"
+                },
+                "target": {
+                  "nodeId": "fix",
+                  "port": "input"
+                }
+              }
+            },
+            {
+              "kind": "edge",
+              "id": "e_fix_review",
+              "label": "edge fix.success → review",
+              "after": {
+                "id": "e_fix_review",
+                "source": {
+                  "nodeId": "fix",
+                  "port": "success"
+                },
+                "target": {
+                  "nodeId": "review",
+                  "port": "input"
+                }
+              }
+            },
+            {
+              "kind": "edge",
+              "id": "e_review_decide",
+              "label": "edge review.passed → decide",
+              "after": {
+                "id": "e_review_decide",
+                "source": {
+                  "nodeId": "review",
+                  "port": "passed"
+                },
+                "target": {
+                  "nodeId": "decide",
+                  "port": "input"
+                }
+              }
+            },
+            {
+              "kind": "edge",
+              "id": "e_decide_approve",
+              "label": "edge decide.escalated → approve_diff",
+              "after": {
+                "id": "e_decide_approve",
+                "source": {
+                  "nodeId": "decide",
+                  "port": "escalated"
+                },
+                "target": {
+                  "nodeId": "approve_diff",
+                  "port": "input"
+                }
+              }
+            },
+            {
+              "kind": "edge",
+              "id": "e_approve_push",
+              "label": "edge approve_diff.approved → push_pr",
+              "after": {
+                "id": "e_approve_push",
+                "source": {
+                  "nodeId": "approve_diff",
+                  "port": "approved"
+                },
+                "target": {
+                  "nodeId": "push_pr",
+                  "port": "input"
+                }
+              }
+            },
+            {
+              "kind": "edge",
+              "id": "e_push_notify",
+              "label": "edge push_pr.success → notify",
+              "after": {
+                "id": "e_push_notify",
+                "source": {
+                  "nodeId": "push_pr",
+                  "port": "success"
+                },
+                "target": {
+                  "nodeId": "notify",
+                  "port": "input"
+                }
+              }
+            },
+            {
+              "kind": "edge",
+              "id": "e_notify_done",
+              "label": "edge notify.success → done",
+              "after": {
+                "id": "e_notify_done",
+                "source": {
+                  "nodeId": "notify",
+                  "port": "success"
+                },
+                "target": {
+                  "nodeId": "done",
+                  "port": "input"
+                }
+              }
+            },
+            {
+              "kind": "edge",
+              "id": "e_review_back",
+              "label": "edge review.changes_requested → approve_diff",
+              "after": {
+                "id": "e_review_back",
+                "source": {
+                  "nodeId": "review",
+                  "port": "changes_requested"
+                },
+                "target": {
+                  "nodeId": "approve_diff",
+                  "port": "input"
+                }
+              }
+            }
+          ],
+          "removed": [],
+          "changed": []
+        },
+        "validation": {
+          "ok": true,
+          "issues": []
+        }
+      }
+    }
+  ],
+  "diffs": [
+    {
+      "name": "diff · 两份一样的图",
+      "before": {
+        "nodes": [
+          {
+            "id": "entry",
+            "type": "entry",
+            "title": "入口",
+            "position": {
+              "x": 0,
+              "y": 0
+            },
+            "config": {
+              "trigger": "manual",
+              "inputSchema": {
+                "type": "object"
+              }
+            }
+          },
+          {
+            "id": "done",
+            "type": "end",
+            "title": "结束",
+            "position": {
+              "x": 0,
+              "y": 0
+            },
+            "config": {
+              "outcome": "success"
+            }
+          }
+        ],
+        "edges": [
+          {
+            "id": "e1",
+            "source": {
+              "nodeId": "entry",
+              "port": "success"
+            },
+            "target": {
+              "nodeId": "done",
+              "port": "input"
+            }
+          }
+        ],
+        "groups": []
+      },
+      "after": {
+        "nodes": [
+          {
+            "id": "entry",
+            "type": "entry",
+            "title": "入口",
+            "position": {
+              "x": 0,
+              "y": 0
+            },
+            "config": {
+              "trigger": "manual",
+              "inputSchema": {
+                "type": "object"
+              }
+            }
+          },
+          {
+            "id": "done",
+            "type": "end",
+            "title": "结束",
+            "position": {
+              "x": 0,
+              "y": 0
+            },
+            "config": {
+              "outcome": "success"
+            }
+          }
+        ],
+        "edges": [
+          {
+            "id": "e1",
+            "source": {
+              "nodeId": "entry",
+              "port": "success"
+            },
+            "target": {
+              "nodeId": "done",
+              "port": "input"
+            }
+          }
+        ],
+        "groups": []
+      },
+      "diff": {
+        "added": [],
+        "removed": [],
+        "changed": []
+      }
+    },
+    {
+      "name": "diff · 加了一个节点",
+      "before": {
+        "nodes": [
+          {
+            "id": "entry",
+            "type": "entry",
+            "title": "入口",
+            "position": {
+              "x": 0,
+              "y": 0
+            },
+            "config": {
+              "trigger": "manual",
+              "inputSchema": {
+                "type": "object"
+              }
+            }
+          },
+          {
+            "id": "done",
+            "type": "end",
+            "title": "结束",
+            "position": {
+              "x": 0,
+              "y": 0
+            },
+            "config": {
+              "outcome": "success"
+            }
+          }
+        ],
+        "edges": [
+          {
+            "id": "e1",
+            "source": {
+              "nodeId": "entry",
+              "port": "success"
+            },
+            "target": {
+              "nodeId": "done",
+              "port": "input"
+            }
+          }
+        ],
+        "groups": []
+      },
+      "after": {
+        "nodes": [
+          {
+            "id": "entry",
+            "type": "entry",
+            "title": "入口",
+            "position": {
+              "x": 0,
+              "y": 0
+            },
+            "config": {
+              "trigger": "manual",
+              "inputSchema": {
+                "type": "object"
+              }
+            }
+          },
+          {
+            "id": "done",
+            "type": "end",
+            "title": "结束",
+            "position": {
+              "x": 0,
+              "y": 0
+            },
+            "config": {
+              "outcome": "success"
+            }
+          },
+          {
+            "id": "sh",
+            "type": "script.shell",
+            "title": "脚本",
+            "position": {
+              "x": 0,
+              "y": 0
+            },
+            "config": {
+              "interpreter": "zsh",
+              "script": "echo hi"
+            }
+          }
+        ],
+        "edges": [
+          {
+            "id": "e1",
+            "source": {
+              "nodeId": "entry",
+              "port": "success"
+            },
+            "target": {
+              "nodeId": "done",
+              "port": "input"
+            }
+          }
+        ],
+        "groups": []
+      },
+      "diff": {
+        "added": [
+          {
+            "kind": "node",
+            "id": "sh",
+            "label": "node script.shell「脚本」",
+            "after": {
+              "interpreter": "zsh",
+              "script": "echo hi"
+            }
+          }
+        ],
+        "removed": [],
+        "changed": []
+      }
+    },
+    {
+      "name": "diff · 删了一个节点与它的连线",
+      "before": {
+        "nodes": [
+          {
+            "id": "entry",
+            "type": "entry",
+            "title": "入口",
+            "position": {
+              "x": 0,
+              "y": 0
+            },
+            "config": {
+              "trigger": "manual",
+              "inputSchema": {
+                "type": "object"
+              }
+            }
+          },
+          {
+            "id": "done",
+            "type": "end",
+            "title": "结束",
+            "position": {
+              "x": 0,
+              "y": 0
+            },
+            "config": {
+              "outcome": "success"
+            }
+          }
+        ],
+        "edges": [
+          {
+            "id": "e1",
+            "source": {
+              "nodeId": "entry",
+              "port": "success"
+            },
+            "target": {
+              "nodeId": "done",
+              "port": "input"
+            }
+          }
+        ],
+        "groups": []
+      },
+      "after": {
+        "nodes": [
+          {
+            "id": "entry",
+            "type": "entry",
+            "title": "入口",
+            "position": {
+              "x": 0,
+              "y": 0
+            },
+            "config": {
+              "trigger": "manual",
+              "inputSchema": {
+                "type": "object"
+              }
+            }
+          }
+        ],
+        "edges": [],
+        "groups": []
+      },
+      "diff": {
+        "added": [],
+        "removed": [
+          {
+            "kind": "node",
+            "id": "done",
+            "label": "node end「结束」",
+            "before": {
+              "outcome": "success"
+            }
+          },
+          {
+            "kind": "edge",
+            "id": "e1",
+            "label": "edge entry.success → done",
+            "before": {
+              "id": "e1",
+              "source": {
+                "nodeId": "entry",
+                "port": "success"
+              },
+              "target": {
+                "nodeId": "done",
+                "port": "input"
+              }
+            }
+          }
+        ],
+        "changed": []
+      }
+    },
+    {
+      "name": "diff · 改标题与配置",
+      "before": {
+        "nodes": [
+          {
+            "id": "entry",
+            "type": "entry",
+            "title": "入口",
+            "position": {
+              "x": 0,
+              "y": 0
+            },
+            "config": {
+              "trigger": "manual",
+              "inputSchema": {
+                "type": "object"
+              }
+            }
+          },
+          {
+            "id": "done",
+            "type": "end",
+            "title": "结束",
+            "position": {
+              "x": 0,
+              "y": 0
+            },
+            "config": {
+              "outcome": "success"
+            }
+          }
+        ],
+        "edges": [
+          {
+            "id": "e1",
+            "source": {
+              "nodeId": "entry",
+              "port": "success"
+            },
+            "target": {
+              "nodeId": "done",
+              "port": "input"
+            }
+          }
+        ],
+        "groups": []
+      },
+      "after": {
+        "nodes": [
+          {
+            "id": "entry",
+            "type": "entry",
+            "title": "入口",
+            "position": {
+              "x": 0,
+              "y": 0
+            },
+            "config": {
+              "trigger": "manual",
+              "inputSchema": {
+                "type": "object"
+              }
+            }
+          },
+          {
+            "id": "done",
+            "type": "end",
+            "title": "收工",
+            "position": {
+              "x": 0,
+              "y": 0
+            },
+            "config": {
+              "outcome": "failure"
+            }
+          }
+        ],
+        "edges": [
+          {
+            "id": "e1",
+            "source": {
+              "nodeId": "entry",
+              "port": "success"
+            },
+            "target": {
+              "nodeId": "done",
+              "port": "input"
+            }
+          }
+        ],
+        "groups": []
+      },
+      "diff": {
+        "added": [],
+        "removed": [],
+        "changed": [
+          {
+            "kind": "node",
+            "id": "done",
+            "label": "node done：标题 结束 → 收工，outcome success → failure",
+            "before": {
+              "outcome": "success"
+            },
+            "after": {
+              "outcome": "failure"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "diff · 位置变化不算改动",
+      "before": {
+        "nodes": [
+          {
+            "id": "entry",
+            "type": "entry",
+            "title": "入口",
+            "position": {
+              "x": 0,
+              "y": 0
+            },
+            "config": {
+              "trigger": "manual",
+              "inputSchema": {
+                "type": "object"
+              }
+            }
+          },
+          {
+            "id": "done",
+            "type": "end",
+            "title": "结束",
+            "position": {
+              "x": 0,
+              "y": 0
+            },
+            "config": {
+              "outcome": "success"
+            }
+          }
+        ],
+        "edges": [
+          {
+            "id": "e1",
+            "source": {
+              "nodeId": "entry",
+              "port": "success"
+            },
+            "target": {
+              "nodeId": "done",
+              "port": "input"
+            }
+          }
+        ],
+        "groups": []
+      },
+      "after": {
+        "nodes": [
+          {
+            "id": "entry",
+            "type": "entry",
+            "title": "入口",
+            "position": {
+              "x": 500,
+              "y": 500
+            },
+            "config": {
+              "trigger": "manual",
+              "inputSchema": {
+                "type": "object"
+              }
+            }
+          },
+          {
+            "id": "done",
+            "type": "end",
+            "title": "结束",
+            "position": {
+              "x": 500,
+              "y": 500
+            },
+            "config": {
+              "outcome": "success"
+            }
+          }
+        ],
+        "edges": [
+          {
+            "id": "e1",
+            "source": {
+              "nodeId": "entry",
+              "port": "success"
+            },
+            "target": {
+              "nodeId": "done",
+              "port": "input"
+            }
+          }
+        ],
+        "groups": []
+      },
+      "diff": {
+        "added": [],
+        "removed": [],
+        "changed": []
+      }
+    },
+    {
+      "name": "diff · 长配置值按字符截断",
+      "before": {
+        "nodes": [
+          {
+            "id": "entry",
+            "type": "entry",
+            "title": "入口",
+            "position": {
+              "x": 0,
+              "y": 0
+            },
+            "config": {
+              "trigger": "manual",
+              "inputSchema": {
+                "type": "object"
+              }
+            }
+          },
+          {
+            "id": "sh",
+            "type": "script.shell",
+            "title": "脚本",
+            "position": {
+              "x": 0,
+              "y": 0
+            },
+            "config": {
+              "interpreter": "zsh",
+              "script": "一二三四五六七八九十一二三四五六七八九十一二三四五六七八九十"
+            }
+          }
+        ],
+        "edges": [
+          {
+            "id": "e1",
+            "source": {
+              "nodeId": "entry",
+              "port": "success"
+            },
+            "target": {
+              "nodeId": "done",
+              "port": "input"
+            }
+          }
+        ],
+        "groups": []
+      },
+      "after": {
+        "nodes": [
+          {
+            "id": "entry",
+            "type": "entry",
+            "title": "入口",
+            "position": {
+              "x": 0,
+              "y": 0
+            },
+            "config": {
+              "trigger": "manual",
+              "inputSchema": {
+                "type": "object"
+              }
+            }
+          },
+          {
+            "id": "sh",
+            "type": "script.shell",
+            "title": "脚本",
+            "position": {
+              "x": 0,
+              "y": 0
+            },
+            "config": {
+              "interpreter": "bash",
+              "script": "甲乙丙丁戊己庚辛壬癸甲乙丙丁戊己庚辛壬癸甲乙丙丁戊己庚辛壬癸"
+            }
+          }
+        ],
+        "edges": [
+          {
+            "id": "e1",
+            "source": {
+              "nodeId": "entry",
+              "port": "success"
+            },
+            "target": {
+              "nodeId": "done",
+              "port": "input"
+            }
+          }
+        ],
+        "groups": []
+      },
+      "diff": {
+        "added": [],
+        "removed": [],
+        "changed": [
+          {
+            "kind": "node",
+            "id": "sh",
+            "label": "node sh：interpreter zsh → bash，script 一二三四五六七八九十一二三四五六七八九十一二三四… → 甲乙丙丁戊己庚辛壬癸甲乙丙丁戊己庚辛壬癸甲乙丙丁…",
+            "before": {
+              "interpreter": "zsh",
+              "script": "一二三四五六七八九十一二三四五六七八九十一二三四五六七八九十"
+            },
+            "after": {
+              "interpreter": "bash",
+              "script": "甲乙丙丁戊己庚辛壬癸甲乙丙丁戊己庚辛壬癸甲乙丙丁戊己庚辛壬癸"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "diff · 汇聚策略变了",
+      "before": {
+        "nodes": [
+          {
+            "id": "entry",
+            "type": "entry",
+            "title": "入口",
+            "position": {
+              "x": 0,
+              "y": 0
+            },
+            "config": {
+              "trigger": "manual",
+              "inputSchema": {
+                "type": "object"
+              }
+            }
+          },
+          {
+            "id": "done",
+            "type": "end",
+            "title": "结束",
+            "position": {
+              "x": 0,
+              "y": 0
+            },
+            "config": {
+              "outcome": "success"
+            }
+          }
+        ],
+        "edges": [
+          {
+            "id": "e1",
+            "source": {
+              "nodeId": "entry",
+              "port": "success"
+            },
+            "target": {
+              "nodeId": "done",
+              "port": "input"
+            }
+          }
+        ],
+        "groups": []
+      },
+      "after": {
+        "nodes": [
+          {
+            "id": "entry",
+            "type": "entry",
+            "title": "入口",
+            "position": {
+              "x": 0,
+              "y": 0
+            },
+            "config": {
+              "trigger": "manual",
+              "inputSchema": {
+                "type": "object"
+              }
+            }
+          },
+          {
+            "id": "done",
+            "type": "end",
+            "title": "结束",
+            "position": {
+              "x": 0,
+              "y": 0
+            },
+            "config": {
+              "outcome": "success"
+            },
+            "join": {
+              "strategy": "quorum",
+              "quorum": 2,
+              "merge": "deep",
+              "onPartialFailure": "continue"
+            }
+          }
+        ],
+        "edges": [
+          {
+            "id": "e1",
+            "source": {
+              "nodeId": "entry",
+              "port": "success"
+            },
+            "target": {
+              "nodeId": "done",
+              "port": "input"
+            }
+          }
+        ],
+        "groups": []
+      },
+      "diff": {
+        "added": [],
+        "removed": [],
+        "changed": [
+          {
+            "kind": "node",
+            "id": "done",
+            "label": "node done：汇聚策略 默认 → quorum",
+            "before": {
+              "outcome": "success"
+            },
+            "after": {
+              "outcome": "success"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "diff · 分组增删",
+      "before": {
+        "nodes": [
+          {
+            "id": "entry",
+            "type": "entry",
+            "title": "入口",
+            "position": {
+              "x": 0,
+              "y": 0
+            },
+            "config": {
+              "trigger": "manual",
+              "inputSchema": {
+                "type": "object"
+              }
+            }
+          },
+          {
+            "id": "done",
+            "type": "end",
+            "title": "结束",
+            "position": {
+              "x": 0,
+              "y": 0
+            },
+            "config": {
+              "outcome": "success"
+            }
+          }
+        ],
+        "edges": [
+          {
+            "id": "e1",
+            "source": {
+              "nodeId": "entry",
+              "port": "success"
+            },
+            "target": {
+              "nodeId": "done",
+              "port": "input"
+            }
+          }
+        ],
+        "groups": [
+          {
+            "id": "g1",
+            "title": "旧组",
+            "nodeIds": [
+              "entry"
+            ]
+          }
+        ]
+      },
+      "after": {
+        "nodes": [
+          {
+            "id": "entry",
+            "type": "entry",
+            "title": "入口",
+            "position": {
+              "x": 0,
+              "y": 0
+            },
+            "config": {
+              "trigger": "manual",
+              "inputSchema": {
+                "type": "object"
+              }
+            }
+          },
+          {
+            "id": "done",
+            "type": "end",
+            "title": "结束",
+            "position": {
+              "x": 0,
+              "y": 0
+            },
+            "config": {
+              "outcome": "success"
+            }
+          }
+        ],
+        "edges": [
+          {
+            "id": "e1",
+            "source": {
+              "nodeId": "entry",
+              "port": "success"
+            },
+            "target": {
+              "nodeId": "done",
+              "port": "input"
+            }
+          }
+        ],
+        "groups": [
+          {
+            "id": "g2",
+            "title": "新组",
+            "nodeIds": [
+              "done"
+            ]
+          }
+        ]
+      },
+      "diff": {
+        "added": [
+          {
+            "kind": "group",
+            "id": "g2",
+            "label": "group「新组」",
+            "after": {
+              "id": "g2",
+              "title": "新组",
+              "nodeIds": [
+                "done"
+              ]
+            }
+          }
+        ],
+        "removed": [
+          {
+            "kind": "group",
+            "id": "g1",
+            "label": "group「旧组」",
+            "before": {
+              "id": "g1",
+              "title": "旧组",
+              "nodeIds": [
+                "entry"
+              ]
+            }
+          }
+        ],
+        "changed": []
+      }
+    }
+  ]
+}

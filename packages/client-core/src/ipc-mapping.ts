@@ -33,9 +33,12 @@ const COMMANDS: Partial<Record<CoreApiMethod, string>> = {
   'run.artifactContent': 'run_artifact_content',
   'workflow.get': 'workflow_get',
   'workflow.create': 'workflow_create',
-  // patch 的结构化操作在客户端应用并生成 Diff（contracts 的 applyPatch），
-  // 落库写整份图 + baseRevision 守卫，见 crates/store 的 save_draft_guarded
-  'workflow.patch': 'workflow_save_draft',
+  // 结构化操作交给引擎应用（ADR-0009）：它自己算 Diff、自己校验、
+  // 自己做 baseRevision 守卫。客户端仍会先本地应用一次做乐观更新，
+  // 两份实现的一致性由 crates/engine/tests/conformance_test.rs 压着
+  'workflow.patch': 'workflow_patch',
+  'workflow.validate': 'workflow_validate',
+  'workflow.diff': 'workflow_diff',
   'workflow.versionGraph': 'workflow_version_graph',
   'workflow.rollback': 'workflow_rollback',
   'workflow.publish': 'workflow_publish',
@@ -118,15 +121,25 @@ function shapeFor(method: CoreApiMethod, record: Record<string, unknown>): Recor
   }
 
   if (method === 'workflow.patch') {
-    const graphJson = record.graphJson;
-    if (typeof graphJson !== 'string' || graphJson.length === 0) {
-      // 静默发一个空图会把用户的工作流清掉，这里必须硬失败
+    // 操作列表是权威的那一份 —— 引擎自己应用（ADR-0009）。
+    //
+    // 原先这里必须带 graphJson，因为 Rust 侧没有 applyPatch，只能整份回写；
+    // 于是返回的 diff 与 validation 是**编出来的空壳**（见下面 fromIpc）。
+    // 现在引擎自己算，两样都是真的了。graphJson 仍然捎带，当交叉校验：
+    // 两边算出的图不一致时引擎会留一行日志，说明 conformance 夹具漏了形态。
+    const operations = record.operations;
+    if (!Array.isArray(operations) || operations.length === 0) {
       throw new CoreApiError({
         code: 'INTERNAL',
-        message: 'workflow.patch 缺少 graphJson：调用方要先在客户端应用 Patch 再提交',
+        message: 'workflow.patch 缺少 operations：结构化操作是唯一的写入形态',
       });
     }
-    return { id: record.id, baseRev: record.baseRevision, graphJson };
+    return {
+      id: record.id,
+      baseRevision: record.baseRevision,
+      operations,
+      ...(typeof record.graphJson === 'string' ? { graphJson: record.graphJson } : {}),
+    };
   }
 
   if (method === 'run.start') {
@@ -336,12 +349,13 @@ export function fromIpcResult(method: CoreApiMethod, raw: unknown): unknown {
       return { id: raw as string, rev: 0 };
 
     case 'workflow.patch':
-      // Diff 与校验结果已在客户端算过（DraftStore），这里只回新 rev
-      return {
-        rev: raw as number,
-        diff: { added: [], removed: [], changed: [] },
-        validation: { ok: true, issues: [] },
-      };
+      // 引擎算的 Diff 与校验结果原样回去。
+      //
+      // 这里曾经编一个空 Diff 加一句「ok: true」——因为底下走的是
+      // workflow_save_draft，它只回一个 rev。代价是任何**不经过 DraftStore**
+      // 的调用方（MCP、脚本、以后的 Web 形态）都会收到一句
+      // 「校验通过、什么都没改」，而实际上图可能已经坏了
+      return raw as unknown;
 
     case 'workflow.publish': {
       const dto = raw as { versionId: string; version: number; configHash: string };
