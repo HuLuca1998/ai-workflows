@@ -93,8 +93,13 @@ if (!confirmed) {
   process.exit(0);
 }
 
+// **必须显式开外键**。`sqlite3` 命令行默认是关的（PRAGMA foreign_keys 的
+// 缺省值就是 OFF），于是 `DELETE FROM run` 不会级联删掉它的事件与产物 ——
+// 表面上「已删掉 6 次运行」，实际留下 111 条指向不存在的运行的孤儿事件。
+// 这个坑第一版就踩了：清完之后事件表还是 148 行。
 execFileSync('sqlite3', [
   dbPath,
-  `DELETE FROM run WHERE id IN (${删掉.map((r) => `'${r.id}'`).join(',')})`,
+  `PRAGMA foreign_keys = ON;
+   DELETE FROM run WHERE id IN (${删掉.map((r) => `'${r.id}'`).join(',')});`,
 ]);
 console.log(`\n已删掉 ${删掉.length} 次运行。`);
