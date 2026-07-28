@@ -148,6 +148,28 @@ impl NodeExecutor {
         self
     }
 
+    /// 这个节点会用什么 —— **纯函数，执行之前就能问**。
+    ///
+    /// 与执行后从 `resolutions()` 里读的区别很实在：AI 节点连 adapter
+    /// 可能挂上好几分钟，而排查「它卡在哪」的第一个问题就是
+    /// 「它到底想连哪个」。等节点跑完再写事件，那条信息永远来不及。
+    ///
+    /// 非 AI 节点返回 None：给脚本节点写一条「用了哪个模型」是噪声。
+    #[must_use]
+    pub fn resolution_for(&self, node: &GraphNode) -> Option<Resolution> {
+        if !node.node_type.starts_with("ai.") {
+            return None;
+        }
+        let profile = self.profile_for(node);
+        Some(Resolution {
+            node_id: node.id.clone(),
+            agent_profile_id: profile.map(|p| p.id.clone()).unwrap_or_default(),
+            agent_name: profile.map(|p| p.name.clone()).unwrap_or_default(),
+            model_ref: profile.map(|p| p.model_ref.clone()).unwrap_or_default(),
+            runtime: self.resolved_runtime(node),
+        })
+    }
+
     /// 每个 AI 节点实际用了什么。上层据此写 `system.model_resolved`。
     pub fn resolutions(&self) -> Vec<Resolution> {
         self.resolutions
@@ -600,17 +622,12 @@ impl NodeExecutor {
         let runtime = self.resolved_runtime(node);
         let runtime = runtime.as_str();
 
-        // 记下这个节点实际用了什么，供上层写 system.model_resolved。
-        // 写在真正连 adapter **之前**：连不上也是一次「用了它」，
-        // 而排查连不上的第一个问题就是「它到底想连哪个」
-        if let Ok(mut list) = self.resolutions.lock() {
-            list.push(Resolution {
-                node_id: node.id.clone(),
-                agent_profile_id: profile.map(|p| p.id.clone()).unwrap_or_default(),
-                agent_name: profile.map(|p| p.name.clone()).unwrap_or_default(),
-                model_ref: profile.map(|p| p.model_ref.clone()).unwrap_or_default(),
-                runtime: runtime.to_string(),
-            });
+        // 也记一份在执行器上：单测靠它断言「解析对了没有」，
+        // 不必去翻事件表
+        if let Some(resolution) = self.resolution_for(node) {
+            if let Ok(mut list) = self.resolutions.lock() {
+                list.push(resolution);
+            }
         }
 
         let (command, args) = match &self.acp_override {

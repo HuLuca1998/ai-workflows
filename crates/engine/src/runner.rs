@@ -167,13 +167,12 @@ impl Runner {
                         message: error.to_string(),
                     })
             },
-            // 「这一步用了哪个角色、哪个模型」由执行器记下（它不碰数据库），
-            // 这里取出来写成事件
-            |node_id| {
+            // 「这一步用了哪个角色、哪个模型」问执行器 —— 它是纯函数，
+            // 执行之前就能答
+            |node| {
                 executor
-                    .resolutions()
+                    .resolution_for(node)
                     .into_iter()
-                    .filter(|item| item.node_id == node_id)
                     .map(|item| {
                         if item.agent_profile_id.is_empty() {
                             format!("runtime {} · 没挂 Agent 角色", item.runtime)
@@ -202,7 +201,7 @@ impl Runner {
     ) -> Result<StepResult>
     where
         F: Fn(&crate::graph::GraphNode, &mut Scope) -> NodeOutcome,
-        R: Fn(&str) -> Vec<String>,
+        R: Fn(&crate::graph::GraphNode) -> Vec<String>,
     {
         let status = self.status(store, run_id)?;
         if matches!(status.as_str(), "succeeded" | "failed" | "cancelled") {
@@ -266,19 +265,11 @@ impl Runner {
             &format!("{} 开始", node.title),
         )?;
 
-        // 审批是**引擎强制**的暂停点，不是执行器的选择：
-        // 交给执行器决定的话，一个实现得不对的执行器就能把人工审批绕过去。
-        let outcome = if node.node_type == "approval" {
-            NodeOutcome::NeedsApproval
-        } else {
-            execute(node, scope)
-        };
-
-        // 「这一步用了哪个角色、哪个模型、跑在哪个 runtime 上」。
-        //
-        // 写在 outcome 之后、node.succeeded 之前：**失败的那次也要写**——
-        // 排查「AI 节点连不上」的第一个问题就是「它到底想连哪个」。
-        for 解析 in resolutions(&node_id) {
+        // 「这一步用了哪个角色、哪个模型、跑在哪个 runtime 上」——
+        // 写在**执行之前**。AI 节点连 adapter 可能挂上好几分钟，
+        // 而排查「它卡在哪」的第一个问题就是「它到底想连哪个」；
+        // 等节点跑完再写，那条信息永远来不及。
+        for 解析 in resolutions(node) {
             self.emit_node(
                 store,
                 run_id,
@@ -289,6 +280,14 @@ impl Runner {
                 &解析,
             )?;
         }
+
+        // 审批是**引擎强制**的暂停点，不是执行器的选择：
+        // 交给执行器决定的话，一个实现得不对的执行器就能把人工审批绕过去。
+        let outcome = if node.node_type == "approval" {
+            NodeOutcome::NeedsApproval
+        } else {
+            execute(node, scope)
+        };
 
         match outcome {
             NodeOutcome::Succeeded { port } => {
