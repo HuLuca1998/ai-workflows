@@ -101,7 +101,9 @@ describe('对话', () => {
   it('模型下拉只列已启用的', async () => {
     view();
     await waitFor(() => {
-      expect(call).toHaveBeenCalledWith('model.list', { enabledOnly: true });
+      // 显式要满额：不写 limit 的话拿到分页默认值（50），
+      // 第 51 条之后的已启用模型在下拉里根本不存在
+      expect(call).toHaveBeenCalledWith('model.list', { enabledOnly: true, limit: 200 });
     });
   });
 
@@ -195,6 +197,36 @@ describe('等待与取消', () => {
     await user.keyboard('{Enter}');
 
     expect(await screen.findByRole('button', { name: '取消' })).toBeTruthy();
+  });
+
+  it('取消后在对话里留一条回执 —— 不留的话像是自己没点上', async () => {
+    // codex 两轮都提：「取消后等待状态消失并恢复『发送』，
+    // 但消息区只剩原问题，没有『已取消』、取消时间或原因」。
+    // 用户按了取消，界面上什么都没变化 —— 那和没按上是一样的观感
+    respond({ 'supervisor.ask': () => new Promise(() => {}) });
+    const user = userEvent.setup();
+    view();
+    await user.type(screen.getByLabelText(/问主管 AI/u), '怎么用');
+    await user.keyboard('{Enter}');
+
+    await user.click(await screen.findByRole('button', { name: '取消' }));
+
+    expect(await screen.findByText(/已取消/u)).toBeTruthy();
+  });
+
+  it('取消回执写明等了多久 —— 那是用户判断要不要换个模型的依据', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    respond({ 'supervisor.ask': () => new Promise(() => {}) });
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    view();
+    await user.type(screen.getByLabelText(/问主管 AI/u), '怎么用');
+    await user.keyboard('{Enter}');
+
+    await vi.advanceTimersByTimeAsync(12_000);
+    await user.click(await screen.findByRole('button', { name: '取消' }));
+
+    expect(await screen.findByText(/等待 12 秒后已取消/u)).toBeTruthy();
+    vi.useRealTimers();
   });
 
   it('取消后回到可以再问的状态，且不留空气泡', async () => {

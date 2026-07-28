@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { ChatInput } from '../chat/ChatInput.js';
 import {
   applyPatch,
+  LIST_PAGE_LIMIT_MAX,
   type PatchOperation,
   type WorkflowDiff,
   type WorkflowGraph,
@@ -33,6 +34,8 @@ interface Message {
   text: string;
   /** agent 消息在流式过程中为 true。 */
   streaming?: boolean;
+  /** 系统回执（取消、超时）。它不是模型说的话，样式上要区分开。 */
+  system?: boolean;
 }
 
 /** 头部那排上下文 chips。图标与文案照图纸。 */
@@ -120,7 +123,10 @@ export function SupervisorDrawer({
     if (!open) return;
     // 只列已启用的模型 —— 与 Agent 页同一条规则
     void coreClient
-      .call('model.list', { enabledOnly: true })
+      // 显式要满额：不写 limit 就拿分页的默认值（50），
+      // 于是第 51 条之后的已启用模型在下拉里根本不存在 ——
+      // 而界面上写着「只列出已启用的条目」
+      .call('model.list', { enabledOnly: true, limit: LIST_PAGE_LIMIT_MAX })
       .then((result) => {
         const items = (result as { items: ModelOption[] }).items;
         setModels(items);
@@ -398,7 +404,9 @@ export function SupervisorDrawer({
                 </span>
               ) : null}
               <div className="supervisor__bubble">
-                {message.streaming && !message.text ? (
+                {message.system ? (
+                  <span className="supervisor__system">{message.text}</span>
+                ) : message.streaming && !message.text ? (
                   <span className="supervisor__thinking">
                     正在想…
                     {waited >= 5 ? (
@@ -478,7 +486,17 @@ export function SupervisorDrawer({
                 // 号码一变，回来的答案就会被丢掉
                 askSeq.current += 1;
                 setBusy(false);
-                setMessages((prev) => prev.filter((message) => !message.streaming));
+                // 留一条回执。不留的话按了取消界面上什么都没变化 ——
+                // 那和没按上是一样的观感，用户会再按几次
+                setMessages((prev) => [
+                  ...prev.filter((message) => !message.streaming),
+                  {
+                    id: `c_${prev.length}`,
+                    role: 'agent',
+                    text: waited > 0 ? `等待 ${waited} 秒后已取消` : '已取消',
+                    system: true,
+                  },
+                ]);
               }}
             >
               取消

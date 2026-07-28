@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { LIST_PAGE_LIMIT_MAX } from '@aiwf/contracts';
 import type { AGENT_RUNTIMES } from '@aiwf/contracts';
 import { SplitPane } from '../layout/SplitPane.js';
 import { Pager } from '../layout/Pager.js';
@@ -97,7 +98,8 @@ export function AgentsPage() {
     void load();
     // 只要已启用的：过滤在后端做，前端不该拿到停用条目再自己筛
     void coreClient
-      .call('model.list', { enabledOnly: true })
+      // 同 SupervisorDrawer：下拉要全量，不写 limit 会被默认分页截断
+      .call('model.list', { enabledOnly: true, limit: LIST_PAGE_LIMIT_MAX })
       .then((result) => setModels((result as { items: ModelOption[] }).items))
       // 读失败也要落地成空数组：留在 null 的话表单会永远显示「正在读取」
       .catch(() => setModels([]));

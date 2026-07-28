@@ -1513,41 +1513,17 @@ pub fn supervisor_ask(
     let memories = store
         .memories_for_injection("workspace", None)
         .unwrap_or_default();
-    let mut prompt = String::new();
-
-    if !memories.is_empty() {
-        prompt.push_str("已知的长期上下文：\n");
-        for memory in memories.iter().take(20) {
-            prompt.push_str(&format!("- {}：{}\n", memory.key, memory.value));
-        }
-        prompt.push('\n');
-    }
-
-    if let Some(context) = context_json
-        .as_deref()
-        .filter(|c| *c != "{}" && !c.is_empty())
-    {
-        prompt.push_str(&format!("当前界面状态：{context}\n\n"));
-    }
-
-    // 教它怎么提改动。不说的话它只会用自然语言描述「你可以加一个审批节点」——
-    // 那没法出 Diff，用户还得自己动手照做一遍。
-    //
-    // 用专门的围栏标记而不是 ```json：用户问「这个节点配置长什么样」时
-    // 模型会贴一段 JSON，那是解释，不是要改东西
-    if let Some(graph_json) = context_graph {
-        prompt.push_str(
-            "\n要修改这条工作流时，除了用自然语言说明，还要附一段提议：\n\n             ```aiwf-proposal\n             {\"summary\": \"一句话说清这次改了什么\", \"operations\": [ … ]}\n             ```\n\n             operations 里每一项的 op 只能是：",
-        );
-        prompt.push_str(&PATCH_OPS.join("、"));
-        prompt.push_str(
-            "。\n改动不会直接生效 —— 用户会先看到 Diff，确认后才写进草稿。\n\n             当前草稿的图：\n",
-        );
-        prompt.push_str(&graph_json);
-        prompt.push_str("\n\n");
-    }
-
-    prompt.push_str(&question);
+    let prompt = supervisor_prompt(
+        &question,
+        &memories
+            .iter()
+            .map(|m| (m.key.clone(), m.value.clone()))
+            .collect::<Vec<_>>(),
+        context_json
+            .as_deref()
+            .filter(|c| *c != "{}" && !c.is_empty()),
+        context_graph.as_deref(),
+    );
 
     let mut client = AcpClient::connect(
         &command,
@@ -1959,4 +1935,88 @@ pub fn run_rewind_to_approval(store: &Store, run_id: String) -> ApiResult<Rewind
         run_id: new_run,
         node_id,
     })
+}
+
+/// 主管 AI 的提示词。
+///
+/// **应用说明必须在最前面**。codex 自主体验时问「怎么创建并运行一个最简单的
+/// 工作流」，模型回答「目前我对这个应用一无所知」，要求放开 `ls`、
+/// 提供项目路径或截图 —— 因为提示词里一个字都没提这个应用是什么。
+///
+/// 而抽屉顶上写着「掌握全部功能：工作流、节点、运行、记忆、提示词、模型、设置」。
+/// 界面上承诺了却不存在的能力比没有更糟：用户会以为是自己没说清，
+/// 换个说法再问一遍，几轮之后开始怀疑别的提示是不是也是假的。
+pub fn supervisor_prompt(
+    question: &str,
+    memories: &[(String, String)],
+    context_json: Option<&str>,
+    graph_json: Option<&str>,
+) -> String {
+    let mut prompt = String::from(
+        "你是 AI Workflows 这个桌面应用里的主管 AI。用户正在使用它，\
+         你的任务是回答关于**这个应用**的问题，并在需要时提议修改他打开的工作流。\
+         \n\n\
+         这个应用是什么：一个本地优先的 AI 工作流编排工具。用户在画布上搭出\
+         由节点组成的流程（入口、Shell/Python 脚本、AI 分析/审查/决策/执行、\
+         分支、汇聚、审批、子工作流、MCP 工具、结束等），然后运行它；\
+         每次运行的全过程以事件流记录下来，可回放、可解释。\
+         \n\n\
+         用户能去的每一屏：\n\
+         - **工作流**（首页）：全部工作流的列表，能新建、导入、搜索、按状态筛选\n\
+         - **画布编辑器**：拖节点、连线、配置节点、保存草稿、发布版本、发起运行\n\
+         - **执行记录**：每次运行的事件流、产物、对话；失败时能从失败节点重试、\
+         回到最近审批点改选择、用相同参数重跑、导出诊断包\n\
+         - **记忆**：会被注入后续每一次 AI 调用的长期上下文，可停用或删除\n\
+         - **Agent 角色**：Agent 的目标、人设、可用工具、权限与模型\n\
+         - **提示词库**：分段的提示词模板与变量，按版本保存\n\
+         - **模型**：已登记的模型与它们的运行时、上下文窗口、能力\n\
+         - **设置与环境**：依赖工具的健康检查与权限策略\n\
+         \n\
+         两个最容易被问到的概念：\n\
+         - **草稿**（rev，单调递增）是可变的编辑现场，改它不影响正在跑的东西\n\
+         - **版本**（v，不可变快照）是发布出来的，运行永远引用某个版本或某个草稿修订\n\
+         \n\
+         你的权限边界：你能读工作流、改草稿、读记忆。\
+         **你不能发布版本，也不能发起运行** —— 那两件事只有用户自己能做，\
+         界面上也是这么写的。别承诺你做不到的事。\
+         \n\n\
+         回答用中文，简短、具体，直接说用户该点哪里。\
+         你看不到用户的屏幕，也不需要看 —— 上面这些就是这个应用的全部形态。\n\n",
+    );
+
+    if !memories.is_empty() {
+        prompt.push_str("已知的长期上下文：\n");
+        for (key, value) in memories.iter().take(20) {
+            prompt.push_str(&format!("- {key}：{value}\n"));
+        }
+        prompt.push('\n');
+    }
+
+    if let Some(context) = context_json {
+        prompt.push_str(&format!("当前界面状态：{context}\n\n"));
+    }
+
+    // 教它怎么提改动。不说的话它只会用自然语言描述「你可以加一个审批节点」——
+    // 那没法出 Diff，用户还得自己动手照做一遍。
+    //
+    // 用专门的围栏标记而不是 ```json：用户问「这个节点配置长什么样」时
+    // 模型会贴一段 JSON，那是解释，不是要改东西
+    if let Some(graph) = graph_json {
+        prompt.push_str(
+            "要修改这条工作流时，除了用自然语言说明，还要附一段提议：\n\n\
+             ```aiwf-proposal\n\
+             {\"summary\": \"一句话说清这次改了什么\", \"operations\": [ … ]}\n\
+             ```\n\n\
+             operations 里每一项的 op 只能是：",
+        );
+        prompt.push_str(&PATCH_OPS.join("、"));
+        prompt.push_str(
+            "。\n改动不会直接生效 —— 用户会先看到 Diff，确认后才写进草稿。\n\n当前草稿的图：\n",
+        );
+        prompt.push_str(graph);
+        prompt.push_str("\n\n");
+    }
+
+    prompt.push_str(question);
+    prompt
 }

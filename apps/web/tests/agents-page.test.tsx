@@ -150,7 +150,9 @@ describe('角色详情', () => {
 
     // 只请求已启用的：过滤放在后端，前端不该拿到停用条目再自己筛
     await waitFor(() => {
-      expect(call).toHaveBeenCalledWith('model.list', { enabledOnly: true });
+      // 显式要满额：不写 limit 的话拿到分页默认值（50），
+      // 第 51 条之后的已启用模型在下拉里根本不存在
+      expect(call).toHaveBeenCalledWith('model.list', { enabledOnly: true, limit: 200 });
     });
   });
 

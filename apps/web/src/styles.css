@@ -4660,6 +4660,14 @@
   color: var(--color-neutral-600);
 }
 
+/* 系统回执（取消、超时）：不是模型说的话，所以不用气泡的样子 */
+.supervisor__system {
+  display: block;
+  font-size: 11.5px;
+  color: var(--color-neutral-600);
+  font-style: normal;
+}
+
 /* ── 首次配置（图纸「06 首次安装与检测」）───────────────────────────── */
 .onboarding {
   display: flex;

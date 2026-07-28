@@ -131,3 +131,85 @@ fn patch_操作名与契约一致() {
 
     assert_eq!(actual, expected, "Rust 侧的 patch 操作名与契约不一致");
 }
+
+/// 主管 AI 得知道自己在哪。
+///
+/// codex 第二轮的原话：问它「怎么创建并运行一个最简单的工作流」，
+/// 它回答「目前我对这个应用一无所知」，要求放开 `ls`、提供项目路径或截图。
+///
+/// 而抽屉顶上写着「掌握全部功能：工作流、节点、运行、记忆、提示词、模型、设置」——
+/// 提示词里一个字都没提这些，那句话就是假的。
+mod 应用上下文 {
+    use aiwf_core_api::supervisor_prompt;
+
+    #[test]
+    fn 开头就说清它是谁_在哪() {
+        let prompt = supervisor_prompt("怎么新建工作流？", &[], None, None);
+        assert!(
+            prompt.contains("AI Workflows"),
+            "没告诉它应用叫什么：{prompt}"
+        );
+        assert!(prompt.contains("主管"), "没说明它的角色");
+    }
+
+    #[test]
+    fn 列出用户能去的每一屏() {
+        let prompt = supervisor_prompt("这个应用能做什么？", &[], None, None);
+        for 屏 in [
+            "工作流",
+            "画布编辑器",
+            "执行记录",
+            "记忆",
+            "Agent",
+            "提示词",
+            "模型",
+            "设置",
+        ] {
+            assert!(prompt.contains(屏), "没提到「{屏}」这一屏：{prompt}");
+        }
+    }
+
+    #[test]
+    fn 说清草稿与版本的区别_那是最容易问到的概念() {
+        let prompt = supervisor_prompt("rev 和 v 有什么区别？", &[], None, None);
+        assert!(prompt.contains("草稿"), "没解释草稿");
+        assert!(prompt.contains("版本"), "没解释版本");
+    }
+
+    #[test]
+    fn 写明它不能发布也不能运行() {
+        // 抽屉底部常驻「本次会话授予：workflow:read / write-draft / memory:read，
+        // 发布与运行未授权」。提示词不说的话，模型会承诺它做不到的事
+        let prompt = supervisor_prompt("帮我发布并运行这条流程", &[], None, None);
+        assert!(
+            prompt.contains("发布") && prompt.contains("运行"),
+            "没写明权限边界：{prompt}"
+        );
+    }
+
+    #[test]
+    fn 用户的问题在最后_不被前面的说明淹掉() {
+        let prompt = supervisor_prompt("我的问题", &[], None, None);
+        assert!(prompt.trim_end().ends_with("我的问题"), "问题不在末尾");
+    }
+
+    #[test]
+    fn 有记忆时把记忆也拼进去() {
+        let memories = [("worktree.cleanup".to_string(), "PR 合并前保留".to_string())];
+        let prompt = supervisor_prompt("怎么清理 worktree？", &memories, None, None);
+        assert!(prompt.contains("worktree.cleanup"));
+        assert!(prompt.contains("PR 合并前保留"));
+    }
+
+    #[test]
+    fn 有草稿图时才教它怎么提改动() {
+        let 无图 = supervisor_prompt("你好", &[], None, None);
+        assert!(
+            !无图.contains("aiwf-proposal"),
+            "没打开任何工作流时教它提改动，它会对着空气提"
+        );
+
+        let 有图 = supervisor_prompt("加个审批节点", &[], None, Some(r#"{"nodes":[]}"#));
+        assert!(有图.contains("aiwf-proposal"));
+    }
+}
