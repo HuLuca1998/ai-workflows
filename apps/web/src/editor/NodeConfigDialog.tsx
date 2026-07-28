@@ -135,8 +135,9 @@ export function NodeConfigDialog({ node, graph, onClose, onSave }: NodeConfigDia
           <span className="cfg__foot-note">改动保存到草稿，不影响已发布版本</span>
           <span className="cfg__tabs-grow" />
           <Button onClick={onClose}>取消</Button>
-          {/* 「测试运行此节点」要靠引擎，M2 接入前禁用并说明 */}
-          <Button disabled title="单节点试运行需要执行引擎，M2 阶段接入">
+          {/* 「测试运行此节点」还没做：它要能只跑一个节点而不动整条流程，
+              引擎目前只按图执行。禁用并说明，比给一个点了没反应的按钮好 */}
+          <Button disabled title="单节点试运行还没做，现在只能跑整条工作流">
             测试运行此节点
           </Button>
           <Button variant="primary" onClick={onSubmit}>
@@ -223,8 +224,9 @@ function PermissionsTab({ node }: { node: GraphNode }) {
       ) : null}
 
       <p className="cfg__hint-block">
-        扩大权限会让已保存的 Trusted Workflow 策略失效并要求重新确认。 能力的可视化编辑在 M3 随
-        Agent 角色一起做——现在改这里等于改不了引擎的强制项。
+        扩大权限会让已保存的 Trusted Workflow 策略失效并要求重新确认。
+        这里显示的是节点声明需要什么；**允许什么**在「Agent 角色」里配，
+        运行时取两者交集，由引擎强制。
       </p>
     </div>
   );

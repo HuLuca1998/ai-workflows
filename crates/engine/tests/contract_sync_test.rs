@@ -64,43 +64,45 @@ fn 节点类型数量与契约一致() {
 
 #[test]
 fn 引擎侧状态机与契约同名同数() {
-    // 状态名以事件里的 run.* / node.* 动作为准无法反推，因此这里直接锁数量与拼写：
-    // 契约里 RUN_STATUSES 有 11 个、NODE_STATUSES 有 8 个。
-    assert_eq!(RunStatus::ALL.len(), 11);
-    assert_eq!(NodeStatus::ALL.len(), 8);
+    // **读着契约比，不跟字面量比。**
+    //
+    // 第一版把 11 个状态名硬编码在这个文件里，于是给契约加第 12 个状态、
+    // 照着报错提示改完之后：pnpm test 979 passed、contract_sync 7 passed、
+    // parity 10 passed —— 而契约 12 个、Rust 11 个，漂移完整出厂。
+    // 守卫跟一份自己维护的副本比，等于没有守卫。
+    let meta = meta();
 
-    let run_names: BTreeSet<&str> = RunStatus::ALL.iter().map(|s| s.as_str()).collect();
+    let 契约_run = string_set(&meta, "runStatuses");
+    let 引擎_run: BTreeSet<String> = RunStatus::ALL
+        .iter()
+        .map(|s| s.as_str().to_string())
+        .collect();
     assert_eq!(
-        run_names,
-        BTreeSet::from([
-            "cancelled",
-            "created",
-            "failed",
-            "interrupted",
-            "paused",
-            "preflight",
-            "queued",
-            "resuming",
-            "running",
-            "succeeded",
-            "waiting_approval",
-        ])
+        引擎_run, 契约_run,
+        "运行状态与契约对不上。契约在 packages/contracts/src/state-machine.ts，\
+         Rust 侧在 crates/engine/src/status.rs —— 两边都要改"
     );
 
-    let node_names: BTreeSet<&str> = NodeStatus::ALL.iter().map(|s| s.as_str()).collect();
-    assert_eq!(
-        node_names,
-        BTreeSet::from([
-            "cancelled",
-            "failed",
-            "idle",
-            "queued",
-            "running",
-            "skipped",
-            "succeeded",
-            "waiting",
-        ])
-    );
+    let 契约_node = string_set(&meta, "nodeStatuses");
+    let 引擎_node: BTreeSet<String> = NodeStatus::ALL
+        .iter()
+        .map(|s| s.as_str().to_string())
+        .collect();
+    assert_eq!(引擎_node, 契约_node, "节点状态与契约对不上");
+}
+
+#[test]
+fn 状态机守卫真的会因为漂移而红() {
+    // 守卫本身也要被验证：它绿着但守不住，比没有更糟。
+    // 这里模拟「契约多了一个状态」的情形 —— 断言比对逻辑会发现差异
+    let mut 契约 = string_set(&meta(), "runStatuses");
+    契约.insert("新加的状态".to_string());
+    let 引擎: BTreeSet<String> = RunStatus::ALL
+        .iter()
+        .map(|s| s.as_str().to_string())
+        .collect();
+
+    assert_ne!(引擎, 契约, "比对逻辑发现不了多出来的状态");
 }
 
 #[test]

@@ -49,13 +49,14 @@ describe('弹层结构（照图纸）', () => {
     expect(screen.getByText('改动只影响草稿')).toBeInTheDocument();
   });
 
-  it('底部三个按钮；试运行禁用并说明要等引擎', () => {
+  it('底部三个按钮；试运行禁用并说清为什么', () => {
     renderDialog();
     expect(screen.getByRole('button', { name: '取消' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '保存到草稿' })).toBeInTheDocument();
     const testRun = screen.getByRole('button', { name: '测试运行此节点' });
     expect(testRun).toBeDisabled();
-    expect(testRun).toHaveAttribute('title', expect.stringContaining('M2'));
+    // 不露内部里程碑代号：用户不知道 M2 是什么，也不该知道
+    expect(testRun).toHaveAttribute('title', expect.stringContaining('只能跑整条工作流'));
   });
 });
 

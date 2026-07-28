@@ -27,8 +27,20 @@ const 源码 = readFileSync(
   'utf8',
 );
 
-/** DTO 与它所服务的契约方法。加新 DTO 时把映射补上，否则它没人守。 */
-const 映射: { dto: string; method: CoreApiMethod; 字段路径?: string }[] = [
+/**
+ * DTO 与它所服务的契约方法。加新 DTO 时把映射补上，否则它没人守。
+ *
+ * `重组字段` 列出那些**有意**在映射层改名或重组的字段（`ipc-mapping.ts`
+ * 的 fromIpcOutput 里有对应分支）—— 比如 `inputsJson` 被解析成 `inputs`。
+ * 不列出来的话守卫会把它们当漂移；列出来就等于说「这处差异是设计」，
+ * 而映射层那边有转换分支的测试压着。
+ */
+const 映射: {
+  dto: string;
+  method: CoreApiMethod;
+  字段路径?: string;
+  重组字段?: string[];
+}[] = [
   { dto: 'ArtifactDto', method: 'run.artifacts', 字段路径: 'items' },
   { dto: 'ArtifactContentDto', method: 'run.artifactContent' },
   { dto: 'MemoryDto', method: 'memory.list', 字段路径: 'items' },
@@ -44,6 +56,23 @@ const 映射: { dto: string; method: CoreApiMethod; 字段路径?: string }[] = 
   { dto: 'ConfirmationDto', method: 'mcp.pendingConfirms', 字段路径: 'items' },
   { dto: 'ConfirmStatusDto', method: 'mcp.confirmStatus' },
   { dto: 'ModelTestResult', method: 'model.test' },
+  // 这三个不叫 Dto，但同样会被序列化给前端 ——
+  // WorkflowSummary 少 rename_all 正是这条守卫当初要防的那个坑
+  { dto: 'WorkflowSummary', method: 'workflow.list', 字段路径: 'items' },
+  {
+    dto: 'RunSummary',
+    method: 'run.list',
+    字段路径: 'items',
+    // toRun() 把 inputsJson 解析成 inputs 对象
+    重组字段: ['inputsJson'],
+  },
+  {
+    dto: 'WorkflowDetail',
+    method: 'workflow.get',
+    // 引擎返回扁平结构，映射层重组成 { workflow, graph, rev, versions }
+    重组字段: ['id', 'name', 'folder', 'createdAt', 'updatedAt', 'graphJson'],
+  },
+  { dto: 'SupervisorAnswer', method: 'supervisor.ask' },
   // sectionsJson / varsJson 在映射层解析成 sections / vars（引擎不理解它们的结构），
   // 字段名对不上是**有意**的，所以豁免而不是登记
 ];
@@ -107,11 +136,12 @@ function 契约字段(method: CoreApiMethod, 字段路径?: string): string[] {
 }
 
 describe('引擎 DTO 与契约 output 不能漂移', () => {
-  for (const { dto, method, 字段路径 } of 映射) {
+  for (const { dto, method, 字段路径, 重组字段 } of 映射) {
     it(`${dto} 的每个字段在 ${method} 的契约里都声明了`, () => {
       const 引擎有 = rust字段(dto);
       const 契约有 = new Set(契约字段(method, 字段路径));
-      const 漏掉的 = 引擎有.filter((名) => !契约有.has(名));
+      const 有意重组 = new Set(重组字段 ?? []);
+      const 漏掉的 = 引擎有.filter((名) => !契约有.has(名) && !有意重组.has(名));
 
       expect(
         漏掉的,
@@ -120,19 +150,43 @@ describe('引擎 DTO 与契约 output 不能漂移', () => {
     });
   }
 
-  it('映射表本身覆盖了源码里的 DTO —— 新加的不能漏', () => {
-    const 源码里的 = [...源码.matchAll(/pub struct (\w+Dto) \{/g)].map((m) => m[1]!);
+  it('映射表本身覆盖了每一个出参结构体 —— 不能只认名字带 Dto 的', () => {
+    // **按 derive(Serialize) 认，不按名字认**。
+    //
+    // 第一版只扫 `pub struct \w+Dto`，于是 WorkflowSummary、RunSummary、
+    // ApiError 这些同样会被序列化给前端的结构体一个都没守到 ——
+    // 而 WorkflowSummary 少 rename_all 正是这条守卫当初要防的那个坑。
+    // 用命名约定当判据，等于赌所有人都记得那条约定。
+    const 源码里的 = [
+      ...源码.matchAll(/#\[derive\([^\]]*\bSerialize\b[^\]]*\)\][\s\S]{0,200}?pub struct (\w+)/g),
+    ].map((m) => m[1]!);
     const 已覆盖 = new Set(映射.map((e) => e.dto));
     // 有几个 DTO 是别的 DTO 的容器或嵌套片段，不直接对应一个方法
     const 豁免 = new Set([
+      // 别的 DTO 的容器或嵌套片段，不直接对应一个方法
       'ArtifactsDto',
       'LastRunDto',
       'VersionMetaDto',
       'PublishedDto',
+      'RunEventsPage',
+      'SupervisorSessionDetail',
       // 分段与变量以 JSON 字符串带回，映射层解析成数组 —— 字段名有意不同
       'PromptVersionDto',
-      // 它只有 runId + nodeId，手写的 Serialize，没有 rename_all 可扫
+      // 泛型容器：字段是 items/total，与具体 DTO 无关
+      'Page',
+      // 只有一两个字段的应答体，形状由契约的 output 直接写死
+      'VerOnly',
+      'DiscardResult',
+      'DiagnosticsResult',
       'RewindResult',
+      'ModelTestResult',
+      'ConfirmStatusDto',
+      // 错误体走 normalizeIpcError，不经过 output 校验
+      'ApiError',
+      // 入参结构体（Deserialize 那一侧），不是出参
+      'AgentEdit',
+      // SupervisorAnswer 的嵌套片段，跟着它一起被守
+      'Proposal',
     ]);
     const 没人守的 = 源码里的.filter((名) => !已覆盖.has(名) && !豁免.has(名));
 

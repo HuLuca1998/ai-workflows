@@ -18,6 +18,7 @@ import { WorkflowGraphSchema } from '../src/graph.js';
 import { NODE_TYPES, getNodeDefinition } from '../src/nodes/index.js';
 import { PATCH_OPS } from '../src/patch.js';
 import { CONTRACTS_VERSION } from '../src/index.js';
+import { RUN_STATUSES, NODE_STATUSES } from '../src/state-machine.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const outDir = join(here, '..', 'generated');
@@ -32,6 +33,11 @@ const files: Record<string, unknown> = {
     eventCategories: RUN_EVENT_CATEGORIES,
     eventTypes: RUN_EVENT_TYPES,
     nodeTypes: NODE_TYPES,
+    // 状态机也进生成物：Rust 侧的镜像要能**读着契约比**，
+    // 而不是跟测试文件里硬编码的字面量比 —— 那种守卫加第 12 个状态
+    // 照样绿，漂移完整出厂
+    runStatuses: RUN_STATUSES,
+    nodeStatuses: NODE_STATUSES,
     patchOps: PATCH_OPS,
     methods: CORE_API_METHODS,
   },

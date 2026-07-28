@@ -24,7 +24,7 @@ export interface PageRoute {
 }
 
 /** 已经有真实内容的屏：其余仍是骨架。 */
-/** 整屏自绘（不套 PlaceholderPage 的标题结构）。 */
+/** 每一屏的实现。都是整屏自绘 —— 骨架页在所有屏落地之后就删了。 */
 const FULL_SCREENS: Record<string, ReactElement> = {
   '/': <OverviewPage />,
   '/editor': <EditorPage />,

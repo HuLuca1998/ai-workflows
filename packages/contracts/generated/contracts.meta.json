@@ -81,6 +81,29 @@
     "env",
     "mcp.tool"
   ],
+  "runStatuses": [
+    "created",
+    "preflight",
+    "queued",
+    "running",
+    "waiting_approval",
+    "paused",
+    "interrupted",
+    "resuming",
+    "succeeded",
+    "failed",
+    "cancelled"
+  ],
+  "nodeStatuses": [
+    "idle",
+    "queued",
+    "running",
+    "waiting",
+    "succeeded",
+    "failed",
+    "skipped",
+    "cancelled"
+  ],
   "patchOps": [
     "addNode",
     "removeNode",
