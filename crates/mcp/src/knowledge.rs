@@ -304,6 +304,10 @@ workflow_patch {
 - `position` 是画布坐标，横向排开每个 250、纵向每行 150 左右
 - 连线的 `port` 必须来自节点目录里的 `ports`。写错的报错是 `UNKNOWN_PORT`
 - 每种节点的必填字段看 `configFields` 里 `required: true` 的那些
+- **脚本里的 `${…}` 不要再自己套引号**。引擎替进去的值已经加过 shell 引号，
+  再套一层会得到 `"'1'"` —— 命令收到的是带引号的字面量，
+  而报错（比如 `invalid issue format`）离原因隔着一层引号。
+  写 `gh issue view ${input.issue}`，不是 `gh issue view "${input.issue}"`
 
 ## 3. 校验
 

@@ -110,7 +110,9 @@ describe('主管 AI 抽屉', () => {
     fireEvent.keyDown(window, { key: 'k', metaKey: true });
     const drawer = screen.getByRole('complementary', { name: '主管 AI' });
     expect(within(drawer).getByText(/workflow:read/u)).toBeInTheDocument();
-    expect(within(drawer).getByText(/发布与运行未授权/u)).toBeInTheDocument();
+    // 末尾那句说的是当下的实情，不是一句写死的话。
+    // 读不到权限档时按最严的一档说 —— 与引擎那边一致
+    expect(within(drawer).getByText(/需逐项确认/u)).toBeInTheDocument();
   });
 });
 

@@ -451,7 +451,21 @@ const DEFINITIONS: Record<NodeType, NodeDefinition> = {
       interpreter: z
         .enum(['zsh', 'bash', 'sh'])
         .describe('解释器\n白名单：任意可执行文件会绕过命令能力声明'),
-      script: z.string().min(1).meta({ long: true }).describe('脚本内容'),
+      /**
+       * `${…}` 的值由引擎**加过引号**再替进来（`interp.rs` 的 shell_quote）——
+       * 单引号内除了单引号本身没有元字符会被解释，所以 `;`、`$()`、反引号、
+       * 换行全部失去特殊含义。
+       *
+       * 代价是脚本里不能再自己套一层引号。这句提示不是可有可无的：
+       * 端到端验证里 AI 写出的第一版脚本是 `gh issue view "${input.issue}"`，
+       * 于是命令收到的是 `"'1'"`，报「invalid issue format」——
+       * 而错误信息离原因隔着一层引号。
+       */
+      script: z
+        .string()
+        .min(1)
+        .meta({ long: true })
+        .describe('脚本内容\n${…} 的值会自动加引号，脚本里不要再套一层'),
       workdir: z.string().optional().describe('工作目录'),
       env: z.record(z.string(), z.string()).default({}).describe('环境变量'),
       /** 环境映射里引用 Secret 用 keychain:// 前缀，明文永不入库。 */
@@ -486,7 +500,11 @@ const DEFINITIONS: Record<NodeType, NodeDefinition> = {
       interpreter: z
         .enum(['python3', 'uv'])
         .describe('解释器\n用 App 管理的独立运行时，不依赖系统 Python'),
-      script: z.string().min(1).meta({ long: true }).describe('脚本内容'),
+      script: z
+        .string()
+        .min(1)
+        .meta({ long: true })
+        .describe('脚本内容\n${…} 的值会自动加引号，脚本里不要再套一层'),
       workdir: z.string().optional().describe('工作目录'),
       env: z.record(z.string(), z.string()).default({}).describe('环境变量'),
       secretEnv: z

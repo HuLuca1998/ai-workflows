@@ -85,6 +85,44 @@ interface ModelOption {
   name: string;
 }
 
+/**
+ * 这一档权限下主管 AI 拿得到哪些 Scope。
+ *
+ * 与 `crates/mcp/src/catalog.rs` 的 `gate_for` 是同一套规则 ——
+ * 那边是真的拦截，这边只是把它说出来。两边分叉的话，
+ * 界面会承诺一个引擎不认的权限，而那比不显示更糟。
+ */
+function grantedScopes(preset: string | null): string[] {
+  const readOnly = ['workflow:read', 'memory:read'];
+  switch (preset) {
+    case 'trusted_workflow':
+      return [
+        ...readOnly,
+        'workflow:write-draft',
+        'workflow:publish',
+        'workflow:run',
+        'memory:write',
+      ];
+    case 'workspace_safe':
+      return [...readOnly, 'workflow:write-draft', 'memory:write'];
+    default:
+      // 认不出来的档位按最严说 —— 与引擎那边一致
+      return readOnly;
+  }
+}
+
+/** 末尾那句话。图纸写的是「发布与运行未授权」，这里说的是当下的实情。 */
+function withheldNote(preset: string | null): string {
+  switch (preset) {
+    case 'trusted_workflow':
+      return '全部放行 · 这一档下写操作不再逐项确认';
+    case 'workspace_safe':
+      return '发布与运行需逐项确认';
+    default:
+      return '任何写操作都需逐项确认';
+  }
+}
+
 export function SupervisorDrawer({
   open,
   context,
@@ -107,6 +145,18 @@ export function SupervisorDrawer({
    */
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [historyOpen, setHistoryOpen] = useState(false);
+  /**
+   * 这次会话实际拿到的 Scope。
+   *
+   * 图纸把这一行画成三个固定的 chip 加一句「发布与运行未授权」。
+   * 那是**一次会话当时的状态**，不是常量 —— 写死的话，用户把权限档
+   * 调成 Trusted Workflow 之后，底下仍然写着「未授权」，
+   * 而主管 AI 其实已经能发布了。界面说的话必须是真的。
+   *
+   * 形态照图纸一字不动：同样的 chip、同样的排版、末尾同样一句说明。
+   * 变的只是那句说明说的是不是实话。
+   */
+  const [preset, setPreset] = useState<string | null>(null);
   const [sessions, setSessions] = useState<SessionSummary[] | null>(null);
   /** 这一问等了多久（秒）。0 表示没在等。 */
   const [waited, setWaited] = useState(0);
@@ -134,6 +184,18 @@ export function SupervisorDrawer({
         setModelId((current) => current ?? items[0]?.id ?? null);
       })
       .catch(() => setModels([]));
+  }, [open]);
+
+  useEffect(() => {
+    if (!open) return;
+    // 权限档决定底下那行 Scope 说什么。每次打开都重读 ——
+    // 用户可能刚在「设置与环境」里改过，而抽屉里显示的还是上一次的
+    void coreClient
+      .call('workspace.settings', {})
+      .then((result) =>
+        setPreset((result as { permissionPreset?: string }).permissionPreset ?? null),
+      )
+      .catch(() => setPreset(null));
   }, [open]);
 
   useEffect(() => {
@@ -473,10 +535,10 @@ export function SupervisorDrawer({
 
         <footer className="supervisor__scopes">
           <span>本次会话授予：</span>
-          <code>workflow:read</code>
-          <code>workflow:write-draft</code>
-          <code>memory:read</code>
-          <em>发布与运行未授权</em>
+          {grantedScopes(preset).map((scope) => (
+            <code key={scope}>{scope}</code>
+          ))}
+          <em>{withheldNote(preset)}</em>
         </footer>
 
         <footer className="supervisor__foot">

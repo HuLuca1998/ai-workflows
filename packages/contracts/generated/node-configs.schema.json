@@ -827,7 +827,7 @@
         "type": "string",
         "minLength": 1,
         "long": true,
-        "description": "脚本内容"
+        "description": "脚本内容\n${…} 的值会自动加引号，脚本里不要再套一层"
       },
       "workdir": {
         "description": "工作目录",
@@ -913,7 +913,7 @@
         "type": "string",
         "minLength": 1,
         "long": true,
-        "description": "脚本内容"
+        "description": "脚本内容\n${…} 的值会自动加引号，脚本里不要再套一层"
       },
       "workdir": {
         "description": "工作目录",

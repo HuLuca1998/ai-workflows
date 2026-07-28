@@ -56,11 +56,15 @@ describe('结构', () => {
     ).toBeTruthy();
   });
 
-  it('底部常驻本次会话的 Scope，并标出未授权的部分', () => {
+  it('底部常驻本次会话的 Scope，并说清哪些还要逐项确认', () => {
+    // 这一行**照权限档说实话**，不是三个写死的 chip。
+    // 写死的话，用户把档位调成 Trusted Workflow 之后，底下仍然写着
+    // 「未授权」，而主管 AI 其实已经能发布了。
+    // 默认档（读不到设置时）是最严的一档
     view();
     expect(screen.getByText('workflow:read')).toBeTruthy();
-    expect(screen.getByText('workflow:write-draft')).toBeTruthy();
-    expect(screen.getByText('发布与运行未授权')).toBeTruthy();
+    expect(screen.getByText('memory:read')).toBeTruthy();
+    expect(screen.getByText('任何写操作都需逐项确认')).toBeTruthy();
   });
 
   it('关掉时不渲染', () => {
