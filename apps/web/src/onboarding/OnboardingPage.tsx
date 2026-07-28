@@ -56,6 +56,8 @@ export function OnboardingPage() {
   const [checking, setChecking] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [authorizing, setAuthorizing] = useState(false);
+  /** 是否已经展开「要执行的命令」。有缺失项时先看命令，再往下走。 */
+  const [showCommands, setShowCommands] = useState(false);
   const [diagnosticsPath, setDiagnosticsPath] = useState<string | null>(null);
 
   /**
@@ -199,13 +201,20 @@ export function OnboardingPage() {
       <footer className="onboarding__foot">
         {/* 图纸底部的三个按钮。第一个的文案跟着「还差几项」走：
             全都就绪时再劝人安装就是噪音，那时该做的是往下走 */}
+        {/* 有缺失项时先展开命令清单：**应用自己不下载任何东西**。
+            替用户执行下载与解压意味着要为「从哪下载、怎么校验签名、
+            装坏了怎么回滚」全都做决定，而每个决定都是新的攻击面 */}
         <button
           type="button"
           className="runs__action runs__action--primary"
           disabled={authorizing}
-          onClick={() => void authorize()}
+          onClick={() => (missing > 0 && !showCommands ? setShowCommands(true) : void authorize())}
         >
-          {missing > 0 ? `确认并安装（${missing} 项）` : '授权工作目录并开始'}
+          {missing > 0 && !showCommands
+            ? `确认并安装（${missing} 项）`
+            : missing > 0
+              ? '装好了，继续'
+              : '授权工作目录并开始'}
         </button>
         <button type="button" className="runs__action" onClick={() => void probe(true)}>
           仅检测，不安装
@@ -216,6 +225,41 @@ export function OnboardingPage() {
         <span className="runs__grow" />
         <span className="models__note">下一步：授权工作目录并运行内置示例</span>
       </footer>
+
+      {showCommands ? (
+        <section className="onboarding__block" aria-label="要执行的命令">
+          <p className="onboarding__block-head">
+            <i className="ph ph-terminal" aria-hidden="true" />
+            <span>要执行的命令</span>
+          </p>
+          <p className="models__note">
+            应用不替你下载任何东西。替你执行下载与解压，就要为「从哪下载、怎么校验签名、
+            装坏了怎么回滚」全都做决定，而每个决定都是新的攻击面。 这些命令不使用 sudo，也不改你的
+            shell profile。
+          </p>
+
+          <ul className="onboarding__commands">
+            {(items ?? [])
+              .filter((item) => item.installHint)
+              .map((item) => (
+                <li key={item.capability}>
+                  <span className="onboarding__command-name">{item.label}</span>
+                  <code>{item.installHint?.command}</code>
+                  <span className="models__note">来自 {item.installHint?.source}</span>
+                </li>
+              ))}
+          </ul>
+
+          {/* 一条条粘贴太容易漏，而漏掉的那条会在 Dry Run 时才暴露 */}
+          <p className="onboarding__script">
+            或者一次装齐：
+            <code>bash scripts/install-deps.sh</code>
+            <span className="models__note">
+              它会先打印每条要执行的命令，确认后才执行；<code>--dry-run</code> 只看不装
+            </span>
+          </p>
+        </section>
+      ) : null}
 
       {diagnosticsPath ? (
         <p className="onboarding__diagnostics" role="status">

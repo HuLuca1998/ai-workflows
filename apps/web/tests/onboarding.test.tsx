@@ -203,6 +203,86 @@ describe('底部动作照图纸', () => {
   });
 });
 
+describe('缺东西时给可复制的命令，不代劳安装', () => {
+  /**
+   * 图纸底部第一个按钮写的是「确认并安装（2 项）」，但**应用自己不下载
+   * 任何东西**（图纸自己的产品原则：不用 sudo、不改 shell profile、
+   * 不把工具写进全局 PATH）。
+   *
+   * 替用户执行下载与解压意味着要为「从哪下载、怎么校验签名、
+   * 装坏了怎么回滚」全都做决定，而每个决定都是新的攻击面。
+   * 给命令，用户自己看、自己跑。
+   */
+  it('点「确认并安装」展开命令清单，而不是开始下载', async () => {
+    const user = userEvent.setup();
+    view();
+    await user.click(await screen.findByRole('button', { name: /确认并安装/u }));
+
+    const 区 = await screen.findByRole('region', { name: '要执行的命令' });
+    expect(区.textContent).toContain('brew install gh');
+    // 没有发起安装
+    expect(call.mock.calls.some((args) => args[0] === 'env.install')).toBe(false);
+  });
+
+  it('把一键脚本指出来 —— 一条条粘贴太容易漏', async () => {
+    const user = userEvent.setup();
+    view();
+    await user.click(await screen.findByRole('button', { name: /确认并安装/u }));
+
+    expect(await screen.findByText(/scripts\/install-deps\.sh/u)).toBeTruthy();
+  });
+
+  it('说明为什么不代劳 —— 否则看起来像功能没做完', async () => {
+    const user = userEvent.setup();
+    view();
+    await user.click(await screen.findByRole('button', { name: /确认并安装/u }));
+
+    const 区 = await screen.findByRole('region', { name: '要执行的命令' });
+    expect(区.textContent).toMatch(/不使用 sudo|自己看|攻击面/u);
+  });
+
+  it('命令里不能出现 sudo —— 那是图纸写死的产品原则', async () => {
+    const user = userEvent.setup();
+    view();
+    await user.click(await screen.findByRole('button', { name: /确认并安装/u }));
+
+    const 区 = await screen.findByRole('region', { name: '要执行的命令' });
+    const 命令 = [...区.querySelectorAll('code')].map((el) => el.textContent ?? '');
+    expect(命令.some((text) => text.includes('sudo'))).toBe(false);
+  });
+
+  it('展开之后还能继续往下走 —— 装不装是用户的事', async () => {
+    const user = userEvent.setup();
+    view();
+    await user.click(await screen.findByRole('button', { name: /确认并安装/u }));
+
+    expect(await screen.findByRole('button', { name: '装好了，继续' })).toBeTruthy();
+  });
+
+  it('全就绪时按钮直接是「授权工作目录并开始」，不绕这一步', async () => {
+    respond({
+      'env.health': () => ({
+        items: [
+          {
+            capability: 'git',
+            label: 'Git',
+            status: 'ready',
+            version: '2.45.1',
+            path: '/usr/bin/git',
+          },
+        ],
+      }),
+    });
+    const user = userEvent.setup();
+    view();
+    await user.click(await screen.findByRole('button', { name: '授权工作目录并开始' }));
+
+    await waitFor(() => {
+      expect(call.mock.calls.some((args) => args[0] === 'workspace.updateSettings')).toBe(true);
+    });
+  });
+});
+
 describe('配置真的落地', () => {
   /**
    * codex 复测的原话：点了按钮回到首页后「顶栏仍写『尚未授权工作目录』，
@@ -214,7 +294,9 @@ describe('配置真的落地', () => {
   it('授权目录时写工作目录、权限档和检查时间 —— 三处提示一起消失', async () => {
     const user = userEvent.setup();
     view();
-    await user.click(await screen.findByRole('button', { name: /确认并安装|授权工作目录/u }));
+    // 有缺失项时第一下展开命令清单，「装好了，继续」才真的往下走
+    await user.click(await screen.findByRole('button', { name: /确认并安装/u }));
+    await user.click(await screen.findByRole('button', { name: '装好了，继续' }));
 
     await waitFor(() => {
       const 写入 = call.mock.calls.filter((args) => args[0] === 'workspace.updateSettings');
@@ -230,7 +312,8 @@ describe('配置真的落地', () => {
   it('写完才回首页 —— 提前跳的话用户看到的还是旧状态', async () => {
     const user = userEvent.setup();
     view();
-    await user.click(await screen.findByRole('button', { name: /确认并安装|授权工作目录/u }));
+    await user.click(await screen.findByRole('button', { name: /确认并安装/u }));
+    await user.click(await screen.findByRole('button', { name: '装好了，继续' }));
 
     await waitFor(() => {
       expect(navigated).toContain('/');
@@ -246,7 +329,8 @@ describe('配置真的落地', () => {
     });
     const user = userEvent.setup();
     view();
-    await user.click(await screen.findByRole('button', { name: /确认并安装|授权工作目录/u }));
+    await user.click(await screen.findByRole('button', { name: /确认并安装/u }));
+    await user.click(await screen.findByRole('button', { name: '装好了，继续' }));
 
     expect(await screen.findByRole('alert')).toHaveTextContent('数据库忙');
     expect(navigated).not.toContain('/');

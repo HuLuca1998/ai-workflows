@@ -209,6 +209,13 @@ test.describe('首次配置（图纸「06 首次安装与检测」）', () => {
     await expect(go).toBeVisible();
     await go.click();
 
+    // 有缺失工具时先展开命令清单 —— 应用自己不下载任何东西
+    const 命令区 = page.getByRole('region', { name: '要执行的命令' });
+    if (await 命令区.isVisible().catch(() => false)) {
+      await expect(命令区).toContainText('install-deps.sh');
+      await page.getByRole('button', { name: '装好了，继续' }).click();
+    }
+
     // 走完之后配置真的落了地：顶栏不再写「尚未授权工作目录」
     await expect(page).toHaveURL(/\/$/);
     await expect(page.getByText('尚未授权工作目录')).toHaveCount(0);
