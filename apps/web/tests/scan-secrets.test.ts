@@ -1,10 +1,11 @@
 import { describe, expect, it } from 'vitest';
+import { execFileSync } from 'node:child_process';
 import { existsSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-// @ts-expect-error 仓库级脚本，没有 .d.ts；这里只用到三个具名导出
-import { SKIP, 待扫文件, 扫描 } from '../../../scripts/scan-secrets.mjs';
+// @ts-expect-error 仓库级脚本，没有 .d.ts；这里只用到四个具名导出
+import { SKIP, SKIP_PATTERNS, 待扫文件, 扫描 } from '../../../scripts/scan-secrets.mjs';
 
 /**
  * Secret 扫描器自身的守卫。
@@ -35,6 +36,21 @@ describe('Secret 扫描器', () => {
     const 失效 = (SKIP as string[]).filter((前缀) => !existsSync(白名单文件(前缀)));
 
     expect(失效).toEqual([]);
+  });
+
+  it('按规则豁免的那几条，确实还匹配得到文件', () => {
+    // 规则写歪了不会报错，只会静默地什么都不豁免 ——
+    // 症状是「加一条脱敏测试，全量扫描就红」，而白名单里明明有同类的
+    const 全部文件 = execFileSync('git', ['ls-files'], {
+      encoding: 'utf8',
+      cwd: join(import.meta.dirname, '../../..'),
+    }).split('\n');
+
+    const 空转 = (SKIP_PATTERNS as RegExp[]).filter(
+      (规则) => !全部文件.some((文件) => 规则.test(文件)),
+    );
+
+    expect(空转.map(String)).toEqual([]);
   });
 
   it('规则确实抓得住每一种凭据形态', () => {

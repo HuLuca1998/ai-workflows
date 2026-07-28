@@ -12,6 +12,7 @@ export {
   getNodeDefinition,
   listNodeDefinitions,
   resolveNodeOutputs,
+  type DynamicOutputRule,
   type NodeDefinition,
   type NodeGroup,
   type NodeLibraryEntry,

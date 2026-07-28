@@ -3,10 +3,17 @@
 //! 参数从 JSON 里按名字取，缺了必填项就报 VALIDATION——
 //! 让 serde 直接反序列化成结构体会更短，但错误信息会变成
 //! 「missing field」这种对使用者毫无帮助的话。
+//!
+//! **住在 core-api 里而不是某个调用方里。** 原先它在 devserver 下，
+//! 于是「按名字调一个命令」这件事只有开发桥接会做；系统级 MCP
+//! 也要按名字调同一批命令，抄一份的话两份会各自漂移 ——
+//! 而漂移的症状是「Claude Code 里某个工具报未知命令，界面上却好用」。
+//! `parity_test` 盯着这里与桌面壳的命令表一致。
 
 use std::sync::Mutex;
 
-use aiwf_core_api::{self as api, ApiError, ApiResult};
+use crate as api;
+use crate::{ApiError, ApiResult};
 use aiwf_engine::supervisor::Supervisor;
 use aiwf_store::Store;
 use serde_json::Value;

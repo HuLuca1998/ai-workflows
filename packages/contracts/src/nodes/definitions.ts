@@ -36,6 +36,24 @@ export interface Port {
   label: string;
 }
 
+/**
+ * 「输出端口由配置里的哪个字段决定」的声明。
+ *
+ * 端口 = 数组字段里每项的端口名，再加一个兜底端口。
+ * 只够表达条件分支这一种形态 —— 够用就行：多出来的表达力
+ * 会变成 Rust 侧要跟着实现的第二套解释器。
+ */
+export interface DynamicOutputRule {
+  /** 配置里存放分支的数组字段名。 */
+  casesField: string;
+  /** 数组每一项里当端口名用的字段。 */
+  portField: string;
+  /** 配置里存放兜底端口名的字段。 */
+  defaultPortField: string;
+  /** 兜底端口字段缺席或为空时用它。 */
+  fallbackPort: string;
+}
+
 export interface NodeDefinition {
   type: NodeType;
   title: string;
@@ -43,9 +61,18 @@ export interface NodeDefinition {
   summary: string;
   configSchema: z.ZodType;
   ports: { inputs: Port[]; outputs: Port[] };
-  /** 输出端口由配置决定（条件分支）；UI 据此禁用静态端口渲染。 */
-  dynamicOutputs?: boolean;
-  resolveOutputs?: (config: unknown) => Port[];
+  /**
+   * 输出端口由配置决定（条件分支）；UI 据此禁用静态端口渲染。
+   *
+   * **是一份声明，不是一个闭包。** 写成 `(config) => Port[]` 的话
+   * 这条规则就只有 TypeScript 会算 —— 而 Rust 侧要校验一张图的连线，
+   * 就得知道「这个分支节点现在有哪几个输出端口」。函数过不了语言边界，
+   * 于是那边只能猜，猜的结果是界面说连得上、引擎说没这个端口。
+   *
+   * 声明由 `resolveNodeOutputs` 解释；生成物把同一份声明交给 Rust，
+   * `tests/node-catalog.test.ts` 盯着两边对同一份配置给出同一组端口。
+   */
+  dynamicOutputs?: DynamicOutputRule;
   /** 节点默认申请的能力，可在配置弹层收紧，但不能静默扩大 Agent 角色的授权。 */
   defaultCapabilities: Capabilities;
   /** 会对外部世界产生写操作（push / PR / 删除 / 第三方调用），重试前需核对外部状态。 */
@@ -297,17 +324,11 @@ const DEFINITIONS: Record<NodeType, NodeDefinition> = {
       defaultPort: z.string().min(1).default('default').describe('兜底端口'),
     }),
     ports: { inputs: [IN], outputs: [{ id: 'default', label: 'default' }] },
-    dynamicOutputs: true,
-    resolveOutputs: (config) => {
-      const parsed = z
-        .object({
-          cases: z.array(z.object({ port: z.string() })).default([]),
-          defaultPort: z.string().default('default'),
-        })
-        .safeParse(config);
-      if (!parsed.success) return [{ id: 'default', label: 'default' }];
-      const ports = parsed.data.cases.map((c) => ({ id: c.port, label: c.port }));
-      return [...ports, { id: parsed.data.defaultPort, label: parsed.data.defaultPort }];
+    dynamicOutputs: {
+      casesField: 'cases',
+      portField: 'port',
+      defaultPortField: 'defaultPort',
+      fallbackPort: 'default',
     },
     defaultCapabilities: NO_CAPABILITIES,
     externalWrite: false,
@@ -643,8 +664,28 @@ export function listNodeDefinitions(): NodeDefinition[] {
   return NODE_TYPES.map((t) => DEFINITIONS[t]);
 }
 
-/** 端口解析：静态端口直接返回，动态端口（条件分支）按当前配置推导。 */
+/**
+ * 端口解析：静态端口直接返回，动态端口（条件分支）按当前配置推导。
+ *
+ * 推导的每一步都对着**声明**做，不额外判断节点类型 ——
+ * Rust 侧读同一份声明写同一段逻辑（`crates/engine/src/catalog.rs`），
+ * 加一句「if type === 'branch'」就会让那边少一条分支。
+ */
 export function resolveNodeOutputs(type: NodeType, config: unknown): Port[] {
   const def = getNodeDefinition(type);
-  return def.resolveOutputs ? def.resolveOutputs(config) : def.ports.outputs;
+  const rule = def.dynamicOutputs;
+  if (!rule) return def.ports.outputs;
+
+  // 配置常常是半成品（模型刚提议、用户填了一半），任何一步都不能抛
+  const record = (config ?? {}) as Record<string, unknown>;
+  const raw = record[rule.casesField];
+  const ports = (Array.isArray(raw) ? raw : [])
+    .map((item) => (item as Record<string, unknown> | null)?.[rule.portField])
+    .filter((port): port is string => typeof port === 'string' && port.length > 0)
+    .map((port) => ({ id: port, label: port }));
+
+  const declared = record[rule.defaultPortField];
+  const fallback =
+    typeof declared === 'string' && declared.length > 0 ? declared : rule.fallbackPort;
+  return [...ports, { id: fallback, label: fallback }];
 }

@@ -4,6 +4,7 @@ import {
   NODE_TYPES,
   fieldDescriptors,
   getNodeDefinition,
+  resolveNodeOutputs,
   type NodeType,
 } from '../src/nodes/index.js';
 
@@ -93,8 +94,8 @@ describe('端口拓扑约束', () => {
 
   it('条件分支的输出端口由配置动态决定', () => {
     const def = getNodeDefinition('branch');
-    expect(def.dynamicOutputs).toBe(true);
-    expect(def.resolveOutputs?.({ cases: [{ port: 'high', when: 'x' }] })).toEqual([
+    expect(def.dynamicOutputs).toBeDefined();
+    expect(resolveNodeOutputs('branch', { cases: [{ port: 'high', when: 'x' }] })).toEqual([
       { id: 'high', label: 'high' },
       { id: 'default', label: 'default' },
     ]);

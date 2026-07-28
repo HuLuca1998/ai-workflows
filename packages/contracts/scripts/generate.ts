@@ -46,6 +46,36 @@ const files: Record<string, unknown> = {
   'node-configs.schema.json': Object.fromEntries(
     NODE_TYPES.map((type) => [type, toSchema(getNodeDefinition(type).configSchema)]),
   ),
+  /**
+   * 节点目录：配置 Schema 之外的那一半。
+   *
+   * 端口、能力、externalWrite、seed —— 这些只活在 `definitions.ts` 的
+   * TypeScript 对象里，而 Rust 侧要校验一张图的连线、要按类型申请能力，
+   * 全靠它们。少了这份生成物，`workflow.patch` / `workflow.validate`
+   * 就只能是 TypeScript 独有的能力，通过 MCP 连进来的 Agent 改不动工作流。
+   */
+  'node-catalog.json': Object.fromEntries(
+    NODE_TYPES.map((type) => {
+      const def = getNodeDefinition(type);
+      return [
+        type,
+        {
+          title: def.title,
+          group: def.group,
+          summary: def.summary,
+          icon: def.icon,
+          ports: def.ports,
+          // 缺席的字段显式写成 false / null：Rust 侧按固定形状反序列化，
+          // 「有时有有时没有」会逼它把每个字段都做成 Option
+          dynamicOutputs: def.dynamicOutputs ?? null,
+          defaultCapabilities: def.defaultCapabilities,
+          externalWrite: def.externalWrite,
+          singleton: def.singleton ?? false,
+          seed: def.seed ?? null,
+        },
+      ];
+    }),
+  ),
   'core-api.schema.json': Object.fromEntries(
     CORE_API_METHODS.map((method) => {
       const spec = getMethodSpec(method);

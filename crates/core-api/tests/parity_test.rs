@@ -58,7 +58,7 @@ fn 桌面壳的_invoke_handler_列出了每一个命令() {
 
 #[test]
 fn 开发_http_桥接分派了每一个命令() {
-    let dispatch = read("crates/devserver/src/dispatch.rs");
+    let dispatch = read("crates/core-api/src/dispatch.rs");
     let missing: Vec<&str> = aiwf_core_api::COMMANDS
         .iter()
         .copied()

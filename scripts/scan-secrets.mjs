@@ -46,17 +46,38 @@ export const SKIP = [
   // 扫描器自己的测试：给每条规则各喂一个样本，确认规则还抓得住
   'apps/web/tests/scan-secrets.test.ts',
   'crates/engine/src/redactor.rs',
-  'crates/engine/tests/redactor_test.rs',
   // 诊断包脱敏：断言导出的诊断包里不含这些样本
   'crates/core-api/tests/diagnostics_test.rs',
   // 存储层脱敏：事件摘要、运行入参、产物内容三条路径的样本
   'crates/store/tests/store_test.rs',
-  // B3 角色剧本：手工审查时要照着这些形态去界面上找
-  'docs/testing/ui-cases/personas/',
+  // 审查剧本与证据：手工审查时要照着这些形态去界面上找，
+  // 报告里会原样引用命中的那一行
+  'docs/testing/',
   'docs/reference/acp/',
   'docs/design/',
   'pnpm-lock.yaml',
 ];
+
+/**
+ * 按**规则**豁免，而不是逐个列举文件名。
+ *
+ * 逐个列举的代价刚兑现过：新加一条产物脱敏测试
+ * （`crates/core-api/tests/artifact_redact_test.rs`），本地全绿，
+ * 一跑全量就红 —— 而它和已经在名单里的 `redactor_test.rs` 是同一类东西。
+ * 名单记的是「我当时知道的那几个」，不是「哪一类文件该豁免」。
+ *
+ * 规则：文件名里带 redact 的，按定义就是在讲脱敏，
+ * 里面必须有长得像密钥的样本，否则测的是空气。
+ */
+export const SKIP_PATTERNS = [/(?:^|\/)[^/]*redact[^/]*\.(?:rs|ts|tsx|mjs)$/u];
+
+/** 这个文件要不要扫。 */
+export function 该跳过(file) {
+  return (
+    SKIP.some((prefix) => file.startsWith(prefix)) ||
+    SKIP_PATTERNS.some((pattern) => pattern.test(file))
+  );
+}
 
 const MAX_BYTES = 2 * 1024 * 1024;
 
@@ -65,7 +86,7 @@ export function 待扫文件() {
   return execFileSync('git', ['ls-files', '-z'], { encoding: 'utf8' })
     .split('\0')
     .filter(Boolean)
-    .filter((file) => !SKIP.some((prefix) => file.startsWith(prefix)));
+    .filter((file) => !该跳过(file));
 }
 
 /**

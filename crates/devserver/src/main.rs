@@ -14,8 +14,6 @@ use aiwf_engine::supervisor::Supervisor;
 use aiwf_store::Store;
 use serde_json::{Value, json};
 
-mod dispatch;
-
 fn main() {
     let args: Vec<String> = std::env::args().collect();
     let port = arg(&args, "--port").unwrap_or_else(|| "5177".to_string());
@@ -145,8 +143,9 @@ fn handle(
     let _ = std::io::Read::read_to_string(request.as_reader(), &mut body);
     let input: Value = serde_json::from_str(&body).unwrap_or_else(|_| json!({}));
 
-    let (status, payload) = match dispatch::dispatch(&command, &input, store, supervisor, data_dir)
-    {
+    let (status, payload) = match aiwf_core_api::dispatch::dispatch(
+        &command, &input, store, supervisor, data_dir,
+    ) {
         Ok(value) => (200, value),
         // 整个结构体序列化，不手拼字段 —— 手拼那版漏了 hint，
         // 于是「接下来该干什么」在引擎里填好了却到不了界面
