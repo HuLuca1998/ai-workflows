@@ -600,7 +600,7 @@ fn 运行记录说得清这一步用了哪个角色与模型() {
         .expect("AI 节点该留一条 system.model_resolved");
 
     assert_eq!(解析.node_id.as_deref(), Some("think"));
-    for 片段 in ["分析师", agent.as_str(), "model:codex", "acp.codex"] {
+    for 片段 in ["分析师", agent.as_str(), "model:codex", "acp.codex", "cwd "] {
         assert!(
             解析.summary.contains(片段),
             "「{片段}」没写进事件：{}",

@@ -144,7 +144,7 @@ impl Runner {
             run_id,
             &mut scope,
             |node, _| execute(node),
-            |_| Vec::new(),
+            |_, _| Vec::new(),
         )
     }
 
@@ -169,12 +169,12 @@ impl Runner {
             },
             // 「这一步用了哪个角色、哪个模型」问执行器 —— 它是纯函数，
             // 执行之前就能答
-            |node| {
+            |node, scope| {
                 executor
-                    .resolution_for(node)
+                    .resolution_for(node, scope)
                     .into_iter()
                     .map(|item| {
-                        if item.agent_profile_id.is_empty() {
+                        let 谁 = if item.agent_profile_id.is_empty() {
                             format!("runtime {} · 没挂 Agent 角色", item.runtime)
                         } else {
                             format!(
@@ -184,6 +184,14 @@ impl Runner {
                                 item.model_ref,
                                 item.runtime
                             )
+                        };
+                        // cwd 也写进去：图纸承诺「Fix Agent 的 cwd 固定为 worktree，
+                        // 不会污染你当前分支」，而用户唯一能核对这句话的地方
+                        // 就是运行记录
+                        if item.workdir.is_empty() {
+                            谁
+                        } else {
+                            format!("{谁} · cwd {}", item.workdir)
                         }
                     })
                     .collect()
@@ -201,7 +209,7 @@ impl Runner {
     ) -> Result<StepResult>
     where
         F: Fn(&crate::graph::GraphNode, &mut Scope) -> NodeOutcome,
-        R: Fn(&crate::graph::GraphNode) -> Vec<String>,
+        R: Fn(&crate::graph::GraphNode, &Scope) -> Vec<String>,
     {
         let status = self.status(store, run_id)?;
         if matches!(status.as_str(), "succeeded" | "failed" | "cancelled") {
@@ -269,7 +277,7 @@ impl Runner {
         // 写在**执行之前**。AI 节点连 adapter 可能挂上好几分钟，
         // 而排查「它卡在哪」的第一个问题就是「它到底想连哪个」；
         // 等节点跑完再写，那条信息永远来不及。
-        for 解析 in resolutions(node) {
+        for 解析 in resolutions(node, scope) {
             self.emit_node(
                 store,
                 run_id,

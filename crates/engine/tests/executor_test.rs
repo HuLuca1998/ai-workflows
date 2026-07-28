@@ -578,7 +578,10 @@ fn ai_节点把工具调用次数记进输出() {
                 serde_json::json!({
                     "agentProfileId": "builtin:builder",
                     "instruction": "改一下",
-                    "runtime": "acp.claude"
+                    "runtime": "acp.claude",
+                    // ai.execute 的 workdirSource 默认是 worktree，而这条用例
+                    // 测的是工具调用次数，不该被工作目录的来源搅进来
+                    "workdirSource": "inherit"
                 }),
             ),
             &mut scope,
@@ -1284,4 +1287,109 @@ fn worktree_的绝对路径原样使用() {
         ),
         other => panic!("实际：{other:?}"),
     }
+}
+
+// ── workdirSource 是承诺，不是装饰 ──────────────────────────────────────────
+//
+// `ai.execute` 的这个字段在契约里写着「工作目录来源\n由引擎强制，
+// Prompt 不能改变安全边界」，图纸里也写着「Fix Agent 的 cwd 固定为
+// $GIT_WORKTREE_PATH，不会污染你当前分支」。
+//
+// 而 `run_ai` 一直把运行工作目录直接当 cwd 交给 ACP 会话 ——
+// 那句「由引擎强制」是空的，而且它是**安全**声明。
+
+fn 执行节点(workdir_source: &str) -> GraphNode {
+    node(
+        "fix",
+        "ai.execute",
+        serde_json::json!({
+            "agentProfileId": "builtin:builder",
+            "instruction": "改一下",
+            "workdirSource": workdir_source
+        }),
+    )
+}
+
+#[test]
+fn 声明了_worktree_却没有上游_worktree_时当场失败() {
+    // 悄悄退回运行工作目录的话，Agent 会直接在克隆出来的仓库里改 ——
+    // 那正是「不会污染你当前分支」要防的事，而用户不会知道它发生了
+    let (command, args) = mock_acp();
+    let executor = NodeExecutor::new(workdir())
+        .with_acp_command(&command, &args)
+        .with_agent_profiles(&内置角色());
+
+    let outcome = executor
+        .execute(&执行节点("worktree"), &mut Scope::new("run_wds"))
+        .unwrap();
+
+    match outcome {
+        NodeOutcome::Failed { message } => {
+            assert!(message.contains("worktree"), "{message}");
+        }
+        other => panic!("没有上游 worktree 就不该跑，实得 {other:?}"),
+    }
+}
+
+#[test]
+fn 声明了_worktree_时_cwd_就是那个_worktree() {
+    let (command, args) = mock_acp();
+    let executor = NodeExecutor::new(workdir())
+        .with_acp_command(&command, &args)
+        .with_agent_profiles(&内置角色());
+
+    let mut scope = Scope::new("run_wds2");
+    // 上游 worktree 节点的输出形状
+    scope.set_node_output(
+        "wt",
+        "success",
+        serde_json::json!({ "path": "/tmp/某个/worktree", "branch": "fix/1" }),
+    );
+
+    let outcome = executor.execute(&执行节点("worktree"), &mut scope).unwrap();
+    assert!(
+        matches!(outcome, NodeOutcome::Succeeded { .. }),
+        "{outcome:?}"
+    );
+    assert_eq!(
+        executor.resolutions().first().map(|r| r.workdir.clone()),
+        Some("/tmp/某个/worktree".to_string()),
+        "cwd 该是 worktree 的路径"
+    );
+}
+
+#[test]
+fn 声明了_inherit_时_cwd_是运行工作目录() {
+    let (command, args) = mock_acp();
+    let dir = workdir();
+    let executor = NodeExecutor::new(dir.clone())
+        .with_acp_command(&command, &args)
+        .with_agent_profiles(&内置角色());
+
+    executor
+        .execute(&执行节点("inherit"), &mut Scope::new("run_wds3"))
+        .unwrap();
+
+    assert_eq!(
+        executor.resolutions().first().map(|r| r.workdir.clone()),
+        Some(dir.display().to_string()),
+    );
+}
+
+#[test]
+fn 分析与审查节点不受_worktree_约束() {
+    // 只有 ai.execute 有 workdirSource。分析、审查、决策是只读的，
+    // 强制要求上游有 worktree 会让一条纯分析的工作流跑不了
+    let (command, args) = mock_acp();
+    let executor = NodeExecutor::new(workdir())
+        .with_acp_command(&command, &args)
+        .with_agent_profiles(&内置角色());
+
+    let outcome = executor
+        .execute(&ai_节点(), &mut Scope::new("run_wds4"))
+        .unwrap();
+    assert!(
+        matches!(outcome, NodeOutcome::Succeeded { .. }),
+        "{outcome:?}"
+    );
 }

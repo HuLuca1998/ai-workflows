@@ -100,6 +100,12 @@ pub struct Resolution {
     pub agent_name: String,
     pub model_ref: String,
     pub runtime: String,
+    /// Agent 真正跑在哪个目录里。
+    ///
+    /// `ai.execute` 的 `workdirSource` 决定它。这一项要写进事件流 ——
+    /// 图纸承诺「Fix Agent 的 cwd 固定为 worktree，不会污染你当前分支」，
+    /// 而用户唯一能核对这句话的地方就是运行记录。
+    pub workdir: String,
 }
 
 /// 有副作用因而受权限档管的节点类型。
@@ -156,7 +162,7 @@ impl NodeExecutor {
     ///
     /// 非 AI 节点返回 None：给脚本节点写一条「用了哪个模型」是噪声。
     #[must_use]
-    pub fn resolution_for(&self, node: &GraphNode) -> Option<Resolution> {
+    pub fn resolution_for(&self, node: &GraphNode, scope: &Scope) -> Option<Resolution> {
         if !node.node_type.starts_with("ai.") {
             return None;
         }
@@ -167,7 +173,58 @@ impl NodeExecutor {
             agent_name: profile.map(|p| p.name.clone()).unwrap_or_default(),
             model_ref: profile.map(|p| p.model_ref.clone()).unwrap_or_default(),
             runtime: self.resolved_runtime(node),
+            // 解析不出来时留空 —— 那时节点会当场失败，事件里
+            // 写一个编出来的目录比留空糟
+            workdir: self
+                .resolve_ai_workdir(node, scope)
+                .map(|dir| dir.display().to_string())
+                .unwrap_or_default(),
         })
+    }
+
+    /// AI 节点跑在哪个目录里。
+    ///
+    /// `workdirSource` 在契约里写着「由引擎强制，Prompt 不能改变安全边界」，
+    /// 图纸也写着「Fix Agent 的 cwd 固定为 worktree，不会污染你当前分支」。
+    /// 不在这里落地的话，那两句都是空的 —— 而且它们是**安全**声明。
+    ///
+    /// 只有 `ai.execute` 有这个字段；分析、审查、决策是只读的，
+    /// 强制要求上游有 worktree 会让一条纯分析的工作流跑不了。
+    ///
+    /// # Errors
+    /// 声明了 worktree 而上游没有一个 —— 悄悄退回运行工作目录的话，
+    /// Agent 会直接在克隆出来的仓库里改，那正是要防的事。
+    fn resolve_ai_workdir(
+        &self,
+        node: &GraphNode,
+        scope: &Scope,
+    ) -> std::result::Result<PathBuf, String> {
+        if node.node_type != "ai.execute" {
+            return Ok(self.workdir.clone());
+        }
+        let source = node
+            .config
+            .get("workdirSource")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("worktree");
+
+        match source {
+            "inherit" => Ok(self.workdir.clone()),
+            "declared" => match node
+                .config
+                .get("workdir")
+                .and_then(serde_json::Value::as_str)
+            {
+                Some(dir) if !dir.is_empty() => Ok(PathBuf::from(dir)),
+                _ => Err("workdirSource 是「已声明」，但节点没写 workdir".to_string()),
+            },
+            _ => latest_worktree(scope).map(PathBuf::from).ok_or_else(|| {
+                "这个节点的工作目录来源是 worktree，但上游没有一个 git.worktree 节点跑成功过。\
+                 要么在它前面接一个 worktree 节点，要么把「工作目录来源」改成「继承」——\
+                 直接在仓库里改会污染当前分支"
+                    .to_string()
+            }),
+        }
     }
 
     /// 每个 AI 节点实际用了什么。上层据此写 `system.model_resolved`。
@@ -566,6 +623,11 @@ impl NodeExecutor {
             });
         }
 
+        let agent_cwd = match self.resolve_ai_workdir(node, scope) {
+            Ok(dir) => dir.display().to_string(),
+            Err(message) => return Ok(NodeOutcome::Failed { message }),
+        };
+
         let instruction_raw = self.require_str(node, "instruction")?;
         let instruction = match interpolate(&instruction_raw, scope) {
             Ok(text) => text,
@@ -639,7 +701,7 @@ impl NodeExecutor {
 
         // 也记一份在执行器上：单测靠它断言「解析对了没有」，
         // 不必去翻事件表
-        if let Some(resolution) = self.resolution_for(node) {
+        if let Some(resolution) = self.resolution_for(node, scope) {
             if let Ok(mut list) = self.resolutions.lock() {
                 list.push(resolution);
             }
@@ -690,7 +752,7 @@ impl NodeExecutor {
             }
         };
 
-        let session = match client.new_session(&self.workdir.display().to_string()) {
+        let session = match client.new_session(&agent_cwd) {
             Ok(session) => session,
             Err(error) => {
                 return Ok(NodeOutcome::Failed {
@@ -751,6 +813,24 @@ impl NodeExecutor {
                 field: field.to_string(),
             })
     }
+}
+
+/// 上游最近一个跑成功的 `git.worktree` 节点给出的路径。
+///
+/// 按输出的形状认（同时有 `path` 与 `branch`），不按节点 id 认 ——
+/// 用户给 worktree 节点起什么名字是他的自由。
+/// `preserve_order` 让 outputs 保持写入顺序，所以「最近一个」是最后一个。
+fn latest_worktree(scope: &Scope) -> Option<String> {
+    let snapshot = scope.snapshot();
+    let outputs = snapshot.get("outputs")?.as_object()?;
+    outputs
+        .values()
+        .filter_map(|value| {
+            value.get("branch")?;
+            value.get("path")?.as_str().filter(|path| !path.is_empty())
+        })
+        .next_back()
+        .map(str::to_string)
 }
 
 fn first_line(text: &str) -> Option<String> {
