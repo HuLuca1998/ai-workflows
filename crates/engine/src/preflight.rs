@@ -66,6 +66,7 @@ pub fn dry_run(graph: &WorkflowGraph, workdir: &Path) -> DryRunReport {
     checks.extend(check_git(graph));
     checks.extend(check_acp(graph));
     checks.extend(check_unimplemented(graph));
+    checks.extend(check_double_quoting(graph));
 
     let passed = checks
         .iter()
@@ -79,6 +80,81 @@ pub fn dry_run(graph: &WorkflowGraph, workdir: &Path) -> DryRunReport {
         failed,
         ok: failed == 0,
     }
+}
+
+/// 脚本里的 `${…}` 被自己又套了一层引号。
+///
+/// 引擎替进去的值**已经加过 shell 引号**（`interp::shell_quote`）——
+/// 单引号内除了单引号本身没有元字符会被解释，那是刻意的安全设计。
+/// 代价是脚本里不能再自己套一层：`"${input.issue}"` 会让命令收到
+/// `"'1'"`，报出来的是「invalid issue format」这种离原因很远的话。
+///
+/// 端到端验证里 AI 写出的第一版脚本就踩了这个。引擎的行为没错，
+/// 错在它只有跑起来才暴露 —— 而那时脚本可能已经产生了别的副作用。
+fn check_double_quoting(graph: &WorkflowGraph) -> Vec<Check> {
+    let mut 命中: Vec<String> = Vec::new();
+
+    for node in &graph.nodes {
+        if !matches!(node.node_type.as_str(), "script.shell" | "script.python") {
+            continue;
+        }
+        let Some(script) = node
+            .config
+            .get("script")
+            .and_then(serde_json::Value::as_str)
+        else {
+            continue;
+        };
+        for 变量 in quoted_placeholders(script) {
+            命中.push(format!("{}（{}）", node.id, 变量));
+        }
+    }
+
+    if 命中.is_empty() {
+        return Vec::new();
+    }
+
+    vec![Check {
+        label: "脚本变量的引号".to_string(),
+        status: CheckStatus::Failed,
+        detail: format!(
+            "这些地方给 ${{…}} 又套了一层引号：{}。\
+             引擎替进去的值已经加过 shell 引号，再套一层命令会收到带引号的字面量。\
+             去掉自己加的那对引号即可",
+            命中.join("、")
+        ),
+    }]
+}
+
+/// 找出被引号**包住**的 `${…}`。
+///
+/// 只认「同一对引号里恰好包着一个占位符」这一种形态：
+/// `"前缀"${x}` 是合法的（引号在变量之前就闭合了），
+/// `"a ${x} b"` 也算命中 —— 那同样会把引号带进去。
+fn quoted_placeholders(script: &str) -> Vec<String> {
+    let bytes: Vec<char> = script.chars().collect();
+    let mut out = Vec::new();
+    let mut i = 0;
+
+    while i < bytes.len() {
+        let quote = bytes[i];
+        if quote != '"' && quote != '\'' {
+            i += 1;
+            continue;
+        }
+        // 找配对的闭引号
+        let Some(close) = (i + 1..bytes.len()).find(|&j| bytes[j] == quote) else {
+            break;
+        };
+        let inner: String = bytes[i + 1..close].iter().collect();
+        if let Some(start) = inner.find("${") {
+            if let Some(end) = inner[start..].find('}') {
+                out.push(inner[start + 2..start + end].to_string());
+            }
+        }
+        i = close + 1;
+    }
+    out
 }
 
 fn check_structure(graph: &WorkflowGraph) -> Check {

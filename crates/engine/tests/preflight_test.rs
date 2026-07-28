@@ -317,3 +317,90 @@ fn 全部连通时可达性检查通过() {
         .expect("应当有一条可达性检查");
     assert_eq!(check.status, CheckStatus::Passed);
 }
+
+// ── 脚本里的引号陷阱 ────────────────────────────────────────────────────────
+//
+// 端到端验证抓到的真问题：AI 写出 `gh issue view "${input.issue}"`，
+// 而引擎替进去的值已经加过 shell 引号，命令收到的是 `"'1'"`，
+// 报「invalid issue format」—— 错误信息离原因隔着一层引号。
+//
+// 引擎加引号是对的（单引号内没有元字符会被解释）。坏在这件事只有
+// 跑起来才发现，而那时脚本可能已经产生了别的副作用。
+
+fn 脚本图(script: &str) -> aiwf_engine::graph::WorkflowGraph {
+    let graph = serde_json::json!({
+        "nodes": [
+            {"id":"entry","type":"entry","title":"入口","position":{"x":0,"y":0},"config":{}},
+            {"id":"sh","type":"script.shell","title":"跑一下","position":{"x":1,"y":0},
+             "config":{"interpreter":"zsh","script":script}}
+        ],
+        "edges": [
+            {"id":"e1","source":{"nodeId":"entry","port":"success"},
+             "target":{"nodeId":"sh","port":"input"}}
+        ],
+        "groups": []
+    });
+    serde_json::from_value(graph).expect("图解析不了")
+}
+
+fn 找检查<'a>(
+    report: &'a aiwf_engine::preflight::DryRunReport,
+    关键词: &str,
+) -> Option<&'a str> {
+    report
+        .checks
+        .iter()
+        .find(|c| c.label.contains(关键词))
+        .map(|c| c.detail.as_str())
+}
+
+#[test]
+fn 变量被重复加引号时_dry_run_就拦下() {
+    let dir = tempfile::tempdir().unwrap();
+    let report = aiwf_engine::preflight::dry_run(
+        &脚本图(r#"gh issue view "${input.issue}" --repo "${input.repo}""#),
+        dir.path(),
+    );
+
+    let detail = 找检查(&report, "引号").expect("该有一条引号检查");
+    assert!(detail.contains("sh"), "要说清是哪个节点：{detail}");
+    assert!(detail.contains("input.issue"), "要说清是哪个变量：{detail}");
+    assert!(!report.ok, "这条该让 Dry Run 不通过");
+}
+
+#[test]
+fn 单引号里的变量同样会被重复加引号() {
+    let dir = tempfile::tempdir().unwrap();
+    let report =
+        aiwf_engine::preflight::dry_run(&脚本图("echo '${input.name}' > out.txt"), dir.path());
+    assert!(找检查(&report, "引号").is_some(), "单引号也要认");
+}
+
+#[test]
+fn 没套引号的变量不报() {
+    let dir = tempfile::tempdir().unwrap();
+    let report = aiwf_engine::preflight::dry_run(
+        &脚本图("gh issue view ${input.issue} --repo ${input.repo}"),
+        dir.path(),
+    );
+    assert!(找检查(&report, "引号").is_none(), "这是正确的写法，不该报");
+}
+
+#[test]
+fn 引号里没有变量的照样不报() {
+    // 「脚本里有引号」不是问题，「引号包着一个变量」才是
+    let dir = tempfile::tempdir().unwrap();
+    let report = aiwf_engine::preflight::dry_run(
+        &脚本图("echo \"固定的一句话\" && echo '另一句'"),
+        dir.path(),
+    );
+    assert!(找检查(&report, "引号").is_none());
+}
+
+#[test]
+fn 变量只是挨着引号而不是被包住_不报() {
+    // `echo "前缀"${input.x}` 是合法写法：引号闭合在变量之前
+    let dir = tempfile::tempdir().unwrap();
+    let report = aiwf_engine::preflight::dry_run(&脚本图("echo \"前缀\"${input.x}"), dir.path());
+    assert!(找检查(&report, "引号").is_none(), "这不是重复加引号");
+}
