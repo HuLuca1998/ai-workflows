@@ -139,8 +139,15 @@ describe('出参转换', () => {
     // 而图可能已经坏了
     const raw = {
       rev: 19,
-      diff: { added: [{ kind: 'node', id: 'n2', label: 'node end「结束」' }], removed: [], changed: [] },
-      validation: { ok: false, issues: [{ level: 'error', code: 'ENTRY_MISSING', message: '缺入口' }] },
+      diff: {
+        added: [{ kind: 'node', id: 'n2', label: 'node end「结束」' }],
+        removed: [],
+        changed: [],
+      },
+      validation: {
+        ok: false,
+        issues: [{ level: 'error', code: 'ENTRY_MISSING', message: '缺入口' }],
+      },
     };
     expect(fromIpcResult('workflow.patch', raw)).toEqual(raw);
   });

@@ -29,11 +29,11 @@ ADR-0008 决定「客户端应用 Patch，把结果图随 `graphJson` 一并提�
 
 在 Rust 侧实现三件事，与 TypeScript 那份**逐字等价**：
 
-| 模块                          | 对应的 TypeScript          |
-| ----------------------------- | -------------------------- |
-| `crates/engine/src/patch.rs`  | `contracts/src/patch.ts`   |
+| 模块                            | 对应的 TypeScript        |
+| ------------------------------- | ------------------------ |
+| `crates/engine/src/patch.rs`    | `contracts/src/patch.ts` |
 | `crates/engine/src/validate.rs` | `contracts/src/graph.ts` |
-| `crates/engine/src/diff.rs`   | `contracts/src/diff.ts`    |
+| `crates/engine/src/diff.rs`     | `contracts/src/diff.ts`  |
 
 `workflow.patch` 由引擎应用操作、算 Diff、跑校验、做 baseRevision 守卫。
 `graphJson` 保留但降级为**交叉校验**：两边算出的图不一致时留一行日志，

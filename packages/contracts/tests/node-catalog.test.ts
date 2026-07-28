@@ -104,7 +104,12 @@ describe('动态输出端口是声明，不是闭包', () => {
     {},
     { cases: [] },
     { cases: [{ port: 'high', when: 'x' }] },
-    { cases: [{ port: 'high', when: 'x' }, { port: 'low', when: 'y' }] },
+    {
+      cases: [
+        { port: 'high', when: 'x' },
+        { port: 'low', when: 'y' },
+      ],
+    },
     { cases: [{ port: 'high', when: 'x' }], defaultPort: '兜底' },
     // 配置写坏的形态也要对齐：模型提议的配置常常是半成品，
     // 两侧在这里分叉的话，界面说「可以」而 Rust 说「不行」

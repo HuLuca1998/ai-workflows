@@ -33,7 +33,10 @@ function query(sql) {
 }
 
 const one = (sql) => query(sql)[0] ?? null;
-const esc = (text) => String(text ?? '').replace(/\|/gu, '\\|').replace(/\n/gu, ' ');
+const esc = (text) =>
+  String(text ?? '')
+    .replace(/\|/gu, '\\|')
+    .replace(/\n/gu, ' ');
 
 // ── 运行 ────────────────────────────────────────────────────────────────────
 
@@ -89,7 +92,9 @@ events.forEach((event, index) => {
 });
 const started = events.filter((e) => e.type === 'node.started').map((e) => e.node_id);
 const ended = events
-  .filter((e) => ['node.succeeded', 'node.failed', 'node.skipped', 'node.cancelled'].includes(e.type))
+  .filter((e) =>
+    ['node.succeeded', 'node.failed', 'node.skipped', 'node.cancelled'].includes(e.type),
+  )
   .map((e) => e.node_id);
 const dangling = started.filter((id) => !ended.includes(id));
 
@@ -98,7 +103,12 @@ console.log(`- seq 连续：${gaps.length === 0 ? '✅ 无缺口' : `❌ ${gaps.
 console.log(
   `- 每个 node.started 都有结束事件：${dangling.length === 0 ? '✅' : `❌ 悬空：${dangling.join('、')}`}`,
 );
-console.log(`- 生命周期：${events.filter((e) => e.type.startsWith('run.')).map((e) => e.type).join(' → ')}\n`);
+console.log(
+  `- 生命周期：${events
+    .filter((e) => e.type.startsWith('run.'))
+    .map((e) => e.type)
+    .join(' → ')}\n`,
+);
 
 // ── 节点 ────────────────────────────────────────────────────────────────────
 
@@ -109,7 +119,14 @@ for (const node of graph.nodes ?? []) {
   const mine = events.filter((e) => e.node_id === node.id);
   const last = [...mine].reverse().find((e) => e.type.startsWith('node.'));
   const 结果 = last
-    ? { 'node.succeeded': '✅ 成功', 'node.failed': '❌ 失败', 'node.skipped': '⤼ 跳过', 'node.cancelled': '⊘ 取消', 'node.started': '⏳ 开始了但没结束', 'node.waiting': '⏸ 等待' }[last.type] ?? last.type
+    ? ({
+        'node.succeeded': '✅ 成功',
+        'node.failed': '❌ 失败',
+        'node.skipped': '⤼ 跳过',
+        'node.cancelled': '⊘ 取消',
+        'node.started': '⏳ 开始了但没结束',
+        'node.waiting': '⏸ 等待',
+      }[last.type] ?? last.type)
     : '— 没跑到';
   console.log(
     `| ${esc(node.title)} \`${node.id}\` | \`${node.type}\` | ${结果} | ${esc(last?.summary ?? '')} |`,
@@ -123,9 +140,7 @@ console.log();
 // 执行记录那一屏承诺的四件事，答案全在 system.* 事件里。
 
 console.log('## 为什么这么做（可解释性证据）\n');
-const 可解释 = events.filter(
-  (e) => e.type.startsWith('system.') || e.type.startsWith('approval.'),
-);
+const 可解释 = events.filter((e) => e.type.startsWith('system.') || e.type.startsWith('approval.'));
 if (可解释.length === 0) {
   console.log('（没有）—— 这次运行没有 AI 节点，也没有审批。\n');
 } else {

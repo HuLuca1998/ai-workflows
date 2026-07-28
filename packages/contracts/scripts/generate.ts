@@ -109,7 +109,10 @@ const files: Record<string, unknown> = {
         // 失败也是行为的一部分：错误码与文案同样要两边一致，
         // 用户看到的那句话不该取决于他走的是界面还是 MCP
         if (!(error instanceof CoreApiError)) throw error;
-        return { ...公共, result: { ok: false, error: { code: error.code, message: error.message } } };
+        return {
+          ...公共,
+          result: { ok: false, error: { code: error.code, message: error.message } },
+        };
       }
     }),
     diffs: DIFF_CASES.map((item) => ({

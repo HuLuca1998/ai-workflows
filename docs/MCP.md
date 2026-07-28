@@ -35,10 +35,10 @@ codex mcp add aiwf --url http://127.0.0.1:5178/mcp/<令牌>
 
 不是风格问题，是它们各自支持什么：
 
-| 客户端      | 令牌怎么带                            | 原因                                                                          |
-| ----------- | ------------------------------------- | ----------------------------------------------------------------------------- |
-| Claude Code | `--header "Authorization: Bearer …"`  | 它支持自定义头                                                                |
-| Codex       | 令牌在 URL 路径里                     | `codex mcp add --url` 只认「从环境变量读 bearer」或 OAuth；<br>要一键就不能要求用户先 export 一个变量 |
+| 客户端      | 令牌怎么带                           | 原因                                                                                                  |
+| ----------- | ------------------------------------ | ----------------------------------------------------------------------------------------------------- |
+| Claude Code | `--header "Authorization: Bearer …"` | 它支持自定义头                                                                                        |
+| Codex       | 令牌在 URL 路径里                    | `codex mcp add --url` 只认「从环境变量读 bearer」或 OAuth；<br>要一键就不能要求用户先 export 一个变量 |
 
 服务端两种都认。
 
@@ -56,11 +56,11 @@ cargo run -p aiwf-mcp --bin aiwf-mcp -- --db ~/Library/Application\ Support/aiwf
 
 按 MCP 规范 2025-03-26 引入、2025-11-25 仍在用的那套。单一端点 `/mcp`：
 
-| 方法     | 行为                                                          |
-| -------- | ------------------------------------------------------------- |
+| 方法     | 行为                                                               |
+| -------- | ------------------------------------------------------------------ |
 | `POST`   | 收 JSON-RPC 消息。请求回 JSON；通知与响应回 `202 Accepted` 空 body |
-| `GET`    | 回 `405` —— 服务端不主动往客户端推消息                        |
-| `DELETE` | 带 `Mcp-Session-Id` 结束会话                                  |
+| `GET`    | 回 `405` —— 服务端不主动往客户端推消息                             |
+| `DELETE` | 带 `Mcp-Session-Id` 结束会话                                       |
 
 协议版本**按客户端要的回**，认 `2025-11-25` / `2025-06-18` / `2025-03-26` /
 `2024-11-05`。写死一个版本的话，装着旧版客户端的机器会在握手时断开，
@@ -93,17 +93,17 @@ cargo run -p aiwf-mcp --bin aiwf-mcp -- --db ~/Library/Application\ Support/aiwf
 手写一份的结局是「界面上能做的事，Agent 说它做不到」，而这种缺口只有
 用户碰上了才知道。`crates/mcp/tests/catalog_test.rs` 守着这条。
 
-| 类别    | 覆盖                                                                     |
-| ------- | ------------------------------------------------------------------------ |
-| 工作流  | list / get / create / patch / validate / diff / publish / rollback / rename / delete / versionGraph |
+| 类别    | 覆盖                                                                                                    |
+| ------- | ------------------------------------------------------------------------------------------------------- |
+| 工作流  | list / get / create / patch / validate / diff / publish / rollback / rename / delete / versionGraph     |
 | 运行    | start / dryRun / list / get / events / artifacts / artifactContent / cancel / resume / rewindToApproval |
-| 审批    | decide                                                                   |
-| 记忆    | list / create / update / toggle / delete                                 |
-| 提示词  | list / create / update / versions / duplicate / delete                   |
-| Agent   | list / create / update / duplicate / delete                              |
-| 模型    | list / create / update / delete                                          |
-| 工作区  | settings / updateSettings / stats / env.health                           |
-| 主管 AI | ask / sessions / session                                                 |
+| 审批    | decide                                                                                                  |
+| 记忆    | list / create / update / toggle / delete                                                                |
+| 提示词  | list / create / update / versions / duplicate / delete                                                  |
+| Agent   | list / create / update / duplicate / delete                                                             |
+| 模型    | list / create / update / delete                                                                         |
+| 工作区  | settings / updateSettings / stats / env.health                                                          |
+| 主管 AI | ask / sessions / session                                                                                |
 
 **不开放的只有两类，各有各的理由：**
 
@@ -122,15 +122,15 @@ cargo run -p aiwf-mcp --bin aiwf-mcp -- --db ~/Library/Application\ Support/aiwf
 Agent 得靠工具名去猜节点类型叫什么、端口叫什么 —— 猜出来的图连不上线，
 它再试一次，几轮之后开始编造不存在的节点类型。
 
-| URI                          | 内容                                                     |
-| ---------------------------- | -------------------------------------------------------- |
-| `aiwf://guide/overview`      | 这个系统是什么、每一屏能干什么、草稿与版本的区别         |
-| `aiwf://guide/build-and-run` | 从零设计一条工作流并跑起来：该按什么顺序调哪个工具       |
-| `aiwf://guide/read-run-data` | 怎么读一次运行的完整数据：九类事件分别回答什么问题       |
-| `aiwf://catalog/nodes`       | 16 种节点：端口 + 配置字段（中文标签、必填、默认值）     |
-| `aiwf://catalog/node-configs`| 配置的完整 JSON Schema                                   |
-| `aiwf://catalog/contracts`   | 事件类型、状态机、Patch 操作名、方法表                   |
-| `aiwf://workspace/inventory` | **实时**：现有的工作流、Agent 角色、提示词、模型、记忆   |
+| URI                           | 内容                                                   |
+| ----------------------------- | ------------------------------------------------------ |
+| `aiwf://guide/overview`       | 这个系统是什么、每一屏能干什么、草稿与版本的区别       |
+| `aiwf://guide/build-and-run`  | 从零设计一条工作流并跑起来：该按什么顺序调哪个工具     |
+| `aiwf://guide/read-run-data`  | 怎么读一次运行的完整数据：九类事件分别回答什么问题     |
+| `aiwf://catalog/nodes`        | 16 种节点：端口 + 配置字段（中文标签、必填、默认值）   |
+| `aiwf://catalog/node-configs` | 配置的完整 JSON Schema                                 |
+| `aiwf://catalog/contracts`    | 事件类型、状态机、Patch 操作名、方法表                 |
+| `aiwf://workspace/inventory`  | **实时**：现有的工作流、Agent 角色、提示词、模型、记忆 |
 
 最后一份最要紧：AI 节点的 `agentProfileId` 必须来自 inventory。
 编一个不存在的 id，图能存进去，但要到 Dry Run 才暴露。
@@ -144,12 +144,12 @@ Agent 得靠工具名去猜节点类型叫什么、端口叫什么 —— 猜出
 
 挂在**权限档**上，与节点执行同一个开关（设置与环境 · 权限策略）：
 
-| 档位                  | 行为                                            |
-| --------------------- | ----------------------------------------------- |
-| Review Every Change   | 任何写操作都先提交给用户确认                    |
-| Workspace Safe        | 改草稿与写记忆放行；发布、运行、删除仍要确认    |
-| Trusted Workflow      | 全放行                                          |
-| 认不出来的值          | **按最严处理**                                  |
+| 档位                | 行为                                         |
+| ------------------- | -------------------------------------------- |
+| Review Every Change | 任何写操作都先提交给用户确认                 |
+| Workspace Safe      | 改草稿与写记忆放行；发布、运行、删除仍要确认 |
+| Trusted Workflow    | 全放行                                       |
+| 认不出来的值        | **按最严处理**                               |
 
 被挡住时工具返回 `isError: true` 并说清在等什么 —— 用户在应用里点
 「同意」之后 Agent 再调一次即可。
@@ -159,13 +159,13 @@ Agent 得靠工具名去猜节点类型叫什么、端口叫什么 —— 猜出
 
 ## 排查
 
-| 症状                       | 多半是                                                     |
-| -------------------------- | ---------------------------------------------------------- |
-| 加了 server 但工具是空的   | 握手失败。用 `curl` 打一次 `initialize` 看回什么            |
-| 401                        | 令牌不对。「MCP 与集成」里重新复制一次                     |
-| 403                        | Origin 被拒。从浏览器打的话这是预期行为                    |
-| 404 且带 `Mcp-Session-Id`  | 会话过期了，重新 `initialize`                              |
-| 一键接入点了没反应         | 服务没起来。看「MCP 与集成」里的状态条 —— 那是真的探了一次 |
+| 症状                      | 多半是                                                     |
+| ------------------------- | ---------------------------------------------------------- |
+| 加了 server 但工具是空的  | 握手失败。用 `curl` 打一次 `initialize` 看回什么           |
+| 401                       | 令牌不对。「MCP 与集成」里重新复制一次                     |
+| 403                       | Origin 被拒。从浏览器打的话这是预期行为                    |
+| 404 且带 `Mcp-Session-Id` | 会话过期了，重新 `initialize`                              |
+| 一键接入点了没反应        | 服务没起来。看「MCP 与集成」里的状态条 —— 那是真的探了一次 |
 
 手动探一次：
 
