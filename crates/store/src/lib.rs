@@ -2643,3 +2643,38 @@ impl Store {
         Ok(())
     }
 }
+
+/// 新建工作流时用的默认名前缀。
+const UNTITLED_PREFIX: &str = "未命名工作流 ";
+
+impl Store {
+    /// 下一个可用的「未命名工作流 N」。
+    ///
+    /// 编号必须由存储层给：界面看到的是**当前页**（分页后固定 50 条），
+    /// 用页内条数 +1 的话永远得到「未命名工作流 51」——
+    /// codex 复测时数据库里已经有 23 条同名记录，靠名字根本认不出哪条是哪条。
+    ///
+    /// 不回收被删掉的编号：回收的话，旧运行记录里写的名字会指向一条
+    /// **不同的**工作流，而那种错位没有任何提示。
+    pub fn next_untitled_name(&self) -> Result<String> {
+        // LIKE 只做粗筛（前缀匹配走索引），真正的判定在 Rust 侧 ——
+        // 「未命名工作流的第 3 版」这种名字不该把编号推到 4
+        let pattern = format!("{UNTITLED_PREFIX}%");
+        let mut stmt = self
+            .conn
+            .prepare("SELECT name FROM workflow WHERE name LIKE ?1")?;
+        let rows = stmt.query_map([&pattern], |row| row.get::<_, String>(0))?;
+
+        let mut max = 0_u32;
+        for row in rows {
+            let name = row?;
+            let Some(rest) = name.strip_prefix(UNTITLED_PREFIX) else {
+                continue;
+            };
+            if let Ok(number) = rest.parse::<u32>() {
+                max = max.max(number);
+            }
+        }
+        Ok(format!("{UNTITLED_PREFIX}{}", max + 1))
+    }
+}

@@ -122,7 +122,7 @@ describe('恢复会话', () => {
     await user.click(await screen.findByText('这条流程为什么失败'));
     await screen.findByText('第 3 个节点超时了');
 
-    await user.type(screen.getByLabelText('问主管 AI'), '那怎么改');
+    await user.type(screen.getByLabelText(/问主管 AI/u), '那怎么改');
     await user.keyboard('{Enter}');
 
     await waitFor(() => {
@@ -138,7 +138,7 @@ describe('恢复会话', () => {
     view();
     await screen.findByText('主管 AI');
 
-    await user.type(screen.getByLabelText('问主管 AI'), '新问题');
+    await user.type(screen.getByLabelText(/问主管 AI/u), '新问题');
     await user.keyboard('{Enter}');
 
     await waitFor(() => {
@@ -152,11 +152,11 @@ describe('恢复会话', () => {
     view();
     await screen.findByText('主管 AI');
 
-    await user.type(screen.getByLabelText('问主管 AI'), '第一问');
+    await user.type(screen.getByLabelText(/问主管 AI/u), '第一问');
     await user.keyboard('{Enter}');
     await screen.findByText('好的');
 
-    await user.type(screen.getByLabelText('问主管 AI'), '第二问');
+    await user.type(screen.getByLabelText(/问主管 AI/u), '第二问');
     await user.keyboard('{Enter}');
 
     await waitFor(() => {
@@ -170,14 +170,14 @@ describe('恢复会话', () => {
   it('「新对话」清空当前会话', async () => {
     const user = userEvent.setup();
     view();
-    await user.type(await screen.findByLabelText('问主管 AI'), '第一问');
+    await user.type(await screen.findByLabelText(/问主管 AI/u), '第一问');
     await user.keyboard('{Enter}');
     await screen.findByText('好的');
 
     await user.click(screen.getByRole('button', { name: '新对话' }));
     expect(screen.queryByText('好的')).toBeNull();
 
-    await user.type(screen.getByLabelText('问主管 AI'), '重新开始');
+    await user.type(screen.getByLabelText(/问主管 AI/u), '重新开始');
     await user.keyboard('{Enter}');
     await waitFor(() => {
       const asks = call.mock.calls.filter(([m]) => m === 'supervisor.ask');

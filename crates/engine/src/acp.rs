@@ -101,8 +101,24 @@ impl PromptOutcome {
 
 /// 从 adapter 收到的一条消息：要么是某个请求的应答，要么是通知。
 enum Incoming {
-    Response { id: i64, result: Result<Value> },
-    Notification { method: String, params: Value },
+    Response {
+        id: i64,
+        result: Result<Value>,
+    },
+    Notification {
+        method: String,
+        params: Value,
+    },
+    /// Agent 回头问客户端的请求（有 method **也有** id）。
+    ///
+    /// 不区分它、当成通知吞掉的话，agent 会一直等我们应答，而我们
+    /// 一直等它的回答 —— 双方互等到超时。症状是主管 AI 转圈几十秒
+    /// 然后报超时，而两边的日志都看不出谁在等谁。
+    Request {
+        id: i64,
+        method: String,
+        params: Value,
+    },
 }
 
 pub struct AcpClient {
@@ -274,6 +290,9 @@ impl AcpClient {
                         dispatch_update(&params, &mut on_update);
                     }
                 }
+                Ok(Incoming::Request { id, method, params }) => {
+                    self.answer_reverse_call(id, &method, &params)?;
+                }
                 Ok(Incoming::Response {
                     id: got,
                     result: Ok(value),
@@ -306,12 +325,80 @@ impl AcpClient {
         loop {
             match self.incoming.recv_timeout(self.timeout) {
                 Ok(Incoming::Response { id: got, result }) if got == id => return result,
+                // 反向请求在这条路径上也可能来（建会话时问权限），同样要应答 ——
+                // 只在 prompt 里处理的话，卡的就是 session/new
+                Ok(Incoming::Request {
+                    id: ask,
+                    method: ask_method,
+                    params: ask_params,
+                }) => self.answer_reverse_call(ask, &ask_method, &ask_params)?,
                 // 握手与建会话期间也会来通知（available_commands_update 等），跳过
                 Ok(_) => {}
                 Err(RecvTimeoutError::Timeout) => return Err(AcpError::Timeout(self.timeout)),
                 Err(RecvTimeoutError::Disconnected) => return Err(AcpError::Disconnected),
             }
         }
+    }
+
+    /// 应答 agent 的反向请求。
+    ///
+    /// **权限一律拒绝**：主管 AI 的界面上写着「本次会话授予：
+    /// workflow:read / workflow:write-draft / memory:read，发布与运行未授权」——
+    /// 在这里默认允许的话那句话就是假的。AI 的改动走 DraftStore.propose()
+    /// 出 Diff、用户确认，不走 agent 自己申请权限这条路。
+    ///
+    /// **不认识的方法回 JSON-RPC 的「方法不存在」**：我们握手时声明了
+    /// 不支持 fs 与 terminal，但 adapter 版本一变就可能问点别的。
+    /// 回一句「不支持」它就能换个做法；不回话它只会等到超时。
+    fn answer_reverse_call(&mut self, id: i64, method: &str, params: &Value) -> Result<()> {
+        let payload = if method == "session/request_permission" {
+            // 选项 ID 由 agent 给，得从里面挑一个拒绝类的 —— 自己编一个
+            // 它不认识的 optionId，等于没回答
+            let option = params
+                .get("options")
+                .and_then(Value::as_array)
+                .and_then(|options| {
+                    options
+                        .iter()
+                        .find(|option| {
+                            option
+                                .get("kind")
+                                .and_then(Value::as_str)
+                                .is_some_and(|kind| kind.starts_with("reject"))
+                        })
+                        .or_else(|| options.last())
+                })
+                .and_then(|option| option.get("optionId"))
+                .and_then(Value::as_str)
+                .map(str::to_string);
+
+            match option {
+                Some(option_id) => json!({
+                    "jsonrpc": "2.0",
+                    "id": id,
+                    "result": { "outcome": { "outcome": "selected", "optionId": option_id } },
+                }),
+                // 一个选项都没给：那就说这轮取消，别让它干等
+                None => json!({
+                    "jsonrpc": "2.0",
+                    "id": id,
+                    "result": { "outcome": { "outcome": "cancelled" } },
+                }),
+            }
+        } else {
+            json!({
+                "jsonrpc": "2.0",
+                "id": id,
+                "error": { "code": -32601, "message": format!("客户端不支持 {method}") },
+            })
+        };
+
+        let line = serde_json::to_string(&payload)
+            .map_err(|error| AcpError::Malformed(error.to_string()))?;
+        self.stdin.write_all(line.as_bytes())?;
+        self.stdin.write_all(b"\n")?;
+        self.stdin.flush()?;
+        Ok(())
     }
 
     fn send(&mut self, method: &str, params: Value) -> Result<i64> {
@@ -376,10 +463,19 @@ fn spawn_reader(stdout: std::process::ChildStdout) -> Receiver<Incoming> {
             };
 
             let sent = if let Some(method) = message.get("method").and_then(Value::as_str) {
-                tx.send(Incoming::Notification {
-                    method: method.to_string(),
-                    params: message.get("params").cloned().unwrap_or(Value::Null),
-                })
+                let params = message.get("params").cloned().unwrap_or(Value::Null);
+                // 有 id 的是请求，要应答；没有的才是通知
+                match message.get("id").and_then(Value::as_i64) {
+                    Some(id) => tx.send(Incoming::Request {
+                        id,
+                        method: method.to_string(),
+                        params,
+                    }),
+                    None => tx.send(Incoming::Notification {
+                        method: method.to_string(),
+                        params,
+                    }),
+                }
             } else if let Some(id) = message.get("id").and_then(Value::as_i64) {
                 let result = if let Some(error) = message.get("error") {
                     Err(AcpError::Remote(

@@ -209,3 +209,70 @@ fn 关闭会把进程收干净() {
         .unwrap_or(false);
     assert!(!alive, "adapter 进程 {pid} 还活着");
 }
+
+/// Agent 的**反向请求**：它在执行时会回头问客户端要权限、要读文件。
+///
+/// 客户端不应答的话双方互等到超时 —— 症状是主管 AI 一直「正在想…」，
+/// 而 adapter 那边也在等我们说话。codex 自主体验时的原话：
+/// 「连续等待 50 秒仍没有回复、超时提示」。
+#[test]
+fn 权限请求会被应答_而不是把双方晾在那儿() {
+    let mut client = connect("needs-permission").expect("连接 mock");
+    let session = client.new_session("/tmp").expect("建会话");
+
+    let mut text = String::new();
+    let outcome = client
+        .prompt(&session.id, "改一下这个文件", |update| {
+            if let SessionUpdate::AgentText { text: chunk } = update {
+                text.push_str(chunk);
+            }
+        })
+        .expect("prompt 不该超时 —— 那说明权限请求没被应答");
+
+    assert_eq!(outcome, PromptOutcome::EndTurn);
+    assert!(
+        text.contains("客户端答复"),
+        "mock 没收到应答，实际收到：{text}"
+    );
+}
+
+#[test]
+fn 权限请求默认拒绝_主管_ai_是只读的() {
+    // 界面上写着「本次会话授予：workflow:read / write-draft / memory:read，
+    // 发布与运行未授权」。默认允许的话那句话就是假的
+    let mut client = connect("needs-permission").expect("连接 mock");
+    let session = client.new_session("/tmp").expect("建会话");
+
+    let mut text = String::new();
+    client
+        .prompt(&session.id, "改一下这个文件", |update| {
+            if let SessionUpdate::AgentText { text: chunk } = update {
+                text.push_str(chunk);
+            }
+        })
+        .expect("prompt");
+
+    assert!(
+        text.contains("reject") || text.contains("cancelled"),
+        "默认应该拒绝，实际：{text}"
+    );
+}
+
+#[test]
+fn 不认识的反向请求也要回一句_否则同样是互等() {
+    let mut client = connect("unknown-reverse-call").expect("连接 mock");
+    let session = client.new_session("/tmp").expect("建会话");
+
+    let mut text = String::new();
+    let outcome = client
+        .prompt(&session.id, "跑个命令", |update| {
+            if let SessionUpdate::AgentText { text: chunk } = update {
+                text.push_str(chunk);
+            }
+        })
+        .expect("prompt 不该超时");
+
+    assert_eq!(outcome, PromptOutcome::EndTurn);
+    // JSON-RPC 的「方法不存在」——比不回话强得多
+    assert!(text.contains("error"), "应该回一个错误应答，实际：{text}");
+}

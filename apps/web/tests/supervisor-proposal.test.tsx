@@ -86,7 +86,7 @@ async function ask(question = '把入口改名') {
       onClose={vi.fn()}
     />,
   );
-  await user.type(screen.getByLabelText('问主管 AI'), question);
+  await user.type(screen.getByLabelText(/问主管 AI/u), question);
   await user.keyboard('{Enter}');
   return user;
 }
@@ -160,7 +160,7 @@ describe('提议出 Diff', () => {
   it('没有工作流上下文时不显示应用按钮 —— 没有草稿可落', async () => {
     const user = userEvent.setup();
     render(<SupervisorDrawer open context={{}} onApply={onApply} onClose={vi.fn()} />);
-    await user.type(screen.getByLabelText('问主管 AI'), '改点什么');
+    await user.type(screen.getByLabelText(/问主管 AI/u), '改点什么');
     await user.keyboard('{Enter}');
 
     await screen.findByText('我改好了，你看下。');

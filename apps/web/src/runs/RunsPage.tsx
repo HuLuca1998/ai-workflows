@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useDebouncedSearch } from '../hooks/useDebouncedSearch.js';
 import { useSearchParams } from 'react-router';
 import { type RunStatusName, StatusBadge } from '@aiwf/ui';
 import { Pager } from '../layout/Pager.js';
@@ -35,6 +36,10 @@ const POLL_MS = 1200;
 
 export function RunsPage() {
   const runs = useRuns();
+  const search = useDebouncedSearch((query) => {
+    runs.setQuery(query);
+    void runs.load();
+  });
   const [params] = useSearchParams();
   const [tab, setTab] = useState<DetailTab>('events');
   /** 刚导出的诊断包路径。不告诉用户在哪的话他找不到。 */
@@ -95,13 +100,15 @@ export function RunsPage() {
 
           <label className="runs__search">
             <i className="ph ph-magnifying-glass" aria-hidden="true" />
+            {/* 输入即搜（300ms 防抖），回车立刻搜。
+                与首页同一套交互 —— 不一致的话用户每换一屏都要重新试一次 */}
             <input
               type="search"
               placeholder="搜索工作流、参数或 Run ID"
-              value={runs.query}
-              onChange={(event) => runs.setQuery(event.target.value)}
+              value={search.value}
+              onChange={(event) => search.onChange(event.target.value)}
               onKeyDown={(event) => {
-                if (event.key === 'Enter') void runs.load();
+                if (event.key === 'Enter') search.onEnter();
               }}
             />
           </label>

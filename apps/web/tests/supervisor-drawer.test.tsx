@@ -109,7 +109,7 @@ describe('对话', () => {
     const user = userEvent.setup();
     view({ draftRev: 19, runId: 'run_abc123' });
 
-    await user.type(screen.getByLabelText('问主管 AI'), '这条工作流缺什么？');
+    await user.type(screen.getByLabelText(/问主管 AI/u), '这条工作流缺什么？');
     await user.keyboard('{Enter}');
 
     await waitFor(() => {
@@ -127,7 +127,7 @@ describe('对话', () => {
     const user = userEvent.setup();
     view();
 
-    await user.type(screen.getByLabelText('问主管 AI'), '缺什么？');
+    await user.type(screen.getByLabelText(/问主管 AI/u), '缺什么？');
     await user.keyboard('{Enter}');
 
     expect(await screen.findByText('这条工作流缺一个结束节点。')).toBeTruthy();
@@ -137,7 +137,7 @@ describe('对话', () => {
     const user = userEvent.setup();
     view();
 
-    const input = screen.getByLabelText('问主管 AI');
+    const input = screen.getByLabelText(/问主管 AI/u);
     await user.type(input, '第一行');
     await user.keyboard('{Shift>}{Enter}{/Shift}');
 
@@ -148,7 +148,7 @@ describe('对话', () => {
     const user = userEvent.setup();
     view();
 
-    await user.click(screen.getByLabelText('问主管 AI'));
+    await user.click(screen.getByLabelText(/问主管 AI/u));
     await user.keyboard('{Enter}');
     expect(call).not.toHaveBeenCalledWith('supervisor.ask', expect.anything());
   });
@@ -162,7 +162,7 @@ describe('对话', () => {
     const user = userEvent.setup();
     view();
 
-    await user.type(screen.getByLabelText('问主管 AI'), '试试');
+    await user.type(screen.getByLabelText(/问主管 AI/u), '试试');
     await user.keyboard('{Enter}');
 
     expect(await screen.findByRole('alert')).toHaveTextContent('连不上 adapter');
@@ -179,7 +179,7 @@ describe('等待与取消', () => {
 
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
     view();
-    await user.type(screen.getByLabelText('问主管 AI'), '怎么用');
+    await user.type(screen.getByLabelText(/问主管 AI/u), '怎么用');
     await user.keyboard('{Enter}');
 
     await vi.advanceTimersByTimeAsync(8_000);
@@ -191,7 +191,7 @@ describe('等待与取消', () => {
     respond({ 'supervisor.ask': () => new Promise(() => {}) });
     const user = userEvent.setup();
     view();
-    await user.type(screen.getByLabelText('问主管 AI'), '怎么用');
+    await user.type(screen.getByLabelText(/问主管 AI/u), '怎么用');
     await user.keyboard('{Enter}');
 
     expect(await screen.findByRole('button', { name: '取消' })).toBeTruthy();
@@ -201,13 +201,13 @@ describe('等待与取消', () => {
     respond({ 'supervisor.ask': () => new Promise(() => {}) });
     const user = userEvent.setup();
     view();
-    await user.type(screen.getByLabelText('问主管 AI'), '怎么用');
+    await user.type(screen.getByLabelText(/问主管 AI/u), '怎么用');
     await user.keyboard('{Enter}');
 
     await user.click(await screen.findByRole('button', { name: '取消' }));
 
     expect(screen.queryByText('正在想…')).toBeNull();
-    expect(screen.getByLabelText('问主管 AI')).toBeEnabled();
+    expect(screen.getByLabelText(/问主管 AI/u)).toBeEnabled();
     // 问题本身留着 —— 用户可能只是想换个模型再问一次
     expect(screen.getByText('怎么用')).toBeTruthy();
   });
@@ -222,7 +222,7 @@ describe('等待与取消', () => {
     });
     const user = userEvent.setup();
     view();
-    await user.type(screen.getByLabelText('问主管 AI'), '怎么用');
+    await user.type(screen.getByLabelText(/问主管 AI/u), '怎么用');
     await user.keyboard('{Enter}');
     await user.click(await screen.findByRole('button', { name: '取消' }));
 
@@ -235,7 +235,7 @@ describe('等待与取消', () => {
   it('答完就没有取消按钮了', async () => {
     const user = userEvent.setup();
     view();
-    await user.type(screen.getByLabelText('问主管 AI'), '缺什么？');
+    await user.type(screen.getByLabelText(/问主管 AI/u), '缺什么？');
     await user.keyboard('{Enter}');
     await screen.findByText('这条工作流缺一个结束节点。');
 

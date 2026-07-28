@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router';
 
@@ -228,8 +228,8 @@ describe('新建不能建出多条', () => {
       loading: false,
       error: null,
       load: async () => {},
-      createWorkflow: async (name: string) => {
-        created.push(name);
+      createWorkflow: async (name: string | null) => {
+        created.push(name ?? '(由引擎编号)');
         // 真实的建流程要等一次 IPC 往返，同步返回会让这条用例失去意义
         await new Promise((resolve) => setTimeout(resolve, 20));
         return 'wf_new';
@@ -284,10 +284,43 @@ describe('筛选与搜索交给后端', () => {
     expect(setFilter).toHaveBeenCalledWith(null, '归档');
   });
 
-  it('占位文案写明要回车 —— 不写的话很像搜索失效', async () => {
-    seed([BASE]);
+  it('占位文案照图纸 —— 不在里面解释交互', () => {
+    // 图纸写的是「搜索工作流、运行或产物」。曾经加过「（回车搜索）」，
+    // 去掉了：要在文案里解释交互，通常说明交互本身不对。
+    // 现在是输入即搜（300ms 防抖），回车立刻搜，两处一致
     view();
-    expect(await screen.findByPlaceholderText(/回车搜索/u)).toBeTruthy();
+    expect(screen.getByPlaceholderText('搜索工作流、运行或产物')).toBeTruthy();
+  });
+
+  it('输入停手之后自动搜，不用按回车', async () => {
+    // 断言打到 setFilter 上：store 是模块级单例，同文件里前面的用例
+    // 会在它的 query 上留下痕迹，拿状态做断言不可靠
+    const setFilter = vi.fn(async () => {});
+    useWorkspace.setState({ setFilter } as never);
+    view();
+    await screen.findByLabelText('搜索工作流');
+
+    const input = screen.getByLabelText('搜索工作流') as HTMLInputElement;
+    fireEvent.change(input, { target: { value: 'worktree' } });
+    expect(input.value, '输入框的值没跟手').toBe('worktree');
+
+    // 防抖 300ms。等它真的发出去，而不是猜一个时长
+    await waitFor(() => expect(setFilter).toHaveBeenCalledWith(null, 'worktree'), {
+      timeout: 2000,
+    });
+  });
+
+  it('回车立刻搜，不等那 300ms', async () => {
+    const setFilter = vi.fn(async () => {});
+    useWorkspace.setState({ setFilter } as never);
+    view();
+    await screen.findByLabelText('搜索工作流');
+
+    const input = screen.getByLabelText('搜索工作流');
+    fireEvent.change(input, { target: { value: 'worktree' } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+
+    expect(setFilter).toHaveBeenCalledWith(null, 'worktree');
   });
 
   it('「N 个工作流」用总数，不是当前页的行数', async () => {

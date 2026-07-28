@@ -764,3 +764,29 @@ describe('环境诊断导出', () => {
     expect(MCP_FIRST_RELEASE_TOOLS).not.toContain('env.diagnostics');
   });
 });
+
+describe('新建工作流的默认名', () => {
+  /**
+   * codex 的原话：「不同 ID 的新工作流反复得到同一个名称『未命名工作流 51』，
+   * 数据库里已有 23 条同名记录」。
+   *
+   * 界面算的是「当前页条数 + 1」，而分页之后每页固定 50 条。
+   * 编号只能由后端给 —— 只有它看得见全部数据。
+   */
+  it('不传 name 也能建 —— 那时由后端编号', () => {
+    const spec = getMethodSpec('workflow.create');
+    expect(spec.input.safeParse({}).success).toBe(true);
+  });
+
+  it('传了 name 就用传的 —— 模板与导入都靠它', () => {
+    const spec = getMethodSpec('workflow.create');
+    const parsed = spec.input.safeParse({ name: 'GitHub Issue 修复' });
+    expect(parsed.success).toBe(true);
+    expect(parsed.success && (parsed.data as { name?: string }).name).toBe('GitHub Issue 修复');
+  });
+
+  it('空串仍然不行 —— 那是「我想取名但取了个空」，不是「你帮我取」', () => {
+    const spec = getMethodSpec('workflow.create');
+    expect(spec.input.safeParse({ name: '' }).success).toBe(false);
+  });
+});

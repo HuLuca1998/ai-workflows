@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { useDebouncedSearch } from '../hooks/useDebouncedSearch.js';
 import { useNavigate } from 'react-router';
 import { Button, type RunStatusName, StatusBadge, Tag } from '@aiwf/ui';
 import { WORKFLOW_TEMPLATES, type Workflow } from '@aiwf/contracts';
@@ -65,7 +66,10 @@ export function OverviewPage() {
     importWorkflow,
   } = useWorkspace();
   const [filter, setFilter] = useState<Filter>('全部');
-  const [query, setQuery] = useState('');
+  // 输入即搜（300ms 防抖），回车立刻搜。声明必须在 setServerFilter 之后 ——
+  // 提前的话闭包读到的是 TDZ 里的绑定
+  const search = useDebouncedSearch((q) => void setServerFilter(FILTER_STATUS[filter], q));
+  const query = search.value;
   const [creating, setCreating] = useState(false);
   const [importError, setImportError] = useState<string | null>(null);
   const [stats, setStats] = useState<Stats | null>(null);
@@ -101,7 +105,9 @@ export function OverviewPage() {
     try {
       const template = templateId ? WORKFLOW_TEMPLATES.find((t) => t.id === templateId) : undefined;
       const id = await createWorkflow(
-        template ? template.name : `未命名工作流 ${workflows.length + 1}`,
+        // 不给名字时由引擎编号：界面只看得到当前页，
+        // 用页内条数 +1 的话每次新建都叫「未命名工作流 51」
+        template ? template.name : null,
         template?.operations,
       );
       // 建完直接进编辑器：新建的意图就是要去搭流程
@@ -125,15 +131,16 @@ export function OverviewPage() {
           <i className="ph ph-magnifying-glass" aria-hidden="true" />
           {/* 占位文案里写明要回车 —— 不写的话「输入后等几秒列表没变」
               很像搜索失效，而搜索是在后端做的（前端过滤只能过滤当前页） */}
+          {/* 输入即搜（300ms 防抖），回车立刻搜。
+              搜索发给后端 —— 前端过滤只能过滤当前页 */}
           <input
             type="search"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
+            value={search.value}
+            onChange={(e) => search.onChange(e.target.value)}
             onKeyDown={(event) => {
-              // 搜索发给后端 —— 前端过滤只能过滤当前页
-              if (event.key === 'Enter') void setServerFilter(FILTER_STATUS[filter], query);
+              if (event.key === 'Enter') search.onEnter();
             }}
-            placeholder="搜索工作流、运行或产物（回车搜索）"
+            placeholder="搜索工作流、运行或产物"
             aria-label="搜索工作流"
           />
         </label>
@@ -209,7 +216,7 @@ export function OverviewPage() {
                 className="chip"
                 onClick={() => {
                   setFilter(f);
-                  void setServerFilter(FILTER_STATUS[f], query);
+                  void setServerFilter(FILTER_STATUS[f], search.value);
                 }}
               >
                 {f}
@@ -354,7 +361,7 @@ export function OverviewPage() {
                       className="link-button"
                       onClick={() => {
                         setFilter('全部');
-                        setQuery('');
+                        search.onChange('');
                         // 条件也要清到后端 —— 只改前端 state 的话
                         // 列表还是筛过的那一页
                         void setServerFilter(null, '');

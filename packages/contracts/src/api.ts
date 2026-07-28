@@ -191,7 +191,13 @@ const SPECS = {
   },
   'workflow.create': {
     input: z.object({
-      name: z.string().min(1),
+      /**
+       * 名字。**缺席时由引擎编号**（「未命名工作流 N」）。
+       *
+       * 界面自己算编号的话只能看到当前页 —— 分页后每页固定 50 条，
+       * 于是每次新建都叫「未命名工作流 51」，列表里一串认不出来的同名草稿。
+       */
+      name: z.string().min(1).optional(),
       folder: z.string().optional(),
       fromTemplate: z.string().optional(),
       /**

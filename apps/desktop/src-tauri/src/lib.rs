@@ -494,7 +494,7 @@ fn env_health(recheck: Option<bool>) -> IpcResult<api::EnvHealthReport> {
 #[tauri::command]
 fn workflow_create(
     state: State<'_, AppState>,
-    name: String,
+    name: Option<String>,
     graph_json: Option<String>,
 ) -> IpcResult<String> {
     let store = lock(&state)?;

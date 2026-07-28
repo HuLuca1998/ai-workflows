@@ -247,9 +247,10 @@ pub fn dispatch(
             string(input, "path")?,
             opt_int(input, "maxBytes"),
         )?),
+        // name 缺席时由引擎编号 —— 界面自己算只能看到当前页
         "workflow_create" => to_value(api::workflow_create(
             &store,
-            string(input, "name")?,
+            opt_string(input, "name"),
             opt_string(input, "graphJson"),
         )?),
         "workflow_get" => to_value(api::workflow_get(&store, string(input, "id")?)?),

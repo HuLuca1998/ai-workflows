@@ -1015,11 +1015,19 @@ fn iso_to_millis(iso: &str) -> Option<i64> {
     Some((days * 86_400 + h * 3600 + min * 60 + sec) * 1000 + ms.parse::<i64>().unwrap_or(0))
 }
 
+/// 新建工作流。
+///
+/// `name` 缺席时由存储层编号（「未命名工作流 N」）——
+/// 界面自己算的话只能看到当前页，分页后每次新建都叫「未命名工作流 51」。
 pub fn workflow_create(
     store: &Store,
-    name: String,
+    name: Option<String>,
     graph_json: Option<String>,
 ) -> ApiResult<String> {
+    let name = match name {
+        Some(given) => given,
+        None => store.next_untitled_name()?,
+    };
     Ok(match graph_json {
         Some(graph) => store.create_workflow_with_graph(&name, None, &graph)?,
         None => store.create_workflow(&name, None)?,

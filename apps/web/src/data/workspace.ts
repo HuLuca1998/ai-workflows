@@ -82,7 +82,10 @@ interface WorkspaceState {
    * 模板走的是与手工搭建完全相同的 patch 路径，因此同样被校验守住。
    * 返回新建的工作流 id，便于直接跳进编辑器。
    */
-  createWorkflow: (name: string, operations?: readonly PatchOperation[]) => Promise<string | null>;
+  createWorkflow: (
+    name: string | null,
+    operations?: readonly PatchOperation[],
+  ) => Promise<string | null>;
   /** 导入一份已校验过的图，作为新工作流的第一个修订。 */
   importWorkflow: (name: string, graph: WorkflowGraph) => Promise<string | null>;
 }
@@ -131,14 +134,15 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
     // 导入没有「相对于什么的改动」，所以直接带初始图创建，
     // 而不是拿一条假 Patch 去凑 operations
     const result = (await coreClient.call('workflow.create', {
-      name,
+      // name 为 null 时不带这个字段：引擎会编「未命名工作流 N」
+      ...(name ? { name } : {}),
       graphJson: JSON.stringify(graph),
     })) as { id: string };
     await get().load();
     return result.id ?? null;
   },
 
-  createWorkflow: async (name: string, operations?: readonly PatchOperation[]) => {
+  createWorkflow: async (name: string | null, operations?: readonly PatchOperation[]) => {
     // 模板先在本地跑一遍 applyPatch——它因此被同一套校验守住，
     // 再把结果图作为初始图创建
     const graphJson =
@@ -152,7 +156,8 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
         : undefined;
 
     const result = (await coreClient.call('workflow.create', {
-      name,
+      // name 为 null 时不带这个字段：引擎会编「未命名工作流 N」
+      ...(name ? { name } : {}),
       ...(graphJson ? { graphJson } : {}),
     })) as { id: string };
     await get().load();

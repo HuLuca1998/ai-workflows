@@ -2331,3 +2331,62 @@ mod 工作区设置 {
         assert!(结果.is_err(), "看起来像密钥的值不该写进设置");
     }
 }
+
+/// 新建工作流的默认名。
+///
+/// codex 的原话：「不同 ID 的新工作流反复得到同一个名称『未命名工作流 51』，
+/// 数据库里已有 23 条同名记录」。前端算的是 `当前页条数 + 1` ——
+/// 分页之后每页固定 50 条，于是永远是 51。
+///
+/// 编号得由存储层给：只有它看得见全部数据。
+mod 未命名工作流的编号 {
+    use super::*;
+
+    #[test]
+    fn 一条都没有时从_1_开始() {
+        let store = store();
+        assert_eq!(store.next_untitled_name().unwrap(), "未命名工作流 1");
+    }
+
+    #[test]
+    fn 接着最大的那个往下编() {
+        let store = store();
+        store.create_workflow("未命名工作流 1", None).unwrap();
+        store.create_workflow("未命名工作流 7", None).unwrap();
+
+        assert_eq!(store.next_untitled_name().unwrap(), "未命名工作流 8");
+    }
+
+    #[test]
+    fn 连续新建不会撞名() {
+        let store = store();
+        let 第一个 = store.next_untitled_name().unwrap();
+        store.create_workflow(&第一个, None).unwrap();
+        let 第二个 = store.next_untitled_name().unwrap();
+
+        assert_ne!(第一个, 第二个);
+    }
+
+    #[test]
+    fn 用户自己取的名字不参与编号() {
+        // 「未命名工作流的第 3 版」这种名字不该把编号推到 4
+        let store = store();
+        store.create_workflow("GitHub Issue 修复", None).unwrap();
+        store
+            .create_workflow("未命名工作流的第 3 版", None)
+            .unwrap();
+
+        assert_eq!(store.next_untitled_name().unwrap(), "未命名工作流 1");
+    }
+
+    #[test]
+    fn 中间被删掉也不回收编号() {
+        // 回收的话，被删那条的运行记录里写的名字会指向一条**不同的**工作流
+        let store = store();
+        let id = store.create_workflow("未命名工作流 1", None).unwrap();
+        store.create_workflow("未命名工作流 2", None).unwrap();
+        store.delete_workflow(&id).unwrap();
+
+        assert_eq!(store.next_untitled_name().unwrap(), "未命名工作流 3");
+    }
+}

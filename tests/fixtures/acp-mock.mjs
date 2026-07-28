@@ -19,6 +19,9 @@
 
 const scenario = process.argv[2] ?? 'normal';
 
+/** 等着客户端应答的那条反向请求。收到应答后才把这一轮收尾。 */
+let pendingPermission = null;
+
 // hang：什么都不回，用来验证客户端的超时。
 // 必须在注册 stdin 监听之前就停住 —— 否则照样会应答 initialize
 if (scenario === 'hang') {
@@ -53,6 +56,22 @@ function notify(method, params) {
 
 function handle(message) {
   const { id, method, params } = message;
+
+  // 客户端对我们那条反向请求的应答。拿到了才把这一轮收尾 ——
+  // 测试断言的正是「客户端真的应答了」
+  if (pendingPermission && id === pendingPermission.id && method === undefined) {
+    const outcome = message.error ? 'error' : JSON.stringify(message.result);
+    notify('session/update', {
+      sessionId: pendingPermission.sessionId,
+      update: {
+        sessionUpdate: 'agent_message_chunk',
+        content: { type: 'text', text: `客户端答复：${outcome}` },
+      },
+    });
+    reply(pendingPermission.promptId, { stopReason: 'end_turn' });
+    pendingPermission = null;
+    return;
+  }
 
   if (method === 'initialize') {
     reply(id, {
@@ -98,6 +117,39 @@ function handle(message) {
   }
 
   if (method === 'session/prompt') {
+    // 真实的 Claude Agent 在执行时会**反向请求**客户端：要权限、要读文件。
+    // 客户端不应答的话它就一直等 —— 症状是「主管 AI 转圈到超时」，
+    // 而两边都以为是对方该说话。
+    if (scenario === 'needs-permission') {
+      const askId = 9001;
+      send({
+        jsonrpc: '2.0',
+        id: askId,
+        method: 'session/request_permission',
+        params: {
+          sessionId: params.sessionId,
+          toolCall: { toolCallId: 'call_1', title: '写入 src/a.ts' },
+          options: [
+            { optionId: 'allow', name: '允许', kind: 'allow_once' },
+            { optionId: 'reject', name: '拒绝', kind: 'reject_once' },
+          ],
+        },
+      });
+      pendingPermission = { id: askId, sessionId: params.sessionId, promptId: id };
+      return;
+    }
+
+    if (scenario === 'unknown-reverse-call') {
+      send({
+        jsonrpc: '2.0',
+        id: 9002,
+        method: 'terminal/create',
+        params: { sessionId: params.sessionId, command: 'ls' },
+      });
+      pendingPermission = { id: 9002, sessionId: params.sessionId, promptId: id };
+      return;
+    }
+
     if (scenario === 'crash-after-session') {
       // 不回复，直接退出 —— 客户端应当报「进程退出」而不是无限等
       process.exit(1);

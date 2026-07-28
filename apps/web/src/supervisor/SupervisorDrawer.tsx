@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { ChatInput } from '../chat/ChatInput.js';
 import {
   applyPatch,
   type PatchOperation,
@@ -457,21 +458,15 @@ export function SupervisorDrawer({
         </footer>
 
         <footer className="supervisor__foot">
-          <textarea
-            className="supervisor__input"
-            aria-label="问主管 AI"
+          {/* ⏎ 发送、⇧⏎ 换行 —— 图纸底部标着那个 ⏎ 符号。
+              键盘逻辑在 ChatInput 里只有一份，别在这儿再抄一遍 */}
+          <ChatInput
+            label="问主管 AI"
             placeholder="问它，或让它改这条工作流…"
-            rows={2}
             value={draft}
             disabled={busy}
-            onChange={(event) => setDraft(event.target.value)}
-            onKeyDown={(event) => {
-              // ⏎ 发送、⇧⏎ 换行 —— 图纸底部标着那个 ⏎ 符号
-              if (event.key === 'Enter' && !event.shiftKey) {
-                event.preventDefault();
-                void send();
-              }
-            }}
+            onChange={setDraft}
+            onSubmit={() => void send()}
           />
           {/* 等待时给取消 —— 用户要能脱身。
               ACP 的超时是 180 秒，干等三分钟没有出口是不可接受的 */}
