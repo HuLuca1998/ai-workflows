@@ -688,10 +688,19 @@ const SPECS = {
         })
         .optional(),
     }),
-    mutates: false,
+    // **写操作**：它建会话、存两条消息（用户的问题与 AI 的回答）。
+    //
+    // 曾经声明 mutates:false / workflow:read —— 那不只是文档不准：
+    // MCP 的只读会话按 mutates 过滤工具，一个声明只读却写库的方法
+    // 会整个绕过那道过滤。
+    //
+    // 「AI 的改动先出 Diff」说的是**对工作流的改动** ——
+    // proposal 不落草稿，那一步仍然要用户确认走 workflow.patch。
+    // 与「这次对话本身要不要记下来」是两回事。
+    mutates: true,
     audited: true,
-    scope: 'workflow:read',
-    summary: '问主管 AI；它的改动一律先出 Diff 再落草稿',
+    scope: 'workflow:write-draft',
+    summary: '问主管 AI；对话进历史，而它对工作流的改动一律先出 Diff 再落草稿',
   },
   'memory.list': {
     input: z.object({

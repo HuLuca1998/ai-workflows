@@ -385,9 +385,37 @@ describe('主管 AI 的改动先出 Diff', () => {
     expect(parsed.success).toBe(false);
   });
 
-  it('这个方法本身仍然不写库 —— 落草稿走 workflow.patch，那里才有 baseRevision 守卫', () => {
-    expect(spec().mutates).toBe(false);
-    expect(requiredScope('supervisor.ask')).toBe('workflow:read');
+  it('它不能直接改工作流 —— 落草稿走 workflow.patch，那里才有 baseRevision 守卫', () => {
+    // 守的是「AI 的改动先出 Diff」这条产品规则：
+    // 这个方法的 output 里只有 proposal（提议），没有 rev ——
+    // 改动生效必须经过 workflow.patch，而那一步由用户触发。
+    //
+    // 它本身是写操作（建会话、存两条消息），但写的是**对话历史**，
+    // 不是工作流。曾经声明 mutates:false，那会让 MCP 的只读会话
+    // 把它当只读工具放行 —— 一个声明只读却写库的方法绕过整道过滤。
+    const output = spec().output.safeParse({
+      text: '建议加个审批节点',
+      toolCalls: 0,
+      proposal: {
+        summary: '插入审批',
+        operations: [
+          {
+            op: 'addNode',
+            type: 'approval',
+            title: '审批',
+            position: { x: 0, y: 0 },
+            config: {},
+          },
+        ],
+      },
+    });
+    expect(output.success).toBe(true);
+    expect(output.success && 'rev' in (output.data as object)).toBe(false);
+  });
+
+  it('是写操作，Scope 覆盖得了它写的东西', () => {
+    expect(spec().mutates).toBe(true);
+    expect(requiredScope('supervisor.ask')).toBe('workflow:write-draft');
   });
 });
 
@@ -1013,5 +1041,43 @@ describe('主管 AI 的回答要说清历史存没存住', () => {
     expect(spec.output.safeParse({ text: '答案', toolCalls: 0, historySaved: false }).success).toBe(
       true,
     );
+  });
+});
+
+describe('mutates 与实际行为不能对不上', () => {
+  /**
+   * 第 5 轮审查 B1：`supervisor.ask` 声明 `mutates:false` / `workflow:read`，
+   * **实际写三次库**（建会话 + 两条消息，动态交叉验证：会话数 12→13）。
+   *
+   * mutates 不只是文档 —— MCP 的只读会话按它过滤工具，
+   * 一个声明只读却写库的方法会绕过那道过滤。
+   */
+  it('supervisor.ask 声明为写操作 —— 它确实建会话、存消息', () => {
+    const spec = getMethodSpec('supervisor.ask');
+    expect(spec.mutates, '声明只读却写三次库').toBe(true);
+  });
+
+  it('它的 Scope 要能覆盖写 —— workflow:read 覆盖不了建会话', () => {
+    const spec = getMethodSpec('supervisor.ask');
+    expect(spec.scope).not.toBe('workflow:read');
+  });
+
+  it('写操作一律留痕', () => {
+    for (const method of CORE_API_METHODS) {
+      const spec = getMethodSpec(method);
+      if (!spec.mutates) continue;
+      expect(spec.audited, `${method} 会写库却不留痕`).toBe(true);
+    }
+  });
+
+  it('只读方法不能出现在需要写权限的 Scope 上 —— 那是反过来的错配', () => {
+    for (const method of CORE_API_METHODS) {
+      const spec = getMethodSpec(method);
+      if (spec.mutates) continue;
+      expect(
+        spec.scope === 'workflow:write-draft' || spec.scope === 'memory:write',
+        `${method} 声明只读却要写权限`,
+      ).toBe(false);
+    }
   });
 });

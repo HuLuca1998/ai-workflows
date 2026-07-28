@@ -3437,9 +3437,9 @@
     }
   },
   "supervisor.ask": {
-    "summary": "问主管 AI；它的改动一律先出 Diff 再落草稿",
-    "scope": "workflow:read",
-    "mutates": false,
+    "summary": "问主管 AI；对话进历史，而它对工作流的改动一律先出 Diff 再落草稿",
+    "scope": "workflow:write-draft",
+    "mutates": true,
     "audited": true,
     "input": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
