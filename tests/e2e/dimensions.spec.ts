@@ -1,6 +1,13 @@
 import { expect, test, type Page } from '@playwright/test';
 
 /**
+ * 挑一条**跑完了**的运行 —— 它必然有事件。
+ * 按顺序取第一条的话，刚创建还没跑的那条（列表按时间倒序，新建的排最前）
+ * 会让「事件流可见」直接落空。
+ */
+const 有事件的运行 = '.runs__item[data-status="succeeded"], .runs__item[data-status="failed"]';
+
+/**
  * 每一屏的尺寸对照。
  *
  * 图纸里的固定宽度（从内联样式抽出来的）：
@@ -80,7 +87,7 @@ test.describe('固定分栏宽度', () => {
 test.describe('内容区最大宽度', () => {
   test('执行记录的事件流 min(680px, 100%)', async ({ page }) => {
     await page.goto('/runs');
-    await page.locator('.runs__item').first().click();
+    await page.locator(有事件的运行).first().click();
     await expect(page.locator('.runs__events')).toBeVisible();
     const width = await px(page, '.runs__events', 'width');
     // min(680px, 100%)：1440 视口下详情栏内容区只有 632px
@@ -92,7 +99,7 @@ test.describe('内容区最大宽度', () => {
   test('视口够宽时事件流取 680px 上限', async ({ page }) => {
     await page.setViewportSize({ width: 1800, height: 900 });
     await page.goto('/runs');
-    await page.locator('.runs__item').first().click();
+    await page.locator(有事件的运行).first().click();
     await expect(page.locator('.runs__events')).toBeVisible();
     expect(await px(page, '.runs__events', 'width')).toBe(680);
   });
@@ -128,7 +135,7 @@ test.describe('间距与圆角', () => {
     expect(await px(page, '.models__card', 'border-radius')).toBe(10);
 
     await page.goto('/runs');
-    await page.locator('.runs__item').first().click();
+    await page.locator(有事件的运行).first().click();
     await expect(page.locator('.runs__event').first()).toBeVisible();
     expect(await px(page, '.runs__event', 'border-radius')).toBe(9);
   });
@@ -144,7 +151,7 @@ test.describe('字号层级', () => {
 
   test('执行记录详情大标题 18px', async ({ page }) => {
     await page.goto('/runs');
-    await page.locator('.runs__item').first().click();
+    await page.locator(有事件的运行).first().click();
     await expect(page.locator('.runs__detail-title').first()).toBeVisible();
     expect(await px(page, '.runs__detail-title h4', 'font-size')).toBe(18);
   });

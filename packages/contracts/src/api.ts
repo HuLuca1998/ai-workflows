@@ -483,6 +483,25 @@ const SPECS = {
     scope: 'workflow:run',
     summary: '从检查点恢复',
   },
+  'run.rewindToApproval': {
+    // 图纸「03 执行记录」失败横幅的第二个按钮「回到最近审批点改选择」。
+    //
+    // 用户在审批那一步选错了（批准了一个不该批的 Diff），后面才发现。
+    // run.resume 没用 —— 它沿用同一个决定继续往下；重跑又会把
+    // 前面几十分钟的工作全丢掉。
+    input: z.object({ runId: z.string().min(1) }),
+    output: z.object({
+      /** 新的运行。原来那条留在记录里，两次可以对照着看。 */
+      runId: z.string().min(1),
+      /** 回到了哪个审批节点。界面据此把用户带到那一步。 */
+      nodeId: z.string().min(1),
+    }),
+    mutates: true,
+    // 它改变了「谁批准了什么」—— 那正是审计要回答的问题
+    audited: true,
+    scope: 'workflow:run',
+    summary: '回到最近的审批点重新选择',
+  },
   'run.cancel': {
     input: z.object({ runId: z.string().min(1) }),
     output: z.object({ runId: z.string().min(1) }),

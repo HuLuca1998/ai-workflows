@@ -119,6 +119,7 @@
     "run.artifactContent",
     "run.artifacts",
     "run.resume",
+    "run.rewindToApproval",
     "run.cancel",
     "run.retryNode",
     "approval.decide",

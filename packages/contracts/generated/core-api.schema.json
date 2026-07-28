@@ -2927,6 +2927,43 @@
       ]
     }
   },
+  "run.rewindToApproval": {
+    "summary": "回到最近的审批点重新选择",
+    "scope": "workflow:run",
+    "mutates": true,
+    "audited": true,
+    "input": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "runId": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "runId"
+      ]
+    },
+    "output": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "runId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "nodeId": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "runId",
+        "nodeId"
+      ]
+    }
+  },
   "run.cancel": {
     "summary": "取消运行：先停子进程再写 cancelled 事件，已产生的产物保留",
     "scope": "workflow:run",

@@ -443,6 +443,15 @@ fn env_diagnostics(state: State<'_, AppState>) -> IpcResult<api::DiagnosticsResu
 }
 
 #[tauri::command]
+fn run_rewind_to_approval(
+    state: State<'_, AppState>,
+    run_id: String,
+) -> IpcResult<api::RewindResult> {
+    let store = lock(&state)?;
+    api::run_rewind_to_approval(&store, run_id)
+}
+
+#[tauri::command]
 fn workspace_settings(state: State<'_, AppState>) -> IpcResult<api::WorkspaceSettingsDto> {
     let store = lock(&state)?;
     api::workspace_settings(&store)
@@ -695,6 +704,7 @@ pub fn run() {
             workflow_list,
             workspace_stats,
             workspace_settings,
+            run_rewind_to_approval,
             env_diagnostics,
             workspace_update_settings,
             env_health,

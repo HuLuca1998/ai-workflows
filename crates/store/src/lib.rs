@@ -2188,6 +2188,37 @@ impl Store {
         Ok(row)
     }
 
+    /// 最近一个**带审批**的检查点。
+    ///
+    /// 图纸失败横幅的第二个按钮「回到最近审批点改选择」用它：用户在审批
+    /// 那一步选错了（批准了一个不该批的 Diff），后面才发现 ——
+    /// 「从失败节点重试」没用，那会沿用同一个决定继续往下。
+    ///
+    /// 取的是最近那个**审批**检查点，不是最新的检查点：每个节点完成后
+    /// 都会落一次，最新那个多半是普通节点。
+    pub fn latest_approval_checkpoint(&self, run_id: &str) -> Result<Option<CheckpointRow>> {
+        let row = self
+            .conn
+            .query_row(
+                "SELECT run_id, seq, env_json, pending_approval_json, created_at
+                 FROM run_checkpoint
+                 WHERE run_id = ?1 AND pending_approval_json IS NOT NULL
+                 ORDER BY seq DESC LIMIT 1",
+                params![run_id],
+                |row| {
+                    Ok(CheckpointRow {
+                        run_id: row.get(0)?,
+                        seq: row.get(1)?,
+                        env_json: row.get(2)?,
+                        pending_approval_json: row.get(3)?,
+                        created_at: row.get(4)?,
+                    })
+                },
+            )
+            .optional()?;
+        Ok(row)
+    }
+
     // ── 记忆 ────────────────────────────────────────────────────────────────
 
     /// 同一作用域内 key 唯一：重复写入是更新并递增版本，不是新增。

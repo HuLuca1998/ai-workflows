@@ -790,3 +790,29 @@ describe('新建工作流的默认名', () => {
     expect(spec.input.safeParse({ name: '' }).success).toBe(false);
   });
 });
+
+describe('回到最近审批点', () => {
+  /**
+   * 图纸失败横幅的第二个按钮。用户在审批那一步选错了（批准了一个
+   * 不该批的 Diff），后面才发现 —— 「从失败节点重试」没用，
+   * 那会沿用同一个决定继续往下。
+   */
+  it('只要 runId —— 回到哪个点由引擎从检查点里找', () => {
+    const spec = getMethodSpec('run.rewindToApproval');
+    expect(spec.input.safeParse({ runId: 'run_1' }).success).toBe(true);
+    expect(spec.input.safeParse({}).success).toBe(false);
+  });
+
+  it('返回新的 runId 与回到了哪个节点', () => {
+    const spec = getMethodSpec('run.rewindToApproval');
+    const parsed = spec.output.safeParse({ runId: 'run_2', nodeId: 'approve_1' });
+    expect(parsed.success).toBe(true);
+  });
+
+  it('是写操作且要留痕 —— 它改变了「谁批准了什么」', () => {
+    const spec = getMethodSpec('run.rewindToApproval');
+    expect(spec.mutates).toBe(true);
+    expect(spec.audited).toBe(true);
+    expect(spec.scope).toBe('workflow:run');
+  });
+});

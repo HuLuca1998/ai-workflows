@@ -290,6 +290,15 @@ export function RunsPage() {
                     <i className="ph ph-arrow-counter-clockwise" aria-hidden="true" />
                     从失败节点重试
                   </button>
+                  {/* 审批那一步选错了、后面才发现时走这条：
+                      重试会沿用同一个决定，重跑又把前面的工作全丢掉 */}
+                  <button
+                    type="button"
+                    className="runs__action"
+                    onClick={() => void runs.rewindToApproval(selected.id)}
+                  >
+                    回到最近审批点改选择
+                  </button>
                   {/* 重跑是一次**全新的运行**：原来那条留在记录里，
                       两次的事件流可以对照着看，这正是可解释性要的 */}
                   <button
@@ -388,6 +397,9 @@ function RunItem({
       type="button"
       className="runs__item"
       data-selected={selected ? 'true' : undefined}
+      // 状态挂在元素上：e2e 要挑一条「跑完了因而必然有事件」的运行，
+      // 按顺序取第一条的话，刚创建还没跑的那条会让断言落空
+      data-status={run.status}
       onClick={onSelect}
     >
       <span className="runs__item-row">

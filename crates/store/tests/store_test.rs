@@ -2390,3 +2390,65 @@ mod 未命名工作流的编号 {
         assert_eq!(store.next_untitled_name().unwrap(), "未命名工作流 3");
     }
 }
+
+/// 「回到最近审批点改选择」—— 图纸失败横幅的第二个按钮。
+///
+/// 用户在审批那一步选错了（比如批准了一个不该批的 Diff），后面才发现。
+/// 从失败节点重试没用 —— 那会沿用同一个决定继续往下。
+/// 得能退回到最近那次审批，重新选。
+mod 回到最近审批点 {
+    use super::*;
+
+    fn 带检查点的运行() -> (Store, String) {
+        let (store, run_id) = store_with_run();
+        // seq 2 与 seq 6 是审批点，seq 4 与 seq 8 是普通节点完成
+        store
+            .save_checkpoint(&run_id, 2, "{}", Some(r#"{"nodeId":"approve_1"}"#))
+            .unwrap();
+        store.save_checkpoint(&run_id, 4, "{}", None).unwrap();
+        store
+            .save_checkpoint(&run_id, 6, "{}", Some(r#"{"nodeId":"approve_2"}"#))
+            .unwrap();
+        store.save_checkpoint(&run_id, 8, "{}", None).unwrap();
+        (store, run_id)
+    }
+
+    #[test]
+    fn 取的是最近那个带审批的检查点_不是最新的() {
+        let (store, run_id) = 带检查点的运行();
+        let 检查点 = store
+            .latest_approval_checkpoint(&run_id)
+            .unwrap()
+            .expect("有审批点");
+
+        assert_eq!(检查点.seq, 6, "取成了 seq 8 —— 那不是审批点");
+        assert!(检查点.pending_approval_json.is_some());
+    }
+
+    #[test]
+    fn 一次审批都没有过时返回_none() {
+        let (store, run_id) = store_with_run();
+        store.save_checkpoint(&run_id, 2, "{}", None).unwrap();
+
+        assert!(
+            store.latest_approval_checkpoint(&run_id).unwrap().is_none(),
+            "没审批过却说有审批点，界面会给一个按下去什么都不会发生的按钮"
+        );
+    }
+
+    #[test]
+    fn 一条检查点都没有时也返回_none() {
+        let (store, run_id) = store_with_run();
+        assert!(store.latest_approval_checkpoint(&run_id).unwrap().is_none());
+    }
+
+    #[test]
+    fn 别的运行的审批点不算数() {
+        let (store, run_id) = 带检查点的运行();
+        let 工作流 = store.create_workflow("另一条流程", None).unwrap();
+        let 另一条 = store.create_run_for_test(&工作流).unwrap();
+
+        assert!(store.latest_approval_checkpoint(&另一条).unwrap().is_none());
+        assert!(store.latest_approval_checkpoint(&run_id).unwrap().is_some());
+    }
+}

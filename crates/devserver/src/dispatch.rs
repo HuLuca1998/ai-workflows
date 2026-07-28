@@ -204,6 +204,10 @@ pub fn dispatch(
             supervisor,
             string(input, "runId")?,
         )?),
+        "run_rewind_to_approval" => to_value(api::run_rewind_to_approval(
+            &store,
+            string(input, "runId")?,
+        )?),
         "run_resume" => to_value(api::run_resume(
             &store,
             supervisor,

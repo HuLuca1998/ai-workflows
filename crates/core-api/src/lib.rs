@@ -159,6 +159,7 @@ pub const COMMANDS: &[&str] = &[
     "run_artifacts",
     "run_cancel",
     "run_resume",
+    "run_rewind_to_approval",
     "approval_decide",
     "workflow_list",
     "workspace_stats",
@@ -1890,5 +1891,72 @@ pub fn env_diagnostics(out_dir: &Path) -> ApiResult<DiagnosticsResult> {
     Ok(DiagnosticsResult {
         path: path.display().to_string(),
         bytes: text.len() as u64,
+    })
+}
+
+/// 回到最近审批点的结果。
+#[derive(Debug)]
+pub struct RewindResult {
+    pub run_id: String,
+    pub node_id: String,
+}
+
+impl Serialize for RewindResult {
+    fn serialize<S: serde::Serializer>(
+        &self,
+        serializer: S,
+    ) -> std::result::Result<S::Ok, S::Error> {
+        use serde::ser::SerializeStruct;
+        let mut state = serializer.serialize_struct("RewindResult", 2)?;
+        state.serialize_field("runId", &self.run_id)?;
+        state.serialize_field("nodeId", &self.node_id)?;
+        state.end()
+    }
+}
+
+/// 回到最近的审批点重新选择 —— 图纸失败横幅的第二个按钮。
+///
+/// 用户在审批那一步选错了（批准了一个不该批的 Diff），后面才发现。
+/// `run_resume` 没用 —— 它沿用同一个决定继续往下；「用相同参数重跑」
+/// 又会把前面几十分钟的工作全丢掉。
+///
+/// 开的是一条**新运行**，原来那条留在记录里：两次的事件流可以对照着看，
+/// 那正是可解释性要回答的「这次为什么不一样」。
+pub fn run_rewind_to_approval(store: &Store, run_id: String) -> ApiResult<RewindResult> {
+    let run = store
+        .get_run(&run_id)?
+        .ok_or(aiwf_store::StoreError::NotFound {
+            kind: "运行",
+            id: run_id.clone(),
+        })?;
+
+    let checkpoint = store.latest_approval_checkpoint(&run_id)?.ok_or_else(|| {
+        // 界面上给一个按下去什么都不会发生的按钮，比不给按钮更糟
+        ApiError::validation(format!("运行 {run_id} 没有经过任何审批点，无处可回"))
+    })?;
+
+    let node_id = checkpoint
+        .pending_approval_json
+        .as_deref()
+        .and_then(|json| serde_json::from_str::<serde_json::Value>(json).ok())
+        .and_then(|value| {
+            value
+                .get("nodeId")
+                .and_then(serde_json::Value::as_str)
+                .map(str::to_string)
+        })
+        .ok_or_else(|| ApiError::validation("检查点里没有记下是哪个节点在等审批".to_string()))?;
+
+    let new_run = store.create_run_in(
+        &run.workflow_id,
+        run.version_id.as_deref(),
+        run.draft_rev,
+        &run.inputs_json,
+        run.workdir.as_deref(),
+    )?;
+
+    Ok(RewindResult {
+        run_id: new_run,
+        node_id,
     })
 }

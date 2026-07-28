@@ -81,6 +81,8 @@ interface RunsState {
   resume: (runId: string) => Promise<void>;
   /** 用同样的参数再起一次运行，返回新运行的 id。 */
   rerun: (runId: string) => Promise<string | null>;
+  /** 回到最近的审批点重新选择。开的是新运行，原来那条留着。 */
+  rewindToApproval: (runId: string) => Promise<string | null>;
   decide: (nodeId: string, decision: string) => Promise<void>;
 
   grouped: () => { active: RunSummary[]; past: RunSummary[] };
@@ -234,6 +236,27 @@ export const useRuns = create<RunsState>((set, get) => ({
         ...(run.versionId ? { versionId: run.versionId } : { draftRev: run.draftRev ?? 0 }),
         inputs: run.inputs ?? {},
       })) as { runId: string };
+      await get().load();
+      await get().select(result.runId);
+      return result.runId;
+    } catch (error) {
+      set({ error: describe(error) });
+      return null;
+    }
+  },
+
+  /**
+   * 回到最近的审批点重新选择 —— 图纸失败横幅的第二个按钮。
+   *
+   * 用户在审批那一步选错了（批准了一个不该批的 Diff），后面才发现。
+   * 「从失败节点重试」沿用同一个决定继续往下；「用相同参数重跑」
+   * 又把前面几十分钟的工作全丢掉。
+   */
+  rewindToApproval: async (runId: string) => {
+    try {
+      const result = (await coreClient.call('run.rewindToApproval', { runId })) as {
+        runId: string;
+      };
       await get().load();
       await get().select(result.runId);
       return result.runId;

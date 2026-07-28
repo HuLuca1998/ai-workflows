@@ -74,6 +74,7 @@ function respond(handlers: Record<string, (input: unknown) => unknown> = {}) {
     'run.artifacts': () => ({ items: [], root: '/tmp/run_1' }),
     'run.resume': () => ({ ok: true }),
     'run.start': () => ({ runId: 'run_2' }),
+    'run.rewindToApproval': () => ({ runId: 'run_3', nodeId: 'approve_1' }),
     ...handlers,
   });
   call.mockImplementation((method: string, input: unknown) => checked(method, input));
@@ -165,6 +166,45 @@ describe('重试', () => {
         inputs: { issue: '#548' },
       });
     });
+  });
+
+  it('回到最近审批点改选择 —— 图纸失败横幅的第二个按钮', async () => {
+    // 用户在审批那一步选错了（批准了一个不该批的 Diff），后面才发现。
+    // 「从失败节点重试」沿用同一个决定继续往下；重跑又把前面几十分钟
+    // 的工作全丢掉 —— 图纸给的第三条路就是退回那一步重新选
+    const user = await openFailedRun();
+    await user.click(screen.getByRole('button', { name: '回到最近审批点改选择' }));
+
+    await waitFor(() => {
+      expect(call).toHaveBeenCalledWith('run.rewindToApproval', { runId: 'run_1' });
+    });
+  });
+
+  it('这条运行没经过审批时，那个按钮说清为什么按不动', async () => {
+    respond({
+      'run.rewindToApproval': () => {
+        throw new Error('运行 run_1 没有经过任何审批点，无处可回');
+      },
+    });
+    const user = await openFailedRun();
+    await user.click(screen.getByRole('button', { name: '回到最近审批点改选择' }));
+
+    expect(await screen.findByText(/没有经过任何审批点/u)).toBeTruthy();
+  });
+
+  it('四个按钮的顺序照图纸', async () => {
+    await openFailedRun();
+    const actions = document.querySelector('.runs__failed-actions');
+    const labels = [...(actions?.querySelectorAll('button') ?? [])].map((b) =>
+      b.textContent?.trim(),
+    );
+
+    expect(labels).toEqual([
+      '从失败节点重试',
+      '回到最近审批点改选择',
+      '用相同参数重跑',
+      '导出诊断包',
+    ]);
   });
 
   it('成功的运行不给重试按钮 —— 那没有意义', async () => {

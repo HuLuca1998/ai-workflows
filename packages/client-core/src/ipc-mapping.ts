@@ -18,6 +18,7 @@ import type { Transport } from './transport.js';
 const COMMANDS: Partial<Record<CoreApiMethod, string>> = {
   'workflow.list': 'workflow_list',
   'workspace.stats': 'workspace_stats',
+  'run.rewindToApproval': 'run_rewind_to_approval',
   'workspace.settings': 'workspace_settings',
   'env.diagnostics': 'env_diagnostics',
   'workspace.updateSettings': 'workspace_update_settings',
