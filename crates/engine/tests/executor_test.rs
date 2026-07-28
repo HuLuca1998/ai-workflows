@@ -1197,3 +1197,91 @@ fn 没挂角色的_ai_节点照旧能跑() {
         "{outcome:?}"
     );
 }
+
+#[test]
+fn worktree_的相对路径按运行工作目录算_不是进程的_cwd() {
+    // 端到端验证抓到的第二个真问题：上一个脚本节点
+    // `gh repo clone … repo` 把仓库克隆进运行工作目录，
+    // 下一个 worktree 节点写 `repoRoot: "repo"` —— 报「不是一个 Git 仓库」。
+    //
+    // 原因是 `PathBuf::from("repo")` 按**进程的 CWD** 解析，而那是
+    // 应用自己的目录。脚本节点的 cwd 是运行工作目录，两个节点对
+    // 「相对路径相对于谁」的理解不一致，而错误信息里看不出这件事。
+    // 自己的临时目录，不用共用的那个：worktree 会**在仓库里留下一个分支**，
+    // 共用目录跨次运行还在，第二次跑就报「分支已存在」——
+    // 而那是这条用例本身的残留，不是被测行为
+    let tmp = tempfile::tempdir().unwrap();
+    let dir = tmp.path().to_path_buf();
+    let repo = dir.join("repo");
+    std::fs::create_dir_all(&repo).unwrap();
+    for args in [
+        vec!["init", "-q", "-b", "main"],
+        vec!["config", "user.email", "t@example.com"],
+        vec!["config", "user.name", "测试"],
+    ] {
+        std::process::Command::new("git")
+            .args(&args)
+            .current_dir(&repo)
+            .output()
+            .unwrap();
+    }
+    std::fs::write(repo.join("README.md"), "hi").unwrap();
+    for args in [vec!["add", "."], vec!["commit", "-qm", "初始"]] {
+        std::process::Command::new("git")
+            .args(&args)
+            .current_dir(&repo)
+            .output()
+            .unwrap();
+    }
+
+    let outcome = NodeExecutor::new(dir.clone())
+        .with_permission_preset("workspace_safe")
+        .execute(
+            &node(
+                "wt",
+                "git.worktree",
+                serde_json::json!({
+                    "repoRoot": "repo",
+                    "baseBranch": "main",
+                    "branchTemplate": "fix/相对路径"
+                }),
+            ),
+            &mut Scope::new("run_wt_rel"),
+        )
+        .unwrap();
+
+    assert!(
+        matches!(&outcome, NodeOutcome::Succeeded { .. }),
+        "相对路径该按运行工作目录算：{outcome:?}"
+    );
+}
+
+#[test]
+fn worktree_的绝对路径原样使用() {
+    // 相对路径改了解析基准，绝对路径不能跟着变
+    let tmp = tempfile::tempdir().unwrap();
+    let dir = tmp.path().to_path_buf();
+    let outcome = NodeExecutor::new(dir.clone())
+        .with_permission_preset("workspace_safe")
+        .execute(
+            &node(
+                "wt",
+                "git.worktree",
+                serde_json::json!({
+                    "repoRoot": "/definitely/not/here",
+                    "baseBranch": "main",
+                    "branchTemplate": "x"
+                }),
+            ),
+            &mut Scope::new("run_wt_abs"),
+        )
+        .unwrap();
+
+    match outcome {
+        NodeOutcome::Failed { message } => assert!(
+            message.contains("/definitely/not/here"),
+            "报错要说的是用户给的那个路径：{message}"
+        ),
+        other => panic!("实际：{other:?}"),
+    }
+}

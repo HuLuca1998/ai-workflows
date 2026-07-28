@@ -482,8 +482,23 @@ impl NodeExecutor {
             });
         }
 
+        // 相对路径按**运行工作目录**算，不是进程的 CWD。
+        //
+        // 脚本节点的 cwd 就是运行工作目录：上一步 `gh repo clone … repo`
+        // 克隆到那儿，这一步写 `repoRoot: "repo"` 是最自然的写法。
+        // 按进程 CWD 解析的话它会去应用自己的目录里找，
+        // 报「不是一个 Git 仓库」—— 而错误信息里看不出它找的是哪儿。
+        let repo_path = {
+            let given = PathBuf::from(&repo_root);
+            if given.is_absolute() {
+                given
+            } else {
+                self.workdir.join(given)
+            }
+        };
+
         match create_worktree(WorktreeRequest {
-            repo_root: PathBuf::from(&repo_root),
+            repo_root: repo_path,
             base_branch,
             branch,
             parent_dir: self.worktree_parent.clone(),
