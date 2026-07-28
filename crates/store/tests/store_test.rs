@@ -1702,3 +1702,122 @@ fn 没有标题的事件照样读得出来() {
 
     assert!(store.events(&run, 0, 10).unwrap()[0].node_label.is_none());
 }
+
+// ── 主管 AI 的历史会话（M4）──────────────────────────────────────────────
+
+#[test]
+fn 会话与消息一起读回来() {
+    let store = Store::open_in_memory().unwrap();
+    let session = store
+        .create_supervisor_session("给这条流程加个审批", None, None)
+        .unwrap();
+    store
+        .append_supervisor_message(&session, "user", "加个审批")
+        .unwrap();
+    store
+        .append_supervisor_message(&session, "agent", "加好了，你看下 Diff")
+        .unwrap();
+
+    let (meta, messages) = store.supervisor_session(&session).unwrap().unwrap();
+    assert_eq!(meta.title, "给这条流程加个审批");
+    assert_eq!(meta.message_count, 2);
+    assert_eq!(messages.len(), 2);
+    assert_eq!(messages[0].role, "user");
+    assert_eq!(messages[1].text, "加好了，你看下 Diff");
+}
+
+#[test]
+fn 消息按_seq_排而不是按时间() {
+    // 同一秒内写两条时，按 at 排的顺序是不稳定的 ——
+    // 而对话读起来颠倒就完全没法理解
+    let store = Store::open_in_memory().unwrap();
+    let session = store
+        .create_supervisor_session("很快的对话", None, None)
+        .unwrap();
+    for i in 0..20 {
+        store
+            .append_supervisor_message(
+                &session,
+                if i % 2 == 0 { "user" } else { "agent" },
+                &format!("第 {i} 条"),
+            )
+            .unwrap();
+    }
+
+    let (_, messages) = store.supervisor_session(&session).unwrap().unwrap();
+    for (i, message) in messages.iter().enumerate() {
+        assert_eq!(message.text, format!("第 {i} 条"), "顺序乱了");
+    }
+}
+
+#[test]
+fn 列表按最近更新排() {
+    // 用户找的是「刚才那条」，不是「最早那条」
+    let store = Store::open_in_memory().unwrap();
+    let a = store
+        .create_supervisor_session("先问的", None, None)
+        .unwrap();
+    let b = store
+        .create_supervisor_session("后问的", None, None)
+        .unwrap();
+    store
+        .append_supervisor_message(&a, "user", "又问了一句")
+        .unwrap();
+
+    let list = store.list_supervisor_sessions(10).unwrap();
+    assert_eq!(
+        list.first().map(|s| s.id.as_str()),
+        Some(a.as_str()),
+        "刚更新的排最前"
+    );
+    assert!(list.iter().any(|s| s.id == b));
+}
+
+#[test]
+fn 会话可以关联到工作流() {
+    // 图纸：「按关联的工作流 / 运行 / 记忆 / 模型标注」
+    let store = Store::open_in_memory().unwrap();
+    let wf = store.create_workflow("被问到的流程", None).unwrap();
+    let session = store
+        .create_supervisor_session("这条为什么失败", Some(&wf), None)
+        .unwrap();
+
+    let list = store.list_supervisor_sessions(10).unwrap();
+    let found = list.iter().find(|s| s.id == session).unwrap();
+    assert_eq!(found.workflow_id.as_deref(), Some(wf.as_str()));
+}
+
+#[test]
+fn 不关联任何东西的会话也存得下() {
+    // 「这个应用怎么用」不属于任何工作流，但它也是一次会话
+    let store = Store::open_in_memory().unwrap();
+    let session = store
+        .create_supervisor_session("这个应用怎么用", None, None)
+        .unwrap();
+    assert!(store.supervisor_session(&session).unwrap().is_some());
+}
+
+#[test]
+fn 删掉工作流后会话还在() {
+    // 会话是对话记录，不该因为被问到的东西没了就一起消失 ——
+    // 那段对话里可能有用户想找回来的结论
+    let store = Store::open_in_memory().unwrap();
+    let wf = store.create_workflow("会被删的", None).unwrap();
+    let session = store
+        .create_supervisor_session("问一句", Some(&wf), None)
+        .unwrap();
+
+    store.delete_workflow(&wf).unwrap();
+
+    let (meta, _) = store
+        .supervisor_session(&session)
+        .unwrap()
+        .expect("会话该还在");
+    assert!(meta.workflow_id.is_none(), "关联清掉，但会话本身留着");
+}
+
+#[test]
+fn 读不存在的会话返回_none_而不是报错() {
+    let store = Store::open_in_memory().unwrap();
+    assert!(store.supervisor_session("sess_ghost").unwrap().is_none());
+}

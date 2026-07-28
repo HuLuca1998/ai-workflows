@@ -4325,3 +4325,52 @@
   font-family: var(--font-mono);
   color: var(--color-neutral-300);
 }
+
+/* 历史会话列表。图纸说的是「左侧可折叠」，这里做成顶部展开 ——
+   468px 的抽屉再分出一个左栏会让对话区窄到没法读 */
+.supervisor__history {
+  max-height: 280px;
+  overflow: auto;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--color-divider);
+  background: color-mix(in srgb, var(--color-bg) 40%, transparent);
+}
+
+.supervisor__history-item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: 100%;
+  padding: 9px 10px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+
+.supervisor__history-item:hover {
+  background: color-mix(in srgb, var(--color-surface) 70%, transparent);
+}
+
+.supervisor__history-item[data-active='true'] {
+  background: color-mix(in srgb, var(--color-accent) 9%, transparent);
+}
+
+.supervisor__history-title {
+  font-size: 12.5px;
+  color: var(--color-neutral-200);
+}
+
+.supervisor__history-meta {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 10.5px;
+  color: var(--color-neutral-600);
+}
+
+.supervisor__history-meta .supervisor__chip {
+  padding: 1px 6px;
+  font-size: 10px;
+}

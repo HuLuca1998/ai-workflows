@@ -410,3 +410,87 @@ describe('run.diagnostics', () => {
     expect(requiredScope('run.diagnostics')).toBeNull();
   });
 });
+
+describe('主管 AI 的历史会话', () => {
+  it('会话按关联对象标注 —— 图纸要求「按关联的工作流 / 运行 / 记忆 / 模型」', () => {
+    const spec = getMethodSpec('supervisor.sessions');
+    const parsed = spec.output.safeParse({
+      items: [
+        {
+          id: 'sess_1',
+          title: '给这条流程加个审批',
+          startedAt: '2026-07-28T10:00:00.000Z',
+          updatedAt: '2026-07-28T10:05:00.000Z',
+          messageCount: 4,
+          workflowId: 'wf_1',
+        },
+      ],
+    });
+    expect(parsed.success).toBe(true);
+  });
+
+  it('关联对象都是可选的 —— 不在任何上下文里问的问题也是会话', () => {
+    const spec = getMethodSpec('supervisor.sessions');
+    expect(
+      spec.output.safeParse({
+        items: [
+          {
+            id: 'sess_1',
+            title: '这个应用怎么用',
+            startedAt: '2026-07-28T10:00:00.000Z',
+            updatedAt: '2026-07-28T10:00:00.000Z',
+            messageCount: 2,
+          },
+        ],
+      }).success,
+    ).toBe(true);
+  });
+
+  it('读一个会话拿到完整消息 —— 恢复对话靠它', () => {
+    const spec = getMethodSpec('supervisor.session');
+    const parsed = spec.output.safeParse({
+      session: {
+        id: 'sess_1',
+        title: '给这条流程加个审批',
+        startedAt: '2026-07-28T10:00:00.000Z',
+        updatedAt: '2026-07-28T10:05:00.000Z',
+        messageCount: 2,
+      },
+      messages: [
+        { role: 'user', text: '加个审批', at: '2026-07-28T10:00:00.000Z' },
+        { role: 'agent', text: '加好了', at: '2026-07-28T10:00:30.000Z' },
+      ],
+    });
+    expect(parsed.success).toBe(true);
+  });
+
+  it('消息的角色只有 user 与 agent，不能自造', () => {
+    const spec = getMethodSpec('supervisor.session');
+    expect(
+      spec.output.safeParse({
+        session: {
+          id: 'sess_1',
+          title: 't',
+          startedAt: '2026-07-28T10:00:00.000Z',
+          updatedAt: '2026-07-28T10:00:00.000Z',
+          messageCount: 1,
+        },
+        messages: [{ role: 'system', text: 'x', at: '2026-07-28T10:00:00.000Z' }],
+      }).success,
+    ).toBe(false);
+  });
+
+  it('ask 可以续接一个已有会话', () => {
+    const spec = getMethodSpec('supervisor.ask');
+    expect(spec.input.safeParse({ question: '那再加一个通知', sessionId: 'sess_1' }).success).toBe(
+      true,
+    );
+  });
+
+  it('ask 回答里带上会话 id —— 界面据此把后续问题接到同一条', () => {
+    const spec = getMethodSpec('supervisor.ask');
+    expect(spec.output.safeParse({ text: '好', toolCalls: 0, sessionId: 'sess_1' }).success).toBe(
+      true,
+    );
+  });
+});

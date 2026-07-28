@@ -32,9 +32,28 @@ fn supervisor_ask(
     state: State<'_, AppState>,
     question: String,
     context_json: Option<String>,
+    session_id: Option<String>,
 ) -> IpcResult<api::SupervisorAnswer> {
     let store = lock(&state)?;
-    api::supervisor_ask(&store, &state.data_dir, question, context_json)
+    api::supervisor_ask(&store, &state.data_dir, question, context_json, session_id)
+}
+
+#[tauri::command]
+fn supervisor_sessions(
+    state: State<'_, AppState>,
+    limit: Option<i64>,
+) -> IpcResult<Vec<api::SupervisorSessionDto>> {
+    let store = lock(&state)?;
+    api::supervisor_sessions(&store, limit)
+}
+
+#[tauri::command]
+fn supervisor_session(
+    state: State<'_, AppState>,
+    session_id: String,
+) -> IpcResult<api::SupervisorSessionDetail> {
+    let store = lock(&state)?;
+    api::supervisor_session(&store, session_id)
 }
 
 #[tauri::command]
@@ -638,6 +657,8 @@ pub fn run() {
             run_resume,
             approval_decide,
             supervisor_ask,
+            supervisor_sessions,
+            supervisor_session,
             memory_list,
             memory_create,
             memory_update,

@@ -84,6 +84,26 @@ pub struct WorkflowLastRun {
     pub version: Option<i64>,
 }
 
+/// 主管 AI 的一次会话。
+#[derive(Debug, Clone)]
+pub struct SupervisorSessionRow {
+    pub id: String,
+    pub title: String,
+    pub started_at: String,
+    pub updated_at: String,
+    pub message_count: i64,
+    pub workflow_id: Option<String>,
+    pub run_id: Option<String>,
+    pub model_ref: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct SupervisorMessageRow {
+    pub role: String,
+    pub text: String,
+    pub at: String,
+}
+
 /// 首页四张统计卡的同一时刻快照。
 #[derive(Debug, Clone, Default)]
 pub struct WorkspaceStats {
@@ -753,6 +773,112 @@ impl Store {
             )
             .optional()?;
         Ok(row)
+    }
+
+    // ── 主管 AI 的会话（M4）─────────────────────────────────────────────────
+
+    /// 新开一条会话。
+    ///
+    /// 标题取第一个问题的前几十字 —— 用户靠它认出「上次那条」。
+    /// 关联对象可空：不在任何上下文里问的问题也是一次会话。
+    pub fn create_supervisor_session(
+        &self,
+        title: &str,
+        workflow_id: Option<&str>,
+        run_id: Option<&str>,
+    ) -> Result<String> {
+        let id = new_id("sess");
+        let now = now_iso();
+        self.conn.execute(
+            "INSERT INTO supervisor_session(id, title, started_at, updated_at, workflow_id, run_id)
+             VALUES (?1, ?2, ?3, ?3, ?4, ?5)",
+            params![id, truncate_title(title), now, workflow_id, run_id],
+        )?;
+        Ok(id)
+    }
+
+    /// 追加一条消息，并把会话的 updated_at 推到现在。
+    ///
+    /// seq 在 INSERT 内部算 —— 与 run_event 同一个理由：
+    /// 分成两步的话并发写会撞 UNIQUE。
+    pub fn append_supervisor_message(
+        &self,
+        session_id: &str,
+        role: &str,
+        text: &str,
+    ) -> Result<()> {
+        if !matches!(role, "user" | "agent") {
+            return Err(StoreError::Invalid(format!(
+                "消息角色只能是 user 或 agent，收到 {role}"
+            )));
+        }
+
+        let now = now_iso();
+        self.conn.execute(
+            "INSERT INTO supervisor_message(id, session_id, role, text, at, seq)
+             VALUES (?1, ?2, ?3, ?4, ?5,
+                     (SELECT COALESCE(MAX(seq), 0) + 1
+                      FROM supervisor_message WHERE session_id = ?2))",
+            params![new_id("msg"), session_id, role, text, now],
+        )?;
+        self.conn.execute(
+            "UPDATE supervisor_session SET updated_at = ?2 WHERE id = ?1",
+            params![session_id, now],
+        )?;
+        Ok(())
+    }
+
+    /// 列出会话，最近更新的排最前 —— 用户找的是「刚才那条」。
+    pub fn list_supervisor_sessions(&self, limit: i64) -> Result<Vec<SupervisorSessionRow>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT s.id, s.title, s.started_at, s.updated_at,
+                    (SELECT COUNT(*) FROM supervisor_message WHERE session_id = s.id),
+                    s.workflow_id, s.run_id, s.model_ref
+             FROM supervisor_session s
+             ORDER BY s.updated_at DESC LIMIT ?1",
+        )?;
+        let rows = stmt.query_map(params![limit], map_supervisor_session)?;
+        Ok(rows.collect::<std::result::Result<Vec<_>, _>>()?)
+    }
+
+    /// 读一个会话的元信息与全部消息。找不到返回 None。
+    pub fn supervisor_session(
+        &self,
+        session_id: &str,
+    ) -> Result<Option<(SupervisorSessionRow, Vec<SupervisorMessageRow>)>> {
+        let meta = self
+            .conn
+            .query_row(
+                "SELECT s.id, s.title, s.started_at, s.updated_at,
+                        (SELECT COUNT(*) FROM supervisor_message WHERE session_id = s.id),
+                        s.workflow_id, s.run_id, s.model_ref
+                 FROM supervisor_session s WHERE s.id = ?1",
+                params![session_id],
+                map_supervisor_session,
+            )
+            .optional()?;
+
+        let Some(meta) = meta else {
+            return Ok(None);
+        };
+
+        // 按 seq 排而不是按 at：同一秒内写两条时按时间排的顺序不稳定，
+        // 而对话读起来颠倒就完全没法理解
+        let mut stmt = self.conn.prepare(
+            "SELECT role, text, at FROM supervisor_message
+             WHERE session_id = ?1 ORDER BY seq ASC",
+        )?;
+        let messages = stmt
+            .query_map(params![session_id], |row| {
+                Ok(SupervisorMessageRow {
+                    role: row.get(0)?,
+                    text: row.get(1)?,
+                    at: row.get(2)?,
+                })
+            })?
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+
+        Ok(Some((meta, messages)))
     }
 
     // ── 运行与事件 ──────────────────────────────────────────────────────────
@@ -1803,6 +1929,34 @@ const EMPTY_GRAPH: &str = r#"{"nodes":[],"edges":[],"groups":[]}"#;
 
 /// 只有 workflow 表那 6 列时用这个 —— 单条查询不带运行态投影：
 /// 打开一条工作流时界面要的是图，不是它上次跑得怎么样。
+fn map_supervisor_session(row: &rusqlite::Row<'_>) -> rusqlite::Result<SupervisorSessionRow> {
+    Ok(SupervisorSessionRow {
+        id: row.get(0)?,
+        title: row.get(1)?,
+        started_at: row.get(2)?,
+        updated_at: row.get(3)?,
+        message_count: row.get(4)?,
+        workflow_id: row.get(5)?,
+        run_id: row.get(6)?,
+        model_ref: row.get(7)?,
+    })
+}
+
+/// 标题取问题的前 40 字。整段问题当标题会把列表撑得没法看，
+/// 而前几十字足够认出「上次那条」。
+fn truncate_title(text: &str) -> String {
+    let trimmed = text.trim();
+    let mut out: String = trimmed.chars().take(40).collect();
+    if trimmed.chars().count() > 40 {
+        out.push('…');
+    }
+    if out.is_empty() {
+        "未命名会话".to_string()
+    } else {
+        out
+    }
+}
+
 fn map_workflow_bare(row: &rusqlite::Row<'_>) -> rusqlite::Result<WorkflowRow> {
     Ok(WorkflowRow {
         id: row.get(0)?,

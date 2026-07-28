@@ -30,6 +30,14 @@ pub fn dispatch(
             data_dir,
             string(input, "question")?,
             input.get("context").map(ToString::to_string),
+            opt_string(input, "sessionId"),
+        )?),
+        "supervisor_sessions" => {
+            to_value(api::supervisor_sessions(&store, opt_int(input, "limit"))?)
+        }
+        "supervisor_session" => to_value(api::supervisor_session(
+            &store,
+            string(input, "sessionId")?,
         )?),
         "memory_list" => to_value(api::memory_list(
             &store,

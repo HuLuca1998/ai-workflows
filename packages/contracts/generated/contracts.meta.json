@@ -119,6 +119,8 @@
     "run.cancel",
     "run.retryNode",
     "approval.decide",
+    "supervisor.sessions",
+    "supervisor.session",
     "supervisor.ask",
     "memory.list",
     "memory.create",

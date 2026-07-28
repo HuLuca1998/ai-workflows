@@ -6,6 +6,8 @@ import { PatchOperationSchema } from './patch.js';
 import {
   AgentProfileSchema,
   ApprovalDecisionSchema,
+  SupervisorMessageSchema,
+  SupervisorSessionSchema,
   EnvHealthItemSchema,
   MemorySchema,
   ModelSchema,
@@ -405,6 +407,30 @@ const SPECS = {
   },
 
   // ── Memory ──────────────────────────────────────────────────────────────
+  'supervisor.sessions': {
+    // 图纸「主管 AI」：「左侧可折叠历史会话列表
+    //（按关联的工作流 / 运行 / 记忆 / 模型标注）」。
+    //
+    // 不存的话每次关掉抽屉对话就没了 —— 而用户常常是隔天回来接着问，
+    // 「上次它说那个节点为什么会失败来着」。
+    input: z.object({ limit: z.number().int().positive().max(200).default(50) }),
+    output: z.object({ items: z.array(SupervisorSessionSchema) }),
+    mutates: false,
+    audited: false,
+    scope: 'workflow:read',
+    summary: '列出历史会话',
+  },
+  'supervisor.session': {
+    input: z.object({ sessionId: z.string().min(1) }),
+    output: z.object({
+      session: SupervisorSessionSchema,
+      messages: z.array(SupervisorMessageSchema),
+    }),
+    mutates: false,
+    audited: false,
+    scope: 'workflow:read',
+    summary: '读一个会话的完整消息',
+  },
   'supervisor.ask': {
     // 主管 AI 与工作流里的 AI 节点是两回事：节点在**运行中**做一件具体的事，
     // 主管在**编辑时**帮你操作这个应用本身。
@@ -412,6 +438,8 @@ const SPECS = {
     // context 是显式的 —— 不列出来的话，用户无法判断它的回答基于什么
     input: z.object({
       question: z.string().min(1),
+      /** 续接一个已有会话。不给就新开一条。 */
+      sessionId: z.string().min(1).optional(),
       modelRef: z.string().min(1).optional(),
       context: z
         .object({
@@ -425,6 +453,8 @@ const SPECS = {
       text: z.string(),
       /** 这次回答用掉的工具调用次数，界面显示「工具活动 · N 次」。 */
       toolCalls: z.number().int().min(0).default(0),
+      /** 这轮所属的会话。界面据此把后续问题接到同一条。 */
+      sessionId: z.string().min(1).optional(),
       /**
        * AI 想做的改动。**只是提议** —— 界面据此算 Diff 给用户看，
        * 用户确认后才走 workflow.patch 落草稿。

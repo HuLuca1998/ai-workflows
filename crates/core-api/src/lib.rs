@@ -130,6 +130,8 @@ impl From<aiwf_engine::supervisor::SupervisorError> for ApiError {
 /// 已接通的方法名清单。HTTP 侧按它分派，测试按它守住两端一致。
 pub const COMMANDS: &[&str] = &[
     "supervisor_ask",
+    "supervisor_sessions",
+    "supervisor_session",
     "memory_list",
     "memory_create",
     "memory_update",
@@ -1069,6 +1071,80 @@ pub fn agent_create(
 }
 
 /// 更新角色。版本号由存储层递增 —— 图纸的按钮就叫「保存新版本」。
+/// 主管 AI 的一次会话。
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SupervisorSessionDto {
+    pub id: String,
+    pub title: String,
+    pub started_at: String,
+    pub updated_at: String,
+    pub message_count: i64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub workflow_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub run_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub model_ref: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SupervisorMessageDto {
+    pub role: String,
+    pub text: String,
+    pub at: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SupervisorSessionDetail {
+    pub session: SupervisorSessionDto,
+    pub messages: Vec<SupervisorMessageDto>,
+}
+
+fn to_session_dto(row: aiwf_store::SupervisorSessionRow) -> SupervisorSessionDto {
+    SupervisorSessionDto {
+        id: row.id,
+        title: row.title,
+        started_at: row.started_at,
+        updated_at: row.updated_at,
+        message_count: row.message_count,
+        workflow_id: row.workflow_id,
+        run_id: row.run_id,
+        model_ref: row.model_ref,
+    }
+}
+
+pub fn supervisor_sessions(
+    store: &Store,
+    limit: Option<i64>,
+) -> ApiResult<Vec<SupervisorSessionDto>> {
+    Ok(store
+        .list_supervisor_sessions(limit.unwrap_or(50).clamp(1, 200))?
+        .into_iter()
+        .map(to_session_dto)
+        .collect())
+}
+
+pub fn supervisor_session(store: &Store, session_id: String) -> ApiResult<SupervisorSessionDetail> {
+    let (meta, messages) = store
+        .supervisor_session(&session_id)?
+        .ok_or_else(|| ApiError::validation(format!("找不到会话 {session_id}")))?;
+
+    Ok(SupervisorSessionDetail {
+        session: to_session_dto(meta),
+        messages: messages
+            .into_iter()
+            .map(|row| SupervisorMessageDto {
+                role: row.role,
+                text: row.text,
+                at: row.at,
+            })
+            .collect(),
+    })
+}
+
 /// Agent 角色的部分更新。字段与 [`aiwf_store::AgentPatch`] 一一对应，
 /// 只是持有所有权 —— IPC 层拿到的是 `Option<String>`，借不出去。
 #[derive(Debug, Default, Clone)]
@@ -1244,6 +1320,9 @@ pub fn memory_delete(store: &Store, id: String) -> ApiResult<()> {
 pub struct SupervisorAnswer {
     pub text: String,
     pub tool_calls: u32,
+    /// 这轮所属的会话。界面据此把后续问题接到同一条。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub session_id: Option<String>,
     /// AI 想做的改动。界面据此算 Diff，用户确认后才落草稿。
     #[serde(skip_serializing_if = "Option::is_none")]
     pub proposal: Option<Proposal>,
@@ -1259,6 +1338,7 @@ pub fn supervisor_ask(
     data_dir: &std::path::Path,
     question: String,
     context_json: Option<String>,
+    session_id: Option<String>,
 ) -> ApiResult<SupervisorAnswer> {
     // 要提结构化改动就得先看得见当前的图 ——
     // 让模型凭空造 nodeId 的话，那些操作应用不到任何东西上
@@ -1367,10 +1447,37 @@ pub fn supervisor_ask(
         })?;
 
     let (text, proposal) = extract_proposal(&text);
+
+    // 落会话。不存的话每次关掉抽屉对话就没了 ——
+    // 而用户常常是隔天回来接着问「上次它说那个来着」。
+    //
+    // 存失败不该让整个回答丢掉：用户已经等了几十秒，
+    // 拿不到答案比丢掉历史糟得多
+    let session = session_id.or_else(|| {
+        let workflow_id = context_json
+            .as_deref()
+            .and_then(|json| serde_json::from_str::<serde_json::Value>(json).ok())
+            .and_then(|value| {
+                value
+                    .get("workflowId")
+                    .and_then(serde_json::Value::as_str)
+                    .map(str::to_string)
+            });
+        store
+            .create_supervisor_session(&question, workflow_id.as_deref(), None)
+            .ok()
+    });
+
+    if let Some(id) = &session {
+        let _ = store.append_supervisor_message(id, "user", &question);
+        let _ = store.append_supervisor_message(id, "agent", &text);
+    }
+
     Ok(SupervisorAnswer {
         text,
         tool_calls,
         proposal,
+        session_id: session,
     })
 }
 

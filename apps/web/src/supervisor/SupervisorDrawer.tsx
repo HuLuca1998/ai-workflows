@@ -58,6 +58,16 @@ export interface SupervisorDrawerProps {
   onClose: () => void;
 }
 
+/** 历史会话列表里的一条。 */
+interface SessionSummary {
+  id: string;
+  title: string;
+  updatedAt: string;
+  messageCount: number;
+  workflowId?: string;
+  runId?: string;
+}
+
 /** 待确认的提议：AI 说了什么、会变成什么样。 */
 interface Proposal {
   summary: string;
@@ -84,6 +94,15 @@ export function SupervisorDrawer({
   const [modelId, setModelId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [proposal, setProposal] = useState<Proposal | null>(null);
+  /**
+   * 当前会话。
+   *
+   * 第一问时是 null（那时还没有会话），后端回来带上 id，
+   * 之后的每一问都带着它 —— 不然同一次对话会散成好几条历史。
+   */
+  const [sessionId, setSessionId] = useState<string | null>(null);
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [sessions, setSessions] = useState<SessionSummary[] | null>(null);
   const bodyRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -109,6 +128,28 @@ export function SupervisorDrawer({
 
   if (!open) return null;
 
+  /** 读一条历史会话回对话区。 */
+  const openSession = async (id: string) => {
+    setError(null);
+    try {
+      const result = (await coreClient.call('supervisor.session', { sessionId: id })) as {
+        messages: { role: 'user' | 'agent'; text: string; at: string }[];
+      };
+      setMessages(
+        result.messages.map((message, index) => ({
+          id: `${id}_${index}`,
+          role: message.role,
+          text: message.text,
+        })),
+      );
+      setSessionId(id);
+      setHistoryOpen(false);
+      setProposal(null);
+    } catch (err) {
+      setError(describe(err));
+    }
+  };
+
   const send = async () => {
     const text = draft.trim();
     if (!text || busy) return;
@@ -125,6 +166,9 @@ export function SupervisorDrawer({
     try {
       const result = (await coreClient.call('supervisor.ask', {
         question: text,
+        // 有会话就接上去 —— 不带的话后端会新开一条，
+        // 同一次对话在历史里散成好几段
+        ...(sessionId ? { sessionId } : {}),
         ...(modelId ? { modelRef: modelId } : {}),
         context: {
           ...(context.draftRev === undefined ? {} : { draftRev: context.draftRev }),
@@ -135,8 +179,11 @@ export function SupervisorDrawer({
         },
       })) as {
         text: string;
+        sessionId?: string;
         proposal?: { summary: string; operations: PatchOperation[] };
       };
+
+      if (result.sessionId) setSessionId(result.sessionId);
 
       setMessages((prev) =>
         prev.map((message) =>
@@ -211,10 +258,74 @@ export function SupervisorDrawer({
             ))}
           </select>
 
+          <button
+            type="button"
+            className="supervisor__close"
+            aria-label="历史会话"
+            aria-expanded={historyOpen}
+            onClick={() => {
+              const next = !historyOpen;
+              setHistoryOpen(next);
+              // 每次展开都重读：别的地方可能刚问过一句
+              if (next) {
+                void coreClient
+                  .call('supervisor.sessions', {})
+                  .then((result) => setSessions((result as { items: SessionSummary[] }).items))
+                  .catch(() => setSessions([]));
+              }
+            }}
+          >
+            <i className="ph ph-clock-counter-clockwise" aria-hidden="true" />
+          </button>
+
+          <button
+            type="button"
+            className="supervisor__close"
+            aria-label="新对话"
+            onClick={() => {
+              setMessages([]);
+              setSessionId(null);
+              setProposal(null);
+              setError(null);
+            }}
+          >
+            <i className="ph ph-plus" aria-hidden="true" />
+          </button>
+
           <button type="button" className="supervisor__close" aria-label="关闭" onClick={onClose}>
             <i className="ph ph-x" aria-hidden="true" />
           </button>
         </header>
+
+        {historyOpen ? (
+          <section className="supervisor__history" aria-label="历史会话">
+            {sessions === null ? <p className="supervisor__empty">正在读取…</p> : null}
+            {sessions?.length === 0 ? (
+              <p className="supervisor__empty">
+                还没有历史会话。你问的每一句都会存下来，隔天回来还能接着问。
+              </p>
+            ) : null}
+            {(sessions ?? []).map((item) => (
+              <button
+                key={item.id}
+                type="button"
+                className="supervisor__history-item"
+                data-session={item.id}
+                data-active={item.id === sessionId ? 'true' : undefined}
+                onClick={() => void openSession(item.id)}
+              >
+                <span className="supervisor__history-title">{item.title}</span>
+                <span className="supervisor__history-meta">
+                  {/* 图纸：「按关联的工作流 / 运行 / 记忆 / 模型标注」 */}
+                  {item.workflowId ? <span className="supervisor__chip">工作流</span> : null}
+                  {item.runId ? <span className="supervisor__chip">运行</span> : null}
+                  <span>{item.messageCount} 条</span>
+                  <span>{formatWhen(item.updatedAt)}</span>
+                </span>
+              </button>
+            ))}
+          </section>
+        ) : null}
 
         <div className="supervisor__context" aria-label="上下文">
           <span className="supervisor__context-label">上下文</span>
@@ -343,6 +454,17 @@ export function SupervisorDrawer({
       </aside>
     </div>
   );
+}
+
+/** 历史列表里的时间。今天的只给时分，更早的带上日期。 */
+function formatWhen(iso: string): string {
+  const at = new Date(iso);
+  if (Number.isNaN(at.getTime())) return iso;
+  const today = new Date().toDateString() === at.toDateString();
+  return at.toLocaleString('zh-CN', {
+    hour12: false,
+    ...(today ? { hour: '2-digit', minute: '2-digit' } : { month: 'numeric', day: 'numeric' }),
+  });
 }
 
 function describe(error: unknown): string {

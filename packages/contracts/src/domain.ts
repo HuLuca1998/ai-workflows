@@ -214,3 +214,30 @@ export const EnvHealthItemSchema = z.object({
   detail: z.string().optional(),
 });
 export type EnvHealthItem = z.infer<typeof EnvHealthItemSchema>;
+
+/**
+ * 主管 AI 的一次会话。
+ *
+ * 图纸要求历史列表「按关联的工作流 / 运行 / 记忆 / 模型标注」——
+ * 关联对象都是可选的：不在任何上下文里问的问题（「这个应用怎么用」）
+ * 也是一次会话。
+ */
+export const SupervisorSessionSchema = z.object({
+  id: z.string().min(1),
+  /** 取第一个问题的前几十字。用户靠它认出「上次那条」。 */
+  title: z.string().min(1),
+  startedAt: z.iso.datetime(),
+  updatedAt: z.iso.datetime(),
+  messageCount: z.number().int().min(0),
+  workflowId: z.string().min(1).optional(),
+  runId: z.string().min(1).optional(),
+  modelRef: z.string().min(1).optional(),
+});
+export type SupervisorSession = z.infer<typeof SupervisorSessionSchema>;
+
+export const SupervisorMessageSchema = z.object({
+  role: z.enum(['user', 'agent']),
+  text: z.string(),
+  at: z.iso.datetime(),
+});
+export type SupervisorMessage = z.infer<typeof SupervisorMessageSchema>;

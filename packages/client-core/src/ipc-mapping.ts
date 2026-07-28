@@ -20,6 +20,8 @@ const COMMANDS: Partial<Record<CoreApiMethod, string>> = {
   'workspace.stats': 'workspace_stats',
   'env.health': 'env_health',
   'run.diagnostics': 'run_diagnostics',
+  'supervisor.sessions': 'supervisor_sessions',
+  'supervisor.session': 'supervisor_session',
   'run.artifactContent': 'run_artifact_content',
   'workflow.get': 'workflow_get',
   'workflow.create': 'workflow_create',
@@ -329,12 +331,14 @@ export function fromIpcResult(method: CoreApiMethod, raw: unknown): unknown {
     case 'run.resume':
       return { ok: true };
 
+    case 'supervisor.session':
     case 'supervisor.ask':
     case 'workspace.stats':
     case 'env.health':
     case 'run.diagnostics':
       return raw;
 
+    case 'supervisor.sessions':
     case 'memory.list':
     case 'prompt.list':
     case 'agent.list':
