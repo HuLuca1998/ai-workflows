@@ -103,6 +103,16 @@ export function SupervisorDrawer({
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [sessions, setSessions] = useState<SessionSummary[] | null>(null);
+  /** 这一问等了多久（秒）。0 表示没在等。 */
+  const [waited, setWaited] = useState(0);
+  /**
+   * 取消的凭据。
+   *
+   * 取消之后后端仍会回来 —— 那时那个回答已经不是用户要的了，
+   * 显示出来会让人以为自己的取消没生效。用一个自增的号码判断：
+   * 回来时号码对不上就丢掉。
+   */
+  const askSeq = useRef(0);
   const bodyRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -117,6 +127,20 @@ export function SupervisorDrawer({
       })
       .catch(() => setModels([]));
   }, [open]);
+
+  useEffect(() => {
+    if (!busy) {
+      setWaited(0);
+      return;
+    }
+    // 一直「正在想…」而不说等了多久，用户没法判断是慢还是死了。
+    // ACP 那边的超时是 180 秒 —— 干等三分钟没有任何反馈是不可接受的
+    const started = Date.now();
+    const timer = setInterval(() => {
+      setWaited(Math.round((Date.now() - started) / 1000));
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [busy]);
 
   useEffect(() => {
     // 新消息进来时滚到底：对话是时间序的，用户要看最新那条。
@@ -157,6 +181,7 @@ export function SupervisorDrawer({
     setDraft('');
     setBusy(true);
     setError(null);
+    const seq = (askSeq.current += 1);
     setMessages((prev) => [
       ...prev,
       { id: `u_${Date.now()}`, role: 'user', text },
@@ -215,11 +240,12 @@ export function SupervisorDrawer({
         }
       }
     } catch (err) {
+      if (seq !== askSeq.current) return;
       // 失败时把那条空的 agent 消息去掉 —— 留一个空气泡比没有更糟
       setMessages((prev) => prev.filter((message) => !message.streaming));
       setError(describe(err));
     } finally {
-      setBusy(false);
+      if (seq === askSeq.current) setBusy(false);
     }
   };
 
@@ -372,7 +398,12 @@ export function SupervisorDrawer({
               ) : null}
               <div className="supervisor__bubble">
                 {message.streaming && !message.text ? (
-                  <span className="supervisor__thinking">正在想…</span>
+                  <span className="supervisor__thinking">
+                    正在想…
+                    {waited >= 5 ? (
+                      <span className="supervisor__waited">已等待 {waited} 秒</span>
+                    ) : null}
+                  </span>
                 ) : (
                   message.text
                 )}
@@ -442,14 +473,31 @@ export function SupervisorDrawer({
               }
             }}
           />
-          <button
-            type="button"
-            className="runs__action runs__action--primary"
-            disabled={busy || !draft.trim()}
-            onClick={() => void send()}
-          >
-            {busy ? '思考中' : '发送'}
-          </button>
+          {/* 等待时给取消 —— 用户要能脱身。
+              ACP 的超时是 180 秒，干等三分钟没有出口是不可接受的 */}
+          {busy ? (
+            <button
+              type="button"
+              className="runs__action"
+              onClick={() => {
+                // 号码一变，回来的答案就会被丢掉
+                askSeq.current += 1;
+                setBusy(false);
+                setMessages((prev) => prev.filter((message) => !message.streaming));
+              }}
+            >
+              取消
+            </button>
+          ) : (
+            <button
+              type="button"
+              className="runs__action runs__action--primary"
+              disabled={!draft.trim()}
+              onClick={() => void send()}
+            >
+              发送
+            </button>
+          )}
         </footer>
       </aside>
     </div>

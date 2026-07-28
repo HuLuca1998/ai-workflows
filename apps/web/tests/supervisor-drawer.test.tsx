@@ -169,3 +169,76 @@ describe('对话', () => {
     expect(screen.queryByText('正在想…')).toBeNull();
   });
 });
+
+describe('等待与取消', () => {
+  it('超过一定时间说明它在等什么 —— 而不是一直「正在想…」', async () => {
+    // codex 自主体验时的原话：「连续等待 30 秒仍没有回复、超时提示或取消入口；
+    // 控制台也没有可见错误」。它恰好是在首次配置受阻后最需要帮助的时候点的这里。
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    respond({ 'supervisor.ask': () => new Promise(() => {}) });
+
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    view();
+    await user.type(screen.getByLabelText('问主管 AI'), '怎么用');
+    await user.keyboard('{Enter}');
+
+    await vi.advanceTimersByTimeAsync(8_000);
+    expect(screen.getByText(/已等待/u)).toBeTruthy();
+    vi.useRealTimers();
+  });
+
+  it('等待时给取消按钮 —— 用户要能脱身', async () => {
+    respond({ 'supervisor.ask': () => new Promise(() => {}) });
+    const user = userEvent.setup();
+    view();
+    await user.type(screen.getByLabelText('问主管 AI'), '怎么用');
+    await user.keyboard('{Enter}');
+
+    expect(await screen.findByRole('button', { name: '取消' })).toBeTruthy();
+  });
+
+  it('取消后回到可以再问的状态，且不留空气泡', async () => {
+    respond({ 'supervisor.ask': () => new Promise(() => {}) });
+    const user = userEvent.setup();
+    view();
+    await user.type(screen.getByLabelText('问主管 AI'), '怎么用');
+    await user.keyboard('{Enter}');
+
+    await user.click(await screen.findByRole('button', { name: '取消' }));
+
+    expect(screen.queryByText('正在想…')).toBeNull();
+    expect(screen.getByLabelText('问主管 AI')).toBeEnabled();
+    // 问题本身留着 —— 用户可能只是想换个模型再问一次
+    expect(screen.getByText('怎么用')).toBeTruthy();
+  });
+
+  it('取消之后即使后端回来了也不显示 —— 那已经不是用户要的了', async () => {
+    let resolve: (value: unknown) => void = () => {};
+    respond({
+      'supervisor.ask': () =>
+        new Promise((r) => {
+          resolve = r;
+        }),
+    });
+    const user = userEvent.setup();
+    view();
+    await user.type(screen.getByLabelText('问主管 AI'), '怎么用');
+    await user.keyboard('{Enter}');
+    await user.click(await screen.findByRole('button', { name: '取消' }));
+
+    resolve({ text: '迟到的回答', toolCalls: 0 });
+    await waitFor(() => {
+      expect(screen.queryByText('迟到的回答')).toBeNull();
+    });
+  });
+
+  it('答完就没有取消按钮了', async () => {
+    const user = userEvent.setup();
+    view();
+    await user.type(screen.getByLabelText('问主管 AI'), '缺什么？');
+    await user.keyboard('{Enter}');
+    await screen.findByText('这条工作流缺一个结束节点。');
+
+    expect(screen.queryByRole('button', { name: '取消' })).toBeNull();
+  });
+});
