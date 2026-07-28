@@ -2145,3 +2145,42 @@ fn 筛选不到时返回空而不是报错() {
     assert!(rows.is_empty());
     assert_eq!(total, 0);
 }
+
+#[test]
+fn 已经存进去的明文在读出来时也被遮掉() {
+    // 写入时脱敏只对新数据有效。这个改动之前落库的运行仍是明文，
+    // 而用户看到的是**读出来的东西** —— 只在写入侧拦一道的话，
+    // 历史数据照样在列表里明晃晃地显示。
+    //
+    // 迁移里改历史数据不合适：那是不可逆的，而且一旦规则改了就没法重来。
+    // 读取时再过一遍是幂等的。
+    let store = Store::open_in_memory().unwrap();
+    let wf = store.create_workflow("老数据", None).unwrap();
+    let run = store.create_run(&wf, None, Some(1), "{}").unwrap();
+
+    // 绕过 create_run 的脱敏，模拟改动之前落库的行
+    store
+        .execute_raw(
+            "UPDATE run SET inputs_json = ?2 WHERE id = ?1",
+            &run,
+            r#"{"apiKey":"sk-proj-abcdefghijklmnopqrstuvwxyz1234"}"#,
+        )
+        .unwrap();
+
+    let row = store.get_run(&run).unwrap().unwrap();
+    assert!(
+        !row.inputs_json
+            .contains("sk-proj-abcdefghijklmnopqrstuvwxyz1234"),
+        "读出来还是明文：{}",
+        row.inputs_json
+    );
+
+    let (rows, _) = store.list_runs_paged(None, &[], None, 10, 0).unwrap();
+    let listed = rows.iter().find(|r| r.id == run).unwrap();
+    assert!(
+        !listed
+            .inputs_json
+            .contains("sk-proj-abcdefghijklmnopqrstuvwxyz1234"),
+        "列表里还是明文 —— 而那正是它被发现的地方"
+    );
+}

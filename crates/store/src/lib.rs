@@ -422,7 +422,13 @@ fn map_run_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<RunRow> {
         version_id: row.get(3)?,
         draft_rev: row.get(4)?,
         status: row.get(5)?,
-        inputs_json: row.get(6)?,
+        // 读出来时**再过一遍**。
+        //
+        // 写入时脱敏只对新数据有效，而用户看到的是读出来的东西 ——
+        // 这个改动之前落库的运行仍是明文，照样会在列表里显示。
+        // 在迁移里改历史数据不合适：那是不可逆的，而且规则一改就没法重来；
+        // 读取时过一遍是幂等的，代价也只是一次字符串扫描。
+        inputs_json: redact_inputs(&row.get::<_, String>(6)?),
         current_node: row.get(7)?,
         workdir: row.get(8)?,
         started_at: row.get(9)?,
@@ -2048,6 +2054,15 @@ impl Store {
         self.index_text("run_event", &id, &event.summary)?;
 
         Ok(AppendedEvent { id, seq: next_seq })
+    }
+
+    /// 测试脚手架：直接执行一条带两个参数的 SQL。
+    ///
+    /// 用来造「这个改动之前落库的行」——那种行在正常路径上已经造不出来了。
+    #[doc(hidden)]
+    pub fn execute_raw(&self, sql: &str, a: &str, b: &str) -> Result<()> {
+        self.conn.execute(sql, params![a, b])?;
+        Ok(())
     }
 
     /// 测试脚手架：绕过 seq 分配直接插入，用来验证唯一约束确实生效。

@@ -48,11 +48,21 @@ next_round() {
   echo "$n"
 }
 
+# 上一轮的报告 = docs/testing 下最近改过的那份 ux-*-codex.md。
+#
+# 不按文件名推：早期几轮的名字各不相同（ux-audit / ux-retest / ux-free /
+# ux-round3），按模式拼名字会漏掉它们，于是复测清单是空的 ——
+# 第一次跑这个脚本时就这么漏了一轮。
+latest_report() {
+  ls -t "$ROOT"/docs/testing/ux-*-codex.md 2>/dev/null | head -1
+}
+
 for _ in $(seq 1 "$ROUNDS"); do
   ROUND="$(next_round)"
   REPORT="docs/testing/ux-round-$ROUND-codex.md"
-  PREV=$((ROUND - 1))
-  PREV_REPORT="docs/testing/ux-round-$PREV-codex.md"
+  PREV_ABS="$(latest_report || true)"
+  PREV_REPORT=""
+  [ -n "$PREV_ABS" ] && PREV_REPORT="docs/testing/$(basename "$PREV_ABS")"
 
   echo "▸ 第 $ROUND 轮 → $REPORT"
 
@@ -73,7 +83,7 @@ for _ in $(seq 1 "$ROUNDS"); do
     echo "- 用 Playwright 驱动浏览器，脚本写在 /tmp"
     echo
 
-    if [ -f "$ROOT/$PREV_REPORT" ]; then
+    if [ -n "$PREV_REPORT" ] && [ -f "$ROOT/$PREV_REPORT" ]; then
       echo "## 第一部分：复测"
       echo "上一轮的报告在 \`$PREV_REPORT\`。先读它，逐条实测里面报的问题，"
       echo "写明「已修复 / 仍存在 / 部分修复」并给复现步骤。"
