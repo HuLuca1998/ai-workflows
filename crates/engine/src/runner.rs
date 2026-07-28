@@ -326,7 +326,44 @@ impl Runner {
         cancel: &std::sync::atomic::AtomicBool,
     ) -> Result<String> {
         let workdir = self.workdir(store, run_id)?;
-        let executor = NodeExecutor::new(workdir).with_run_id(run_id);
+
+        // 记忆在**运行开始时**取一份快照，而不是每个节点各取一次：
+        // 一次运行中途被改掉的记忆会让前后两个 AI 节点拿到不同的上下文，
+        // 而运行记录里只会有一条注入事件 —— 那时它就说不清了。
+        //
+        // 只取启用且未过期的（memories_for_injection 保证这一点）
+        let memories: Vec<(String, String)> = store
+            .memories_for_injection("workspace", None)
+            .unwrap_or_default()
+            .into_iter()
+            .take(20)
+            .map(|memory| (memory.key, memory.value))
+            .collect();
+
+        let executor = NodeExecutor::new(workdir)
+            .with_run_id(run_id)
+            .with_memories(&memories);
+
+        // 「记忆注入可在事件中溯源」：在**取快照时**就写下，
+        // 而不是等某个 AI 节点跑完 —— 那个节点可能失败、可能被取消，
+        // 而「这次运行带着这些记忆」在它开始之前就已经成立了。
+        //
+        // 只有图里真有 AI 节点才写：一条纯脚本的工作流不用记忆，
+        // 写一条注入事件是误导。
+        if !memories.is_empty()
+            && self.has_ai_node(store, run_id)?
+            && !self.memory_event_written(store, run_id)?
+        {
+            let keys: Vec<&str> = memories.iter().map(|(key, _)| key.as_str()).collect();
+            self.emit(
+                store,
+                run_id,
+                "system.memory_injected",
+                None,
+                "engine",
+                &format!("注入了 {} 条记忆：{}", keys.len(), keys.join("、")),
+            )?;
+        }
         let mut scope = self.restore_scope(store, run_id)?;
 
         loop {
@@ -611,6 +648,32 @@ impl Runner {
             schema_ver: 1,
         })?;
         Ok(())
+    }
+
+    /// 这次运行的图里有没有 AI 节点。
+    ///
+    /// 一条纯脚本的工作流不用记忆，给它写一条注入事件是误导。
+    fn has_ai_node(&self, store: &Store, run_id: &str) -> Result<bool> {
+        let Some(graph_json) = store.run_graph(run_id)? else {
+            return Ok(false);
+        };
+        let graph: WorkflowGraph =
+            serde_json::from_str(&graph_json).map_err(|e| RunError::GraphInvalid(e.to_string()))?;
+        Ok(graph
+            .nodes
+            .iter()
+            .any(|node| node.node_type.starts_with("ai.")))
+    }
+
+    /// 这次运行有没有写过注入事件。
+    ///
+    /// 记忆快照在整个运行里是同一份，所以写一条就够 ——
+    /// 每个 AI 节点各写一条的话，五个 AI 节点就是五条一模一样的事件。
+    fn memory_event_written(&self, store: &Store, run_id: &str) -> Result<bool> {
+        Ok(store
+            .events(run_id, 0, 500)?
+            .iter()
+            .any(|event| event.kind == "system.memory_injected"))
     }
 
     /// 从运行引用的图里查节点标题。查不到就退回 id ——

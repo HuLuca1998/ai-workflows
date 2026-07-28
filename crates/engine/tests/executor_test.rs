@@ -622,3 +622,126 @@ fn ai_决策节点把结论放进输出的_decision_字段() {
     // 决策节点的输出要能被下游的条件分支引用
     assert!(interpolate("${decide.success.text}", &scope).is_ok());
 }
+
+// ── 记忆注入与溯源（M4 出口标准）──────────────────────────────────────────
+//
+// 「记忆注入可在事件中溯源」——记忆会改变 AI 的行为，
+// 而用户看到一个出乎意料的结果时，第一个要问的就是「它凭什么这么干」。
+// 答案必须在运行记录里，而不是让他去猜当时有哪几条记忆生效。
+
+fn mock_acp() -> (String, Vec<String>) {
+    let script = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .and_then(|p| p.parent())
+        .expect("仓库根")
+        .join("tests/fixtures/acp-mock.mjs");
+    (
+        "node".to_string(),
+        vec![script.display().to_string(), "echo-prompt".to_string()],
+    )
+}
+
+fn ai_节点() -> GraphNode {
+    node(
+        "analyze",
+        "ai.analyze",
+        serde_json::json!({
+            "instruction": "看看这段代码",
+            "runtime": "acp.claude",
+            "outputSchema": {}
+        }),
+    )
+}
+
+/// 从 mock 回显的输出里拿到它实际收到的提示词。
+///
+/// mock 的 echo-prompt 场景把收到的提示词原样当成回答发回来，
+/// 于是它落在 `outputs.<node>.success.text` 里。
+/// snapshot 是 Scope 唯一的读出口 —— 内部结构是私有的，测试也不该依赖它。
+fn 收到的提示词(scope: &Scope, node_id: &str) -> String {
+    scope.snapshot()["outputs"][format!("{node_id}.success")]["text"]
+        .as_str()
+        .unwrap_or_default()
+        .to_string()
+}
+
+#[test]
+fn ai_节点把记忆拼进提示词() {
+    let (command, args) = mock_acp();
+    let executor = NodeExecutor::new(workdir())
+        .with_acp_command(&command, &args)
+        .with_memories(&[
+            ("style.commit".to_string(), "提交信息用中文".to_string()),
+            (
+                "worktree.cleanup".to_string(),
+                "PR 合并前保留 worktree".to_string(),
+            ),
+        ]);
+
+    let mut scope = Scope::new("run_mem");
+    let outcome = executor.execute(&ai_节点(), &mut scope).unwrap();
+    assert!(
+        matches!(outcome, NodeOutcome::Succeeded { .. }),
+        "{outcome:?}"
+    );
+
+    let prompt = 收到的提示词(&scope, "analyze");
+    assert!(
+        prompt.contains("提交信息用中文"),
+        "记忆没进提示词：{prompt}"
+    );
+    assert!(prompt.contains("PR 合并前保留 worktree"));
+}
+
+#[test]
+fn 注入的记忆记在执行器上_供上层写事件() {
+    // 执行器不碰数据库（它连 store 都没有），所以把「注入了哪几条」
+    // 报给上层，由 runner 写成 system.memory_injected 事件
+    let (command, args) = mock_acp();
+    let executor = NodeExecutor::new(workdir())
+        .with_acp_command(&command, &args)
+        .with_memories(&[("style.commit".to_string(), "用中文".to_string())]);
+
+    let mut scope = Scope::new("run_mem");
+    executor.execute(&ai_节点(), &mut scope).unwrap();
+
+    assert_eq!(
+        executor.injected_memory_keys(),
+        vec!["style.commit".to_string()],
+        "要能说出注入了哪几条"
+    );
+}
+
+#[test]
+fn 没有记忆时提示词里不留空段() {
+    // 留一句「已知的长期上下文：」后面什么都没有，
+    // 模型会以为上下文被截断了
+    let (command, args) = mock_acp();
+    let executor = NodeExecutor::new(workdir()).with_acp_command(&command, &args);
+
+    let mut scope = Scope::new("run_mem");
+    executor.execute(&ai_节点(), &mut scope).unwrap();
+
+    let prompt = 收到的提示词(&scope, "analyze");
+    assert!(
+        !prompt.contains("长期上下文"),
+        "没记忆就不该有这一段：{prompt}"
+    );
+}
+
+#[test]
+fn 非_ai_节点不注入记忆() {
+    // 脚本节点拿记忆没有意义，而拼进环境变量反而会泄露
+    let executor = NodeExecutor::new(workdir())
+        .with_memories(&[("style.commit".to_string(), "用中文".to_string())]);
+
+    let node = node(
+        "sh",
+        "script.shell",
+        serde_json::json!({"interpreter": "bash", "script": "echo hi", "timeoutMs": 10000}),
+    );
+    let mut scope = Scope::new("run_mem");
+    executor.execute(&node, &mut scope).unwrap();
+
+    assert!(executor.injected_memory_keys().is_empty());
+}

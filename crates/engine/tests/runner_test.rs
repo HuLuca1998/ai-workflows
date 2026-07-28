@@ -426,3 +426,104 @@ fn 上游节点的输出在重启后仍能被下游引用() {
     let final_status = after_restart.run_all(&store, &run_id).unwrap();
     assert_eq!(final_status, "succeeded", "重启后应当能跑完");
 }
+
+// ── 记忆注入的溯源（M4 出口标准）─────────────────────────────────────────
+
+/// 只有一个 AI 节点的图。跑不动 adapter 也没关系 ——
+/// 注入事件在**调用之前**就该写下，那正是要验的。
+const AI_GRAPH: &str = r#"{
+  "nodes": [
+    {"id":"entry","type":"entry","title":"入口","position":{"x":0,"y":0},"config":{}},
+    {"id":"think","type":"ai.analyze","title":"分析","position":{"x":1,"y":0},
+     "config":{"instruction":"看一眼","runtime":"acp.claude"}}
+  ],
+  "edges": [
+    {"id":"e1","source":{"nodeId":"entry","port":"success"},"target":{"nodeId":"think","port":"input"}}
+  ],
+  "groups": []
+}"#;
+
+#[test]
+fn 注入的记忆写进事件_可溯源() {
+    // M4 出口标准：「记忆注入可在事件中溯源」。
+    //
+    // 记忆会改变 AI 的行为，而用户看到出乎意料的结果时第一个要问的
+    // 就是「它凭什么这么干」。答案必须在运行记录里 ——
+    // 而不是让他去猜当时哪几条记忆生效了。
+    let (store, workflow) = setup(AI_GRAPH);
+    store
+        .create_memory(&aiwf_store::NewMemory {
+            scope: "workspace".to_string(),
+            scope_id: None,
+            key: "style.commit".to_string(),
+            value: "提交信息用中文".to_string(),
+            summary: None,
+            source: "user".to_string(),
+            created_by: "本地用户".to_string(),
+            sensitivity: "internal".to_string(),
+            tags: vec![],
+        })
+        .unwrap();
+
+    let runner = Runner::new();
+    let run_id = runner.start(&store, request(&workflow)).unwrap();
+    // adapter 多半没装，跑失败也没关系 —— 注入事件在调用之前就写下了
+    let _ = runner.run_all(&store, &run_id);
+
+    let events = store.events(&run_id, 0, 200).unwrap();
+    let injected = events
+        .iter()
+        .find(|e| e.kind == "system.memory_injected")
+        .expect("注入了记忆就该有 system.memory_injected 事件");
+    assert!(
+        injected.summary.contains("style.commit"),
+        "要说清注入的是哪几条：{}",
+        injected.summary
+    );
+}
+
+#[test]
+fn 没有记忆时不写空的注入事件() {
+    // 每个 AI 节点都写一条「注入了 0 条」会把事件流冲得没法看
+    let (store, workflow) = setup(AI_GRAPH);
+    let runner = Runner::new();
+    let run_id = runner.start(&store, request(&workflow)).unwrap();
+    let _ = runner.run_all(&store, &run_id);
+
+    let events = store.events(&run_id, 0, 200).unwrap();
+    assert!(
+        !events.iter().any(|e| e.kind == "system.memory_injected"),
+        "没记忆就不该有这条事件"
+    );
+}
+
+#[test]
+fn 停用的记忆不注入() {
+    // 「删除后不再注入未来调用，停用则先留着不生效」——
+    // 停用如果照样注入，那个开关就是假的
+    let (store, workflow) = setup(AI_GRAPH);
+    let memory = store
+        .create_memory(&aiwf_store::NewMemory {
+            scope: "workspace".to_string(),
+            scope_id: None,
+            key: "已停用的".to_string(),
+            value: "不该出现".to_string(),
+            summary: None,
+            source: "user".to_string(),
+            created_by: "本地用户".to_string(),
+            sensitivity: "internal".to_string(),
+            tags: vec![],
+        })
+        .unwrap();
+    store.set_memory_enabled(&memory, false).unwrap();
+
+    let runner = Runner::new();
+    let run_id = runner.start(&store, request(&workflow)).unwrap();
+    let _ = runner.run_all(&store, &run_id);
+
+    let events = store.events(&run_id, 0, 200).unwrap();
+    assert!(
+        !events.iter().any(|e| e.kind == "system.memory_injected"),
+        "停用的记忆不该被注入"
+    );
+}

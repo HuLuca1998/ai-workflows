@@ -34,6 +34,15 @@ pub struct NodeExecutor {
     run_id: String,
     /// 覆盖 ACP adapter 的命令。测试用 mock，生产走注册表。
     acp_override: Option<(String, Vec<String>)>,
+    /**
+     * 会注入 AI 节点的记忆快照。
+     *
+     * 执行器**不碰数据库** —— 上层取好了传进来。这样它既能单测，
+     * 也不会在执行中途因为记忆被改而拿到前后不一致的两份。
+     */
+    memories: Vec<(String, String)>,
+    /// 实际注入了哪几条。上层据此写 system.memory_injected 事件。
+    injected: std::sync::Mutex<Vec<String>>,
 }
 
 impl NodeExecutor {
@@ -46,7 +55,29 @@ impl NodeExecutor {
             artifacts,
             run_id: "run".to_string(),
             acp_override: None,
+            memories: Vec::new(),
+            injected: std::sync::Mutex::new(Vec::new()),
         }
+    }
+
+    /// 传入会注入 AI 节点的记忆。
+    ///
+    /// 只影响 AI 节点：脚本节点拿记忆没有意义，而拼进环境变量反而会泄露。
+    #[must_use]
+    pub fn with_memories(mut self, memories: &[(String, String)]) -> Self {
+        self.memories = memories.to_vec();
+        self
+    }
+
+    /// 这次执行实际注入了哪几条记忆。
+    ///
+    /// 「记忆注入可在事件中溯源」是 M4 的出口标准之一：记忆会改变 AI 的行为，
+    /// 用户看到出乎意料的结果时第一个要问的就是「它凭什么这么干」。
+    pub fn injected_memory_keys(&self) -> Vec<String> {
+        self.injected
+            .lock()
+            .map(|keys| keys.clone())
+            .unwrap_or_default()
     }
 
     /// 指定 ACP adapter 的命令。测试用它挂 mock；
@@ -275,6 +306,26 @@ impl NodeExecutor {
                     message: error.to_string(),
                 });
             }
+        };
+
+        // 记忆拼在指令前面。没有记忆时不留空段 ——
+        // 一句「已知的长期上下文：」后面什么都没有，
+        // 模型会以为上下文被截断了
+        let instruction = if self.memories.is_empty() {
+            instruction
+        } else {
+            let mut prefixed = String::from("已知的长期上下文：\n");
+            for (key, value) in &self.memories {
+                prefixed.push_str(&format!("- {key}：{value}\n"));
+            }
+            prefixed.push('\n');
+            prefixed.push_str(&instruction);
+
+            if let Ok(mut injected) = self.injected.lock() {
+                injected.clear();
+                injected.extend(self.memories.iter().map(|(key, _)| key.clone()));
+            }
+            prefixed
         };
 
         let runtime = node

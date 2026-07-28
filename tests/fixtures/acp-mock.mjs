@@ -103,6 +103,22 @@ function handle(message) {
       process.exit(1);
     }
 
+    // echo-prompt 场景：把收到的提示词原样回显。
+    // 测试靠它断言「记忆确实拼进去了」—— 换成读文件的话，
+    // 就要处理并发跑测试时互相覆盖的问题
+    if (scenario === 'echo-prompt') {
+      const received = (params.prompt ?? []).map((part) => part.text ?? '').join('');
+      notify('session/update', {
+        sessionId: params.sessionId,
+        update: {
+          sessionUpdate: 'agent_message_chunk',
+          content: { type: 'text', text: received },
+        },
+      });
+      reply(id, { stopReason: 'end_turn' });
+      return;
+    }
+
     notify('session/update', {
       sessionId: params.sessionId,
       update: {
