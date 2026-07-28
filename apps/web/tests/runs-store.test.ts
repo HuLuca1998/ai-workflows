@@ -76,16 +76,19 @@ describe('运行列表', () => {
     useRuns.setState({ filter: 'failed', query: 'atlas' });
     await useRuns.getState().load();
 
-    expect(call).toHaveBeenCalledWith('run.list', {
-      status: ['failed'],
-      query: 'atlas',
-    });
+    // 分页参数每次都带，这里只关心筛选条件有没有发出去
+    expect(call).toHaveBeenCalledWith(
+      'run.list',
+      expect.objectContaining({ status: ['failed'], query: 'atlas' }),
+    );
   });
 
   it('筛选为全部时不发 status，让后端返回所有状态', async () => {
     call.mockResolvedValue({ items: [] });
     await useRuns.getState().load();
-    expect(call).toHaveBeenCalledWith('run.list', {});
+    const sent = call.mock.calls.find(([m]) => m === 'run.list')?.[1] as Record<string, unknown>;
+    expect(sent).not.toHaveProperty('status');
+    expect(sent).not.toHaveProperty('query');
   });
 
   it('加载失败时保留已有列表并显示原因', async () => {
@@ -214,7 +217,7 @@ describe('操作', () => {
     await useRuns.getState().cancel('run_1');
 
     expect(call).toHaveBeenNthCalledWith(1, 'run.cancel', { runId: 'run_1' });
-    expect(call).toHaveBeenNthCalledWith(2, 'run.list', {});
+    expect(call).toHaveBeenNthCalledWith(2, 'run.list', expect.any(Object));
   });
 
   it('审批决定带上运行与节点', async () => {
@@ -409,3 +412,49 @@ function makeEvents(from: number, to: number) {
     schemaVer: 1,
   }));
 }
+
+describe('列表分页', () => {
+  it('load 带上 limit 与 offset', async () => {
+    call.mockResolvedValue({ items: [], total: 0 });
+    await useRuns.getState().load();
+
+    expect(call).toHaveBeenCalledWith(
+      'run.list',
+      expect.objectContaining({ limit: expect.any(Number), offset: 0 }),
+    );
+  });
+
+  it('记下总数 —— 分页控件靠它', async () => {
+    call.mockResolvedValue({ items: [RUN], total: 508 });
+    await useRuns.getState().load();
+    expect(useRuns.getState().total).toBe(508);
+  });
+
+  it('翻页只换 offset，筛选条件保持', async () => {
+    call.mockResolvedValue({ items: [], total: 500 });
+    useRuns.setState({ filter: 'failed', query: 'atlas' });
+
+    await useRuns.getState().setOffset(100);
+
+    expect(call).toHaveBeenCalledWith(
+      'run.list',
+      expect.objectContaining({ offset: 100, status: ['failed'], query: 'atlas' }),
+    );
+  });
+
+  it('换筛选条件时回到第一页 —— 停在第 5 页会看到空列表', async () => {
+    call.mockResolvedValue({ items: [], total: 10 });
+    useRuns.setState({ offset: 200 });
+
+    await useRuns.getState().setFilter('failed');
+    expect(useRuns.getState().offset).toBe(0);
+  });
+
+  it('搜索时也回到第一页', async () => {
+    call.mockResolvedValue({ items: [], total: 10 });
+    useRuns.setState({ offset: 200 });
+
+    await useRuns.getState().search('新关键词');
+    expect(useRuns.getState().offset).toBe(0);
+  });
+});

@@ -39,7 +39,7 @@ const BUILTIN = { ...USER_PROMPT, id: 'prompt_2', name: '记忆提议', builtin:
 
 function respond(handlers: Record<string, (input: unknown) => unknown> = {}) {
   const checked = createContractCall({
-    'prompt.list': () => ({ items: [USER_PROMPT, BUILTIN] }),
+    'prompt.list': () => ({ items: [USER_PROMPT, BUILTIN], total: 0 }),
     'prompt.update': () => ({ ver: 3 }),
     'prompt.create': () => ({ id: 'prompt_new' }),
     ...handlers,
@@ -119,7 +119,9 @@ describe('内置条目', () => {
   });
 
   it('复制出来的副本可编辑 —— 那是「先复制再改」的下半句', async () => {
-    respond({ 'prompt.list': () => ({ items: [{ ...BUILTIN, builtin: false, id: 'copy_1' }] }) });
+    respond({
+      'prompt.list': () => ({ items: [{ ...BUILTIN, builtin: false, id: 'copy_1' }], total: 1 }),
+    });
     await open('记忆提议');
     expect(screen.getByLabelText('Role')).toBeTruthy();
   });

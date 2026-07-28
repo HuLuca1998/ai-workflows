@@ -45,7 +45,7 @@ const PROPOSED = {
 
 function respond(handlers: Record<string, (input: unknown) => unknown> = {}) {
   const checked = createContractCall({
-    'memory.list': () => ({ items: [SAVED] }),
+    'memory.list': () => ({ items: [SAVED], total: 0 }),
     'memory.create': () => ({ id: 'mem_new' }),
     'memory.update': () => ({ ok: true }),
     'memory.toggle': () => ({ ok: true }),
@@ -101,7 +101,7 @@ describe('列表与筛选', () => {
   });
 
   it('一条都没有时说明记忆是怎么来的', async () => {
-    respond({ 'memory.list': () => ({ items: [] }) });
+    respond({ 'memory.list': () => ({ items: [], total: 0 }) });
     view();
     expect(await screen.findByText(/还没有记忆/u)).toBeTruthy();
   });
@@ -109,7 +109,7 @@ describe('列表与筛选', () => {
 
 describe('AI 提议', () => {
   it('提议单独占一块，并说明确认后才生效', async () => {
-    respond({ 'memory.list': () => ({ items: [SAVED, PROPOSED] }) });
+    respond({ 'memory.list': () => ({ items: [SAVED, PROPOSED], total: 0 }) });
     view();
 
     const region = await screen.findByRole('region', { name: 'AI 提议写入' });
@@ -119,7 +119,7 @@ describe('AI 提议', () => {
   });
 
   it('采纳后启用它 —— 那才开始注入', async () => {
-    respond({ 'memory.list': () => ({ items: [PROPOSED] }) });
+    respond({ 'memory.list': () => ({ items: [PROPOSED], total: 0 }) });
     const user = userEvent.setup();
     view();
 
@@ -130,7 +130,7 @@ describe('AI 提议', () => {
   });
 
   it('忽略就删掉，不留在列表里占位', async () => {
-    respond({ 'memory.list': () => ({ items: [PROPOSED] }) });
+    respond({ 'memory.list': () => ({ items: [PROPOSED], total: 0 }) });
     const user = userEvent.setup();
     view();
 
@@ -159,7 +159,7 @@ describe('条目操作', () => {
   });
 
   it('停用的条目仍在列表里，并标出来 —— 用户要知道它为什么不生效', async () => {
-    respond({ 'memory.list': () => ({ items: [{ ...SAVED, enabled: false }] }) });
+    respond({ 'memory.list': () => ({ items: [{ ...SAVED, enabled: false }], total: 1 }) });
     view();
 
     expect(await screen.findByText('worktree.cleanup')).toBeTruthy();
@@ -168,7 +168,7 @@ describe('条目操作', () => {
 
   it('过期的条目也标出来', async () => {
     respond({
-      'memory.list': () => ({ items: [{ ...SAVED, expiresAt: '2020-01-01T00:00:00Z' }] }),
+      'memory.list': () => ({ items: [{ ...SAVED, expiresAt: '2020-01-01T00:00:00Z' }], total: 1 }),
     });
     view();
     expect(await screen.findByText('已过期')).toBeTruthy();

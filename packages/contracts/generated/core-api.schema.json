@@ -70,6 +70,18 @@
         },
         "archived": {
           "type": "boolean"
+        },
+        "limit": {
+          "default": 50,
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 200
+        },
+        "offset": {
+          "default": 0,
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
         }
       }
     },
@@ -168,10 +180,16 @@
               "updatedAt"
             ]
           }
+        },
+        "total": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
         }
       },
       "required": [
-        "items"
+        "items",
+        "total"
       ]
     }
   },
@@ -2173,6 +2191,18 @@
         },
         "query": {
           "type": "string"
+        },
+        "limit": {
+          "default": 50,
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 200
+        },
+        "offset": {
+          "default": 0,
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
         }
       }
     },
@@ -2276,10 +2306,16 @@
               "status"
             ]
           }
+        },
+        "total": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
         }
       },
       "required": [
-        "items"
+        "items",
+        "total"
       ]
     }
   },
@@ -3647,6 +3683,18 @@
         },
         "query": {
           "type": "string"
+        },
+        "limit": {
+          "default": 50,
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 200
+        },
+        "offset": {
+          "default": 0,
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
         }
       }
     },
@@ -3751,10 +3799,16 @@
               "ver"
             ]
           }
+        },
+        "total": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
         }
       },
       "required": [
-        "items"
+        "items",
+        "total"
       ]
     }
   },
@@ -3986,6 +4040,18 @@
         },
         "query": {
           "type": "string"
+        },
+        "limit": {
+          "default": 50,
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 200
+        },
+        "offset": {
+          "default": 0,
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
         }
       }
     },
@@ -4086,10 +4152,16 @@
               "updatedAt"
             ]
           }
+        },
+        "total": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
         }
       },
       "required": [
-        "items"
+        "items",
+        "total"
       ]
     }
   },
@@ -4376,6 +4448,18 @@
         "enabledOnly": {
           "default": false,
           "type": "boolean"
+        },
+        "limit": {
+          "default": 50,
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 200
+        },
+        "offset": {
+          "default": 0,
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
         }
       }
     },
@@ -4452,10 +4536,16 @@
               "contextWindow"
             ]
           }
+        },
+        "total": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
         }
       },
       "required": [
-        "items"
+        "items",
+        "total"
       ]
     }
   },
@@ -4706,6 +4796,18 @@
       "properties": {
         "query": {
           "type": "string"
+        },
+        "limit": {
+          "default": 50,
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 200
+        },
+        "offset": {
+          "default": 0,
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
         }
       }
     },
@@ -4846,10 +4948,16 @@
               "ver"
             ]
           }
+        },
+        "total": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
         }
       },
       "required": [
-        "items"
+        "items",
+        "total"
       ]
     }
   },

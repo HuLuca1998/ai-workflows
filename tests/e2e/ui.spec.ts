@@ -314,8 +314,15 @@ test.describe('执行记录', () => {
 
     // 之前的用例留下了成功与失败的运行
     await expect(page.locator('.runs__item').first()).toBeVisible({ timeout: 15_000 });
-    const before = await page.locator('.runs__item').count();
-    expect(before).toBeGreaterThan(1);
+
+    // 列表分页后一页固定 50 条，「条数变少」不再成立 ——
+    // 该看的是分页控件报的**总数**，那才是筛选真正的效果
+    const totalOf = async () => {
+      const text = (await page.locator('.pager__total').first().textContent()) ?? '';
+      return Number(text.replace(/\D/gu, '')) || 0;
+    };
+    const before = await totalOf();
+    expect(before, '样本太少，测不出筛选效果').toBeGreaterThan(1);
 
     // 限定在筛选组里：运行条目现在带工作流名，而基线数据里有
     // 「会失败的流程」这种名字，模糊匹配会同时命中它们
@@ -324,10 +331,8 @@ test.describe('执行记录', () => {
       .getByRole('button', { name: '失败' })
       .click();
 
-    // 筛选是后端做的：条数变少，且剩下的都带「失败」状态
-    await expect
-      .poll(async () => page.locator('.runs__item').count(), { timeout: 10_000 })
-      .toBeLessThan(before);
+    // 筛选是后端做的：总数变少，且剩下的都带「失败」状态
+    await expect.poll(totalOf, { timeout: 10_000 }).toBeLessThan(before);
     const statuses = await page.locator('.runs__item [role="status"]').allTextContents();
     expect(statuses.length).toBeGreaterThan(0);
     expect(statuses.every((text) => text.includes('失败'))).toBe(true);

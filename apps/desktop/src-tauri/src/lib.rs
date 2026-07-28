@@ -61,9 +61,11 @@ fn memory_list(
     state: State<'_, AppState>,
     scope: Option<String>,
     query: Option<String>,
-) -> IpcResult<Vec<api::MemoryDto>> {
+    limit: Option<i64>,
+    offset: Option<i64>,
+) -> IpcResult<api::Page<api::MemoryDto>> {
     let store = lock(&state)?;
-    api::memory_list(&store, scope, query)
+    api::memory_list(&store, scope, query, limit, offset)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -111,10 +113,13 @@ fn memory_delete(state: State<'_, AppState>, id: String) -> IpcResult<()> {
 #[tauri::command]
 fn prompt_list(
     state: State<'_, AppState>,
+    group: Option<String>,
     query: Option<String>,
-) -> IpcResult<Vec<api::PromptDto>> {
+    limit: Option<i64>,
+    offset: Option<i64>,
+) -> IpcResult<api::Page<api::PromptDto>> {
     let store = lock(&state)?;
-    api::prompt_list(&store, query)
+    api::prompt_list(&store, group, query, limit, offset)
 }
 
 #[tauri::command]
@@ -155,9 +160,13 @@ fn prompt_delete(state: State<'_, AppState>, id: String) -> IpcResult<()> {
 }
 
 #[tauri::command]
-fn agent_list(state: State<'_, AppState>) -> IpcResult<Vec<api::AgentDto>> {
+fn agent_list(
+    state: State<'_, AppState>,
+    limit: Option<i64>,
+    offset: Option<i64>,
+) -> IpcResult<api::Page<api::AgentDto>> {
     let store = lock(&state)?;
-    api::agent_list(&store)
+    api::agent_list(&store, limit, offset)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -237,9 +246,14 @@ fn agent_delete(state: State<'_, AppState>, id: String) -> IpcResult<()> {
 }
 
 #[tauri::command]
-fn model_list(state: State<'_, AppState>, enabled_only: bool) -> IpcResult<Vec<ModelDto>> {
+fn model_list(
+    state: State<'_, AppState>,
+    enabled_only: bool,
+    limit: Option<i64>,
+    offset: Option<i64>,
+) -> IpcResult<api::Page<ModelDto>> {
     let store = lock(&state)?;
-    api::model_list(&store, enabled_only)
+    api::model_list(&store, enabled_only, limit, offset)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -351,9 +365,11 @@ fn run_list(
     workflow_id: Option<String>,
     statuses: Vec<String>,
     query: Option<String>,
-) -> IpcResult<Vec<RunSummary>> {
+    limit: Option<i64>,
+    offset: Option<i64>,
+) -> IpcResult<api::Page<RunSummary>> {
     let store = lock(&state)?;
-    api::run_list(&store, workflow_id, statuses, query)
+    api::run_list(&store, workflow_id, statuses, query, limit, offset)
 }
 
 #[tauri::command]
@@ -403,9 +419,13 @@ fn approval_decide(
 }
 
 #[tauri::command]
-fn workflow_list(state: State<'_, AppState>) -> IpcResult<Vec<WorkflowSummary>> {
+fn workflow_list(
+    state: State<'_, AppState>,
+    limit: Option<i64>,
+    offset: Option<i64>,
+) -> IpcResult<api::Page<WorkflowSummary>> {
     let store = lock(&state)?;
-    api::workflow_list(&store)
+    api::workflow_list(&store, limit, offset)
 }
 
 #[tauri::command]

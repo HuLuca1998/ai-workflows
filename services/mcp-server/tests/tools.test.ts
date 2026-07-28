@@ -128,7 +128,7 @@ describe('调用路径', () => {
     const withConfirm = new McpToolRegistry(
       new CoreApiClient(
         new MemoryTransport({
-          'workflow.list': () => ({ items: [] }),
+          'workflow.list': () => ({ items: [], total: 0 }),
         }),
       ),
       { confirmWrite: confirm },

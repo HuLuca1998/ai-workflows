@@ -16,7 +16,7 @@ import { type CoreApiMethod, getMethodSpec } from '@aiwf/contracts';
  *
  * 用法：
  * ```ts
- * const call = createContractCall({ 'model.list': () => ({ items: [] }) });
+ * const call = createContractCall({ 'model.list': () => ({ items: [], total: 0 }) });
  * vi.mock('../src/data/workspace.js', () => ({ coreClient: { call } }));
  * ```
  */

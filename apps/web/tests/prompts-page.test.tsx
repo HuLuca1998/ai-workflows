@@ -36,7 +36,7 @@ const PROMPT = {
 
 function respond(handlers: Record<string, (input: unknown) => unknown> = {}) {
   const checked = createContractCall({
-    'prompt.list': () => ({ items: [PROMPT] }),
+    'prompt.list': () => ({ items: [PROMPT], total: 0 }),
     'prompt.create': () => ({ id: 'prompt_new' }),
     'prompt.update': () => ({ ok: true }),
     'prompt.duplicate': () => ({ id: 'prompt_copy' }),
@@ -89,7 +89,7 @@ describe('列表', () => {
   });
 
   it('一条都没有时说明这里会出现什么', async () => {
-    respond({ 'prompt.list': () => ({ items: [] }) });
+    respond({ 'prompt.list': () => ({ items: [], total: 0 }) });
     view();
     expect(await screen.findByText(/还没有提示词/u)).toBeTruthy();
   });
@@ -171,7 +171,7 @@ describe('编辑与版本', () => {
   });
 
   it('内置提示词不给删除按钮', async () => {
-    respond({ 'prompt.list': () => ({ items: [{ ...PROMPT, builtin: true }] }) });
+    respond({ 'prompt.list': () => ({ items: [{ ...PROMPT, builtin: true }], total: 1 }) });
     const user = userEvent.setup();
     view();
     await user.click(await screen.findByRole('button', { name: /分析 · 根因/u }));
@@ -181,7 +181,7 @@ describe('编辑与版本', () => {
   });
 
   it('复制内置提示词得到可编辑的副本', async () => {
-    respond({ 'prompt.list': () => ({ items: [{ ...PROMPT, builtin: true }] }) });
+    respond({ 'prompt.list': () => ({ items: [{ ...PROMPT, builtin: true }], total: 1 }) });
     const user = userEvent.setup();
     view();
     await user.click(await screen.findByRole('button', { name: /分析 · 根因/u }));

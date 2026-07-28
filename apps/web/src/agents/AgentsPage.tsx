@@ -131,6 +131,34 @@ export function AgentsPage() {
       setCreating(false);
       setSelectedId(result.id);
       await load();
+
+      // 列表分页后一页封顶 50 条，而 Agent 按名字排 ——
+      // 刚建的这条很可能落在第二页，`items.find` 就找不到它，
+      // 详情区会退回「选一个角色查看详情」。
+      // 用户刚建完正要接着填目标与权限，那时详情区必须是它。
+      setItems((current) => {
+        const rows = current ?? [];
+        if (rows.some((agent) => agent.id === result.id)) return rows;
+        return [
+          {
+            id: result.id,
+            name: input.name,
+            role: input.role,
+            goal: input.goal,
+            persona: input.persona,
+            runtime: input.runtime,
+            modelRef: input.modelRef,
+            tools: [],
+            capabilities: {},
+            outputContract: '',
+            turnLimit: 12,
+            timeoutMs: 900_000,
+            ver: 1,
+            builtin: false,
+          },
+          ...rows,
+        ];
+      });
     } catch (err) {
       setError(describe(err));
     }

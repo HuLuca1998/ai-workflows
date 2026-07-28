@@ -38,7 +38,7 @@ const SESSIONS = [
 
 function respond(handlers: Record<string, (input: unknown) => unknown> = {}) {
   const checked = createContractCall({
-    'model.list': () => ({ items: [] }),
+    'model.list': () => ({ items: [], total: 0 }),
     'supervisor.sessions': () => ({ items: SESSIONS }),
     'supervisor.session': () => ({
       session: SESSIONS[0]!,

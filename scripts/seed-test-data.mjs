@@ -26,6 +26,24 @@ async function call(command, body = {}) {
   return text ? JSON.parse(text) : null;
 }
 
+/**
+ * 取一个列表的**全部**条目。
+ *
+ * 列表接口分页后返回 { items, total }，一次拿不完 ——
+ * seed 要判断「这条是不是已经建过」，漏一页就会重复建。
+ */
+async function list(command, input = {}) {
+  const all = [];
+  for (let offset = 0; ; offset += 200) {
+    const page = await call(command, { ...input, limit: 200, offset });
+    const items = Array.isArray(page) ? page : (page?.items ?? []);
+    all.push(...items);
+    const total = Array.isArray(page) ? items.length : (page?.total ?? all.length);
+    if (all.length >= total || items.length === 0) break;
+  }
+  return all;
+}
+
 const TAG = '[基线]';
 
 /** 一条能跑通、且带审批的工作流：覆盖运行详情要显示的所有元素。 */
@@ -135,7 +153,7 @@ function failingGraph() {
 }
 
 async function ensureWorkflow(name, graphJson) {
-  const existing = await call('workflow_list');
+  const existing = await list('workflow_list');
   const found = existing.find((w) => w.name === name);
   if (found) return { id: found.id, rev: null, existed: true };
 
@@ -162,7 +180,8 @@ async function main() {
   console.log(`基线数据 → ${api}`);
 
   // ── 模型 ────────────────────────────────────────────────────────────────
-  const models = await call('model_list', { enabledOnly: false });
+  // 列表接口分页后返回 { items, total }，不再是裸数组
+  const models = await list('model_list', { enabledOnly: false });
   const wanted = [
     {
       name: `${TAG} Opus 5 · high`,
@@ -191,7 +210,7 @@ async function main() {
   }
 
   // ── Agent 角色 ──────────────────────────────────────────────────────────
-  const agents = await call('agent_list');
+  const agents = await list('agent_list');
   if (!agents.some((a) => a.name === `${TAG} 分析 Agent`)) {
     await call('agent_create', {
       name: `${TAG} 分析 Agent`,
@@ -208,7 +227,7 @@ async function main() {
   }
 
   // ── 提示词 ──────────────────────────────────────────────────────────────
-  const prompts = await call('prompt_list');
+  const prompts = await list('prompt_list');
   const promptSeeds = [
     {
       group: '系统内建 · 节点',
@@ -277,8 +296,8 @@ async function main() {
     console.log(`  + 运行 ${runId} → ${status}`);
   }
 
-  const workflows = await call('workflow_list');
-  const runs = await call('run_list', { statuses: [] });
+  const workflows = await list('workflow_list');
+  const runs = await list('run_list', { statuses: [] });
   console.log(`\n现有：${workflows.length} 个工作流、${runs.length} 次运行`);
 }
 

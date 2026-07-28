@@ -30,6 +30,9 @@ const ACTIVE_STATUSES = new Set(['created', 'queued', 'running', 'waiting_approv
 /** 每页事件数。与后端的默认 limit 对齐。 */
 const EVENT_PAGE_SIZE = 200;
 
+/** 列表一页多少条。与契约的 LIST_PAGE_SIZE 一致。 */
+const LIST_PAGE_SIZE = 50;
+
 /**
  * 最多翻多少页。
  *
@@ -59,6 +62,9 @@ interface RunsState {
   nextSeq: number;
   /** 事件太多、翻页到上限了。界面据此提示「还有更多没显示」。 */
   truncated: boolean;
+  /** 满足当前筛选的总条数。分页控件靠它。 */
+  total: number;
+  offset: number;
   loading: boolean;
   error: string | null;
   filter: RunFilter;
@@ -68,6 +74,8 @@ interface RunsState {
   select: (runId: string) => Promise<void>;
   pollEvents: () => Promise<void>;
   setFilter: (filter: RunFilter) => Promise<void>;
+  search: (query: string) => Promise<void>;
+  setOffset: (offset: number) => Promise<void>;
   setQuery: (query: string) => void;
   cancel: (runId: string) => Promise<void>;
   resume: (runId: string) => Promise<void>;
@@ -86,6 +94,8 @@ export const useRuns = create<RunsState>((set, get) => ({
   events: [],
   nextSeq: 0,
   truncated: false,
+  total: 0,
+  offset: 0,
   loading: false,
   error: null,
   filter: 'all',
@@ -101,8 +111,10 @@ export const useRuns = create<RunsState>((set, get) => ({
       const result = (await coreClient.call('run.list', {
         ...(statuses.length > 0 ? { status: statuses } : {}),
         ...(query ? { query } : {}),
-      })) as { items: RunSummary[] };
-      set({ items: result.items, loading: false });
+        limit: LIST_PAGE_SIZE,
+        offset: get().offset,
+      })) as { items: RunSummary[]; total: number };
+      set({ items: result.items, total: result.total, loading: false });
     } catch (error) {
       // 保留已有列表：清空会让用户以为运行记录丢了
       set({ loading: false, error: describe(error) });
@@ -167,11 +179,24 @@ export const useRuns = create<RunsState>((set, get) => ({
   },
 
   setFilter: async (filter: RunFilter) => {
-    set({ filter });
+    // 换条件时回到第一页：停在第 5 页的话，筛完可能一条都没有，
+    // 而用户以为是「没有失败的运行」
+    set({ filter, offset: 0 });
     await get().load();
   },
 
   setQuery: (query: string) => set({ query }),
+
+  /** 搜索。同样回到第一页。 */
+  search: async (query: string) => {
+    set({ query, offset: 0 });
+    await get().load();
+  },
+
+  setOffset: async (offset: number) => {
+    set({ offset: Math.max(0, offset) });
+    await get().load();
+  },
 
   cancel: async (runId: string) => {
     try {

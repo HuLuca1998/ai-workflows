@@ -47,7 +47,7 @@ const MODELS = [
 
 function respond(handlers: Record<string, (input: unknown) => unknown> = {}) {
   const checked = createContractCall({
-    'agent.list': () => ({ items: [AGENT] }),
+    'agent.list': () => ({ items: [AGENT], total: 0 }),
     'model.list': () => ({ items: MODELS.map(full) }),
     'agent.update': () => ({ ver: 4 }),
     'agent.create': () => ({ id: 'agent_new' }),
@@ -185,7 +185,7 @@ describe('新建角色', () => {
   });
 
   it('一个模型都没登记时说清楚该先去哪 —— 而不是给一个空下拉', async () => {
-    respond({ 'model.list': () => ({ items: [] }) });
+    respond({ 'model.list': () => ({ items: [], total: 0 }) });
     const user = userEvent.setup();
     render(<AgentsPage />);
     await screen.findByText('分析 Agent');
@@ -239,5 +239,31 @@ describe('加载竞态', () => {
     await user.click(screen.getByRole('button', { name: '新建角色' }));
     expect(screen.getByText('正在读取模型…')).toBeTruthy();
     expect(screen.queryByText('先去「模型」页登记一个')).toBeNull();
+  });
+});
+
+describe('新建后要能立刻编辑', () => {
+  it('新建的角色不在当前页时也选得中 —— 分页把它挤到第二页了', async () => {
+    // Agent 按名字排且图纸没有搜索框，新建的「审查 Agent」很可能
+    // 落在第二页。而用户刚建完就想接着填目标与权限 ——
+    // 那时详情区必须是它，而不是「选一个角色查看详情」
+    respond({
+      // 列表永远只返回原来那一条：模拟新建的落在第二页
+      'agent.list': () => ({ items: [AGENT], total: 51 }),
+      'agent.create': () => ({ id: 'agent_new' }),
+    });
+
+    const user = userEvent.setup();
+    render(<AgentsPage />);
+    await screen.findByText('分析 Agent');
+
+    await user.click(screen.getByRole('button', { name: '新建角色' }));
+    await user.type(screen.getByLabelText('名称'), '审查 Agent');
+    await user.type(screen.getByLabelText('角色'), '代码审查');
+    await user.click(screen.getByRole('button', { name: '创建' }));
+
+    await waitFor(() => {
+      expect((screen.getByLabelText('角色名称') as HTMLInputElement).value).toBe('审查 Agent');
+    });
   });
 });

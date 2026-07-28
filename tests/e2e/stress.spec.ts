@@ -212,15 +212,19 @@ test.describe('并发', () => {
 
     // 先确认引擎跑完，再看界面 —— 反过来的话，界面的 1.2s 轮询会和
     // poll 里每轮 5 次 page.evaluate 挤在一起，把一件 1 秒的事拖成一分钟。
-    // 用一次 run_list 拿全部状态，而不是逐个 run_get
+    // 用一次 run_list 拿全部状态，而不是逐个 run_get。
+    // 按 workflowId 筛：列表分页后一页封顶，这 5 条新运行
+    // 在 500 多条历史里不一定都落在第一页
     await expect
       .poll(
         async () => {
-          const runs = (await api(page, 'run_list', { statuses: ['succeeded'] })) as {
-            id: string;
-          }[];
-          const finished = new Set(runs.map((run) => run.id));
-          return runIds.filter((id) => finished.has(id)).length;
+          const page1 = (await api(page, 'run_list', {
+            workflowId: id,
+            statuses: ['succeeded'],
+            limit: 200,
+          })) as { items: { id: string }[] };
+          const finished = new Set((page1.items ?? []).map((run) => run.id));
+          return runIds.filter((runId) => finished.has(runId)).length;
         },
         { timeout: 60_000, intervals: [500] },
       )

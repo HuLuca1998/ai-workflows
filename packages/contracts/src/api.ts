@@ -63,6 +63,34 @@ const DiffSchema = z.object({
 /** 一次最多拉多少事件：Run Detail 用游标分页 + 虚拟滚动，不允许一把梭。 */
 export const EVENTS_PAGE_LIMIT_MAX = 1000;
 
+/** 列表默认一页多少条。够填满一屏，又不会让浏览器建出上千个节点。 */
+export const LIST_PAGE_SIZE = 50;
+
+/** 一页最多多少条。上限存在的意义就是不能被绕过。 */
+export const LIST_PAGE_LIMIT_MAX = 200;
+
+/**
+ * 列表的分页参数。
+ *
+ * 1292 条工作流一次铺满页面，浏览器要建出上千个 DOM 节点，
+ * 而用户真正关心的那几条淹在里面。
+ *
+ * limit 有上限：没有上限的话「分页」就是摆设 —— 调用方一个
+ * `limit: 100000` 就把它绕过去了。
+ */
+const PAGING = {
+  limit: z.number().int().positive().max(LIST_PAGE_LIMIT_MAX).default(LIST_PAGE_SIZE),
+  offset: z.number().int().min(0).default(0),
+};
+
+/** 列表的返回：这一页 + 总数。界面靠 total 画分页控件。 */
+const paged = <T extends z.ZodTypeAny>(item: T) =>
+  z.object({
+    items: z.array(item),
+    /** 满足筛选条件的总条数，不是这一页的条数。 */
+    total: z.number().int().min(0),
+  });
+
 const SPECS = {
   // ── Workflow ────────────────────────────────────────────────────────────
   'workspace.stats': {
@@ -94,8 +122,12 @@ const SPECS = {
     summary: '首页四张统计卡的同一时刻快照',
   },
   'workflow.list': {
-    input: z.object({ query: z.string().optional(), archived: z.boolean().optional() }),
-    output: z.object({ items: z.array(WorkflowSchema) }),
+    input: z.object({
+      query: z.string().optional(),
+      archived: z.boolean().optional(),
+      ...PAGING,
+    }),
+    output: paged(WorkflowSchema),
     mutates: false,
     audited: false,
     scope: 'workflow:read',
@@ -281,8 +313,9 @@ const SPECS = {
       workflowId: z.string().optional(),
       status: z.array(z.enum(RUN_STATUSES)).optional(),
       query: z.string().optional(),
+      ...PAGING,
     }),
-    output: z.object({ items: z.array(RunSchema) }),
+    output: paged(RunSchema),
     mutates: false,
     audited: false,
     scope: 'workflow:read',
@@ -481,8 +514,9 @@ const SPECS = {
       scope: z.string().optional(),
       scopeId: z.string().optional(),
       query: z.string().optional(),
+      ...PAGING,
     }),
-    output: z.object({ items: z.array(MemorySchema) }),
+    output: paged(MemorySchema),
     mutates: false,
     audited: false,
     scope: 'memory:read',
@@ -534,8 +568,8 @@ const SPECS = {
 
   // ── Prompt / Model / Agent ─────────────────────────────────────────────
   'prompt.list': {
-    input: z.object({ group: z.string().optional(), query: z.string().optional() }),
-    output: z.object({ items: z.array(PromptSchema) }),
+    input: z.object({ group: z.string().optional(), query: z.string().optional(), ...PAGING }),
+    output: paged(PromptSchema),
     mutates: false,
     audited: false,
     scope: 'workflow:read',
@@ -575,8 +609,8 @@ const SPECS = {
     summary: '删除自定义提示词；内置项只能恢复默认',
   },
   'model.list': {
-    input: z.object({ enabledOnly: z.boolean().default(false) }),
-    output: z.object({ items: z.array(ModelSchema) }),
+    input: z.object({ enabledOnly: z.boolean().default(false), ...PAGING }),
+    output: paged(ModelSchema),
     mutates: false,
     audited: false,
     scope: 'workflow:read',
@@ -619,8 +653,8 @@ const SPECS = {
     summary: '连通性测试',
   },
   'agent.list': {
-    input: z.object({ query: z.string().optional() }),
-    output: z.object({ items: z.array(AgentProfileSchema) }),
+    input: z.object({ query: z.string().optional(), ...PAGING }),
+    output: paged(AgentProfileSchema),
     mutates: false,
     audited: false,
     scope: 'workflow:read',

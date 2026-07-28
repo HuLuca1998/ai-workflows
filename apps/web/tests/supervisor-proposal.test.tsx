@@ -56,7 +56,7 @@ const PROPOSAL: { summary: string; operations: PatchOperation[] } = {
 
 function respond(handlers: Record<string, (input: unknown) => unknown> = {}) {
   const checked = createContractCall({
-    'model.list': () => ({ items: [MODEL] }),
+    'model.list': () => ({ items: [MODEL], total: 0 }),
     'supervisor.ask': () => ({ text: '我改好了，你看下。', toolCalls: 1, proposal: PROPOSAL }),
     'workflow.patch': () => ({
       rev: 8,

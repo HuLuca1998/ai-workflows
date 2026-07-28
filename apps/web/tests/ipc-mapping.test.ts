@@ -52,17 +52,20 @@ describe('run.* 的映射', () => {
   });
 
   it('run.list 把 inputs_json 解析回对象', () => {
-    const result = fromIpcResult('run.list', [
-      {
-        id: 'run_1',
-        workflowId: 'wf_1',
-        workflowName: '批量整理',
-        status: 'running',
-        inputsJson: '{"issue":"42"}',
-        currentNode: 'fix',
-        startedAt: '2026-07-27T10:00:00Z',
-      },
-    ]) as { items: { inputs: Record<string, unknown>; workflowName: string }[] };
+    const result = fromIpcResult('run.list', {
+      items: [
+        {
+          id: 'run_1',
+          workflowId: 'wf_1',
+          workflowName: '批量整理',
+          status: 'running',
+          inputsJson: '{"issue":"42"}',
+          currentNode: 'fix',
+          startedAt: '2026-07-27T10:00:00Z',
+        },
+      ],
+      total: 1,
+    }) as { items: { inputs: Record<string, unknown>; workflowName: string }[] };
 
     expect(result.items[0]?.inputs).toEqual({ issue: '42' });
     expect(result.items[0]?.workflowName).toBe('批量整理');
@@ -70,9 +73,12 @@ describe('run.* 的映射', () => {
 
   it('inputs_json 损坏时给空对象而不是让整页崩掉', () => {
     // 一条坏记录不该让整个执行记录页打不开
-    const result = fromIpcResult('run.list', [
-      { id: 'run_1', workflowId: 'wf_1', workflowName: 'x', status: 'failed', inputsJson: '{坏' },
-    ]) as { items: { inputs: Record<string, unknown> }[] };
+    const result = fromIpcResult('run.list', {
+      items: [
+        { id: 'run_1', workflowId: 'wf_1', workflowName: 'x', status: 'failed', inputsJson: '{坏' },
+      ],
+      total: 1,
+    }) as { items: { inputs: Record<string, unknown> }[] };
     expect(result.items[0]?.inputs).toEqual({});
   });
 
@@ -180,6 +186,7 @@ describe('契约不会悄悄剥掉后端发的字段', () => {
           startedAt: '2026-07-27T10:00:00.000Z',
         },
       ],
+      total: 1,
     }) as { items: Record<string, unknown>[] };
 
     expect(parsed.items[0]?.workflowName).toBe('真实工作流名');
@@ -190,18 +197,21 @@ describe('契约不会悄悄剥掉后端发的字段', () => {
     // 转换层与契约各对一半的情况：转换层加了字段但契约没有，
     // 或者契约要求的字段转换层没给
     const { getMethodSpec } = await import('@aiwf/contracts');
-    const converted = fromIpcResult('run.list', [
-      {
-        id: 'run_1',
-        workflowId: 'wf_1',
-        workflowName: '批量整理',
-        status: 'running',
-        inputsJson: '{"issue":"42"}',
-        currentNode: 'fix',
-        workdir: '/tmp/runs',
-        startedAt: '2026-07-27T10:00:00.000Z',
-      },
-    ]);
+    const converted = fromIpcResult('run.list', {
+      items: [
+        {
+          id: 'run_1',
+          workflowId: 'wf_1',
+          workflowName: '批量整理',
+          status: 'running',
+          inputsJson: '{"issue":"42"}',
+          currentNode: 'fix',
+          workdir: '/tmp/runs',
+          startedAt: '2026-07-27T10:00:00.000Z',
+        },
+      ],
+      total: 1,
+    });
 
     const result = getMethodSpec('run.list').output.safeParse(converted);
     expect(result.success, result.success ? '' : JSON.stringify(result.error.issues)).toBe(true);

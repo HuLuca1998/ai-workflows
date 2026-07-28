@@ -494,3 +494,55 @@ describe('主管 AI 的历史会话', () => {
     );
   });
 });
+
+describe('列表分页', () => {
+  const LIST_METHODS = [
+    'workflow.list',
+    'run.list',
+    'memory.list',
+    'prompt.list',
+    'model.list',
+    'agent.list',
+  ] as const;
+
+  it('每个列表方法都收 limit 与 offset', () => {
+    // 1292 条工作流一次铺满页面，浏览器要建出上千个 DOM 节点，
+    // 而用户真正关心的那几条淹在里面
+    for (const method of LIST_METHODS) {
+      const parsed = getMethodSpec(method).input.safeParse({ limit: 50, offset: 100 });
+      expect(parsed.success, `${method} 不收分页参数`).toBe(true);
+    }
+  });
+
+  it('不给分页参数时有默认值 —— 老调用方不该因此拿到空列表', () => {
+    for (const method of LIST_METHODS) {
+      const parsed = getMethodSpec(method).input.safeParse({});
+      expect(parsed.success, `${method} 的分页参数不是可选的`).toBe(true);
+      const data = parsed.success ? (parsed.data as { limit?: number }) : {};
+      expect(data.limit, `${method} 没有默认 limit`).toBeGreaterThan(0);
+    }
+  });
+
+  it('limit 有上限 —— 不然「分页」就是摆设', () => {
+    for (const method of LIST_METHODS) {
+      expect(
+        getMethodSpec(method).input.safeParse({ limit: 100_000 }).success,
+        `${method} 接受了无上限的 limit`,
+      ).toBe(false);
+    }
+  });
+
+  it('负的 offset 被拒 —— 那只可能来自算错', () => {
+    for (const method of LIST_METHODS) {
+      expect(getMethodSpec(method).input.safeParse({ offset: -1 }).success).toBe(false);
+    }
+  });
+
+  it('返回总数与还有没有更多 —— 界面靠它画分页控件', () => {
+    for (const method of LIST_METHODS) {
+      const spec = getMethodSpec(method);
+      const shape = (spec.output as unknown as { shape?: Record<string, unknown> }).shape ?? {};
+      expect(Object.keys(shape), `${method} 的返回里没有 total`).toContain('total');
+    }
+  });
+});

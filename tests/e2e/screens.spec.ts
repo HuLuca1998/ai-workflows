@@ -60,12 +60,16 @@ test.describe('Agent 角色（图纸「05 Agent 角色」）', () => {
   test('复制角色真的建出一个副本', async ({ page }) => {
     const items = page.locator('.agents__item');
     if ((await items.count()) === 0) test.skip();
-    const before = await items.count();
 
+    // 按名字找，不数条数：列表分页后一页封顶 50 条，
+    // 副本可能落在第二页 —— 而「多了一条」这个断言在满页时永远不成立
     await items.first().click();
+    const name = (await page.locator('.agents__name-input').inputValue()) || '';
     await page.getByRole('button', { name: '复制' }).click();
 
-    await expect(items).toHaveCount(before + 1, { timeout: 10_000 });
+    await expect(page.locator('.agents__item', { hasText: `${name} 副本` }).first()).toBeVisible({
+      timeout: 10_000,
+    });
   });
 });
 

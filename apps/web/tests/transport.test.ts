@@ -53,14 +53,19 @@ describe('入参转换', () => {
 
 describe('出参转换', () => {
   it('workflow.list 把 snake_case 转成契约形状', () => {
-    const raw = [{ id: 'wf_1', name: '流程', folder: null, updatedAt: '2026-07-27T10:00:00.000Z' }];
-    const result = fromIpcResult('workflow.list', raw) as { items: unknown[] };
+    const raw = {
+      items: [{ id: 'wf_1', name: '流程', folder: null, updatedAt: '2026-07-27T10:00:00.000Z' }],
+      total: 1,
+    };
+    const result = fromIpcResult('workflow.list', raw) as { items: unknown[]; total: number };
     expect(result.items[0]).toMatchObject({
       id: 'wf_1',
       name: '流程',
       updatedAt: '2026-07-27T10:00:00.000Z',
       archived: false,
     });
+    // total 是分页控件的依据，不能在转换层丢掉
+    expect(result.total).toBe(1);
   });
 
   it('workflow.get 把 graphJson 解析成对象，并保留 rev 与版本列表', () => {

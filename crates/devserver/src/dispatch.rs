@@ -43,6 +43,8 @@ pub fn dispatch(
             &store,
             opt_string(input, "scope"),
             opt_string(input, "query"),
+            opt_int(input, "limit"),
+            opt_int(input, "offset"),
         )?),
         "memory_create" => to_value(api::memory_create(
             &store,
@@ -67,7 +69,13 @@ pub fn dispatch(
             boolean(input, "enabled"),
         )?),
         "memory_delete" => to_value(api::memory_delete(&store, string(input, "id")?)?),
-        "prompt_list" => to_value(api::prompt_list(&store, opt_string(input, "query"))?),
+        "prompt_list" => to_value(api::prompt_list(
+            &store,
+            opt_string(input, "group"),
+            opt_string(input, "query"),
+            opt_int(input, "limit"),
+            opt_int(input, "offset"),
+        )?),
         "prompt_create" => to_value(api::prompt_create(
             &store,
             string(input, "group")?,
@@ -89,7 +97,11 @@ pub fn dispatch(
             string(input, "name")?,
         )?),
         "prompt_delete" => to_value(api::prompt_delete(&store, string(input, "id")?)?),
-        "agent_list" => to_value(api::agent_list(&store)?),
+        "agent_list" => to_value(api::agent_list(
+            &store,
+            opt_int(input, "limit"),
+            opt_int(input, "offset"),
+        )?),
         "agent_create" => to_value(api::agent_create(
             &store,
             string(input, "name")?,
@@ -123,7 +135,12 @@ pub fn dispatch(
             string(input, "name")?,
         )?),
         "agent_delete" => to_value(api::agent_delete(&store, string(input, "id")?)?),
-        "model_list" => to_value(api::model_list(&store, boolean(input, "enabledOnly"))?),
+        "model_list" => to_value(api::model_list(
+            &store,
+            boolean(input, "enabledOnly"),
+            opt_int(input, "limit"),
+            opt_int(input, "offset"),
+        )?),
         "model_create" => to_value(api::model_create(
             &store,
             string(input, "name")?,
@@ -171,6 +188,8 @@ pub fn dispatch(
             opt_string(input, "workflowId"),
             strings(input, "statuses"),
             opt_string(input, "query"),
+            opt_int(input, "limit"),
+            opt_int(input, "offset"),
         )?),
         "run_get" => to_value(api::run_get(&store, string(input, "runId")?)?),
         "run_events" => to_value(api::run_events(
@@ -197,7 +216,11 @@ pub fn dispatch(
             string(input, "nodeId")?,
             string(input, "decision")?,
         )?),
-        "workflow_list" => to_value(api::workflow_list(&store)?),
+        "workflow_list" => to_value(api::workflow_list(
+            &store,
+            opt_int(input, "limit"),
+            opt_int(input, "offset"),
+        )?),
         // 数据库同级的 data 目录就是运行工作目录，与 run_start 的默认一致
         "run_diagnostics" => to_value(api::run_diagnostics(
             &store,

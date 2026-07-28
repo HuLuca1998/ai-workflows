@@ -43,7 +43,7 @@ function respond(handlers: Record<string, (input: unknown) => unknown>) {
 beforeEach(() => {
   call.mockReset();
   respond({
-    'model.list': () => ({ items: [MODEL] }),
+    'model.list': () => ({ items: [MODEL], total: 0 }),
     'model.create': () => ({ id: 'model_new' }),
     'model.update': () => ({ ok: true }),
     'model.delete': () => ({ ok: true }),
@@ -74,14 +74,14 @@ describe('模型列表', () => {
   });
 
   it('一个模型都没有时说明要先登记，并解释 ACP 为什么不自动发现', async () => {
-    respond({ 'model.list': () => ({ items: [] }) });
+    respond({ 'model.list': () => ({ items: [], total: 0 }) });
     view();
     expect(await screen.findByText(/还没有登记模型/u)).toBeTruthy();
     expect(screen.getByText(/ACP 握手不返回模型列表/u)).toBeTruthy();
   });
 
   it('停用的条目在列表里标出来', async () => {
-    respond({ 'model.list': () => ({ items: [{ ...MODEL, enabled: false }] }) });
+    respond({ 'model.list': () => ({ items: [{ ...MODEL, enabled: false }], total: 1 }) });
     view();
     const item = await screen.findByRole('button', { name: /Opus 5/u });
     expect(item.textContent).toContain('已停用');
@@ -116,7 +116,9 @@ describe('模型详情', () => {
   });
 
   it('从未测过时不显示假的延迟数字', async () => {
-    respond({ 'model.list': () => ({ items: [{ ...MODEL, lastLatencyMs: undefined }] }) });
+    respond({
+      'model.list': () => ({ items: [{ ...MODEL, lastLatencyMs: undefined }], total: 1 }),
+    });
     const user = userEvent.setup();
     view();
     await user.click(await screen.findByRole('button', { name: /Opus 5/u }));

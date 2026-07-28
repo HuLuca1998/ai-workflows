@@ -221,8 +221,13 @@ interface VersionMetaDto {
 export function fromIpcResult(method: CoreApiMethod, raw: unknown): unknown {
   switch (method) {
     case 'workflow.list': {
-      const rows = (raw ?? []) as WorkflowRowDto[];
+      const page = (raw ?? { items: [], total: 0 }) as {
+        items: WorkflowRowDto[];
+        total: number;
+      };
+      const rows = page.items ?? [];
       return {
+        total: page.total ?? rows.length,
         items: rows.map((row) => ({
           id: row.id,
           name: row.name,
@@ -315,8 +320,11 @@ export function fromIpcResult(method: CoreApiMethod, raw: unknown): unknown {
     case 'run.start':
       return { runId: raw as string };
 
-    case 'run.list':
-      return { items: ((raw ?? []) as RunRowDto[]).map(toRun) };
+    case 'run.list': {
+      const page = (raw ?? { items: [], total: 0 }) as { items: RunRowDto[]; total: number };
+      const rows = page.items ?? [];
+      return { items: rows.map(toRun), total: page.total ?? rows.length };
+    }
 
     case 'run.get':
       return { run: raw ? toRun(raw as RunRowDto) : null };
@@ -338,11 +346,15 @@ export function fromIpcResult(method: CoreApiMethod, raw: unknown): unknown {
     case 'run.diagnostics':
       return raw;
 
-    case 'supervisor.sessions':
+    // 分页的列表：后端已经发 { items, total }，原样带过来。
+    // 再包一层 { items: raw } 的话 total 就丢了 —— 而界面靠它画分页控件
     case 'memory.list':
     case 'prompt.list':
     case 'agent.list':
     case 'model.list':
+      return raw;
+
+    case 'supervisor.sessions':
       return { items: raw ?? [] };
 
     case 'memory.create':

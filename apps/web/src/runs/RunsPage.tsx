@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router';
 import { type RunStatusName, StatusBadge } from '@aiwf/ui';
+import { Pager } from '../layout/Pager.js';
 import { coreClient } from '../data/workspace.js';
 import { type RunEvent, type RunFilter, type RunSummary, useRuns } from './runsStore.js';
 
@@ -158,6 +159,14 @@ export function RunsPage() {
             />
           ))}
         </div>
+
+        {/* 508 条运行一次铺满的话，用户要找的那次淹在里面 */}
+        <Pager
+          total={runs.total}
+          pageSize={50}
+          offset={runs.offset}
+          onChange={(next) => void runs.setOffset(next)}
+        />
 
         <p className="runs__foot">
           <i className="ph ph-stack" aria-hidden="true" />

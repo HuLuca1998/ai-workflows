@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { api } from './_api.js';
 
 /**
  * 管理类三屏（模型 / Agent 角色 / 提示词）的**写入**路径。
@@ -69,9 +70,18 @@ test.describe('Agent 角色', () => {
     // 报错横幅不该出现 —— codex 那次是「agent.update 的入参不合契约」
     await expect(page.getByRole('alert')).toHaveCount(0);
 
-    await page.reload();
-    await page.getByText(name).click();
-    await expect(page.locator('#agent-goal')).toHaveValue('验证详情区能改能存');
+    // 直接问后端有没有落库。
+    //
+    // 原来是「刷新后在列表里点开它」，但列表分页后一页封顶 50 条，
+    // 而 Agent 页按名字排且**图纸没有搜索框**（提示词页才有）——
+    // 新建的角色可能落在第二页。那是分页的固有代价，
+    // 不该为了让测试好写就往图纸上加一个搜索框。
+    const saved = (await api(page, 'agent_list', { limit: 200 })) as {
+      items: { name: string; goal: string }[];
+    };
+    const found = saved.items.find((a) => a.name === name);
+    expect(found, '新建的角色没落库').toBeTruthy();
+    expect(found?.goal).toBe('验证详情区能改能存');
   });
 
   test('切换模型后下拉保持新选择', async ({ page }) => {

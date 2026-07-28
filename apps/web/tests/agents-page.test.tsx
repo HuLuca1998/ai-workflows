@@ -49,8 +49,8 @@ const MODEL = {
 
 function respond(handlers: Record<string, (input: unknown) => unknown>) {
   const checked = createContractCall({
-    'agent.list': () => ({ items: [AGENT] }),
-    'model.list': () => ({ items: [MODEL] }),
+    'agent.list': () => ({ items: [AGENT], total: 0 }),
+    'model.list': () => ({ items: [MODEL], total: 0 }),
     'agent.create': () => ({ id: 'agent_new' }),
     'agent.update': () => ({ ok: true }),
     'agent.delete': () => ({ ok: true }),
@@ -81,13 +81,13 @@ describe('角色列表', () => {
   });
 
   it('一个角色都没有时说明这里会出现什么', async () => {
-    respond({ 'agent.list': () => ({ items: [] }) });
+    respond({ 'agent.list': () => ({ items: [], total: 0 }) });
     view();
     expect(await screen.findByText(/还没有 Agent 角色/u)).toBeTruthy();
   });
 
   it('内置角色标出来', async () => {
-    respond({ 'agent.list': () => ({ items: [{ ...AGENT, builtin: true }] }) });
+    respond({ 'agent.list': () => ({ items: [{ ...AGENT, builtin: true }], total: 1 }) });
     view();
     const item = await screen.findByRole('button', { name: /分析 Agent/u });
     expect(item.textContent).toContain('内置');
@@ -139,7 +139,10 @@ describe('角色详情', () => {
 
   it('模型下拉只列已启用的条目', async () => {
     respond({
-      'model.list': () => ({ items: [MODEL, { ...MODEL, id: 'model_off', name: '停用的' }] }),
+      'model.list': () => ({
+        items: [MODEL, { ...MODEL, id: 'model_off', name: '停用的' }],
+        total: 1,
+      }),
     });
     const user = userEvent.setup();
     view();
@@ -186,7 +189,7 @@ describe('复制与删除', () => {
   });
 
   it('内置角色不给删除按钮', async () => {
-    respond({ 'agent.list': () => ({ items: [{ ...AGENT, builtin: true }] }) });
+    respond({ 'agent.list': () => ({ items: [{ ...AGENT, builtin: true }], total: 1 }) });
     const user = userEvent.setup();
     view();
     await user.click(await screen.findByRole('button', { name: /分析 Agent/u }));

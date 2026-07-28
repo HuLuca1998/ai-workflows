@@ -548,6 +548,35 @@ impl Store {
         Ok(row)
     }
 
+    /// 列出工作流的一页，同时给出总数。
+    ///
+    /// 一次全返回的话，1292 条工作流会让浏览器建出上千个 DOM 节点，
+    /// 而用户真正关心的那几条淹在里面。
+    ///
+    /// 排序必须是**全序**：只按 updated_at 排的话，同一毫秒更新的几条
+    /// 在两次查询间顺序可能不同 —— 翻页会看到重复的条目，
+    /// 而另一些永远看不到。所以补一个 rowid 兜底。
+    pub fn list_workflows_paged(&self, limit: i64, offset: i64) -> Result<(Vec<WorkflowRow>, i64)> {
+        let total: i64 = self
+            .conn
+            .query_row("SELECT COUNT(*) FROM workflow", [], |row| row.get(0))?;
+
+        let mut stmt = self.conn.prepare(
+            "SELECT w.id, w.name, w.folder, w.created_at, w.updated_at, w.archived,
+                    (SELECT MAX(version) FROM workflow_version WHERE workflow_id = w.id),
+                    r.id, r.status, r.started_at, r.ended_at, r.current_node,
+                    (SELECT version FROM workflow_version WHERE id = r.version_id)
+             FROM workflow w
+             LEFT JOIN run r ON r.id = (
+                 SELECT id FROM run WHERE workflow_id = w.id ORDER BY rowid DESC LIMIT 1
+             )
+             ORDER BY w.updated_at DESC, w.rowid DESC
+             LIMIT ?1 OFFSET ?2",
+        )?;
+        let rows = stmt.query_map(params![limit, offset], map_workflow)?;
+        Ok((rows.collect::<std::result::Result<Vec<_>, _>>()?, total))
+    }
+
     /// 列出工作流，**带最近一次运行**。
     ///
     /// 用关联子查询而不是「先列工作流、再逐条查运行」：后者在 300 条的
@@ -1015,6 +1044,68 @@ impl Store {
             .map_err(StoreError::from)
     }
 
+    /// 列出运行的一页，同时给出总数。
+    ///
+    /// total 是**筛选之后**的数：不然分页控件会画出翻不到的页。
+    pub fn list_runs_paged(
+        &self,
+        workflow_id: Option<&str>,
+        statuses: &[String],
+        query: Option<&str>,
+        limit: i64,
+        offset: i64,
+    ) -> Result<(Vec<RunRow>, i64)> {
+        let status_clause = if statuses.is_empty() {
+            String::new()
+        } else {
+            let holes = vec!["?"; statuses.len()].join(",");
+            format!(" AND r.status IN ({holes})")
+        };
+
+        let where_clause = format!(
+            "WHERE (?1 IS NULL OR r.workflow_id = ?1)
+               AND (?2 IS NULL OR r.id LIKE ?2 OR w.name LIKE ?2 OR r.inputs_json LIKE ?2)
+               {status_clause}"
+        );
+
+        let like = query.map(|q| format!("%{q}%"));
+        let mut count_params: Vec<&dyn rusqlite::ToSql> = vec![&workflow_id, &like];
+        for status in statuses {
+            count_params.push(status);
+        }
+
+        let total: i64 = self.conn.query_row(
+            &format!(
+                "SELECT COUNT(*) FROM run r JOIN workflow w ON w.id = r.workflow_id {where_clause}"
+            ),
+            count_params.as_slice(),
+            |row| row.get(0),
+        )?;
+
+        // started_at 可能为 NULL（刚建还没开始），rowid 保证全序
+        let sql = format!(
+            "SELECT r.id, r.workflow_id, w.name, r.version_id, r.draft_rev, r.status,
+                    r.inputs_json, r.current_node, r.workdir, r.started_at, r.ended_at
+             FROM run r JOIN workflow w ON w.id = r.workflow_id
+             {where_clause}
+             ORDER BY r.started_at DESC, r.rowid DESC
+             LIMIT ?{} OFFSET ?{}",
+            statuses.len() + 3,
+            statuses.len() + 4
+        );
+
+        let mut params: Vec<&dyn rusqlite::ToSql> = vec![&workflow_id, &like];
+        for status in statuses {
+            params.push(status);
+        }
+        params.push(&limit);
+        params.push(&offset);
+
+        let mut stmt = self.conn.prepare(&sql)?;
+        let rows = stmt.query_map(params.as_slice(), map_run_row)?;
+        Ok((rows.collect::<std::result::Result<Vec<_>, _>>()?, total))
+    }
+
     /// 给工作流改名。
     ///
     /// 新建时只能得到「未命名工作流 N」，没有改名入口的话列表很快
@@ -1118,6 +1209,33 @@ impl Store {
         let rows = stmt.query_map(params![scope, like], map_memory_row)?;
         rows.collect::<std::result::Result<Vec<_>, _>>()
             .map_err(StoreError::from)
+    }
+
+    /// 列出记忆的一页，同时给出总数。
+    pub fn list_memories_paged(
+        &self,
+        scope: Option<&str>,
+        query: Option<&str>,
+        limit: i64,
+        offset: i64,
+    ) -> Result<(Vec<MemoryRow>, i64)> {
+        let like = query.map(|q| format!("%{q}%"));
+        let where_clause = "WHERE (?1 IS NULL OR scope = ?1)
+               AND (?2 IS NULL OR key LIKE ?2 OR value LIKE ?2 OR tags_json LIKE ?2)";
+
+        let total: i64 = self.conn.query_row(
+            &format!("SELECT COUNT(*) FROM memory {where_clause}"),
+            params![scope, like],
+            |row| row.get(0),
+        )?;
+
+        let sql = format!(
+            "SELECT {MEMORY_COLUMNS} FROM memory {where_clause}
+             ORDER BY updated_at DESC, rowid DESC LIMIT ?3 OFFSET ?4"
+        );
+        let mut stmt = self.conn.prepare(&sql)?;
+        let rows = stmt.query_map(params![scope, like, limit, offset], map_memory_row)?;
+        Ok((rows.collect::<std::result::Result<Vec<_>, _>>()?, total))
     }
 
     /// 要注入到下一次 AI 调用里的记忆。
@@ -1264,6 +1382,36 @@ impl Store {
             .map_err(StoreError::from)
     }
 
+    /// 列出提示词的一页，同时给出总数。
+    pub fn list_prompts_paged(
+        &self,
+        group: Option<&str>,
+        query: Option<&str>,
+        limit: i64,
+        offset: i64,
+    ) -> Result<(Vec<PromptRow>, i64)> {
+        let like = query.map(|q| format!("%{q}%"));
+        // group 是 SQL 关键字，列名要引起来 —— 用 r#""# 免去转义
+        let where_clause = r#"WHERE (?1 IS NULL OR name LIKE ?1
+                                     OR sections_json LIKE ?1 OR vars_json LIKE ?1)
+                                AND (?2 IS NULL OR "group" = ?2)"#;
+
+        let total: i64 = self.conn.query_row(
+            &format!("SELECT COUNT(*) FROM prompt {where_clause}"),
+            params![like, group],
+            |row| row.get(0),
+        )?;
+
+        let sql = format!(
+            r#"SELECT {PROMPT_COLUMNS} FROM prompt {where_clause}
+               ORDER BY "group" ASC, name ASC, rowid ASC
+               LIMIT ?3 OFFSET ?4"#
+        );
+        let mut stmt = self.conn.prepare(&sql)?;
+        let rows = stmt.query_map(params![like, group, limit, offset], map_prompt_row)?;
+        Ok((rows.collect::<std::result::Result<Vec<_>, _>>()?, total))
+    }
+
     /// 更新提示词，版本号递增。
     ///
     /// 「运行记录会引用当时的提示词版本，历史结果始终可解释」——
@@ -1407,6 +1555,24 @@ impl Store {
         let rows = stmt.query_map([], map_agent_row)?;
         rows.collect::<std::result::Result<Vec<_>, _>>()
             .map_err(StoreError::from)
+    }
+
+    /// 列出角色的一页，同时给出总数。
+    ///
+    /// name 可能重名（复制出来的副本就叫「X 副本」），补 rowid 保证全序 ——
+    /// 排序不稳定的话翻页会看到重复的条目。
+    pub fn list_agents_paged(&self, limit: i64, offset: i64) -> Result<(Vec<AgentRow>, i64)> {
+        let total: i64 = self
+            .conn
+            .query_row("SELECT COUNT(*) FROM agent_profile", [], |row| row.get(0))?;
+
+        let sql = format!(
+            "SELECT {AGENT_COLUMNS} FROM agent_profile
+             ORDER BY name ASC, rowid ASC LIMIT ?1 OFFSET ?2"
+        );
+        let mut stmt = self.conn.prepare(&sql)?;
+        let rows = stmt.query_map(params![limit, offset], map_agent_row)?;
+        Ok((rows.collect::<std::result::Result<Vec<_>, _>>()?, total))
     }
 
     /// 更新角色，**版本号递增**。
@@ -1576,6 +1742,31 @@ impl Store {
         let rows = stmt.query_map(params![i64::from(enabled_only)], map_model_row)?;
         rows.collect::<std::result::Result<Vec<_>, _>>()
             .map_err(StoreError::from)
+    }
+
+    /// 列出模型的一页，同时给出总数。
+    pub fn list_models_paged(
+        &self,
+        enabled_only: bool,
+        limit: i64,
+        offset: i64,
+    ) -> Result<(Vec<ModelRow>, i64)> {
+        let flag = i64::from(enabled_only);
+        let total: i64 = self.conn.query_row(
+            "SELECT COUNT(*) FROM model WHERE (?1 = 0 OR enabled = 1)",
+            params![flag],
+            |row| row.get(0),
+        )?;
+
+        let mut stmt = self.conn.prepare(
+            "SELECT id, name, runtime, model_id, effort, ctx, caps_json, cred_ref, enabled, last_latency_ms
+             FROM model
+             WHERE (?1 = 0 OR enabled = 1)
+             ORDER BY runtime ASC, name ASC, rowid ASC
+             LIMIT ?2 OFFSET ?3",
+        )?;
+        let rows = stmt.query_map(params![flag, limit, offset], map_model_row)?;
+        Ok((rows.collect::<std::result::Result<Vec<_>, _>>()?, total))
     }
 
     /// 部分更新。没传的字段保持原样 —— 传 None 当成「清空」会让

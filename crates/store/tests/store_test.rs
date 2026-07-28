@@ -1911,3 +1911,103 @@ fn keychain_引用原样保留() {
             .contains("keychain://openai-prod")
     );
 }
+
+// ── 列表分页 ──────────────────────────────────────────────────────────────
+//
+// 1292 条工作流一次全返回，浏览器要建出上千个 DOM 节点，
+// 而用户真正关心的那几条淹在里面。
+
+#[test]
+fn 工作流列表按页取() {
+    let store = Store::open_in_memory().unwrap();
+    for i in 0..25 {
+        store
+            .create_workflow(&format!("流程 {i:02}"), None)
+            .unwrap();
+    }
+
+    let (first, total) = store.list_workflows_paged(10, 0).unwrap();
+    assert_eq!(first.len(), 10);
+    assert_eq!(total, 25, "total 是满足条件的总数，不是这一页的条数");
+
+    let (second, _) = store.list_workflows_paged(10, 10).unwrap();
+    assert_eq!(second.len(), 10);
+
+    let (last, _) = store.list_workflows_paged(10, 20).unwrap();
+    assert_eq!(last.len(), 5, "最后一页不足一整页");
+}
+
+#[test]
+fn 分页之间不重不漏() {
+    // 排序不稳定的话翻页会看到重复的条目，而另一些永远看不到
+    let store = Store::open_in_memory().unwrap();
+    for i in 0..30 {
+        store
+            .create_workflow(&format!("流程 {i:02}"), None)
+            .unwrap();
+    }
+
+    let mut seen = std::collections::BTreeSet::new();
+    for page in 0..3 {
+        let (rows, _) = store.list_workflows_paged(10, page * 10).unwrap();
+        for row in rows {
+            assert!(seen.insert(row.id.clone()), "{} 出现了两次", row.name);
+        }
+    }
+    assert_eq!(seen.len(), 30, "有条目一页都没出现过");
+}
+
+#[test]
+fn 越界的_offset_返回空而不是报错() {
+    // 用户手改 URL 或数据在翻页间被删掉时都会走到这
+    let store = Store::open_in_memory().unwrap();
+    store.create_workflow("唯一一条", None).unwrap();
+
+    let (rows, total) = store.list_workflows_paged(10, 999).unwrap();
+    assert!(rows.is_empty());
+    assert_eq!(total, 1, "总数照样要给 —— 界面靠它知道该跳回第几页");
+}
+
+#[test]
+fn 运行列表分页且_total_跟着筛选走() {
+    let store = Store::open_in_memory().unwrap();
+    let wf = store.create_workflow("跑很多次的", None).unwrap();
+    for _ in 0..12 {
+        let run = store.create_run(&wf, None, Some(1), "{}").unwrap();
+        store.advance_run_status(&run, "succeeded", None).unwrap();
+    }
+    for _ in 0..5 {
+        let run = store.create_run(&wf, None, Some(1), "{}").unwrap();
+        store.advance_run_status(&run, "failed", None).unwrap();
+    }
+
+    let (all, total_all) = store.list_runs_paged(None, &[], None, 10, 0).unwrap();
+    assert_eq!(all.len(), 10);
+    assert_eq!(total_all, 17);
+
+    // 筛选之后 total 要是筛选后的数 —— 否则分页控件会画出翻不到的页
+    let (failed, total_failed) = store
+        .list_runs_paged(None, &["failed".to_string()], None, 10, 0)
+        .unwrap();
+    assert_eq!(failed.len(), 5);
+    assert_eq!(total_failed, 5);
+}
+
+#[test]
+fn 其余四个列表也分页() {
+    let store = Store::open_in_memory().unwrap();
+    for i in 0..15 {
+        store
+            .create_prompt(&prompt(&format!("提示 {i:02}")))
+            .unwrap();
+        store.create_agent(&agent(&format!("角色 {i:02}"))).unwrap();
+    }
+
+    let (prompts, prompt_total) = store.list_prompts_paged(None, None, 5, 0).unwrap();
+    assert_eq!(prompts.len(), 5);
+    assert_eq!(prompt_total, 15);
+
+    let (agents, agent_total) = store.list_agents_paged(5, 0).unwrap();
+    assert_eq!(agents.len(), 5);
+    assert_eq!(agent_total, 15);
+}

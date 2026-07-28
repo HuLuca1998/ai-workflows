@@ -68,7 +68,7 @@ const EVENTS = [
 
 function respond(handlers: Record<string, (input: unknown) => unknown> = {}) {
   const checked = createContractCall({
-    'run.list': () => ({ items: [RUN] }),
+    'run.list': () => ({ items: [RUN], total: 0 }),
     'run.get': () => ({ run: RUN }),
     'run.events': () => ({ events: EVENTS, hasMore: false, nextSeq: 5 }),
     'run.artifacts': () => ({ items: [], root: '/tmp/run_1' }),

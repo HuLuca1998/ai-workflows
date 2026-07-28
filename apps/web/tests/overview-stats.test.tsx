@@ -60,7 +60,7 @@ const BASE = {
 function respond(handlers: Record<string, (input: unknown) => unknown> = {}) {
   const checked = createContractCall({
     'workspace.stats': () => STATS,
-    'workflow.list': () => ({ items: [BASE] }),
+    'workflow.list': () => ({ items: [BASE], total: 0 }),
     'workflow.create': () => ({ id: 'wf_new' }),
     ...handlers,
   });

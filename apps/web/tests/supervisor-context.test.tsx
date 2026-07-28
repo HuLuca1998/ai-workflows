@@ -25,8 +25,8 @@ beforeEach(() => {
   call.mockReset();
   call.mockImplementation(
     createContractCall({
-      'model.list': () => ({ items: [] }),
-      'workflow.list': () => ({ items: [] }),
+      'model.list': () => ({ items: [], total: 0 }),
+      'workflow.list': () => ({ items: [], total: 0 }),
       'workspace.stats': () => ({
         pendingApprovals: 0,
         runsToday: 0,

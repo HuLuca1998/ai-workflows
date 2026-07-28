@@ -109,6 +109,124 @@ test.describe('分栏可以拖动', () => {
   }
 });
 
+/**
+ * 每一屏都要填满可视区。
+ *
+ * 逐个页面补 `flex:1` 的做法必然漏 —— 编辑器就是这么漏掉的：
+ * 画布下方一大片空白，而那一屏我根本没想到。
+ * 这条用例遍历导航里的每一项，新增的屏自动被覆盖。
+ */
+test.describe('每一屏都填满', () => {
+  const SCREENS = [
+    ['/', '概览与工作流'],
+    ['/editor', '工作流编辑器'],
+    ['/runs', '执行记录'],
+    ['/memory', '记忆'],
+    ['/agents', 'Agent 角色'],
+    ['/prompts', '提示词库'],
+    ['/models', '模型'],
+    ['/settings', '设置与环境'],
+    ['/onboarding', '首次配置'],
+  ] as const;
+
+  for (const [path, label] of SCREENS) {
+    test(`${label}（${path}）没有空白余量`, async ({ page }) => {
+      await page.setViewportSize({ width: 1280, height: 700 });
+      await page.goto(path);
+      await page.waitForTimeout(600);
+
+      const gap = await page.evaluate(() => {
+        const main = document.querySelector('main');
+        const root = main?.firstElementChild as HTMLElement | null;
+        if (!main || !root) return -1;
+        return main.clientHeight - root.getBoundingClientRect().height;
+      });
+
+      expect(gap, '页面根没填满 main，下方会留一片空白').toBeGreaterThanOrEqual(0);
+      expect(gap, '页面根塌了 —— 下方那片空白就是它').toBeLessThan(4);
+    });
+  }
+});
+
+/**
+ * 全屏布局体检。
+ *
+ * 三种尺寸 × 每一屏，扫四类问题：横向溢出、页面根没填满、
+ * 内容溢出却不可滚（那部分永远看不到）、文字被裁切却没有省略号。
+ *
+ * 固化成测试而不是一次性检查 —— 布局是最容易在别处改动时被碰坏的东西，
+ * 而症状（一片空白、滚不到底）往往要等用户截图才发现。
+ */
+test.describe('全屏布局体检', () => {
+  const ALL_SCREENS = [
+    ['/', '概览'],
+    ['/editor', '编辑器'],
+    ['/runs', '执行记录'],
+    ['/memory', '记忆'],
+    ['/agents', 'Agent'],
+    ['/prompts', '提示词'],
+    ['/models', '模型'],
+    ['/settings', '设置'],
+    ['/onboarding', '首次配置'],
+  ] as const;
+
+  const SIZES = [
+    { width: 1440, height: 900, name: '常规' },
+    { width: 1280, height: 620, name: '矮' },
+    { width: 1024, height: 768, name: '窄' },
+    // 高视口：编辑器那片空白只在这个尺寸下暴露 ——
+    // grid 的 `50px auto 1fr` 里那行 1fr 空着，视口越高空得越多。
+    // 只测到 900px 的话永远看不见
+    { width: 1090, height: 1040, name: '高' },
+  ] as const;
+
+  for (const size of SIZES) {
+    test(`${size.name} ${size.width}×${size.height} 下每一屏都没有布局问题`, async ({ page }) => {
+      await page.setViewportSize({ width: size.width, height: size.height });
+      const report: string[] = [];
+
+      for (const [path, label] of ALL_SCREENS) {
+        // 编辑器要带工作流 id 才有真实内容
+        await page.goto(path);
+        await page.waitForTimeout(400);
+
+        const issues = await page.evaluate(() => {
+          const found: string[] = [];
+          const doc = document.documentElement;
+
+          if (doc.scrollWidth > doc.clientWidth + 1) {
+            found.push(`横向溢出 ${doc.scrollWidth - doc.clientWidth}px`);
+          }
+
+          const main = document.querySelector('main');
+          const root = main?.firstElementChild as HTMLElement | null;
+          if (main && root) {
+            const gap = main.clientHeight - root.getBoundingClientRect().height;
+            if (Math.abs(gap) > 3) found.push(`根与 main 差 ${Math.round(gap)}px`);
+          }
+
+          for (const el of document.querySelectorAll<HTMLElement>('main *')) {
+            const over = el.scrollHeight - el.clientHeight;
+            if (over > 8 && el.clientHeight > 60) {
+              const style = getComputedStyle(el);
+              if (!/auto|scroll|hidden/.test(style.overflowY)) {
+                const name = `${el.tagName.toLowerCase()}.${String(el.className).split(' ')[0]}`;
+                found.push(`${name} 溢出 ${over}px 且不可滚`);
+              }
+            }
+          }
+
+          return found;
+        });
+
+        if (issues.length > 0) report.push(`${label}：${issues.join('、')}`);
+      }
+
+      expect(report, report.join('\n')).toEqual([]);
+    });
+  }
+});
+
 test.describe('分栏页面各滚各的', () => {
   for (const { path, root, list, detail } of SPLIT_PAGES) {
     test(`${path} 的页面根填满可视区，不塌也不撑`, async ({ page }) => {

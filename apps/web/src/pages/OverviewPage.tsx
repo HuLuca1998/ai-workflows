@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router';
 import { Button, type RunStatusName, StatusBadge, Tag } from '@aiwf/ui';
 import { WORKFLOW_TEMPLATES, type Workflow } from '@aiwf/contracts';
+import { Pager } from '../layout/Pager.js';
 import { parseGraphFile } from '../editor/importGraph.js';
 import { coreClient, useWorkspace } from '../data/workspace.js';
 
@@ -44,7 +45,8 @@ type Filter = (typeof FILTERS)[number];
 
 export function OverviewPage() {
   const navigate = useNavigate();
-  const { workflows, loading, error, load, createWorkflow, importWorkflow } = useWorkspace();
+  const { workflows, total, offset, loading, error, load, createWorkflow, importWorkflow } =
+    useWorkspace();
   const [filter, setFilter] = useState<Filter>('全部');
   const [query, setQuery] = useState('');
   const [creating, setCreating] = useState(false);
@@ -335,6 +337,9 @@ export function OverviewPage() {
             </tbody>
           </table>
         ) : null}
+
+        {/* 1292 条一次铺满的话，用户关心的那几条淹在里面 */}
+        <Pager total={total} pageSize={50} offset={offset} onChange={(next) => void load(next)} />
       </section>
     </article>
   );

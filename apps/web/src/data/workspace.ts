@@ -1,4 +1,7 @@
 import { create } from 'zustand';
+
+/** 列表一页多少条。与契约的 LIST_PAGE_SIZE 一致。 */
+const LIST_PAGE_SIZE = 50;
 import {
   applyPatch,
   type PatchOperation,
@@ -57,6 +60,9 @@ export const coreClient = new CoreApiClient(createTransport());
 
 interface WorkspaceState {
   workflows: WorkflowSummary[];
+  /** 满足条件的总条数。分页控件靠它。 */
+  total: number;
+  offset: number;
   loading: boolean;
   error: string | null;
   /** 概览页统计条。M0 只有工作流数是真的，其余等引擎接上。 */
@@ -66,7 +72,7 @@ interface WorkspaceState {
     runsSucceeded: number;
     activeWorktrees: number;
   };
-  load: () => Promise<void>;
+  load: (offset?: number) => Promise<void>;
   /**
    * 新建工作流。给了 operations 就在建完后立刻应用（模板）。
    * 模板走的是与手工搭建完全相同的 patch 路径，因此同样被校验守住。
@@ -79,20 +85,24 @@ interface WorkspaceState {
 
 export const useWorkspace = create<WorkspaceState>((set, get) => ({
   workflows: [],
+  total: 0,
+  offset: 0,
   loading: false,
   error: null,
   stats: { waitingApproval: 0, runsToday: 0, runsSucceeded: 0, activeWorktrees: 0 },
 
-  load: async () => {
-    set({ loading: true, error: null });
+  load: async (offset?: number) => {
+    const next = offset ?? get().offset;
+    set({ loading: true, error: null, offset: next });
     try {
       // 原样收下：coreClient 已经拿契约校验过一遍，
       // 在这里再挑一遍字段只会把新增的（latestVersion、lastRun）漏掉 ——
       // 而那种漏法不报错，只是界面上永远没有那些信息
-      const result = (await coreClient.call('workflow.list', {})) as {
-        items: WorkflowSummary[];
-      };
-      set({ workflows: result.items, loading: false });
+      const result = (await coreClient.call('workflow.list', {
+        limit: LIST_PAGE_SIZE,
+        offset: next,
+      })) as { items: WorkflowSummary[]; total: number };
+      set({ workflows: result.items, total: result.total, loading: false });
     } catch (error) {
       set({
         loading: false,

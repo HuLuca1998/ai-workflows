@@ -32,7 +32,7 @@ const MODEL = {
 
 function respond(handlers: Record<string, (input: unknown) => unknown> = {}) {
   const checked = createContractCall({
-    'model.list': () => ({ items: [MODEL] }),
+    'model.list': () => ({ items: [MODEL], total: 0 }),
     'supervisor.ask': () => ({ text: '这条工作流缺一个结束节点。', toolCalls: 2 }),
     ...handlers,
   });

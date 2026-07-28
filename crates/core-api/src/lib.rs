@@ -513,12 +513,18 @@ impl From<aiwf_store::ModelRow> for ModelDto {
     }
 }
 
-pub fn model_list(store: &Store, enabled_only: bool) -> ApiResult<Vec<ModelDto>> {
-    Ok(store
-        .list_models(enabled_only)?
-        .into_iter()
-        .map(ModelDto::from)
-        .collect())
+pub fn model_list(
+    store: &Store,
+    enabled_only: bool,
+    limit: Option<i64>,
+    offset: Option<i64>,
+) -> ApiResult<Page<ModelDto>> {
+    let (rows, total) =
+        store.list_models_paged(enabled_only, page_limit(limit), page_offset(offset))?;
+    Ok(Page {
+        items: rows.into_iter().map(ModelDto::from).collect(),
+        total,
+    })
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -657,12 +663,20 @@ pub fn run_list(
     workflow_id: Option<String>,
     statuses: Vec<String>,
     query: Option<String>,
-) -> ApiResult<Vec<RunSummary>> {
-    Ok(store
-        .list_runs(workflow_id.as_deref(), &statuses, query.as_deref())?
-        .into_iter()
-        .map(RunSummary::from)
-        .collect())
+    limit: Option<i64>,
+    offset: Option<i64>,
+) -> ApiResult<Page<RunSummary>> {
+    let (rows, total) = store.list_runs_paged(
+        workflow_id.as_deref(),
+        &statuses,
+        query.as_deref(),
+        page_limit(limit),
+        page_offset(offset),
+    )?;
+    Ok(Page {
+        items: rows.into_iter().map(RunSummary::from).collect(),
+        total,
+    })
 }
 
 pub fn run_get(store: &Store, run_id: String) -> ApiResult<Option<RunSummary>> {
@@ -791,35 +805,55 @@ pub fn approval_decide(
     Ok(())
 }
 
-pub fn workflow_list(store: &Store) -> ApiResult<Vec<WorkflowSummary>> {
-    Ok(store
-        .list_workflows()?
-        .into_iter()
-        .map(|w| WorkflowSummary {
-            id: w.id,
-            name: w.name,
-            folder: w.folder,
-            created_at: w.created_at,
-            updated_at: w.updated_at,
-            archived: w.archived,
-            latest_version: w.latest_version,
-            last_run: w.last_run.map(|r| LastRunDto {
-                duration_ms: duration_ms_between(&r.started_at, r.ended_at.as_deref()),
-                // 失败时停在哪个节点：current_node 存的是节点 id，
-                // 界面要的是用户看得懂的标题，但那要读图 —— 列表一次读 300 张图
-                // 不现实。先给 id，详情页才展开成标题
-                failed_node_label: if r.status == "failed" {
-                    r.failed_node.clone()
-                } else {
-                    None
-                },
-                id: r.id,
-                status: r.status,
-                started_at: r.started_at,
-                version: r.version,
-            }),
-        })
-        .collect())
+pub fn workflow_list(
+    store: &Store,
+    limit: Option<i64>,
+    offset: Option<i64>,
+) -> ApiResult<Page<WorkflowSummary>> {
+    let (rows, total) = store.list_workflows_paged(page_limit(limit), page_offset(offset))?;
+    Ok(Page {
+        total,
+        items: rows
+            .into_iter()
+            .map(|w| WorkflowSummary {
+                id: w.id,
+                name: w.name,
+                folder: w.folder,
+                created_at: w.created_at,
+                updated_at: w.updated_at,
+                archived: w.archived,
+                latest_version: w.latest_version,
+                last_run: w.last_run.map(|r| LastRunDto {
+                    duration_ms: duration_ms_between(&r.started_at, r.ended_at.as_deref()),
+                    // 失败时停在哪个节点：current_node 存的是节点 id，
+                    // 界面要的是用户看得懂的标题，但那要读图 —— 列表一次读 300 张图
+                    // 不现实。先给 id，详情页才展开成标题
+                    failed_node_label: if r.status == "failed" {
+                        r.failed_node.clone()
+                    } else {
+                        None
+                    },
+                    id: r.id,
+                    status: r.status,
+                    started_at: r.started_at,
+                    version: r.version,
+                }),
+            })
+            .collect(),
+    })
+}
+
+/// 一页最多多少条。与契约的 LIST_PAGE_LIMIT_MAX 对齐 ——
+/// 上限存在的意义就是不能被绕过。
+const PAGE_LIMIT_MAX: i64 = 200;
+const PAGE_SIZE: i64 = 50;
+
+fn page_limit(limit: Option<i64>) -> i64 {
+    limit.unwrap_or(PAGE_SIZE).clamp(1, PAGE_LIMIT_MAX)
+}
+
+fn page_offset(offset: Option<i64>) -> i64 {
+    offset.unwrap_or(0).max(0)
 }
 
 /// 首页四张统计卡。
@@ -1030,12 +1064,16 @@ pub fn workflow_delete(store: &Store, id: String) -> ApiResult<()> {
 
 // ── Agent 角色 ──────────────────────────────────────────────────────────────
 
-pub fn agent_list(store: &Store) -> ApiResult<Vec<AgentDto>> {
-    Ok(store
-        .list_agents()?
-        .into_iter()
-        .map(AgentDto::from)
-        .collect())
+pub fn agent_list(
+    store: &Store,
+    limit: Option<i64>,
+    offset: Option<i64>,
+) -> ApiResult<Page<AgentDto>> {
+    let (rows, total) = store.list_agents_paged(page_limit(limit), page_offset(offset))?;
+    Ok(Page {
+        items: rows.into_iter().map(AgentDto::from).collect(),
+        total,
+    })
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1187,12 +1225,23 @@ pub fn agent_delete(store: &Store, id: String) -> ApiResult<()> {
 
 // ── 提示词库 ────────────────────────────────────────────────────────────────
 
-pub fn prompt_list(store: &Store, query: Option<String>) -> ApiResult<Vec<PromptDto>> {
-    Ok(store
-        .list_prompts(query.as_deref())?
-        .into_iter()
-        .map(PromptDto::from)
-        .collect())
+pub fn prompt_list(
+    store: &Store,
+    group: Option<String>,
+    query: Option<String>,
+    limit: Option<i64>,
+    offset: Option<i64>,
+) -> ApiResult<Page<PromptDto>> {
+    let (rows, total) = store.list_prompts_paged(
+        group.as_deref(),
+        query.as_deref(),
+        page_limit(limit),
+        page_offset(offset),
+    )?;
+    Ok(Page {
+        items: rows.into_iter().map(PromptDto::from).collect(),
+        total,
+    })
 }
 
 pub fn prompt_create(
@@ -1208,6 +1257,15 @@ pub fn prompt_create(
         sections_json,
         vars_json: vars_json.unwrap_or_else(|| "[]".to_string()),
     })?)
+}
+
+/// 列表的一页 + 总数。界面靠 total 画分页控件。
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Page<T> {
+    pub items: Vec<T>,
+    /// 满足筛选条件的总条数，不是这一页的条数。
+    pub total: i64,
 }
 
 /// `{ ver }` —— agent.update / prompt.update 的返回形状。
@@ -1257,12 +1315,19 @@ pub fn memory_list(
     store: &Store,
     scope: Option<String>,
     query: Option<String>,
-) -> ApiResult<Vec<MemoryDto>> {
-    Ok(store
-        .list_memories(scope.as_deref(), query.as_deref())?
-        .into_iter()
-        .map(MemoryDto::from)
-        .collect())
+    limit: Option<i64>,
+    offset: Option<i64>,
+) -> ApiResult<Page<MemoryDto>> {
+    let (rows, total) = store.list_memories_paged(
+        scope.as_deref(),
+        query.as_deref(),
+        page_limit(limit),
+        page_offset(offset),
+    )?;
+    Ok(Page {
+        items: rows.into_iter().map(MemoryDto::from).collect(),
+        total,
+    })
 }
 
 #[allow(clippy::too_many_arguments)]
