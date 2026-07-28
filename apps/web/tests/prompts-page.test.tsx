@@ -287,6 +287,38 @@ describe('版本页照图纸列出历史', () => {
     expect(await screen.findByText(/还没有改过/u)).toBeTruthy();
   });
 
+  it('保存新版本之后历史要重新拉 —— 刚被替换掉的那份就在里面', async () => {
+    // codex 报「亲自把同一提示词从 v2 保存到 v3 后，版本页仍只有 v3」。
+    // effect 只依赖 prompt.id 的话，保存后 id 没变、历史不重拉 ——
+    // 用户看到的还是保存前那份（那时确实只有当前版本）
+    const user = userEvent.setup();
+    let 保存过 = false;
+    respond({
+      'prompt.versions': () =>
+        保存过 ? { items: [{ ...历史.items[1]!, ver: 4 }] } : { items: [] },
+      'prompt.update': () => {
+        保存过 = true;
+        return { ver: 5 };
+      },
+      'prompt.list': () => ({ items: [{ ...PROMPT, ver: 保存过 ? 5 : 4 }], total: 1 }),
+    });
+    view();
+    await user.click(await screen.findByText('分析 · 根因'));
+    await user.click(screen.getByRole('tab', { name: '版本' }));
+    expect(await screen.findByText(/还没有改过/u)).toBeTruthy();
+
+    // 回模板页改一笔再保存
+    await user.click(screen.getByRole('tab', { name: '模板' }));
+    await user.type(screen.getByLabelText('Role'), '改一笔');
+    await user.click(screen.getByRole('button', { name: '保存新版本' }));
+    await waitFor(() => expect(保存过).toBe(true));
+
+    await user.click(screen.getByRole('tab', { name: '版本' }));
+    await waitFor(() => {
+      expect(screen.getByText('v4')).toBeTruthy();
+    });
+  });
+
   it('取历史失败不该把这一页弄成空白', async () => {
     const user = userEvent.setup();
     respond({

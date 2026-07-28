@@ -628,7 +628,10 @@ function VersionsTab({ prompt }: { prompt: Prompt }) {
     return () => {
       cancelled = true;
     };
-  }, [prompt.id]);
+    // 依赖里带上 ver：保存新版本之后 id 不变而 ver 变了，
+    // 只依赖 id 的话历史不会重拉 —— 用户看到的还是保存前那份
+    //（那时它确实只有当前版本），于是「保存新版本」像是没生效
+  }, [prompt.id, prompt.ver]);
 
   return (
     <div className="prompts__versions">
