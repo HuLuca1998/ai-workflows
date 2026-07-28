@@ -300,3 +300,48 @@ test.describe('分栏页面各滚各的', () => {
     }
   });
 });
+
+test.describe('每一屏都铺满可视宽度', () => {
+  /**
+   * 用户截图：1900px 宽的窗口下，工作流列表只占左边 1080px，
+   * 右侧一大片空白。
+   *
+   * 图纸的 10 个屏容器**没有一个有 max-width** —— 那是我自己加的
+   *（`.overview` 1180px、`.page` 1100px）。宽屏用户买的宽度不是用来留白的。
+   */
+  const 屏幕 = [
+    { path: '/', 名: '概览' },
+    { path: '/runs', 名: '执行记录' },
+    { path: '/memory', 名: '记忆' },
+    { path: '/agents', 名: 'Agent 角色' },
+    { path: '/prompts', 名: '提示词库' },
+    { path: '/models', 名: '模型' },
+    { path: '/settings', 名: '设置与环境' },
+    { path: '/onboarding', 名: '首次配置' },
+  ];
+
+  for (const { path, 名 } of 屏幕) {
+    test(`${名} 的内容宽度跟着窗口走`, async ({ page }) => {
+      await page.setViewportSize({ width: 1900, height: 1000 });
+      await page.goto(path);
+      // 等内容真的渲染出来，否则量到的是空壳
+      await page.waitForTimeout(600);
+
+      const { 内容宽, 可用宽 } = await page.evaluate(() => {
+        const main = document.querySelector('.app-shell__content');
+        const 屏 = main?.firstElementChild;
+        return {
+          内容宽: 屏?.getBoundingClientRect().width ?? 0,
+          可用宽: main?.getBoundingClientRect().width ?? 0,
+        };
+      });
+
+      expect(可用宽, '外壳没量到').toBeGreaterThan(1000);
+      // 首次配置是图纸里唯一居中的一屏（justify-content:center），
+      // 它的内容不铺满，但容器本身要铺满
+      expect(内容宽, `右边空了 ${Math.round(可用宽 - 内容宽)}px`).toBeGreaterThanOrEqual(
+        可用宽 - 1,
+      );
+    });
+  }
+});

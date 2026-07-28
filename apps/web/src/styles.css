@@ -360,9 +360,11 @@
  * 那是长表单页该有的行为。不给 overflow 的话它会把 main 撑开，
  * 而 main 是 hidden，多出来的部分就永远看不见了。
  */
+/* 内容宽度跟着窗口走：图纸的 10 个屏容器一个 max-width 都没有。
+   曾经限过 1100px，1900px 的窗口下右边空 584px —— 宽屏用户
+   买的宽度不是用来留白的。要限宽的是**行文**，那由段落自己限 */
 .page {
   padding: var(--space-8);
-  max-width: 1100px;
   min-height: 0;
   overflow: auto;
 }
@@ -432,7 +434,6 @@
 /* ── 概览页（图纸「01 工作流首页」）────────────────────────────────────── */
 .overview {
   padding: 28px 32px;
-  max-width: 1180px;
 }
 
 .overview__head {
@@ -4250,6 +4251,9 @@
    用户要在两个滚动区之间猜哪个才是自己想滚的那个 */
 .settings {
   overflow: visible;
+  /* 内容宽度跟着窗口走。图纸的 10 个屏容器一个 max-width 都没有，
+     宽屏用户买的宽度不是用来留白的 */
+  width: 100%;
 }
 
 .env h4 {

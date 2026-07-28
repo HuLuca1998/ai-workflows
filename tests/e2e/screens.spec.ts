@@ -197,12 +197,21 @@ test.describe('首次配置（图纸「06 首次安装与检测」）', () => {
     await expect(page.locator('[data-capability="git"]')).toContainText('就绪');
   });
 
-  test('不是死路 —— 有一个能往下走的按钮', async ({ page }) => {
-    // codex 两轮都报这一屏「只有阶段占位文案，没有任何控件」
-    const skip = page.getByRole('button', { name: /跳过配置/ });
-    await expect(skip).toBeVisible();
-    await skip.click();
+  test('底部三个按钮照图纸，且第一个真的能往下走', async ({ page }) => {
+    // codex 两轮都报这一屏「只有阶段占位文案，没有任何控件」。
+    // 图纸底部是三个按钮 + 一句「下一步」——
+    // 曾经只放了一个我自己加的「跳过配置」，图纸上没有那个。
+    await expect(page.getByRole('button', { name: '仅检测，不安装' })).toBeVisible();
+    await expect(page.getByRole('button', { name: '导出脱敏诊断报告' })).toBeVisible();
+    await expect(page.getByText('下一步：授权工作目录并运行内置示例')).toBeVisible();
+
+    const go = page.getByRole('button', { name: /确认并安装|授权工作目录并开始/ });
+    await expect(go).toBeVisible();
+    await go.click();
+
+    // 走完之后配置真的落了地：顶栏不再写「尚未授权工作目录」
     await expect(page).toHaveURL(/\/$/);
+    await expect(page.getByText('尚未授权工作目录')).toHaveCount(0);
   });
 
   test('写明 Secret 不进这些目录', async ({ page }) => {
