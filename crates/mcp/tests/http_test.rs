@@ -23,8 +23,13 @@ fn 起一个() -> 服务 {
     // 先开一次把表建起来：多个工作线程同时跑迁移会撞锁
     aiwf_store::Store::open(&db).unwrap();
 
-    let handle =
-        http::serve(0, aiwf_core_api::mcp_config::generate_token(), db, dir.path().to_path_buf()).expect("MCP 起不来");
+    let handle = http::serve(
+        0,
+        aiwf_core_api::mcp_config::generate_token(),
+        db,
+        dir.path().to_path_buf(),
+    )
+    .expect("MCP 起不来");
 
     服务 { handle, _dir: dir }
 }

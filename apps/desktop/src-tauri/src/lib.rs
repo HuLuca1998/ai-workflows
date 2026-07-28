@@ -787,7 +787,9 @@ pub fn run() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .setup(|app| {
             let path = data_file(app.handle())?;
-            let store = Store::open(&path)?;
+            // open_workspace：首次启动把内置的模型、Agent 角色、提示词与记忆种上。
+            // 只种一次 —— 用户改过或删过的条目不会在下次启动被冲回去
+            let store = Store::open_workspace(&path)?;
             let data_dir = path
                 .parent()
                 .map_or_else(std::env::temp_dir, std::path::Path::to_path_buf);

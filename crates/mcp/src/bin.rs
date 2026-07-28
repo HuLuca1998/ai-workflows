@@ -35,7 +35,8 @@ fn main() {
 
     // 先开一次：建表与迁移在这里做完，工作线程各自开连接时就只是连上去。
     // 让 8 个线程同时跑迁移会撞锁
-    if let Err(error) = aiwf_store::Store::open(&db_path) {
+    // open_workspace：这一次是初始化工作区，工作线程只是再开一条连接
+    if let Err(error) = aiwf_store::Store::open_workspace(&db_path) {
         eprintln!("打不开数据库 {}：{error}", db_path.display());
         std::process::exit(1);
     }

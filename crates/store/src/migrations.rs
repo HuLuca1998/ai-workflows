@@ -8,7 +8,7 @@ use rusqlite::Connection;
 use crate::Result;
 
 /// 当前 schema 版本。新增迁移时同时更新这里与 `MIGRATIONS`。
-pub const EXPECTED_SCHEMA_VERSION: i64 = 10;
+pub const EXPECTED_SCHEMA_VERSION: i64 = 11;
 
 /// (版本号, 说明, SQL)
 const MIGRATIONS: &[(i64, &str, &str)] = &[
@@ -57,6 +57,11 @@ const MIGRATIONS: &[(i64, &str, &str)] = &[
         10,
         "MCP 写操作的确认队列",
         include_str!("sql/010_mcp_confirmation.sql"),
+    ),
+    (
+        11,
+        "一次性引导数据的记账表",
+        include_str!("sql/011_bootstrap.sql"),
     ),
 ];
 

@@ -16,6 +16,7 @@ use rusqlite::{Connection, OptionalExtension, params};
 use sha2::{Digest, Sha256};
 
 mod migrations;
+mod seed;
 
 pub use migrations::EXPECTED_SCHEMA_VERSION;
 
@@ -481,6 +482,21 @@ impl Store {
     pub fn open(path: &Path) -> Result<Self> {
         let conn = Connection::open(path)?;
         Self::bootstrap(conn, true)
+    }
+
+    /// 打开一个**工作区**：迁移之外，再把随应用附带的内置数据种上。
+    ///
+    /// 与 [`Store::open`] 的区别是有意的：打开一个数据库与初始化一个工作区
+    /// 是两件事。前者每个工作线程都要做（每人一条连接），后者一辈子只做一次。
+    /// 应用入口走这一条，存储层自己的测试走 `open` ——
+    /// 那些测试问的是分页与搜索，与「内置了什么」无关。
+    ///
+    /// 种过的批次记在 `bootstrap` 表里，不会重种：用户改过或删过的内置条目
+    /// 不会在下次启动被冲回去。
+    pub fn open_workspace(path: &Path) -> Result<Self> {
+        let store = Self::open(path)?;
+        seed::seed(&store.conn)?;
+        Ok(store)
     }
 
     /// 内存库：测试与 Dry Run 用。

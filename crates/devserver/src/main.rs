@@ -32,7 +32,9 @@ fn main() {
 
     // 先开一次：建表与迁移在这里做完，工作线程各自开连接时就只是连上去。
     // 让 16 个线程同时跑迁移会撞锁
-    if let Err(error) = Store::open(&path) {
+    // open_workspace 而不是 open：这一次是初始化工作区（迁移 + 内置数据），
+    // 下面每个工作线程只是再开一条连接
+    if let Err(error) = Store::open_workspace(&path) {
         eprintln!("无法打开数据库 {db_path}：{error}");
         std::process::exit(1);
     }
