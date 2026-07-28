@@ -2,6 +2,41 @@
  * Web 形态的布局层。
  * 组件外观来自 @aiwf/ui 的令牌与组件层；这里只写外壳的骨架尺寸。
  */
+
+/* ── 滚动条 ─────────────────────────────────────────────────────────────
+   照图纸第 21 行：9px 宽、neutral-800 滑块、透明轨道。
+   不写的话用的是系统默认的浅色滚动条 —— 在深色界面上很扎眼，
+   而且 macOS 上「一直显示」的设置会让它常驻。
+
+   Firefox 单独一套：它不认 ::-webkit-*。 */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-neutral-800) transparent;
+}
+
+::-webkit-scrollbar {
+  width: 9px;
+  height: 9px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--color-neutral-800);
+  border-radius: 6px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-neutral-700);
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* 两条滚动条交汇的那个小方块。不管的话它是白的 */
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
 @import '@aiwf/ui/styles.css';
 @import '@phosphor-icons/web/regular';
 @import '@phosphor-icons/web/fill';
@@ -22,6 +57,24 @@
 .app-shell__content {
   flex: 1;
   min-width: 0;
+  /* 自己是 flex 容器：图纸里每一屏都是 `flex:1;min-height:0`，
+     不给它 flex 上下文的话那句 flex:1 完全不生效 ——
+     内容少时页面塌成一小块（下方大片空白），
+     内容多时把 main 整个撑开，两栏跟着一起滚。 */
+  display: flex;
+  flex-direction: column;
+  /* 自己不滚：滚动交给各屏内部真正该滚的那一块。
+     整页滚动的屏（概览、设置）自己带 overflow */
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* 整页滚动的屏。分栏的屏不用它 —— 它们各栏自己滚 */
+.overview,
+.settings,
+.placeholder {
+  flex: 1;
+  min-height: 0;
   overflow: auto;
 }
 
@@ -2476,6 +2529,7 @@
 .models {
   flex: 1;
   min-height: 0;
+  overflow: hidden;
   display: flex;
 }
 
@@ -3006,6 +3060,7 @@
 .agents {
   flex: 1;
   min-height: 0;
+  overflow: hidden;
   display: flex;
 }
 
@@ -3210,6 +3265,7 @@
 .prompts {
   flex: 1;
   min-height: 0;
+  overflow: hidden;
   display: flex;
 }
 
@@ -3283,7 +3339,10 @@
   color: var(--color-neutral-700);
 }
 
+/* 详情区自己滚：右边的长文不该带着左栏列表一起跑 */
 .prompts__detail {
+  min-height: 0;
+  overflow: auto;
   flex: 1;
   min-width: 0;
   display: flex;
@@ -3445,6 +3504,7 @@
 .memory {
   flex: 1;
   min-height: 0;
+  overflow: hidden;
   display: flex;
   flex-direction: column;
 }
@@ -4373,4 +4433,61 @@
 .supervisor__history-meta .supervisor__chip {
   padding: 1px 6px;
   font-size: 10px;
+}
+
+/* ── 可拖动的分栏 ───────────────────────────────────────────────────────
+   图纸给的固定宽度是**初始值**：真实使用里名字有长有短，
+   用户需要自己调。默认仍照图纸，拖动只是在它之上加一层。 */
+.split {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  overflow: hidden;
+}
+
+.split__left {
+  flex: none;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.split__right {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* 分隔条本身只有 1px 的视觉宽度（就是图纸的那条分割线），
+   但热区要宽一些 —— 1px 的拖拽目标基本抓不住 */
+.split__handle {
+  flex: none;
+  width: 7px;
+  margin: 0 -3px;
+  cursor: col-resize;
+  background: transparent;
+  border: none;
+  padding: 0;
+  position: relative;
+  z-index: 1;
+}
+
+.split__handle::after {
+  content: '';
+  position: absolute;
+  inset: 0 3px;
+  background: var(--color-divider);
+}
+
+.split__handle:hover::after,
+.split__handle:focus-visible::after {
+  background: var(--color-accent-700);
+}
+
+.split__handle:focus-visible {
+  outline: none;
 }

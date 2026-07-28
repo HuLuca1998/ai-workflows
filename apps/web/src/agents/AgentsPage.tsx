@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import type { AGENT_RUNTIMES } from '@aiwf/contracts';
+import { SplitPane } from '../layout/SplitPane.js';
 import { coreClient } from '../data/workspace.js';
 
 /**
@@ -161,7 +162,7 @@ export function AgentsPage() {
   };
 
   return (
-    <div className="agents">
+    <SplitPane className="agents" storageKey="agents.listWidth" defaultWidth={250}>
       <aside className="agents__list">
         <div className="agents__list-head">
           <span className="runs__label">Agent 角色</span>
@@ -417,7 +418,7 @@ export function AgentsPage() {
           <p className="runs__empty runs__empty--center">选一个角色查看详情，或新建一个。</p>
         )}
       </section>
-    </div>
+    </SplitPane>
   );
 }
 

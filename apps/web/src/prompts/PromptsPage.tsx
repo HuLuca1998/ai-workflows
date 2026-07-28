@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { SplitPane } from '../layout/SplitPane.js';
 import { coreClient } from '../data/workspace.js';
 
 /**
@@ -164,7 +165,7 @@ export function PromptsPage() {
   };
 
   return (
-    <div className="prompts">
+    <SplitPane className="prompts" storageKey="prompts.listWidth" defaultWidth={266}>
       <aside className="prompts__list">
         <div className="prompts__list-head">
           <span className="runs__label">提示词库</span>
@@ -332,7 +333,7 @@ export function PromptsPage() {
           <p className="runs__empty runs__empty--center">选一条提示词查看它的分段与变量。</p>
         )}
       </section>
-    </div>
+    </SplitPane>
   );
 }
 

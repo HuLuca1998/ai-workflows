@@ -1821,3 +1821,93 @@ fn 读不存在的会话返回_none_而不是报错() {
     let store = Store::open_in_memory().unwrap();
     assert!(store.supervisor_session("sess_ghost").unwrap().is_none());
 }
+
+// ── 启动参数的脱敏 ────────────────────────────────────────────────────────
+//
+// codex 自主体验时看到执行记录列表里直接显示完整的 `sk-proj-…`，
+// 而运行详情底部写着「Secret 值在写入事件存储前已脱敏，界面不提供绕过查看」。
+// 两处表现互相矛盾，而矛盾的那一半是真的：inputs 是原样存的。
+//
+// 脱敏必须发生在**写入时**：只在某一个视图上遮掉的话，
+// 换个接口（列表、搜索、导出、MCP）就又漏出去了。
+
+#[test]
+fn 启动参数里的密钥在落库时就被脱敏() {
+    let store = Store::open_in_memory().unwrap();
+    let wf = store.create_workflow("带密钥的", None).unwrap();
+    let run = store
+        .create_run(
+            &wf,
+            None,
+            Some(1),
+            r#"{"apiKey":"sk-proj-abcdefghijklmnopqrstuvwxyz1234567890"}"#,
+        )
+        .unwrap();
+
+    let row = store.get_run(&run).unwrap().unwrap();
+    assert!(
+        !row.inputs_json
+            .contains("sk-proj-abcdefghijklmnopqrstuvwxyz1234567890"),
+        "密钥原样进了库：{}",
+        row.inputs_json
+    );
+    // 留痕：完全删掉的话用户不知道这里本来有个参数
+    assert!(row.inputs_json.contains("apiKey"), "字段名要留着");
+}
+
+#[test]
+fn github_token_也脱敏() {
+    let store = Store::open_in_memory().unwrap();
+    let wf = store.create_workflow("带 token 的", None).unwrap();
+    let run = store
+        .create_run(
+            &wf,
+            None,
+            Some(1),
+            r#"{"token":"ghp_1234567890abcdefghijklmnopqrstuvwxyzAB"}"#,
+        )
+        .unwrap();
+
+    assert!(
+        !store
+            .get_run(&run)
+            .unwrap()
+            .unwrap()
+            .inputs_json
+            .contains("ghp_1234567890abcdefghijklmnopqrstuvwxyzAB")
+    );
+}
+
+#[test]
+fn 普通参数不受影响() {
+    // 脱敏太激进的话，`repo: atlas-api` 这种正常参数也会被吃掉，
+    // 而用户就再也看不出这次是拿什么参数跑的
+    let store = Store::open_in_memory().unwrap();
+    let wf = store.create_workflow("普通参数", None).unwrap();
+    let run = store
+        .create_run(&wf, None, Some(1), r#"{"repo":"atlas-api","issue":"548"}"#)
+        .unwrap();
+
+    let inputs = store.get_run(&run).unwrap().unwrap().inputs_json;
+    assert!(inputs.contains("atlas-api"), "正常参数被误伤：{inputs}");
+    assert!(inputs.contains("548"));
+}
+
+#[test]
+fn keychain_引用原样保留() {
+    // `keychain://` 本来就是「引用而非明文」的表达方式，遮掉它反而丢信息
+    let store = Store::open_in_memory().unwrap();
+    let wf = store.create_workflow("引用凭据", None).unwrap();
+    let run = store
+        .create_run(&wf, None, Some(1), r#"{"cred":"keychain://openai-prod"}"#)
+        .unwrap();
+
+    assert!(
+        store
+            .get_run(&run)
+            .unwrap()
+            .unwrap()
+            .inputs_json
+            .contains("keychain://openai-prod")
+    );
+}

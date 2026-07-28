@@ -903,6 +903,16 @@ impl Store {
         workdir: Option<&str>,
     ) -> Result<String> {
         let id = new_id("run");
+
+        // 参数在**写入时**脱敏。只在某个视图上遮掉的话，
+        // 换个接口（列表、搜索、导出、MCP）就又漏出去了 ——
+        // 而那正是被发现的方式：详情页写着「Secret 已脱敏」，
+        // 运行列表却把完整的 sk-proj- 显示出来。
+        //
+        // 代价是引擎也拿不到明文了。这是有意的：真要用密钥就走
+        // keychain:// 引用，那条路径原样保留
+        let inputs_json = redact_inputs(inputs_json);
+
         self.conn.execute(
             "INSERT INTO run(id, workflow_id, version_id, draft_rev, status, inputs_json, workdir, started_at)
              VALUES (?1, ?2, ?3, ?4, 'created', ?5, ?6, ?7)",
@@ -2084,15 +2094,69 @@ fn segment_cjk(text: &str) -> String {
 ///
 /// 这里只挡明显的形态。真正的防线是「Secret 只进 Keychain」，
 /// 但那管不住用户手工粘贴 —— 所以这一层要有。
+/// 像密钥的前缀。脱敏与拒收共用同一份 —— 两份必然会漂移。
+const SECRET_PREFIXES: &[(&str, &str)] = &[
+    ("AKIA", "AWS 访问密钥"),
+    ("sk-ant-", "Anthropic API Key"),
+    ("sk-proj-", "OpenAI 项目密钥"),
+    ("sk-", "API Key"),
+    ("ghp_", "GitHub 个人令牌"),
+    ("gho_", "GitHub OAuth 令牌"),
+    ("ghs_", "GitHub 服务端令牌"),
+    ("github_pat_", "GitHub 细粒度令牌"),
+    ("xoxb-", "Slack Bot 令牌"),
+    ("xoxp-", "Slack User 令牌"),
+    ("-----BEGIN", "私钥"),
+];
+
+/// 把启动参数里像密钥的值遮掉。
+///
+/// 脱敏发生在**写入时**：只在某一个视图上遮掉的话，换个接口
+/// （列表、搜索、导出、MCP）就又漏出去了 —— 而那正是被发现的方式：
+/// 详情页写着「Secret 已脱敏」，运行列表却把完整的 sk-proj- 显示出来。
+///
+/// 字段名留着、值换成 `[已脱敏]`：完全删掉的话用户不知道这里本来有个参数。
+/// `keychain://` 原样保留 —— 它本来就是「引用而非明文」的表达方式。
+#[must_use]
+pub fn redact_inputs(inputs_json: &str) -> String {
+    let Ok(mut value) = serde_json::from_str::<serde_json::Value>(inputs_json) else {
+        // 解析不了就整段判断：宁可多遮，也不能漏
+        return if looks_like_secret(inputs_json) {
+            "\"[已脱敏]\"".to_string()
+        } else {
+            inputs_json.to_string()
+        };
+    };
+
+    redact_value(&mut value);
+    serde_json::to_string(&value).unwrap_or_else(|_| "{}".to_string())
+}
+
+fn redact_value(value: &mut serde_json::Value) {
+    match value {
+        serde_json::Value::String(text) => {
+            if looks_like_secret(text) {
+                *text = "[已脱敏]".to_string();
+            }
+        }
+        serde_json::Value::Array(items) => items.iter_mut().for_each(redact_value),
+        serde_json::Value::Object(map) => map.values_mut().for_each(redact_value),
+        _ => {}
+    }
+}
+
+fn looks_like_secret(value: &str) -> bool {
+    // keychain:// 是引用不是明文，遮掉它反而丢信息
+    if value.starts_with("keychain://") {
+        return false;
+    }
+    SECRET_PREFIXES
+        .iter()
+        .any(|(prefix, _)| value.contains(prefix))
+}
+
 fn reject_secret_like(value: &str) -> Result<()> {
-    const PATTERNS: &[(&str, &str)] = &[
-        ("AKIA", "AWS 访问密钥"),
-        ("sk-ant-", "Anthropic API Key"),
-        ("ghp_", "GitHub 个人令牌"),
-        ("gho_", "GitHub OAuth 令牌"),
-        ("xoxb-", "Slack Bot 令牌"),
-        ("-----BEGIN", "私钥"),
-    ];
+    const PATTERNS: &[(&str, &str)] = SECRET_PREFIXES;
 
     for (prefix, what) in PATTERNS {
         if value.contains(prefix) {

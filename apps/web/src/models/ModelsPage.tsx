@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { AGENT_RUNTIMES, type Model } from '@aiwf/contracts';
+import { SplitPane } from '../layout/SplitPane.js';
 import { coreClient } from '../data/workspace.js';
 
 /**
@@ -73,7 +74,7 @@ export function ModelsPage() {
   };
 
   return (
-    <div className="models">
+    <SplitPane className="models" storageKey="models.listWidth" defaultWidth={262}>
       <aside className="models__list">
         <div className="models__list-head">
           <span className="runs__label">已配置模型</span>
@@ -267,7 +268,7 @@ export function ModelsPage() {
           <p className="runs__empty runs__empty--center">选一个模型查看详情，或登记一个新的。</p>
         )}
       </section>
-    </div>
+    </SplitPane>
   );
 }
 
