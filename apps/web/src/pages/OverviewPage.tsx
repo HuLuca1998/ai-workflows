@@ -383,6 +383,7 @@ export function OverviewPage() {
           pageSize={LIST_PAGE_SIZE}
           offset={offset}
           onChange={(next) => void load(next)}
+          sticky
         />
       </section>
     </article>

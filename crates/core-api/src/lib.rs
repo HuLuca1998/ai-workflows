@@ -34,7 +34,39 @@ pub struct DryRunDto {
     pub report: aiwf_engine::preflight::DryRunReport,
 }
 
-/// 解析工作目录：留空用应用的默认运行目录，`~` 要展开。
+/// 起一次运行时的工作目录：未指定就在运行根下**开一个独立的**。
+///
+/// 共用一个目录的代价是并发运行互相覆盖文件。第 4 轮复验实测：
+/// 并发起 5 个运行，每个 `echo > mark.txt` 再读回，磁盘上只剩一个
+/// `mark.txt` —— 而启动表单写着「每次运行一个独立目录，并行运行互不影响」，
+/// `Runner::workdir` 的注释也写着「每个 Run 一个」。
+/// M2 的出口标准里那条「并行运行互不影响」，`supervisor_test` 是
+/// **显式传不同 workdir** 验的，恰好绕开了产品的默认路径。
+///
+/// 目录名用「时刻 + 序号」而不是 run id：run id 由 `store.create_run_in`
+/// 分配，这一层还拿不到。运行详情页显示的是这里存下的完整路径，对得上是哪一次。
+fn resolve_run_workdir(workdir: Option<&str>, data_dir: &std::path::Path) -> std::path::PathBuf {
+    let 指定了 = workdir
+        .map(str::trim)
+        .filter(|dir| !dir.is_empty())
+        .is_some();
+    let 根 = resolve_workdir(workdir, data_dir);
+    if 指定了 {
+        // 显式指定通常是「跑在我这个仓库里」，再往下套一层就跑错地方了
+        return 根;
+    }
+
+    static 序号: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let n = 序号.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let 时刻 = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_millis());
+    let 独立 = 根.join(format!("run-{时刻}-{n:04}"));
+    let _ = std::fs::create_dir_all(&独立);
+    独立
+}
+
+/// 解析工作目录的**根**：留空用应用的默认运行目录，`~` 要展开。
 ///
 /// 不展开 `~` 的话，用户手输一个看起来完全正常的路径，
 /// 引擎会去找一个名叫 `~` 的目录，报「不存在」——
@@ -44,6 +76,9 @@ pub struct DryRunDto {
 /// 让 Dry Run 报「目录不存在」等于要求用户先手动 mkdir 一个
 /// 他根本不知道在哪的路径。用户显式指定的目录是另一回事 ——
 /// 那种不存在就该报错，因为多半是打错了。
+///
+/// Dry Run 用这个（它只是告诉用户「会写到哪一片」，不该为一次预检
+/// 建一个空的运行目录）；真正起运行走 `resolve_run_workdir`。
 fn resolve_workdir(workdir: Option<&str>, data_dir: &std::path::Path) -> std::path::PathBuf {
     let raw = workdir.map(str::trim).filter(|dir| !dir.is_empty());
     let Some(raw) = raw else {
@@ -667,7 +702,7 @@ pub fn run_start(
         ));
     }
 
-    let workdir = resolve_workdir(workdir.as_deref(), data_dir);
+    let workdir = resolve_run_workdir(workdir.as_deref(), data_dir);
     let run_id = supervisor.start(
         store,
         RunRequest {
@@ -834,8 +869,17 @@ pub fn run_artifact_content(
         .read(&run_id, &path, limit)
         .map_err(|error| ApiError::validation(format!("读取产物失败：{error}")))?;
 
+    // 界面这一层要脱敏。事件流底部常驻着「Secret 值在写入事件存储前已脱敏，
+    // **界面不提供绕过查看**」，而产物就在隔壁那个 tab，每条都有「预览」按钮 ——
+    // 第 5 轮实测：脚本 echo 出来的 sk-… 在这里一字未改地送到了界面，
+    // 那正是最容易被截图与录屏的地方。
+    //
+    // 磁盘上的文件不动：那是脚本的真实输出，要调试就去 workdir 看，
+    // 路径在运行详情页显示着。这里管的是界面这一层。
+    let redactor = aiwf_engine::redactor::Redactor::with_defaults();
+
     Ok(ArtifactContentDto {
-        text: content.text,
+        text: content.text.map(|t| redactor.redact(&t)),
         binary: content.binary,
         truncated: content.truncated,
         bytes: content.bytes,

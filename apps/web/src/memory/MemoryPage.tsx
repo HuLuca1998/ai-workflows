@@ -300,6 +300,7 @@ export function MemoryPage() {
           offset={offset}
           pageSize={LIST_PAGE_SIZE}
           onChange={(next) => void load(scope, search.value, next)}
+          sticky
         />
 
         <p className="memory__foot">

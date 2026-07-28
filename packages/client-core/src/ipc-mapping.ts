@@ -482,13 +482,24 @@ export function normalizeIpcError(error: unknown): CoreApiError {
   if (error instanceof CoreApiError) return error;
 
   if (error && typeof error === 'object' && 'code' in error) {
-    const candidate = error as { code: unknown; message?: unknown; retriable?: unknown };
+    const candidate = error as {
+      code: unknown;
+      message?: unknown;
+      retriable?: unknown;
+      hint?: unknown;
+      details?: unknown;
+    };
     const code = ERROR_CODES.find((c) => c === candidate.code);
     if (code) {
       return new CoreApiError({
         code: code as ErrorCode,
         message: typeof candidate.message === 'string' ? candidate.message : 'IPC 调用失败',
         ...(typeof candidate.retriable === 'boolean' ? { retriable: candidate.retriable } : {}),
+        // hint 是「接下来该干什么」，界面直接展示。这里漏掉它的话，
+        // 引擎那边算出来的那句话就永远到不了用户眼前 —— 而症状是
+        // 「补了上游也不生效」，最难查
+        ...(typeof candidate.hint === 'string' ? { hint: candidate.hint } : {}),
+        ...(candidate.details === undefined ? {} : { details: candidate.details }),
       });
     }
   }

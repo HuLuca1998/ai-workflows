@@ -134,6 +134,27 @@ describe('错误规范化', () => {
     expect(error.code).toBe('INTERNAL');
     expect(error.message).toContain('未定义');
   });
+
+  /**
+   * hint 是「接下来该干什么」，界面直接展示它（`editorStore.describe` 会拼成
+   * `message（hint）`）。引擎那边好不容易算出来的这句话，不能在还原时被丢掉。
+   *
+   * 第 5 轮 B1 预言过这个坑：「即使将来 Rust 补上 hint，也会在这一层被丢掉 ——
+   * 当下看不出症状、补了上游也不生效」。第 3 轮实测证实了：引擎已经返回
+   * `hint: "别处已经把它改到 rev1…刷新拿到最新版本再改一次"`，
+   * 而编辑器错误条上只有「草稿已变化：基础版本 1，当前 rev 2」。
+   */
+  it('还原时带上 hint 与 details —— 丢了的话用户就没有下一步', () => {
+    const error = normalizeIpcError({
+      code: 'REVISION_CONFLICT',
+      message: '草稿已变化：基础版本 1，当前 rev 2',
+      retriable: true,
+      hint: '别处已经把它改到 rev2，而你这次基于 rev1。刷新拿到最新版本再改一次',
+      details: { base: 1, current: 2 },
+    });
+    expect(error.hint).toBe('别处已经把它改到 rev2，而你这次基于 rev1。刷新拿到最新版本再改一次');
+    expect(error.details).toEqual({ base: 1, current: 2 });
+  });
 });
 
 describe('未接通的方法', () => {

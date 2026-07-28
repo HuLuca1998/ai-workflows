@@ -13,9 +13,20 @@ export interface PagerProps {
   pageSize: number;
   offset: number;
   onChange: (offset: number) => void;
+  /**
+   * 整页滚动的屏要传它 —— 分页会吸在视口底部。
+   *
+   * 不传的话，一页 50 行会把分页推到 2600px 以下，用户得一路滚到底
+   * 才知道自己在第几页。分栏的屏不用传：那里的列表自己有滚动区，
+   * 分页跟着栏走本来就在视口里。
+   *
+   * 判断标准是「这一屏是不是整页滚动」，不是「它叫什么名字」——
+   * `tests/e2e/pager-reach.spec.ts` 会检查每个有分页的屏是否首屏可见。
+   */
+  sticky?: boolean;
 }
 
-export function Pager({ total, pageSize, offset, onChange }: PagerProps) {
+export function Pager({ total, pageSize, offset, onChange, sticky = false }: PagerProps) {
   // 加载中或后端没给 total 时当作「还不知道」——
   // 直接读它会在 toLocaleString 上崩掉，而那会让整页白屏
   const count = Number.isFinite(total) ? total : 0;
@@ -30,7 +41,7 @@ export function Pager({ total, pageSize, offset, onChange }: PagerProps) {
   const atEnd = to >= count;
 
   return (
-    <nav className="pager" aria-label="分页">
+    <nav className={sticky ? 'pager pager--sticky' : 'pager'} aria-label="分页">
       {/* 翻页后读屏用户要知道自己在哪 */}
       <span className="pager__range" role="status">
         {from} – {to}
