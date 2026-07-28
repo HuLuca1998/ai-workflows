@@ -780,9 +780,21 @@ impl NodeExecutor {
                     self.save_output(&node.id, "reasoning.md", &reasoning);
                 }
 
+                // 端口从节点目录取，不硬编码 "success"：
+                // ai.review 的端口是 passed / changes_requested，
+                // ai.decide 是 auto_decided / escalated —— 硬编码的话，
+                // 事件里会写「走 success 分支」这个根本不存在的分支，
+                // 输出也落在一个下游引用不到的键上。
+                //
+                // 取第一个：**按模型的结论在多个端口之间选**是条件路由，
+                // 还没做。先让说出来的那个端口至少是真的
+                let port = crate::catalog::outputs(&node.node_type, &node.config)
+                    .first()
+                    .map_or_else(|| "success".to_string(), |p| p.id.clone());
+
                 scope.set_node_output(
                     &node.id,
-                    "success",
+                    &port,
                     serde_json::json!({
                         "text": text,
                         "reasoning": reasoning,
@@ -793,9 +805,7 @@ impl NodeExecutor {
                     }),
                 );
 
-                Ok(NodeOutcome::Succeeded {
-                    port: "success".to_string(),
-                })
+                Ok(NodeOutcome::Succeeded { port })
             }
             Err(error) => Ok(NodeOutcome::Failed {
                 message: format!("AI 节点失败：{error}"),

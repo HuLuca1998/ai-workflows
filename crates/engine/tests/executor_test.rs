@@ -561,7 +561,8 @@ fn ai_节点的指令会先做变量插值() {
 
     // mock 把收到的提示词原样回显不了，但插值失败会直接报错，
     // 所以能跑通就说明 ${input.target} 解析出来了
-    assert!(interpolate("${review.success.text}", &scope).is_ok());
+    // ai.review 的端口是 passed / changes_requested，没有 success
+    assert!(interpolate("${review.passed.text}", &scope).is_ok());
 }
 
 #[test]
@@ -672,7 +673,8 @@ fn ai_决策节点把结论放进输出的_decision_字段() {
         .unwrap();
 
     // 决策节点的输出要能被下游的条件分支引用
-    assert!(interpolate("${decide.success.text}", &scope).is_ok());
+    // ai.decide 的端口是 auto_decided / escalated
+    assert!(interpolate("${decide.auto_decided.text}", &scope).is_ok());
 }
 
 // ── 记忆注入与溯源（M4 出口标准）──────────────────────────────────────────
@@ -711,8 +713,14 @@ fn ai_节点() -> GraphNode {
 /// 于是它落在 `outputs.<node>.success.text` 里。
 /// snapshot 是 Scope 唯一的读出口 —— 内部结构是私有的，测试也不该依赖它。
 fn 收到的提示词(scope: &Scope, node_id: &str) -> String {
-    scope.snapshot()["outputs"][format!("{node_id}.success")]["text"]
-        .as_str()
+    // 端口按节点类型不同：ai.review 走 passed、ai.decide 走 auto_decided。
+    // 写死 `.success` 的话，这个助手只对 ai.analyze / ai.execute 有效
+    let snapshot = scope.snapshot();
+    let outputs = snapshot["outputs"].as_object().cloned().unwrap_or_default();
+    outputs
+        .iter()
+        .find(|(key, _)| key.starts_with(&format!("{node_id}.")))
+        .and_then(|(_, value)| value["text"].as_str())
         .unwrap_or_default()
         .to_string()
 }
@@ -1392,4 +1400,67 @@ fn 分析与审查节点不受_worktree_约束() {
         matches!(outcome, NodeOutcome::Succeeded { .. }),
         "{outcome:?}"
     );
+}
+
+// ── AI 节点走的端口必须真的存在 ─────────────────────────────────────────────
+//
+// `run_ai` 一直硬编码 `port: "success"`。而契约里：
+// - ai.review 的端口是 passed / changes_requested
+// - ai.decide 的端口是 auto_decided / escalated
+//
+// 于是事件流里写着「审查修复 完成 · 走 success 分支」—— 一个不存在的分支；
+// 输出也落在 `outputs.review.success` 上，而下游写 `${review.passed}`
+// 会解析不出来。两样都是**记录不准确**。
+//
+// 注意这修的不是「按模型的结论选端口」（那是条件路由，还没做），
+// 修的是「说出来的那个端口至少得存在」。
+
+#[test]
+fn 各类_ai_节点走的端口都在节点目录里() {
+    let (command, args) = mock_acp();
+
+    for (node_type, extra) in [
+        ("ai.analyze", serde_json::json!({ "target": "x" })),
+        ("ai.review", serde_json::json!({ "target": "x" })),
+        ("ai.decide", serde_json::json!({})),
+        (
+            "ai.execute",
+            serde_json::json!({ "workdirSource": "inherit" }),
+        ),
+    ] {
+        let mut config = serde_json::json!({
+            "agentProfileId": "builtin:builder",
+            "instruction": "干活"
+        });
+        for (key, value) in extra.as_object().unwrap() {
+            config[key] = value.clone();
+        }
+
+        let executor = NodeExecutor::new(workdir())
+            .with_acp_command(&command, &args)
+            .with_agent_profiles(&内置角色());
+        let mut scope = Scope::new("run_ports");
+        let outcome = executor
+            .execute(&node("n", node_type, config), &mut scope)
+            .unwrap();
+
+        let NodeOutcome::Succeeded { port } = outcome else {
+            panic!("{node_type} 没跑成功：{outcome:?}");
+        };
+
+        let 合法 = aiwf_engine::catalog::outputs(node_type, &serde_json::Value::Null);
+        assert!(
+            合法.iter().any(|p| p.id == port),
+            "{node_type} 走了 {port}，而它的端口是 {:?}",
+            合法.iter().map(|p| &p.id).collect::<Vec<_>>()
+        );
+
+        // 输出也要落在那个端口上，下游才引用得到
+        assert!(
+            scope.snapshot()["outputs"]
+                .get(format!("n.{port}"))
+                .is_some(),
+            "{node_type} 的输出没落在 {port} 上"
+        );
+    }
 }
