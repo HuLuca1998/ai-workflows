@@ -30,7 +30,6 @@ crates/
   store/              SQLite(WAL)+FTS5 访问层与迁移
 services/
   acp-sidecar/        Node：ACP Adapter（Claude Code / Codex）
-  mcp-server/         Node：对外 MCP 工具，只调用 Core API
 docs/                 项目管理文档、ADR、设计图纸与参考资料
 ```
 

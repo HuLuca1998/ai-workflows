@@ -29,7 +29,7 @@ MCP Server 不允许绕过 Core API。这两条在 CI 里有门禁。
 | `crates/engine`        | 调度、检查点、环境快照、PathGuard、Redactor                             | SQL                                          |
 | `crates/store`         | SQLite 访问与迁移                                                       | 业务规则                                     |
 | `services/acp-sidecar` | ACP runtime 拉起与会话                                                  | 调度决策                                     |
-| `services/mcp-server`  | MCP 工具发现与 Scope 校验                                               | 直接读写数据库                               |
+| `crates/mcp`           | 系统级 MCP：Streamable HTTP、工具清单、系统知识资源                     | 直接读写数据库                               |
 
 ## 三件冻结物
 

@@ -27,7 +27,7 @@ packages/contracts/tests/       契约自身的测试
 packages/client-core/src/       ipc-mapping、transport、client、event-store、draft-store
 crates/core-api/src/            Rust 侧 DTO 与命令实现（2200 行）
 crates/core-api/tests/          parity_test.rs 尤其重要
-services/mcp-server/src/        工具清单、stdio、确认信箱
+crates/mcp/src/                 工具清单、Streamable HTTP、系统知识资源
 services/acp-sidecar/src/
 crates/engine/tests/contract_sync_test.rs
 ```
@@ -139,7 +139,7 @@ diff /tmp/api.txt /tmp/map.txt
    （给远端等于让 MCP 自己批准自己）。
    核实：还有哪些方法是 null？每一个都该有注释说明为什么。
 3. MCP Server 暴露的工具清单是**从契约派生**的，不是手写的——
-   去 `services/mcp-server/src/tools.ts` 确认这一点，
+   去 `crates/mcp/src/catalog.rs` 确认这一点，
    并确认 CI 有门禁守着（`docs/MCP.md` 说有）
 4. 写工具与只读工具的划分是否与 Scope 一致
 

@@ -101,7 +101,7 @@ pnpm --filter @aiwf/ui preview      # 组件画廊 → localhost:5175
 
 ```bash
 pnpm test                                            # 全部 TS
-pnpm vitest run --project contracts                  # 单个包（contracts/ui/client-core/web/acp-sidecar/mcp-server）
+pnpm vitest run --project contracts                  # 单个包（contracts/ui/client-core/web/acp-sidecar）
 pnpm vitest run packages/contracts/tests/events.test.ts   # 单个文件
 pnpm vitest run --project web -t "根路径渲染概览页"    # 单个用例
 pnpm rs:test                                         # 全部 Rust

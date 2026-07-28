@@ -38,5 +38,12 @@ UI、MCP Server、本地 HTTP 都只是它的调用方。
 ## 落地
 
 `packages/contracts/src/api.ts` 是方法表与 Scope 映射的真源；
-`services/mcp-server` 的工具清单由它派生，没有手写的第二份。
-CI 门禁：MCP 工具不得绕过 Core（`services/mcp-server/tests/tools.test.ts`）。
+`crates/mcp` 的工具清单由它派生，没有手写的第二份。
+CI 门禁：MCP 工具不得绕过 Core（`crates/mcp/tests/catalog_test.rs`）。
+
+> 2026-07-29：这一层从 Node（stdio）搬到了 Rust（Streamable HTTP，`crates/mcp`）。
+> 搬的理由不是语言偏好 —— 是它要**跟着桌面应用一起起来**，
+> 才谈得上「一键接入」；而且进程内直连 Core API 之后，
+> 写操作的确认能真的弹在用户面前，不必跨进程轮询一个信箱。
+> 旧的 Node 实现已删：两个工具清单不一样的 MCP Server 同时存在，
+> 用户连上哪个全看文档写的是哪个 —— 那正是这条 ADR 要防的漂移。
