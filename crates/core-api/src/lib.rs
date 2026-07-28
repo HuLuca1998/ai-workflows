@@ -71,6 +71,17 @@ pub struct ApiError {
     pub code: String,
     pub message: String,
     pub retriable: bool,
+    /**
+     * 接下来该干什么。
+     *
+     * 契约的错误对象一直是 `{code, message, retriable, hint}`，
+     * 而这里长期只有前三个 —— 于是用户看到的永远只有「出了什么事」，
+     * 没有「怎么办」。「找不到工作流 wf_x」与
+     * 「找不到工作流 wf_x（它可能已被删除，去首页列表里找找）」
+     * 差的就是这个字段。
+     */
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub hint: Option<String>,
 }
 
 pub type ApiResult<T> = Result<T, ApiError>;
@@ -82,7 +93,16 @@ impl ApiError {
             code: "VALIDATION".to_string(),
             message: message.into(),
             retriable: false,
+            hint: None,
         }
+    }
+
+    /// 带上「接下来该干什么」。空串等于没有 —— 界面会显示一对空括号。
+    #[must_use]
+    pub fn with_hint(mut self, hint: impl Into<String>) -> Self {
+        let text = hint.into();
+        self.hint = (!text.trim().is_empty()).then_some(text);
+        self
     }
 }
 
@@ -96,10 +116,22 @@ impl From<aiwf_store::StoreError> for ApiError {
             aiwf_store::StoreError::RevisionConflict { .. } => ("REVISION_CONFLICT", true),
             aiwf_store::StoreError::Sqlite(_) => ("INTERNAL", false),
         };
+        // 提示按错误种类给：它要能照着做，不是把 message 换个说法
+        let hint = match &error {
+            aiwf_store::StoreError::NotFound { kind, .. } => {
+                Some(format!("这个{kind}可能已被删除。回列表页看看还在不在"))
+            }
+            aiwf_store::StoreError::RevisionConflict { base, current } => Some(format!(
+                "别处已经把它改到 rev{current}，而你这次基于 rev{base}。\
+                 刷新拿到最新版本再改一次"
+            )),
+            _ => None,
+        };
         Self {
             code: code.to_string(),
             message: error.to_string(),
             retriable,
+            hint,
         }
     }
 }
@@ -119,10 +151,18 @@ impl From<aiwf_engine::supervisor::SupervisorError> for ApiError {
             E::AlreadyRunning(_) => ("VALIDATION", false),
             E::Poisoned => ("INTERNAL", false),
         };
+        // 已经在跑是最常撞的一种，给条出路
+        let hint = match &error {
+            E::AlreadyRunning(_) => {
+                Some("这条运行还没结束。去执行记录里看它停在哪一步".to_string())
+            }
+            _ => None,
+        };
         Self {
             code: code.to_string(),
             message: error.to_string(),
             retriable,
+            hint,
         }
     }
 }
@@ -654,6 +694,7 @@ pub fn run_dry_run(
         code: "VALIDATION".to_string(),
         message: "找不到要检查的工作流定义".to_string(),
         retriable: false,
+        hint: None,
     })?;
 
     let graph: aiwf_engine::graph::WorkflowGraph =
@@ -661,6 +702,7 @@ pub fn run_dry_run(
             code: "INTERNAL".to_string(),
             message: format!("图数据无法解析：{error}"),
             retriable: false,
+            hint: None,
         })?;
 
     Ok(DryRunDto {
@@ -743,6 +785,7 @@ pub fn run_artifacts(store: &Store, run_id: String) -> ApiResult<ArtifactsDto> {
         code: "INTERNAL".to_string(),
         message: format!("读取产物失败：{error}"),
         retriable: true,
+        hint: None,
     })?;
 
     Ok(ArtifactsDto {
@@ -1131,6 +1174,7 @@ pub fn workflow_rollback(store: &Store, id: String, version_id: String) -> ApiRe
             code: "VALIDATION".into(),
             message: "这个版本不属于该工作流".into(),
             retriable: false,
+            hint: None,
         });
     }
     Ok(store.save_draft(&id, &version.graph_json)?)
@@ -1562,6 +1606,7 @@ pub fn supervisor_ask(
                  在「设置与环境」里能看到怎么装"
             ),
             retriable: false,
+            hint: None,
         });
     };
 
@@ -1592,6 +1637,7 @@ pub fn supervisor_ask(
         code: "EXTERNAL".to_string(),
         message: format!("连不上 adapter：{error}"),
         retriable: true,
+        hint: None,
     })?;
 
     let session = client
@@ -1600,6 +1646,7 @@ pub fn supervisor_ask(
             code: "EXTERNAL".to_string(),
             message: format!("建会话失败：{error}"),
             retriable: true,
+            hint: None,
         })?;
 
     let mut text = String::new();
@@ -1615,6 +1662,7 @@ pub fn supervisor_ask(
             code: "EXTERNAL".to_string(),
             message: format!("主管 AI 失败：{error}"),
             retriable: true,
+            hint: None,
         })?;
 
     let (text, proposal) = extract_proposal(&text);

@@ -148,13 +148,13 @@ fn handle(
     let (status, payload) = match dispatch::dispatch(&command, &input, store, supervisor, data_dir)
     {
         Ok(value) => (200, value),
+        // 整个结构体序列化，不手拼字段 —— 手拼那版漏了 hint，
+        // 于是「接下来该干什么」在引擎里填好了却到不了界面
         Err(error) => (
             400,
-            json!({
-                "code": error.code,
-                "message": error.message,
-                "retriable": error.retriable,
-            }),
+            serde_json::to_value(&error).unwrap_or_else(
+                |_| json!({ "code": "INTERNAL", "message": "错误序列化失败", "retriable": false }),
+            ),
         ),
     };
 

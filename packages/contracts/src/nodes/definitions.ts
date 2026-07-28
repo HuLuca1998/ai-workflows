@@ -579,107 +579,57 @@ export interface NodeLibraryEntry {
   types: NodeType[];
 }
 
-export const NODE_LIBRARY: readonly NodeLibraryEntry[] = [
-  {
-    id: 'ai.analyze',
-    group: 'ai',
-    label: 'AI · 分析',
-    summary: DEFINITIONS['ai.analyze'].summary,
-    types: ['ai.analyze'],
-  },
-  {
-    id: 'ai.review',
-    group: 'ai',
-    label: 'AI · 审查',
-    summary: DEFINITIONS['ai.review'].summary,
-    types: ['ai.review'],
-  },
-  {
-    id: 'ai.decide',
-    group: 'ai',
-    label: 'AI · 决策',
-    summary: DEFINITIONS['ai.decide'].summary,
-    types: ['ai.decide'],
-  },
-  {
-    id: 'ai.execute',
-    group: 'ai',
-    label: 'AI · 执行',
-    summary: DEFINITIONS['ai.execute'].summary,
-    types: ['ai.execute'],
-  },
-  {
-    id: 'entry',
-    group: 'flow',
-    label: '入口设置',
-    summary: DEFINITIONS.entry.summary,
-    types: ['entry'],
-  },
-  {
-    id: 'subworkflow',
-    group: 'flow',
-    label: '调用子工作流',
-    summary: DEFINITIONS.subworkflow.summary,
-    types: ['subworkflow'],
-  },
-  {
-    id: 'branch',
-    group: 'flow',
-    label: '条件分支',
-    summary: DEFINITIONS.branch.summary,
-    types: ['branch'],
-  },
-  {
-    id: 'transform',
-    group: 'flow',
-    label: '数据转换',
-    summary: DEFINITIONS.transform.summary,
-    types: ['transform'],
-  },
-  { id: 'end', group: 'flow', label: '结束', summary: DEFINITIONS.end.summary, types: ['end'] },
-  {
-    id: 'approval',
-    group: 'human',
-    label: '人工审批',
-    summary: DEFINITIONS.approval.summary,
-    types: ['approval'],
-  },
-  {
-    id: 'notify',
-    group: 'human',
-    label: '系统通知',
-    summary: DEFINITIONS.notify.summary,
-    types: ['notify'],
-  },
+/**
+ * 节点库里合并展示的类型。
+ *
+ * 只有脚本一条：Shell 与 Python 在图纸的节点库里是同一个入口，
+ * 拖进来之后再选解释器。其余类型一条对一条。
+ */
+const MERGED_ENTRIES = [
   {
     id: 'script',
-    group: 'execution',
     label: 'Shell / Python 脚本',
     summary: '非交互执行，带超时与输出上限',
-    types: ['script.shell', 'script.python'],
-  },
-  {
-    id: 'git.worktree',
-    group: 'execution',
-    label: 'Git worktree',
-    summary: DEFINITIONS['git.worktree'].summary,
-    types: ['git.worktree'],
-  },
-  {
-    id: 'env',
-    group: 'execution',
-    label: '环境变量',
-    summary: DEFINITIONS.env.summary,
-    types: ['env'],
-  },
-  {
-    id: 'mcp.tool',
-    group: 'integration',
-    label: 'MCP 工具',
-    summary: DEFINITIONS['mcp.tool'].summary,
-    types: ['mcp.tool'],
+    types: ['script.shell', 'script.python'] as NodeType[],
   },
 ] as const;
+
+/**
+ * 节点库（图纸「02 画布编辑器」左栏）。
+ *
+ * **从定义派生**，不是第二份清单：label 与 group 曾经手抄了一遍
+ * definition，改了一边忘了另一边就会对不上，而没有任何东西会报错。
+ * 现在唯一手写的是「哪些类型合并成一条」—— 那才是真正的差异。
+ */
+export const NODE_LIBRARY: readonly NodeLibraryEntry[] = (() => {
+  const entries: NodeLibraryEntry[] = [];
+
+  for (const type of NODE_TYPES) {
+    const group = MERGED_ENTRIES.find((entry) => entry.types.includes(type));
+    if (group) {
+      // 合并组在它第一个成员出现的位置插入，保持图纸的顺序
+      if (group.types[0] === type) {
+        entries.push({
+          id: group.id,
+          group: DEFINITIONS[type].group,
+          label: group.label,
+          summary: group.summary,
+          types: [...group.types],
+        });
+      }
+      continue;
+    }
+    const definition = DEFINITIONS[type];
+    entries.push({
+      id: type,
+      group: definition.group,
+      label: definition.title,
+      summary: definition.summary,
+      types: [type],
+    });
+  }
+  return entries;
+})();
 
 export function getNodeDefinition(type: NodeType): NodeDefinition {
   const def = DEFINITIONS[type];

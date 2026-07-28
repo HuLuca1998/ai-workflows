@@ -54,6 +54,13 @@ export function StatusBadge({ status, detail }: StatusBadgeProps) {
   );
 }
 
+/**
+ * 状态的中文名。
+ *
+ * 认不出来时返回**状态名本身**，而不是兜底成某个已知状态的文案 ——
+ * 后端可能比前端新，那时显示 `resuming_v2` 至少是诚实的，
+ * 而显示「已创建」会让用户以为一条正在跑的运行还没开始。
+ */
 export function statusLabel(status: RunStatusName): string {
-  return STATUS_META[status].label;
+  return STATUS_META[status]?.label ?? status;
 }

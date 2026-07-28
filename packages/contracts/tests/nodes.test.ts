@@ -277,3 +277,35 @@ describe('新增节点类型不改 UI 代码 —— 这条承诺要能被验证'
     }
   });
 });
+
+describe('节点库从定义派生，不是第二份清单', () => {
+  /**
+   * 第 5 轮审查 B1-C7（第 15 条）：「NODE_LIBRARY 是与 NODE_TYPES
+   * 并行维护的第二份清单」—— label 与 group 手抄了一遍 definition，
+   * 改了一边忘了另一边就会对不上，而没有任何东西会报错。
+   */
+  it('每条的 label 与 group 都来自它的第一个类型', () => {
+    for (const entry of NODE_LIBRARY) {
+      const first = entry.types[0];
+      expect(first, `${entry.id} 没有类型`).toBeTruthy();
+      const definition = getNodeDefinition(first!);
+      expect(entry.group, `${entry.id} 的 group 与定义对不上`).toBe(definition.group);
+      // 合并条目（脚本）的 label 是自己的，其余必须与定义一致
+      if (entry.types.length === 1) {
+        expect(entry.label, `${entry.id} 的 label 与定义对不上`).toBe(definition.title);
+      }
+    }
+  });
+
+  it('每个节点类型都能在节点库里找到 —— 一个都不能漏', () => {
+    const covered = new Set(NODE_LIBRARY.flatMap((entry) => entry.types));
+    const 漏掉的 = NODE_TYPES.filter((type) => !covered.has(type));
+    expect(漏掉的, `这些类型在节点库里没有入口：${漏掉的.join('、')}`).toEqual([]);
+  });
+
+  it('没有类型被列进两条 —— 那会在节点库里出现两次', () => {
+    const all = NODE_LIBRARY.flatMap((entry) => entry.types);
+    const 重复 = all.filter((type, index) => all.indexOf(type) !== index);
+    expect([...new Set(重复)]).toEqual([]);
+  });
+});

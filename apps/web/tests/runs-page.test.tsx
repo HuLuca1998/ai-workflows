@@ -463,3 +463,47 @@ describe('节点行可选中（图纸「03 执行记录」）', () => {
     expect(行?.tagName.toLowerCase(), '节点行不是按钮，键盘用户点不到').toBe('button');
   });
 });
+
+describe('状态穷尽性 —— 已经这么栽过一次', () => {
+  /**
+   * 第 5 轮审查 B1（第 10 条）：`runStatus()` 用 `as` 断言绕开类型检查，
+   * 不认识的状态**静默渲染成「已创建」**。第 23 条说的是同一件事：
+   * 「已经这么栽过一次的状态穷尽性没有测试压着」。
+   *
+   * 契约有 11 个状态，而这条链上有三份副本：
+   * `RunStatusName`（packages/ui）、`STATUS_META`（同上）、
+   * `KNOWN_STATUSES`（RunsPage）。
+   *
+   * `packages/ui` 不依赖 contracts 是有意的（组件库要能独立用），
+   * 所以类型没法直接派生 —— 那就用测试把三边钉在一起。
+   * 契约加第 12 个状态时，这条会红。
+   */
+  it('契约的每个状态，徽章都认得', async () => {
+    const { RUN_STATUSES } = await import('@aiwf/contracts');
+    const { statusLabel } = await import('@aiwf/ui');
+
+    for (const status of RUN_STATUSES) {
+      // statusLabel 对未知状态返回状态名本身（见下一条），
+      // 所以「返回值等于输入」就说明它不认识
+      const label = statusLabel(status as never);
+      expect(label, `徽章不认识状态 ${status}，它会显示成兜底值`).not.toBe(status);
+    }
+  });
+
+  it('RunsPage 不把未知状态伪装成「已创建」', async () => {
+    const { runStatusForTest } = await import('../src/runs/RunsPage.js');
+
+    // 兜底仍要有（后端可能比前端新），但不能装成一个具体的已知状态：
+    // 一条正在跑的运行显示成「已创建」，用户会以为它还没开始
+    expect(runStatusForTest('从未见过的状态')).toBe('从未见过的状态');
+  });
+
+  it('契约的每个状态在 RunsPage 里都原样通过', async () => {
+    const { RUN_STATUSES } = await import('@aiwf/contracts');
+    const { runStatusForTest } = await import('../src/runs/RunsPage.js');
+
+    for (const status of RUN_STATUSES) {
+      expect(runStatusForTest(status), `${status} 被改写了`).toBe(status);
+    }
+  });
+});

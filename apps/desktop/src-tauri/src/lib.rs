@@ -638,6 +638,7 @@ fn lock<'a>(state: &'a State<'_, AppState>) -> IpcResult<std::sync::MutexGuard<'
         code: "INTERNAL".into(),
         message: "存储锁中毒：有写入线程崩溃过，请重启应用".into(),
         retriable: false,
+        hint: None,
     })
 }
 

@@ -804,24 +804,23 @@ function stateLabel(state: NodeState): string {
   }
 }
 
-/** 状态文案只在 StatusBadge 里定义一处；这里只做安全窄化。 */
-const KNOWN_STATUSES = new Set<string>([
-  'created',
-  'preflight',
-  'queued',
-  'running',
-  'waiting_approval',
-  'paused',
-  'interrupted',
-  'resuming',
-  'succeeded',
-  'failed',
-  'cancelled',
-]);
-
+/**
+ * 状态原样交给徽章。
+ *
+ * 曾经在这里挡一道：不在白名单里的一律变成 `'created'`。那份白名单是
+ * 契约状态的**第三份副本**，而它的失效方式最难发现 —— 契约加一个状态，
+ * 界面把它显示成「已创建」，一条正在跑的运行看起来像刚建好的，
+ * 而没有任何报错。
+ *
+ * 徽章自己对未知状态返回状态名（见 statusLabel）—— 显示 `resuming_v2`
+ * 至少是诚实的。
+ */
 function runStatus(status: string): RunStatusName {
-  return KNOWN_STATUSES.has(status) ? (status as RunStatusName) : 'created';
+  return status as RunStatusName;
 }
+
+/** 给测试用：验证契约的每个状态都原样通过，未知状态不被伪装。 */
+export const runStatusForTest = runStatus;
 
 /** 事件类别：图纸的事件卡左侧色条按类别着色。 */
 function category(kind: string): string {

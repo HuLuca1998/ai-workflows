@@ -117,3 +117,89 @@ mod 模型连通性 {
         assert!(模型行.last_latency_ms.is_some(), "没记下延迟");
     }
 }
+
+/// 错误里的「接下来该干什么」。
+///
+/// 第 5 轮审查 B1（第 11 条）：契约的错误对象是
+/// `{code, message, retriable, hint}`，而 Rust 的 `ApiError` 只有前三个 ——
+/// hint 从来没被填过，`normalizeIpcError` 那一层再丢一次。
+/// 于是用户看到的永远只有「出了什么事」，没有「接下来怎么办」。
+mod 错误要说下一步 {
+    #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+
+    use aiwf_store::Store;
+
+    #[test]
+    fn 找不到工作流时告诉用户去哪儿找() {
+        let store = Store::open_in_memory().unwrap();
+        // WorkflowDetail 没有 Debug，unwrap_err 用不了
+        let err = match aiwf_core_api::workflow_get(&store, "wf_不存在".to_string()) {
+            Err(e) => e,
+            Ok(_) => panic!("不存在的工作流居然读到了"),
+        };
+
+        assert!(err.hint.is_some(), "没给下一步提示");
+        let hint = err.hint.unwrap();
+        assert!(
+            hint.contains("列表") || hint.contains("首页"),
+            "提示要能照着做，实际：{hint}"
+        );
+    }
+
+    #[test]
+    fn 版本冲突时说清怎么解() {
+        let store = Store::open_in_memory().unwrap();
+        let wf = store.create_workflow("测试", None).unwrap();
+        // 用错的 baseRev 触发冲突
+        let err = aiwf_core_api::workflow_save_draft(
+            &store,
+            wf,
+            99,
+            r#"{"nodes":[],"edges":[],"groups":[]}"#.to_string(),
+        );
+        let err = match err {
+            Err(e) => e,
+            Ok(_) => panic!("错的 baseRev 居然存进去了"),
+        };
+
+        assert_eq!(err.code, "REVISION_CONFLICT");
+        assert!(
+            err.hint.is_some(),
+            "冲突是最需要提示的一类 —— 用户不知道该怎么办"
+        );
+    }
+
+    #[test]
+    fn 没有提示时字段缺席_而不是空串() {
+        // 空串会让界面显示一个「（）」的空括号
+        let err = aiwf_core_api::ApiError::validation("就是不合法".to_string());
+        assert!(err.hint.is_none() || !err.hint.as_deref().unwrap_or("").is_empty());
+    }
+}
+
+/// 错误响应不能手拼字段。
+///
+/// devserver 曾经手写 `json!({code, message, retriable})` —— 漏了 hint，
+/// 于是「接下来该干什么」在引擎里填好了却到不了界面。
+/// 契约加一个错误字段时，同样的事会再发生一次。
+#[test]
+#[allow(clippy::expect_used)]
+fn 错误响应整体序列化_不手拼字段() {
+    let 源 = std::fs::read_to_string(
+        std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../devserver/src/main.rs"),
+    )
+    .expect("读得到 devserver 源码");
+
+    // 去掉注释再找：解释「为什么不该手拼」的文字里必然提到那几个字段
+    let 无注释: String = 源
+        .lines()
+        .filter(|line| !line.trim_start().starts_with("//"))
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    assert!(
+        !无注释.contains("\"retriable\": error.retriable"),
+        "错误响应在手拼字段。改用 serde_json::to_value(&error) —— \
+         手拼那版漏了 hint"
+    );
+}

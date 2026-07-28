@@ -22,6 +22,7 @@ pub fn dispatch(
         code: "INTERNAL".to_string(),
         message: "数据库锁已损坏，需要重启服务".to_string(),
         retriable: false,
+        hint: None,
     })?;
 
     match command {
@@ -320,6 +321,7 @@ pub fn dispatch(
             code: "VALIDATION".to_string(),
             message: format!("未知命令 {other}"),
             retriable: false,
+            hint: None,
         }),
     }
 }
@@ -329,6 +331,7 @@ fn to_value<T: serde::Serialize>(value: T) -> ApiResult<Value> {
         code: "INTERNAL".to_string(),
         message: format!("序列化返回值失败：{error}"),
         retriable: false,
+        hint: None,
     })
 }
 
@@ -341,6 +344,7 @@ fn string(input: &Value, key: &str) -> ApiResult<String> {
             code: "VALIDATION".to_string(),
             message: format!("缺少参数 {key}"),
             retriable: false,
+            hint: None,
         })
 }
 
@@ -356,6 +360,7 @@ fn int(input: &Value, key: &str) -> ApiResult<i64> {
             code: "VALIDATION".to_string(),
             message: format!("缺少参数 {key}"),
             retriable: false,
+            hint: None,
         })
 }
 
