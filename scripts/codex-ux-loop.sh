@@ -21,13 +21,31 @@ set -euo pipefail
 ROUNDS=1
 while [ $# -gt 0 ]; do
   case "$1" in
-    --rounds) ROUNDS="$2"; shift 2 ;;
+    --rounds)
+      ROUNDS="$2"
+      # macOS 的 seq 1 0 会输出「1 0」——两轮，不是零轮
+      case "$ROUNDS" in ''|*[!0-9]*) echo "--rounds 要正整数" >&2; exit 2 ;; esac
+      [ "$ROUNDS" -lt 1 ] && { echo "--rounds 要 ≥ 1" >&2; exit 2; }
+      shift 2 ;;
     *) echo "不认识的参数：$1（--rounds N）" >&2; exit 2 ;;
   esac
 done
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SKILL="$HOME/.claude/skills/codex-collab/scripts/codex_dev.sh"
+
+# 同一时刻只允许一个实例。
+#
+# 并发跑过一次：两个实例都算成「第 1 轮」，写同一个文件名，后者覆盖前者
+# ——两份报告的角度完全不重叠，先跑完那份差点整个丢掉。
+# mkdir 是原子的（flock 在 macOS 上不是自带的）。
+LOCK="$ROOT/.codex-ux-loop.lock"
+if ! mkdir "$LOCK" 2>/dev/null; then
+  echo "已经有一个 codex-ux-loop 在跑（$LOCK）。" >&2
+  echo "确认它真的死了再删：rm -rf '$LOCK'" >&2
+  exit 1
+fi
+trap 'rmdir "$LOCK" 2>/dev/null || true' EXIT
 
 if [ ! -f "$SKILL" ]; then
   echo "找不到 codex_dev.sh：$SKILL" >&2

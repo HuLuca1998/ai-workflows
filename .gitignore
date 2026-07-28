@@ -44,3 +44,4 @@ apps/desktop/src-tauri/gen/
 # 端到端测试产物
 /test-results/
 /docs/testing/playwright-report/
+.codex-ux-loop.lock/
