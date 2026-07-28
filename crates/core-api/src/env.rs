@@ -34,6 +34,25 @@ pub enum EnvStatus {
     Missing,
 }
 
+/// 缺工具时给的一条可复制命令。
+///
+/// **应用自己不装任何东西**：不下载、不解压、不写 PATH。
+/// 这不只是省事 —— 替用户执行下载与解压意味着要为
+/// 「从哪下载、怎么校验签名、装坏了怎么回滚」全都做决定，
+/// 而每个决定都是新的攻击面。给一行命令，用户自己看、自己跑。
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct InstallHint {
+    /// 复制得走的一行。**绝不含 sudo** —— 图纸的产品原则里就有这句，
+    /// 而用户多半会照贴不误。
+    pub command: String,
+    /// 这条命令的出处，让用户能自己判断要不要跑。
+    pub source: String,
+    /// 可选：官方安装页，给不想用命令行的人。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub url: Option<String>,
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct EnvHealthItem {
@@ -49,6 +68,9 @@ pub struct EnvHealthItem {
     pub status: EnvStatus,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub detail: Option<String>,
+    /// 缺了才给。已就绪还给的话，用户会以为「是不是该重装一下」。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub install_hint: Option<InstallHint>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -60,50 +82,88 @@ pub struct EnvHealthReport {
     pub items: Vec<EnvHealthItem>,
 }
 
-/// 要探测的工具。
+struct Probe {
+    capability: &'static str,
+    label: &'static str,
+    command: &'static str,
+    version_arg: &'static str,
+    optional: bool,
+    detail: &'static str,
+    /// 缺了怎么装：`(命令, 出处, 官方页)`。命令一律不含 sudo。
+    install: (&'static str, &'static str, Option<&'static str>),
+}
+
+/// 要探测的工具，以及缺了怎么装。
 ///
-/// `(capability, 显示名, 命令, 版本参数, 是否可选, 说明)`
-const PROBES: &[(&str, &str, &str, &str, bool, &str)] = &[
-    (
-        "git",
-        "Git",
-        "git",
-        "--version",
-        false,
-        "worktree 与 PR 都要它",
-    ),
-    (
-        "node",
-        "Node.js",
-        "node",
-        "--version",
-        false,
-        "ACP adapter 跑在它上面",
-    ),
-    (
-        "python",
-        "Python",
-        "python3",
-        "--version",
-        true,
-        "只有 Python 脚本节点需要",
-    ),
-    (
-        "gh",
-        "GitHub CLI",
-        "gh",
-        "--version",
-        true,
-        "只有 GitHub 相关的工作流需要",
-    ),
-    (
-        "docker",
-        "Docker / OrbStack",
-        "docker",
-        "--version",
-        true,
-        "只有容器工作流需要",
-    ),
+/// 安装命令用各项目**官方推荐**的装法，并注明出处 ——
+/// 「复制这行到终端」是让用户执行一段我们给的代码，
+/// 至少要说清它是哪来的，好让他自己判断。
+const PROBES: &[Probe] = &[
+    Probe {
+        capability: "git",
+        label: "Git",
+        command: "git",
+        version_arg: "--version",
+        optional: false,
+        detail: "worktree 与 PR 都要它",
+        install: (
+            "xcode-select --install",
+            "macOS 命令行工具（自带 git）",
+            Some("https://git-scm.com/downloads"),
+        ),
+    },
+    Probe {
+        capability: "node",
+        label: "Node.js",
+        command: "node",
+        version_arg: "--version",
+        optional: false,
+        detail: "ACP adapter 跑在它上面",
+        install: (
+            "brew install node@22",
+            "Homebrew",
+            Some("https://nodejs.org/en/download"),
+        ),
+    },
+    Probe {
+        capability: "python",
+        label: "Python",
+        command: "python3",
+        version_arg: "--version",
+        optional: true,
+        detail: "只有 Python 脚本节点需要",
+        install: (
+            "curl -LsSf https://astral.sh/uv/install.sh | sh",
+            "uv 官方安装脚本（astral.sh）",
+            Some("https://docs.astral.sh/uv/getting-started/installation/"),
+        ),
+    },
+    Probe {
+        capability: "gh",
+        label: "GitHub CLI",
+        command: "gh",
+        version_arg: "--version",
+        optional: true,
+        detail: "只有 GitHub 相关的工作流需要",
+        install: (
+            "brew install gh",
+            "Homebrew",
+            Some("https://cli.github.com"),
+        ),
+    },
+    Probe {
+        capability: "docker",
+        label: "Docker / OrbStack",
+        command: "docker",
+        version_arg: "--version",
+        optional: true,
+        detail: "只有容器工作流需要",
+        install: (
+            "brew install --cask orbstack",
+            "Homebrew Cask",
+            Some("https://orbstack.dev"),
+        ),
+    },
 ];
 
 /// 探测环境。
@@ -129,41 +189,40 @@ pub fn env_health(_recheck: bool) -> ApiResult<EnvHealthReport> {
     Ok(EnvHealthReport { ready, items })
 }
 
-fn probe_tool(
-    (capability, label, command, version_arg, optional, detail): &(
-        &str,
-        &str,
-        &str,
-        &str,
-        bool,
-        &str,
-    ),
-) -> EnvHealthItem {
-    let Some(path) = which(command) else {
+fn probe_tool(probe: &Probe) -> EnvHealthItem {
+    let (command, source, url) = probe.install;
+
+    let Some(path) = which(probe.command) else {
         return EnvHealthItem {
-            capability: (*capability).to_string(),
-            label: (*label).to_string(),
+            capability: probe.capability.to_string(),
+            label: probe.label.to_string(),
             version: None,
             path: None,
             source: EnvSource::Missing,
             // 可选项缺失不是「有问题」，只是「这类工作流跑不了」
-            status: if *optional {
+            status: if probe.optional {
                 EnvStatus::Optional
             } else {
                 EnvStatus::Missing
             },
-            detail: Some((*detail).to_string()),
+            detail: Some(probe.detail.to_string()),
+            install_hint: Some(InstallHint {
+                command: command.to_string(),
+                source: source.to_string(),
+                url: url.map(str::to_string),
+            }),
         };
     };
 
     EnvHealthItem {
-        capability: (*capability).to_string(),
-        label: (*label).to_string(),
-        version: read_version(command, version_arg),
+        capability: probe.capability.to_string(),
+        label: probe.label.to_string(),
+        version: read_version(probe.command, probe.version_arg),
         path: Some(path),
         source: EnvSource::System,
         status: EnvStatus::Ready,
         detail: None,
+        install_hint: None,
     }
 }
 
@@ -183,6 +242,7 @@ fn probe_adapter(runtime: &str, label: &str) -> EnvHealthItem {
             path: Some(path),
             status: EnvStatus::Ready,
             detail: None,
+            install_hint: None,
         },
         None => EnvHealthItem {
             capability: runtime.to_string(),
@@ -194,6 +254,19 @@ fn probe_adapter(runtime: &str, label: &str) -> EnvHealthItem {
             // 所以是可选而不是缺失
             status: EnvStatus::Optional,
             detail: Some("AI 节点与主管 AI 需要它".to_string()),
+            install_hint: Some(InstallHint {
+                // adapter 装在应用自己的 sidecar 目录下，不进全局 PATH
+                command: format!(
+                    "pnpm --filter @aiwf/acp-sidecar add {}",
+                    if runtime == "acp.claude" {
+                        "@agentclientprotocol/claude-agent-acp"
+                    } else {
+                        "@agentclientprotocol/codex-acp"
+                    }
+                ),
+                source: "Agent Client Protocol 官方 adapter".to_string(),
+                url: Some("https://agentclientprotocol.com".to_string()),
+            }),
         },
     }
 }

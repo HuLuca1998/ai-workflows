@@ -86,3 +86,67 @@ fn 探测不执行任何写操作() {
         "两次探测结果应当一致"
     );
 }
+
+#[test]
+fn 缺失的工具给出可复制的安装命令() {
+    // 应用不下载任何东西 —— 命令交给用户自己在终端跑。
+    // 攻击面为零，也不需要为「从哪下载、怎么校验签名」做一堆决定。
+    let report = env_health(false).unwrap();
+    for item in &report.items {
+        if item.status == EnvStatus::Missing || item.status == EnvStatus::Optional {
+            assert!(
+                item.install_hint.is_some(),
+                "{} 缺失却没给安装办法",
+                item.capability
+            );
+        }
+    }
+}
+
+#[test]
+fn 已就绪的工具不给安装命令() {
+    // 给了的话用户会以为「是不是该重装一下」
+    let report = env_health(false).unwrap();
+    for item in &report.items {
+        if item.status == EnvStatus::Ready {
+            assert!(
+                item.install_hint.is_none(),
+                "{} 已就绪却给了安装命令",
+                item.capability
+            );
+        }
+    }
+}
+
+#[test]
+fn 安装命令不含_sudo() {
+    // 图纸的产品原则：「不使用 sudo，不改动 shell profile」。
+    // 一条要 sudo 的命令等于把整台机器交出去，而用户多半会照贴不误
+    let report = env_health(false).unwrap();
+    for item in &report.items {
+        if let Some(hint) = &item.install_hint {
+            assert!(
+                !hint.command.contains("sudo"),
+                "{} 的安装命令带 sudo：{}",
+                item.capability,
+                hint.command
+            );
+        }
+    }
+}
+
+#[test]
+fn 安装命令带上出处() {
+    // 「复制这行到终端」是让用户执行一段我们给的代码 ——
+    // 至少要说清它是哪个项目的官方装法，好让他自己判断
+    let report = env_health(false).unwrap();
+    for item in &report.items {
+        if let Some(hint) = &item.install_hint {
+            assert!(
+                !hint.source.is_empty(),
+                "{} 的安装建议没说出处",
+                item.capability
+            );
+        }
+    }
+}

@@ -11,6 +11,20 @@ import { coreClient } from '../data/workspace.js';
  * 而不是只被告知「已就绪」。装错版本的排查全靠它。
  */
 
+/**
+ * 缺工具时给的一条可复制命令。
+ *
+ * **应用自己不装任何东西**：不下载、不解压、不写 PATH。
+ * 替用户执行下载意味着要为「从哪下载、怎么校验签名、装坏了怎么回滚」
+ * 全都做决定，而每个决定都是新的攻击面。
+ */
+interface InstallHint {
+  command: string;
+  /** 这条命令的出处，让用户能自己判断要不要跑。 */
+  source: string;
+  url?: string;
+}
+
 interface HealthItem {
   capability: string;
   label: string;
@@ -19,6 +33,7 @@ interface HealthItem {
   source: 'system' | 'app_managed' | 'missing';
   status: 'ready' | 'needs_attention' | 'optional' | 'missing';
   detail?: string;
+  installHint?: InstallHint;
 }
 
 interface Report {
@@ -109,6 +124,16 @@ export function EnvHealth() {
         </div>
       ) : null}
 
+      {report && !report.ready ? (
+        <p className="env__script">
+          <i className="ph ph-terminal" aria-hidden="true" />
+          <span>
+            一项项复制太啰嗦的话，跑一次 <code>bash scripts/install-deps.sh</code>{' '}
+            ——它会逐项问过再装，不使用 sudo，也不改 shell profile。脚本在仓库里，可以先看再跑。
+          </span>
+        </p>
+      ) : null}
+
       <table className="env__table" aria-label="运行环境健康">
         <thead>
           <tr>
@@ -139,8 +164,26 @@ export function EnvHealth() {
                 {item.status !== 'ready' && item.detail ? (
                   <span className="env__detail">{item.detail}</span>
                 ) : null}
+                {item.installHint ? (
+                  <span className="env__hint">
+                    <code>{item.installHint.command}</code>
+                    <span className="env__hint-source">来自 {item.installHint.source}</span>
+                  </span>
+                ) : null}
               </td>
-              <td />
+              <td>
+                {item.installHint ? (
+                  <button
+                    type="button"
+                    className="env__copy"
+                    aria-label={`复制 ${item.label} 的安装命令`}
+                    onClick={() => void navigator.clipboard?.writeText(item.installHint!.command)}
+                  >
+                    <i className="ph ph-copy" aria-hidden="true" />
+                    复制
+                  </button>
+                ) : null}
+              </td>
             </tr>
           ))}
         </tbody>

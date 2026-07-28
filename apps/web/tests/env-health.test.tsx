@@ -160,3 +160,75 @@ describe('无障碍', () => {
     expect(heads).toEqual(['能力', '版本', '路径 / 来源', '状态', '操作']);
   });
 });
+
+describe('缺失时给可复制的命令', () => {
+  const WITH_HINTS = {
+    ready: false,
+    items: [
+      { ...REPORT.items[0]! },
+      {
+        capability: 'node',
+        label: 'Node.js',
+        source: 'missing',
+        status: 'missing',
+        detail: 'ACP adapter 跑在它上面',
+        installHint: {
+          command: 'brew install node@22',
+          source: 'Homebrew',
+          url: 'https://nodejs.org/en/download',
+        },
+      },
+    ],
+  };
+
+  const view2 = async () => {
+    respond({ 'env.health': () => WITH_HINTS });
+    const user = userEvent.setup();
+    render(<EnvHealth />);
+    await screen.findByText('Node.js');
+    return user;
+  };
+
+  it('缺失项给出安装命令与出处', async () => {
+    await view2();
+    const row = screen.getByText('Node.js').closest('[data-capability]')!;
+    expect(row.textContent).toContain('brew install node@22');
+    // 「复制这行到终端」是让用户执行我们给的代码 —— 得说清它哪来的
+    expect(row.textContent).toContain('Homebrew');
+  });
+
+  it('有复制按钮 —— 手抄一行命令必然抄错', async () => {
+    const user = await view2();
+    const row = screen.getByText('Node.js').closest('[data-capability]')!;
+    const copy = within(row as HTMLElement).getByRole('button', { name: /复制/u });
+
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    // navigator.clipboard 在 jsdom 里只有 getter，赋值会抛
+    Object.defineProperty(navigator, 'clipboard', {
+      value: { writeText },
+      configurable: true,
+    });
+    await user.click(copy);
+    expect(writeText).toHaveBeenCalledWith('brew install node@22');
+  });
+
+  it('已就绪的不给安装命令 —— 给了用户会以为该重装', async () => {
+    await view2();
+    const row = screen.getByText('Git').closest('[data-capability]')!;
+    expect(within(row as HTMLElement).queryByRole('button', { name: /复制/u })).toBeNull();
+  });
+
+  it('顶部指向一键脚本 —— 一项项复制太啰嗦', async () => {
+    await view2();
+    expect(screen.getByText(/install-deps\.sh/u)).toBeTruthy();
+  });
+
+  it('全就绪时不显示那个脚本提示', async () => {
+    respond({
+      'env.health': () => ({ ready: true, items: [{ ...REPORT.items[0]! }] }),
+    });
+    render(<EnvHealth />);
+    await screen.findByText('Git');
+    expect(screen.queryByText(/install-deps\.sh/u)).toBeNull();
+  });
+});
