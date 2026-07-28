@@ -67,6 +67,7 @@ const COMMANDS: Partial<Record<CoreApiMethod, string>> = {
   'model.list': 'model_list',
   'model.create': 'model_create',
   'model.update': 'model_update',
+  'model.test': 'model_test',
   'model.delete': 'model_delete',
 };
 

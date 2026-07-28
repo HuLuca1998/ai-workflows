@@ -240,3 +240,96 @@ describe('推理档位的展示语义', () => {
     }
   });
 });
+
+describe('测试连通性（图纸「07 模型」）', () => {
+  /**
+   * 图纸详情区的按钮顺序是「测试连通性 | 启用/停用 | 删除 | 保存」，
+   * 凭据卡里有一行「延迟 · 1.4s（最近一次测试）」。
+   *
+   * ROADMAP 把它留给 M5「和环境健康中心一起做，共用同一套探测逻辑」——
+   * 它们确实共用：都是启动 adapter 握手。
+   */
+  const 打开模型 = async () => {
+    const user = userEvent.setup();
+    view();
+    await user.click(await screen.findByRole('button', { name: /Opus 5 · high/u }));
+    return user;
+  };
+
+  it('按钮在，且排在启用/停用前面 —— 图纸的顺序', async () => {
+    await 打开模型();
+    const actions = [...document.querySelectorAll('.models__detail header button')].map((b) =>
+      b.textContent?.trim(),
+    );
+    expect(actions.slice(0, 2)).toEqual(['测试连通性', '停用']);
+  });
+
+  it('点它把模型 id 发给后端', async () => {
+    const user = await 打开模型();
+    await user.click(screen.getByRole('button', { name: '测试连通性' }));
+
+    await waitFor(() => {
+      expect(call).toHaveBeenCalledWith('model.test', { id: 'model_1' });
+    });
+  });
+
+  it('测试期间按钮变成「测试中…」并禁用 —— 那要几秒', async () => {
+    respond({
+      'model.list': () => ({ items: [MODEL], total: 1 }),
+      'model.test': () => new Promise(() => {}),
+    });
+    const user = await 打开模型();
+    await user.click(screen.getByRole('button', { name: '测试连通性' }));
+
+    expect(await screen.findByRole('button', { name: '测试中…' })).toBeDisabled();
+  });
+
+  it('通了显示延迟与说明', async () => {
+    respond({
+      'model.list': () => ({ items: [MODEL], total: 1 }),
+      'model.test': () => ({ ok: true, latencyMs: 1420, detail: '握手成功 · 协议 v1' }),
+    });
+    const user = await 打开模型();
+    await user.click(screen.getByRole('button', { name: '测试连通性' }));
+
+    // 说明来自 model.test 的返回；延迟落在模型行上，由重新拉的列表带回来
+    // （那条链由「测完刷新列表」那条用例验）
+    expect(await screen.findByText(/握手成功/u)).toBeTruthy();
+  });
+
+  it('没通时把原因显示出来 —— 那正是用户要的', async () => {
+    respond({
+      'model.list': () => ({ items: [MODEL], total: 1 }),
+      'model.test': () => ({
+        ok: false,
+        latencyMs: 12,
+        detail: 'acp.claude 的 adapter 没有安装。在「设置与环境」里能看到怎么装',
+      }),
+    });
+    const user = await 打开模型();
+    await user.click(screen.getByRole('button', { name: '测试连通性' }));
+
+    expect(await screen.findByText(/adapter 没有安装/u)).toBeTruthy();
+  });
+
+  it('测完刷新列表 —— 延迟要落到凭据卡上', async () => {
+    let 测过 = false;
+    respond({
+      'model.list': () => ({
+        items: [{ ...MODEL, lastLatencyMs: 测过 ? 1420 : 342 }],
+        total: 1,
+      }),
+      'model.test': () => {
+        测过 = true;
+        return { ok: true, latencyMs: 1420, detail: '握手成功' };
+      },
+    });
+    const user = await 打开模型();
+    expect(screen.getByText(/342 ms/u)).toBeTruthy();
+
+    await user.click(screen.getByRole('button', { name: '测试连通性' }));
+    await waitFor(() => {
+      expect(screen.getByText(/1420 ms（最近一次测试）/u)).toBeTruthy();
+    });
+  });
+});

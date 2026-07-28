@@ -151,6 +151,7 @@ pub const COMMANDS: &[&str] = &[
     "model_list",
     "model_create",
     "model_update",
+    "model_test",
     "model_delete",
     "run_start",
     "run_dry_run",
@@ -2051,4 +2052,90 @@ pub fn supervisor_prompt(
 
     prompt.push_str(question);
     prompt
+}
+
+/// 模型连通性测试的结果。
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ModelTestResult {
+    pub ok: bool,
+    pub latency_ms: i64,
+    pub detail: String,
+}
+
+/// 测一个模型现在能不能用 —— 图纸「07 模型」的「测试连通性」。
+///
+/// 只做**握手 + 建会话**，不发提示词：那样快、不花钱，而且已经足以回答
+/// 「这个模型现在能不能用」。握不上手的原因（adapter 没装、版本不匹配、
+/// 没登录）正是用户需要知道的。
+///
+/// adapter 没装**不算错误**：那是最常见的情况，用户需要的是「装什么」，
+/// 不是一个红色的异常。所以它走 ok=false 而不是 Err。
+pub fn model_test(store: &Store, id: String) -> ApiResult<ModelTestResult> {
+    use aiwf_engine::acp::{AcpClient, env_to_remove};
+
+    let model = store
+        .get_model(&id)?
+        .ok_or(aiwf_store::StoreError::NotFound {
+            kind: "模型",
+            id: id.clone(),
+        })?;
+
+    let started = std::time::Instant::now();
+    let 结果 = probe_runtime(&model.runtime, |command| {
+        let mut client = AcpClient::connect(
+            command,
+            &[],
+            &env_to_remove(&model.runtime),
+            std::time::Duration::from_secs(30),
+        )
+        .map_err(|error| format!("连不上 adapter：{error}"))?;
+
+        let session = client
+            .new_session(&std::env::temp_dir().display().to_string())
+            .map_err(|error| format!("握手成功但建会话失败：{error}"))?;
+
+        Ok(format!(
+            "握手成功 · 协议 v{} · 会话已建立（{} 个权限档）",
+            client.protocol_version(),
+            session.modes.len()
+        ))
+    });
+    let latency_ms = i64::try_from(started.elapsed().as_millis()).unwrap_or(i64::MAX);
+
+    // 失败也记：用户看到一个停在上周的延迟会以为现在还是那么快
+    store.set_model_latency(&id, latency_ms)?;
+
+    Ok(match 结果 {
+        Ok(detail) => ModelTestResult {
+            ok: true,
+            latency_ms,
+            detail,
+        },
+        Err(detail) => ModelTestResult {
+            ok: false,
+            latency_ms,
+            detail,
+        },
+    })
+}
+
+/// 找到运行时对应的 adapter 再跑探测。找不到时给出可照做的说明。
+fn probe_runtime(
+    runtime: &str,
+    probe: impl FnOnce(&str) -> std::result::Result<String, String>,
+) -> std::result::Result<String, String> {
+    use aiwf_engine::acp::{adapter_command, adapter_installed};
+
+    if adapter_command(runtime).is_none() {
+        return Err(format!(
+            "{runtime} 不是 ACP 运行时，连通性测试只支持 ACP（acp.claude / acp.codex）"
+        ));
+    }
+    let Some(command) = adapter_installed(runtime) else {
+        return Err(format!(
+            "{runtime} 的 adapter 没有安装。在「设置与环境」里能看到怎么装"
+        ));
+    };
+    probe(&command)
 }

@@ -866,3 +866,45 @@ describe('提示词的版本历史', () => {
     expect(spec.input.safeParse({ id: 'pr_1', ver: 1 }).success).toBe(true);
   });
 });
+
+describe('模型连通性测试', () => {
+  /**
+   * 图纸「07 模型」详情区的「测试连通性」按钮，与凭据卡里那行
+   * 「延迟 · 1.4s（最近一次测试）」。
+   *
+   * ROADMAP 把它留给了 M5「和环境健康中心一起做，共用同一套探测逻辑」——
+   * 它们确实共用：都是启动 adapter 握手，区别只是这里还要量时间。
+   */
+  it('只要模型 id', () => {
+    const spec = getMethodSpec('model.test');
+    expect(spec.input.safeParse({ id: 'model_1' }).success).toBe(true);
+    expect(spec.input.safeParse({}).success).toBe(false);
+  });
+
+  it('返回通没通、多少毫秒、以及一句能看懂的说明', () => {
+    const spec = getMethodSpec('model.test');
+    expect(spec.output.safeParse({ ok: true, latencyMs: 1420, detail: '握手成功' }).success).toBe(
+      true,
+    );
+  });
+
+  it('没通时也要有 detail —— 「失败」两个字帮不上任何忙', () => {
+    const spec = getMethodSpec('model.test');
+    expect(spec.output.safeParse({ ok: false, latencyMs: 0 }).success).toBe(false);
+    expect(spec.output.safeParse({ ok: false, latencyMs: 0, detail: 'adapter 没装' }).success).toBe(
+      true,
+    );
+  });
+
+  it('会启进程，所以不给远端 Scope', () => {
+    const spec = getMethodSpec('model.test');
+    // 与 env.install / run.diagnostics 同一条理由：
+    // 让 MCP 能在这台机器上拉起进程就是一条越权路径
+    expect(spec.scope).toBeNull();
+    expect(spec.audited).toBe(true);
+  });
+
+  it('不在 MCP 首发工具清单里', () => {
+    expect(MCP_FIRST_RELEASE_TOOLS).not.toContain('model.test');
+  });
+});

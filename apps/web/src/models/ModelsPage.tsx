@@ -44,6 +44,9 @@ export function ModelsPage() {
   const [creating, setCreating] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  /** 连通性测试：进行中的标记与最近一次结果。 */
+  const [testing, setTesting] = useState(false);
+  const [testResult, setTestResult] = useState<{ ok: boolean; detail: string } | null>(null);
   /** 满足条件的总条数与当前页起点。后端早就分页了，缺的是界面这一层。 */
   const [total, setTotal] = useState(0);
   const [offset, setOffset] = useState(0);
@@ -60,6 +63,32 @@ export function ModelsPage() {
       setTotal(result.total);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
+    }
+  };
+
+  /**
+   * 测一个模型现在能不能用。
+   *
+   * 测完要**重新拉列表**：延迟写回了模型行，不拉的话凭据卡上那行
+   * 还是上一次的数字 —— 用户会以为测试没生效。
+   */
+  const runTest = async () => {
+    if (!selectedId) return;
+    setTesting(true);
+    setTestResult(null);
+    setError(null);
+    try {
+      const result = (await coreClient.call('model.test', { id: selectedId })) as {
+        ok: boolean;
+        detail: string;
+        latencyMs: number;
+      };
+      setTestResult({ ok: result.ok, detail: result.detail });
+      await load(offset);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setTesting(false);
     }
   };
 
@@ -185,6 +214,17 @@ export function ModelsPage() {
                 <p className="models__detail-sub">{runtimeLabel(selected.runtime)}</p>
               </div>
               <span className="runs__grow" />
+              {/* 图纸的按钮顺序：测试连通性 | 启用/停用 | 删除。
+                  只做握手 + 建会话，不发提示词 —— 那样快、不花钱，
+                  而且已经足以回答「这个模型现在能不能用」 */}
+              <button
+                type="button"
+                className="runs__action"
+                disabled={testing}
+                onClick={() => void runTest()}
+              >
+                {testing ? '测试中…' : '测试连通性'}
+              </button>
               <button type="button" className="runs__action" onClick={() => void onToggle()}>
                 {selected.enabled ? '停用' : '启用'}
               </button>
@@ -256,6 +296,17 @@ export function ModelsPage() {
                       : `${selected.lastLatencyMs} ms（最近一次测试）`}
                   </dd>
                 </dl>
+                {/* 测试结果连原因一起显示：adapter 没装是最常见的情况，
+                    而用户需要的是「装什么」，不是一个红色的「失败」 */}
+                {testResult ? (
+                  <p className="models__test-result" data-ok={testResult.ok} role="status">
+                    <i
+                      className={`ph ${testResult.ok ? 'ph-check-circle' : 'ph-warning-circle'}`}
+                      aria-hidden="true"
+                    />
+                    {testResult.detail}
+                  </p>
+                ) : null}
               </div>
 
               <div className="models__card">

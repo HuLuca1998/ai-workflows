@@ -762,16 +762,25 @@ const SPECS = {
     summary: '删除模型登记',
   },
   'model.test': {
+    // 图纸「07 模型」详情区的「测试连通性」，与凭据卡那行
+    //「延迟 · 1.4s（最近一次测试）」。
+    //
+    // 只做握手 + 建会话，不发提示词：那样快、不花钱，而且已经足以回答
+    //「这个模型现在能不能用」—— 握不上手的原因（adapter 没装、
+    // 版本不匹配、没登录）正是用户需要知道的。
     input: idOnly,
     output: z.object({
       ok: z.boolean(),
-      latencyMs: z.number().int().nonnegative().optional(),
-      detail: z.string().optional(),
+      latencyMs: z.number().int().nonnegative(),
+      /** 通了说通过什么，没通说卡在哪 ——「失败」两个字帮不上任何忙。 */
+      detail: z.string().min(1),
     }),
-    mutates: false,
+    // 它把延迟写回模型行（图纸「最近一次测试」），所以是写操作
+    mutates: true,
     audited: true,
-    scope: 'workflow:read',
-    summary: '连通性测试',
+    // 会在这台机器上拉起 adapter 进程：与 env.install 同一条理由，不给远端
+    scope: null,
+    summary: '测试模型连通性并记下延迟',
   },
   'agent.list': {
     input: z.object({ query: z.string().optional(), ...PAGING }),

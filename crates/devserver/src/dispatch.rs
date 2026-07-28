@@ -154,6 +154,7 @@ pub fn dispatch(
             opt_string(input, "credentialRef"),
             boolean(input, "enabled"),
         )?),
+        "model_test" => to_value(api::model_test(&store, string(input, "id")?)?),
         "model_update" => to_value(api::model_update(
             &store,
             string(input, "id")?,

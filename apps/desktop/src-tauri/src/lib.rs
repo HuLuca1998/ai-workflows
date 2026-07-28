@@ -462,6 +462,12 @@ fn run_rewind_to_approval(
 }
 
 #[tauri::command]
+fn model_test(state: State<'_, AppState>, id: String) -> IpcResult<api::ModelTestResult> {
+    let store = lock(&state)?;
+    api::model_test(&store, id)
+}
+
+#[tauri::command]
 fn workspace_settings(state: State<'_, AppState>) -> IpcResult<api::WorkspaceSettingsDto> {
     let store = lock(&state)?;
     api::workspace_settings(&store)
@@ -714,6 +720,7 @@ pub fn run() {
             workflow_list,
             workspace_stats,
             workspace_settings,
+            model_test,
             run_rewind_to_approval,
             env_diagnostics,
             workspace_update_settings,

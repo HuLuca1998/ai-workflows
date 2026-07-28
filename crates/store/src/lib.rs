@@ -1890,6 +1890,18 @@ impl Store {
         Ok(id)
     }
 
+    /// 记下最近一次连通性测试的延迟。
+    ///
+    /// **失败也记**：那同样是「最近一次测试」的结果，而用户看到一个
+    /// 停在上周的延迟数字会以为现在还是那么快。
+    pub fn set_model_latency(&self, id: &str, latency_ms: i64) -> Result<()> {
+        self.conn.execute(
+            "UPDATE model SET last_latency_ms = ?2 WHERE id = ?1",
+            params![id, latency_ms],
+        )?;
+        Ok(())
+    }
+
     pub fn get_model(&self, id: &str) -> Result<Option<ModelRow>> {
         let row = self
             .conn

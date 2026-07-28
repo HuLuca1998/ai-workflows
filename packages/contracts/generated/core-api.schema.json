@@ -4986,9 +4986,9 @@
     }
   },
   "model.test": {
-    "summary": "连通性测试",
-    "scope": "workflow:read",
-    "mutates": false,
+    "summary": "测试模型连通性并记下延迟",
+    "scope": null,
+    "mutates": true,
     "audited": true,
     "input": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -5016,11 +5016,14 @@
           "maximum": 9007199254740991
         },
         "detail": {
-          "type": "string"
+          "type": "string",
+          "minLength": 1
         }
       },
       "required": [
-        "ok"
+        "ok",
+        "latencyMs",
+        "detail"
       ]
     }
   },
