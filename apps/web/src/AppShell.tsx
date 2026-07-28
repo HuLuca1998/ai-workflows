@@ -5,6 +5,11 @@ import { SideNav } from './layout/SideNav.js';
 import { SupervisorDrawer } from './supervisor/SupervisorDrawer.js';
 import { useEditor } from './editor/editorStore.js';
 import { TitleBar } from './layout/TitleBar.js';
+import {
+  environmentDisplay,
+  permissionDisplay,
+  useWorkspaceSettings,
+} from './data/useWorkspaceSettings.js';
 import { NotFoundPage } from './pages/NotFoundPage.js';
 import { PAGES } from './pages/index.js';
 
@@ -15,6 +20,9 @@ import { PAGES } from './pages/index.js';
  * 主管 AI 抽屉 468px（屏幕清单 §11）。
  */
 export function AppShell() {
+  const { settings } = useWorkspaceSettings();
+  const permission = permissionDisplay(settings);
+  const environment = environmentDisplay(settings);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const editor = useEditor();
 
@@ -34,10 +42,18 @@ export function AppShell() {
 
   return (
     <div className="app-shell">
-      <TitleBar onAskAi={() => setDrawerOpen((open) => !open)} />
+      <TitleBar
+        onAskAi={() => setDrawerOpen((open) => !open)}
+        {...(settings.workdir ? { workdir: settings.workdir } : {})}
+      />
       <div className="app-shell__body">
-        {/* 计数与权限档等引擎接上后才有真实值；现在传空，界面会显示「尚未…」而不是假状态 */}
-        <SideNav counts={{}} />
+        {/* 计数还等引擎；权限档与环境读的是工作区设置 —— 没配过时传 undefined，
+            界面显示「尚未…」而不是一个假的正常状态 */}
+        <SideNav
+          counts={{}}
+          {...(permission ? { permission } : {})}
+          {...(environment ? { environment } : {})}
+        />
         <main className="app-shell__content">
           <Routes>
             {PAGES.map(({ path, element }) => (

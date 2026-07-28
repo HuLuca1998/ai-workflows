@@ -6,6 +6,7 @@ import {
   requiredScope,
 } from '../src/api.js';
 import { ERROR_CODES } from '../src/errors.js';
+import { PERMISSION_PRESETS } from '../src/capabilities.js';
 import { WorkflowSchema } from '../src/domain.js';
 import { SCOPES } from '../src/capabilities.js';
 
@@ -617,5 +618,149 @@ describe('workflow.list 的筛选', () => {
 
   it('自造的状态被拒', () => {
     expect(getMethodSpec('workflow.list').input.safeParse({ status: '乱写' }).success).toBe(false);
+  });
+});
+
+describe('产物列表与预览之间的字段要接得上', () => {
+  /**
+   * codex 的原话：点「预览」显示「`run.artifactContent` 的入参不合契约」。
+   *
+   * 根因是 Zod 会静默剥掉未声明的字段：引擎的 ArtifactDto 有 relPath，
+   * 契约的 output 只声明了 path，于是界面拿到 undefined，把它当 path
+   * 传给预览接口 —— 报错说的是「入参不合契约」，而问题出在上一个接口
+   * 的返回值上。同一类坑之前在 WorkflowSummary 的 lastRun 上踩过。
+   */
+  const artifacts = getMethodSpec('run.artifacts');
+
+  it('产物条目带 relPath —— 预览接口收的就是它', () => {
+    const parsed = artifacts.output.safeParse({
+      items: [
+        {
+          nodeId: 'script_shell_2',
+          kind: 'log',
+          name: 'stdout.log',
+          path: '/Users/me/.aiwf/runs/run_1/script_shell_2/stdout.log',
+          relPath: 'script_shell_2/stdout.log',
+          bytes: 21,
+          sha256: 'a'.repeat(64),
+        },
+      ],
+      root: '/Users/me/.aiwf/runs/run_1',
+    });
+
+    expect(parsed.success).toBe(true);
+    if (!parsed.success) return;
+    const items = parsed.data as { items: { relPath: string }[] };
+    expect(items.items[0]?.relPath).toBe('script_shell_2/stdout.log');
+  });
+
+  it('relPath 直接能过预览接口的入参校验 —— 两端对得上才算接住', () => {
+    const parsed = artifacts.output.safeParse({
+      items: [
+        {
+          nodeId: 'script_shell_2',
+          kind: 'log',
+          name: 'stdout.log',
+          path: '/abs/run_1/script_shell_2/stdout.log',
+          relPath: 'script_shell_2/stdout.log',
+          bytes: 21,
+          sha256: 'b'.repeat(64),
+        },
+      ],
+      root: '/abs/run_1',
+    });
+    expect(parsed.success).toBe(true);
+    if (!parsed.success) return;
+
+    const items = parsed.data as { items: { relPath: string }[] };
+    const next = getMethodSpec('run.artifactContent').input.safeParse({
+      runId: 'run_1',
+      path: items.items[0]?.relPath,
+    });
+    expect(next.success, '产物列表给的路径过不了预览接口的校验').toBe(true);
+  });
+
+  it('绝对路径的 path 过不了预览接口 —— 那道防线还在', () => {
+    const next = getMethodSpec('run.artifactContent').input.safeParse({
+      runId: 'run_1',
+      path: '/Users/me/.aiwf/runs/run_1/script_shell_2/stdout.log',
+    });
+    expect(next.success).toBe(false);
+  });
+});
+
+describe('工作区设置', () => {
+  /**
+   * codex 复测：点「用默认目录开始」之后顶栏仍写「尚未授权工作目录」，
+   * 侧栏仍写「未设置权限档」「环境尚未检查」。
+   *
+   * 根因是那三处没有数据源 —— 界面上悬着三条「未配置」，
+   * 而应用里没有任何东西能把它们改掉。
+   */
+  it('读设置不需要入参，三项都可缺席', () => {
+    const spec = getMethodSpec('workspace.settings');
+    expect(spec.input.safeParse({}).success).toBe(true);
+
+    const parsed = spec.output.safeParse({});
+    expect(parsed.success, '一项都没配过是合法状态').toBe(true);
+  });
+
+  it('权限档只能是契约里那三档 —— 界面文案与存的 ID 是两回事', () => {
+    const spec = getMethodSpec('workspace.updateSettings');
+    for (const preset of PERMISSION_PRESETS) {
+      expect(spec.input.safeParse({ permissionPreset: preset }).success).toBe(true);
+    }
+    // 图纸上显示的是「Workspace Safe」，存的是 workspace_safe。
+    // 把显示文案直接存进去的话，改个文案就把历史数据读不出来了
+    expect(spec.input.safeParse({ permissionPreset: 'Workspace Safe' }).success).toBe(false);
+    expect(spec.input.safeParse({ permissionPreset: '随便什么' }).success).toBe(false);
+  });
+
+  it('写设置是 mutates —— 它改的是「这台机器被授权到什么程度」', () => {
+    const spec = getMethodSpec('workspace.updateSettings');
+    expect(spec.mutates).toBe(true);
+    expect(spec.audited, '授权变更必须留痕').toBe(true);
+  });
+
+  it('空对象也能写 —— 只改一项时别的不用带', () => {
+    const spec = getMethodSpec('workspace.updateSettings');
+    expect(spec.input.safeParse({ workdir: '~/code/atlas-api' }).success).toBe(true);
+    expect(spec.input.safeParse({ envCheckedAt: '2026-07-28T13:00:00Z' }).success).toBe(true);
+  });
+
+  it('工作目录不能是空串 —— 那等于没授权，却看着像授权了', () => {
+    const spec = getMethodSpec('workspace.updateSettings');
+    expect(spec.input.safeParse({ workdir: '' }).success).toBe(false);
+  });
+});
+
+describe('环境诊断导出', () => {
+  /**
+   * 图纸「06 首次安装与检测」与「05 设置与环境」底部都有「导出脱敏报告」。
+   * 那两屏都还没有任何一次运行，所以 `run.diagnostics`（要 runId）用不上。
+   *
+   * M5 的出口标准写着「诊断包不含 Secret」—— 这个方法与 run.diagnostics
+   * 共用同一条脱敏管道，理由也一样：用户要把环境情况发给别人看，
+   * 手工整理必然会漏掉某处的 token。
+   */
+  it('不需要 runId —— 那两屏都还没跑过任何东西', () => {
+    const spec = getMethodSpec('env.diagnostics');
+    expect(spec.input.safeParse({}).success).toBe(true);
+  });
+
+  it('返回落盘位置与大小，跟 run.diagnostics 一样', () => {
+    const spec = getMethodSpec('env.diagnostics');
+    const parsed = spec.output.safeParse({ path: '/tmp/aiwf-env-diag.json', bytes: 4096 });
+    expect(parsed.success).toBe(true);
+  });
+
+  it('会动本机文件，所以不给远端 Scope', () => {
+    const spec = getMethodSpec('env.diagnostics');
+    expect(spec.scope, 'MCP 能触发写本机文件就是一条越权路径').toBeNull();
+    expect(spec.audited).toBe(true);
+  });
+
+  it('不在 MCP 首发工具清单里', () => {
+    expect(MCP_FIRST_RELEASE_TOOLS).not.toContain('env.diagnostics');
   });
 });

@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router';
+import type * as RouterModule from 'react-router';
 
 /**
  * 首次配置 —— 图纸「06 首次安装与检测」。
@@ -45,11 +46,24 @@ const HEALTH = {
         source: 'ACP 官方 adapter',
       },
     },
+    {
+      capability: 'gh',
+      label: 'GitHub CLI',
+      source: 'missing',
+      status: 'missing',
+      detail: 'Push 与 PR 节点需要它',
+      installHint: { command: 'brew install gh', source: 'Homebrew' },
+    },
   ],
 };
 
 function respond(handlers: Record<string, (input: unknown) => unknown> = {}) {
-  const checked = createContractCall({ 'env.health': () => HEALTH, ...handlers });
+  const checked = createContractCall({
+    'env.health': () => HEALTH,
+    'workspace.updateSettings': () => ({ ok: true }),
+    'env.diagnostics': () => ({ path: '/tmp/aiwf/diagnostics/env-diagnostics.json', bytes: 2048 }),
+    ...handlers,
+  });
   call.mockImplementation((method: string, input: unknown) => checked(method, input));
 }
 
@@ -74,12 +88,24 @@ beforeEach(() => {
   });
 });
 
-const view = () =>
-  render(
+/** 记下跳转去了哪。写完设置才回首页是这一屏的关键行为。 */
+let navigated: string[] = [];
+vi.mock('react-router', async (importOriginal) => {
+  const actual = await importOriginal<typeof RouterModule>();
+  return {
+    ...actual,
+    useNavigate: () => (to: string) => navigated.push(to),
+  };
+});
+
+const view = () => {
+  navigated = [];
+  return render(
     <MemoryRouter>
       <OnboardingPage />
     </MemoryRouter>,
   );
+};
 
 describe('四步照图纸', () => {
   it('步骤条列出图纸的四步', async () => {
@@ -127,23 +153,103 @@ describe('环境检测', () => {
   });
 });
 
-describe('不是死路', () => {
-  it('有「跳过配置，用默认目录开始」—— codex 卡住的正是这里', async () => {
+describe('底部动作照图纸', () => {
+  /**
+   * 图纸「06 首次安装与检测」底部是三个按钮：
+   *「确认并安装（2 项）」「仅检测，不安装」「导出脱敏诊断报告」，
+   * 右边一句「下一步：授权工作目录并运行内置示例」。
+   *
+   * 之前这里只有一个我自己加的「跳过配置，用默认目录开始」——
+   * 图纸上没有那个按钮，而且它只写了个 localStorage 就走人，
+   * 顶栏仍写「尚未授权工作目录」。codex 复测的原话：
+   *「按钮承诺『用默认目录开始』，实际状态没有落地」。
+   */
+  it('三个按钮都在，文案照图纸', async () => {
     view();
-    expect(await screen.findByRole('button', { name: /跳过配置/u })).toBeTruthy();
+    expect(await screen.findByRole('button', { name: /^确认并安装/u })).toBeTruthy();
+    expect(screen.getByRole('button', { name: '仅检测，不安装' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: '导出脱敏诊断报告' })).toBeTruthy();
   });
 
-  it('跳过之后记下来，不再拦人', async () => {
+  it('「确认并安装」标出还差几项 —— 图纸写的是「（2 项）」', async () => {
+    view();
+    // mock 里 gh 是 missing；acp.codex 是 optional，不催人装 ——
+    // 「可选」的东西写进「还差几项」会让用户以为不装就不能用
+    expect(await screen.findByRole('button', { name: '确认并安装（1 项）' })).toBeTruthy();
+  });
+
+  it('全都就绪时不再劝人安装，改成「授权工作目录并开始」', async () => {
+    respond({
+      'env.health': () => ({
+        items: [
+          {
+            capability: 'git',
+            label: 'Git',
+            status: 'ready',
+            version: '2.45.1',
+            path: '/usr/bin/git',
+          },
+        ],
+      }),
+    });
+    view();
+    expect(await screen.findByRole('button', { name: '授权工作目录并开始' })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: /确认并安装/u })).toBeNull();
+  });
+
+  it('右边那句「下一步」照图纸', async () => {
+    view();
+    expect(await screen.findByText('下一步：授权工作目录并运行内置示例')).toBeTruthy();
+  });
+});
+
+describe('配置真的落地', () => {
+  /**
+   * codex 复测的原话：点了按钮回到首页后「顶栏仍写『尚未授权工作目录』，
+   * 侧栏仍写『未设置权限档』『环境尚未检查』」。
+   *
+   * 那三处在这一版之前根本没有数据源。现在它们读 workspace.settings，
+   * 所以这一屏要真的把三项写进去。
+   */
+  it('授权目录时写工作目录、权限档和检查时间 —— 三处提示一起消失', async () => {
     const user = userEvent.setup();
     view();
-    await user.click(await screen.findByRole('button', { name: /跳过配置/u }));
+    await user.click(await screen.findByRole('button', { name: /确认并安装|授权工作目录/u }));
 
-    expect(store['aiwf.onboarding.skipped']).toBe('1');
+    await waitFor(() => {
+      const 写入 = call.mock.calls.filter((args) => args[0] === 'workspace.updateSettings');
+      expect(写入.length, '一次都没写').toBeGreaterThan(0);
+      const 入参 = 写入[写入.length - 1]![1] as Record<string, unknown>;
+      expect(入参['workdir'], '没授权工作目录').toBeTruthy();
+      // 默认给最保守的一档：用户还没表达过信任程度
+      expect(入参['permissionPreset']).toBe('review_every_change');
+      expect(入参['envCheckedAt'], '没记环境检查时间').toBeTruthy();
+    });
   });
 
-  it('说清跳过之后会用哪个目录 —— 不说的话用户不知道东西写去哪了', async () => {
+  it('写完才回首页 —— 提前跳的话用户看到的还是旧状态', async () => {
+    const user = userEvent.setup();
     view();
-    expect(await screen.findByText(/Application Support/u)).toBeTruthy();
+    await user.click(await screen.findByRole('button', { name: /确认并安装|授权工作目录/u }));
+
+    await waitFor(() => {
+      expect(navigated).toContain('/');
+    });
+    expect(call.mock.calls.some((args) => args[0] === 'workspace.updateSettings')).toBe(true);
+  });
+
+  it('写失败时留在这一屏并说明原因 —— 别假装配好了', async () => {
+    respond({
+      'workspace.updateSettings': () => {
+        throw new Error('数据库忙');
+      },
+    });
+    const user = userEvent.setup();
+    view();
+    await user.click(await screen.findByRole('button', { name: /确认并安装|授权工作目录/u }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('数据库忙');
+    expect(navigated).not.toContain('/');
   });
 });
 

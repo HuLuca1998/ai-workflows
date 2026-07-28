@@ -162,6 +162,9 @@ pub const COMMANDS: &[&str] = &[
     "approval_decide",
     "workflow_list",
     "workspace_stats",
+    "workspace_settings",
+    "env_diagnostics",
+    "workspace_update_settings",
     "env_health",
     "run_artifact_content",
     "run_diagnostics",
@@ -869,6 +872,58 @@ fn page_offset(offset: Option<i64>) -> i64 {
 ///
 /// worktree 那两项走文件系统 —— 存储层里没有它们的记录，
 /// 而真实占用只有磁盘知道（用户可能手工删过）。
+/// 工作区设置。三项都可缺席 —— 没配过就是没配过，界面照实显示。
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkspaceSettingsDto {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub workdir: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub permission_preset: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub env_checked_at: Option<String>,
+}
+
+/// 读工作区设置。顶栏的工作目录、侧栏的权限档与环境状态都来自它。
+pub fn workspace_settings(store: &Store) -> ApiResult<WorkspaceSettingsDto> {
+    let settings = store.workspace_settings()?;
+    Ok(WorkspaceSettingsDto {
+        workdir: settings.workdir,
+        permission_preset: settings.permission_preset,
+        env_checked_at: settings.env_checked_at,
+    })
+}
+
+/// 改工作区设置。只带要改的项。
+pub fn workspace_update_settings(
+    store: &Store,
+    workdir: Option<&str>,
+    permission_preset: Option<&str>,
+    env_checked_at: Option<&str>,
+) -> ApiResult<()> {
+    if let Some(dir) = workdir {
+        store.set_workspace_setting("workdir", dir)?;
+    }
+    if let Some(preset) = permission_preset {
+        // 契约那侧已经用 enum 挡过一道；这里再挡一次是因为
+        // MCP 与桌面 IPC 都能直接调到这里，不都经过 Zod
+        if !PERMISSION_PRESETS.contains(&preset) {
+            return Err(ApiError::validation(format!(
+                "不认识的权限档 {preset}。允许的是：{}",
+                PERMISSION_PRESETS.join("、")
+            )));
+        }
+        store.set_workspace_setting("permissionPreset", preset)?;
+    }
+    if let Some(at) = env_checked_at {
+        store.set_workspace_setting("envCheckedAt", at)?;
+    }
+    Ok(())
+}
+
+/// 权限三档。与 `packages/contracts/src/capabilities.ts` 的 `PERMISSION_PRESETS` 对齐。
+const PERMISSION_PRESETS: &[&str] = &["review_every_change", "workspace_safe", "trusted_workflow"];
+
 pub fn workspace_stats(store: &Store, workdir: Option<&Path>) -> ApiResult<WorkspaceStatsDto> {
     let stats = store.workspace_stats()?;
     let (count, bytes) = workdir.map_or((0, 0), worktree_usage);
@@ -1783,6 +1838,44 @@ pub fn run_diagnostics(
     std::fs::create_dir_all(out_dir)
         .map_err(|error| ApiError::validation(format!("建不了输出目录：{error}")))?;
     let path = out_dir.join(format!("{run_id}-diagnostics.json"));
+    std::fs::write(&path, &text)
+        .map_err(|error| ApiError::validation(format!("写不了诊断包：{error}")))?;
+
+    Ok(DiagnosticsResult {
+        path: path.display().to_string(),
+        bytes: text.len() as u64,
+    })
+}
+
+/// 环境诊断包 —— 图纸「06 首次安装与检测」与「05 设置与环境」的「导出脱敏报告」。
+///
+/// 那两屏都还没有任何一次运行，所以 `run_diagnostics`（要 run_id）用不上。
+/// 与它共用同一个 Redactor：用户要把环境情况发给别人看，
+/// 而手工整理必然会漏掉某处的 token —— 路径里的用户名、
+/// CLI 登录态里的账号，都是这么漏出去的。
+pub fn env_diagnostics(out_dir: &Path) -> ApiResult<DiagnosticsResult> {
+    let redactor = aiwf_engine::redactor::Redactor::with_defaults();
+    let environment = env::env_health(false)?;
+
+    let bundle = serde_json::json!({
+        "kind": "aiwf-env-diagnostics",
+        "version": 1,
+        "note": "所有文本已过脱敏器；Secret 只以 keychain:// 引用形式出现",
+        "platform": {
+            "os": std::env::consts::OS,
+            "arch": std::env::consts::ARCH,
+        },
+        "environment": environment,
+    });
+
+    let text = serde_json::to_string_pretty(&bundle)
+        .map_err(|error| ApiError::validation(format!("诊断包序列化失败：{error}")))?;
+    // 与 run_diagnostics 同一道最后防线：整段再扫一遍
+    let text = redactor.redact(&text);
+
+    std::fs::create_dir_all(out_dir)
+        .map_err(|error| ApiError::validation(format!("建不了输出目录：{error}")))?;
+    let path = out_dir.join("env-diagnostics.json");
     std::fs::write(&path, &text)
         .map_err(|error| ApiError::validation(format!("写不了诊断包：{error}")))?;
 

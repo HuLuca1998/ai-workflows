@@ -438,6 +438,33 @@ fn workspace_stats(state: State<'_, AppState>) -> IpcResult<api::WorkspaceStatsD
 }
 
 #[tauri::command]
+fn env_diagnostics(state: State<'_, AppState>) -> IpcResult<api::DiagnosticsResult> {
+    api::env_diagnostics(&state.data_dir.join("diagnostics"))
+}
+
+#[tauri::command]
+fn workspace_settings(state: State<'_, AppState>) -> IpcResult<api::WorkspaceSettingsDto> {
+    let store = lock(&state)?;
+    api::workspace_settings(&store)
+}
+
+#[tauri::command]
+fn workspace_update_settings(
+    state: State<'_, AppState>,
+    workdir: Option<String>,
+    permission_preset: Option<String>,
+    env_checked_at: Option<String>,
+) -> IpcResult<()> {
+    let store = lock(&state)?;
+    api::workspace_update_settings(
+        &store,
+        workdir.as_deref(),
+        permission_preset.as_deref(),
+        env_checked_at.as_deref(),
+    )
+}
+
+#[tauri::command]
 fn run_artifact_content(
     state: State<'_, AppState>,
     run_id: String,
@@ -667,6 +694,9 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             workflow_list,
             workspace_stats,
+            workspace_settings,
+            env_diagnostics,
+            workspace_update_settings,
             env_health,
             run_diagnostics,
             run_artifact_content,

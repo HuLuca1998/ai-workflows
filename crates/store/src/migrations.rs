@@ -43,6 +43,11 @@ const MIGRATIONS: &[(i64, &str, &str)] = &[
         "Agent 与模型加时间戳，列表按最近改动排",
         include_str!("sql/007_list_ordering.sql"),
     ),
+    (
+        8,
+        "工作区设置",
+        include_str!("sql/008_workspace_setting.sql"),
+    ),
 ];
 
 pub(crate) fn migrate(conn: &Connection) -> Result<()> {

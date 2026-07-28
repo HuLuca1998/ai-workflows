@@ -229,10 +229,18 @@ pub fn dispatch(
             &data_dir.join("diagnostics"),
             string(input, "runId")?,
         )?),
+        "env_diagnostics" => to_value(api::env_diagnostics(&data_dir.join("diagnostics"))?),
         "env_health" => to_value(api::env_health(
             opt_bool(input, "recheck").unwrap_or(false),
         )?),
         "workspace_stats" => to_value(api::workspace_stats(&store, Some(data_dir))?),
+        "workspace_settings" => to_value(api::workspace_settings(&store)?),
+        "workspace_update_settings" => to_value(api::workspace_update_settings(
+            &store,
+            input.get("workdir").and_then(|v| v.as_str()),
+            input.get("permissionPreset").and_then(|v| v.as_str()),
+            input.get("envCheckedAt").and_then(|v| v.as_str()),
+        )?),
         "run_artifact_content" => to_value(api::run_artifact_content(
             &store,
             string(input, "runId")?,

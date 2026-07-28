@@ -176,3 +176,40 @@ fn 诊断包列出产物但不含内容() {
         "产物内容不该进诊断包"
     );
 }
+
+/// 环境诊断包 —— 图纸两屏底部的「导出脱敏报告」。
+///
+/// M5 的出口标准写着「诊断包不含 Secret」。这里守的是：
+/// 它与 run_diagnostics 走同一条脱敏管道，不是另开一条没人看的路。
+mod 环境诊断 {
+
+    #[test]
+    fn 落盘并返回大小() {
+        let dir = tempfile::tempdir().unwrap();
+        let 结果 = aiwf_core_api::env_diagnostics(dir.path()).unwrap();
+
+        assert!(std::path::Path::new(&结果.path).exists(), "诊断包没落盘");
+        assert!(结果.bytes > 0);
+    }
+
+    #[test]
+    fn 内容是合法_json_且标明了脱敏() {
+        let dir = tempfile::tempdir().unwrap();
+        let 结果 = aiwf_core_api::env_diagnostics(dir.path()).unwrap();
+        let 文本 = std::fs::read_to_string(&结果.path).unwrap();
+        let 包: serde_json::Value = serde_json::from_str(&文本).unwrap();
+
+        assert_eq!(包["kind"], "aiwf-env-diagnostics");
+        assert!(包["note"].as_str().unwrap().contains("脱敏"));
+        assert!(包["environment"].is_object() || 包["environment"].is_array());
+    }
+
+    #[test]
+    fn 目录不存在时自己建() {
+        let dir = tempfile::tempdir().unwrap();
+        let 深 = dir.path().join("a/b/c");
+        let 结果 = aiwf_core_api::env_diagnostics(&深).unwrap();
+
+        assert!(std::path::Path::new(&结果.path).exists());
+    }
+}

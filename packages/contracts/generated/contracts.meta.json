@@ -96,6 +96,8 @@
     "deleteGroup"
   ],
   "methods": [
+    "workspace.settings",
+    "workspace.updateSettings",
     "workspace.stats",
     "workflow.list",
     "workflow.get",
@@ -145,6 +147,7 @@
     "agent.delete",
     "env.health",
     "run.diagnostics",
+    "env.diagnostics",
     "env.install"
   ]
 }

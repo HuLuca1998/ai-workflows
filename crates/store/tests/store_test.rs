@@ -2249,3 +2249,85 @@ fn 丢一个不存在的返回_false_而不是报错() {
     let store = Store::open_in_memory().unwrap();
     assert!(!store.discard_if_empty("wf_ghost").unwrap());
 }
+
+/// 工作区设置：工作目录、权限档、上次环境检查。
+///
+/// codex 复测的原话：点「跳过配置，用默认目录开始」之后「顶栏仍写
+/// 『尚未授权工作目录』，侧栏仍写『未设置权限档』『环境尚未检查』」。
+///
+/// 根因不是那个按钮 —— 是这三处**根本没有数据源**，界面上悬着三条
+/// 「未配置」，而应用里没有任何东西能把它们改掉。
+mod 工作区设置 {
+    use super::*;
+
+    #[test]
+    fn 没设置过时返回空() {
+        let store = store();
+        let 设置 = store.workspace_settings().unwrap();
+
+        assert!(设置.workdir.is_none());
+        assert!(设置.permission_preset.is_none());
+        assert!(设置.env_checked_at.is_none());
+    }
+
+    #[test]
+    fn 授权工作目录之后读得回来() {
+        let store = store();
+        store
+            .set_workspace_setting("workdir", "~/code/atlas-api")
+            .unwrap();
+
+        assert_eq!(
+            store.workspace_settings().unwrap().workdir.as_deref(),
+            Some("~/code/atlas-api")
+        );
+    }
+
+    #[test]
+    fn 再设一次是覆盖不是追加() {
+        let store = store();
+        store.set_workspace_setting("workdir", "~/a").unwrap();
+        store.set_workspace_setting("workdir", "~/b").unwrap();
+
+        assert_eq!(
+            store.workspace_settings().unwrap().workdir.as_deref(),
+            Some("~/b")
+        );
+    }
+
+    #[test]
+    fn 三项互不干扰() {
+        let store = store();
+        store.set_workspace_setting("workdir", "~/code").unwrap();
+        store
+            .set_workspace_setting("permissionPreset", "Workspace Safe")
+            .unwrap();
+        store
+            .set_workspace_setting("envCheckedAt", "2026-07-28T13:00:00Z")
+            .unwrap();
+
+        let 设置 = store.workspace_settings().unwrap();
+        assert_eq!(设置.workdir.as_deref(), Some("~/code"));
+        assert_eq!(设置.permission_preset.as_deref(), Some("Workspace Safe"));
+        assert_eq!(设置.env_checked_at.as_deref(), Some("2026-07-28T13:00:00Z"));
+    }
+
+    #[test]
+    fn 不认识的键被拒绝() {
+        // 设置表是 key-value，不挡的话它会慢慢变成什么都往里塞的垃圾桶，
+        // 而每个消费方都得自己猜键名对不对
+        let store = store();
+        let 结果 = store.set_workspace_setting("随便什么", "值");
+
+        assert!(结果.is_err(), "不在白名单里的键不该写进去");
+    }
+
+    #[test]
+    fn 设置里不许出现明文密钥() {
+        // 设置会被诊断报告导出，也会显示在界面上
+        let store = store();
+        let 结果 = store.set_workspace_setting("workdir", "sk-proj-abcdefghijklmnop");
+
+        assert!(结果.is_err(), "看起来像密钥的值不该写进设置");
+    }
+}

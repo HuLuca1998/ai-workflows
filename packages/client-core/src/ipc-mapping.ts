@@ -18,6 +18,9 @@ import type { Transport } from './transport.js';
 const COMMANDS: Partial<Record<CoreApiMethod, string>> = {
   'workflow.list': 'workflow_list',
   'workspace.stats': 'workspace_stats',
+  'workspace.settings': 'workspace_settings',
+  'env.diagnostics': 'env_diagnostics',
+  'workspace.updateSettings': 'workspace_update_settings',
   'env.health': 'env_health',
   'run.diagnostics': 'run_diagnostics',
   'supervisor.sessions': 'supervisor_sessions',
@@ -361,6 +364,8 @@ export function fromIpcResult(method: CoreApiMethod, raw: unknown): unknown {
 
     case 'run.cancel':
     case 'run.resume':
+    // 引擎侧返回 ()，序列化成 null；契约要 { ok: true }
+    case 'workspace.updateSettings':
       return { ok: true };
 
     case 'supervisor.session':

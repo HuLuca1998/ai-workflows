@@ -2582,3 +2582,64 @@ mod tests {
         assert!(ts.ends_with('Z'));
     }
 }
+
+/// 工作区设置的三项。全部可空 —— 没配过就是没配过，界面照实显示。
+#[derive(Debug, Default, Clone)]
+pub struct WorkspaceSettings {
+    /// 已授权的工作目录。顶栏面包屑最前面显示它。
+    pub workdir: Option<String>,
+    /// 权限档：图纸的三档之一（Review Every Change / Workspace Safe / Trusted Workflow）。
+    pub permission_preset: Option<String>,
+    /// 上次环境检查的时间。侧栏据此显示「环境正常」还是「环境尚未检查」。
+    pub env_checked_at: Option<String>,
+}
+
+/// 允许写入的设置键。
+///
+/// 不挡的话这张 key-value 表会慢慢变成什么都往里塞的垃圾桶，
+/// 而每个消费方都得自己猜键名对不对 —— 猜错了不报错，只是读不到。
+const WORKSPACE_SETTING_KEYS: &[&str] = &["workdir", "permissionPreset", "envCheckedAt"];
+
+impl Store {
+    /// 读全部工作区设置。没配过的项是 None。
+    pub fn workspace_settings(&self) -> Result<WorkspaceSettings> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT key, value FROM workspace_setting")?;
+        let rows = stmt.query_map([], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        })?;
+
+        let mut settings = WorkspaceSettings::default();
+        for row in rows {
+            let (key, value) = row?;
+            match key.as_str() {
+                "workdir" => settings.workdir = Some(value),
+                "permissionPreset" => settings.permission_preset = Some(value),
+                "envCheckedAt" => settings.env_checked_at = Some(value),
+                // 旧版本写进去的键：读的时候忽略，不报错 —— 降级回滚时还能用
+                _ => {}
+            }
+        }
+        Ok(settings)
+    }
+
+    /// 写一项工作区设置。同名键覆盖。
+    pub fn set_workspace_setting(&self, key: &str, value: &str) -> Result<()> {
+        if !WORKSPACE_SETTING_KEYS.contains(&key) {
+            return Err(StoreError::Invalid(format!(
+                "不认识的设置项 {key}。允许的是：{}",
+                WORKSPACE_SETTING_KEYS.join("、")
+            )));
+        }
+        // 设置会被诊断报告导出，也会显示在界面上 —— 明文密钥进了这里就到处都是
+        reject_secret_like(value)?;
+
+        self.conn.execute(
+            "INSERT INTO workspace_setting (key, value, updated_at) VALUES (?1, ?2, ?3)
+             ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at",
+            params![key, value, now_iso()],
+        )?;
+        Ok(())
+    }
+}

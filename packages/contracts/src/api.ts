@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { PERMISSION_PRESETS } from './capabilities.js';
 import type { Scope } from './capabilities.js';
 import { RUN_EVENT_CATEGORIES, RunEventSchema } from './events.js';
 import { WorkflowGraphSchema } from './graph.js';
@@ -93,6 +94,41 @@ const paged = <T extends z.ZodTypeAny>(item: T) =>
 
 const SPECS = {
   // ── Workflow ────────────────────────────────────────────────────────────
+  'workspace.settings': {
+    // 顶栏的工作目录、侧栏的权限档与环境状态都读这里。
+    //
+    // 在此之前那三处**没有数据源**，界面上一直悬着「尚未授权工作目录 /
+    // 未设置权限档 / 环境尚未检查」，而应用里没有任何东西能把它们改掉 ——
+    // 首次配置屏点什么按钮都不会变。
+    input: z.object({}),
+    output: z.object({
+      /** 已授权的工作目录。缺席表示还没授权。 */
+      workdir: z.string().optional(),
+      /** 权限档。缺席表示还没选。 */
+      permissionPreset: z.enum(PERMISSION_PRESETS).optional(),
+      /** 上次环境检查的时间。缺席表示从没检查过。 */
+      envCheckedAt: z.string().optional(),
+    }),
+    mutates: false,
+    audited: false,
+    scope: 'workflow:read',
+    summary: '读工作区设置（工作目录、权限档、上次环境检查）',
+  },
+  'workspace.updateSettings': {
+    // 只带要改的项。三项互不相干，一次改一项是常态
+    //（授权目录、选权限档、跑完检查记时间）。
+    input: z.object({
+      workdir: z.string().min(1).optional(),
+      permissionPreset: z.enum(PERMISSION_PRESETS).optional(),
+      envCheckedAt: z.string().min(1).optional(),
+    }),
+    output: z.object({ ok: z.literal(true) }),
+    mutates: true,
+    // 授权变更必须留痕：它决定了这台机器上的 Agent 能碰到什么
+    audited: true,
+    scope: 'workflow:write-draft',
+    summary: '改工作区设置',
+  },
   'workspace.stats': {
     // 图纸「01 工作流首页」顶部那四张卡。分四次查会让概览页发四个请求，
     // 而它们本就是同一时刻的快照 —— 分开取会出现「等待审批 1，
@@ -410,7 +446,17 @@ const SPECS = {
           nodeId: z.string(),
           kind: z.string(),
           name: z.string(),
+          /** 磁盘上的绝对路径。图纸列表底部显示的是它的父目录。 */
           path: z.string(),
+          /**
+           * 相对产物根目录的路径 —— `run.artifactContent` 收的就是它。
+           *
+           * 少了这个字段的时候，界面点「预览」会报「入参不合契约」：
+           * Zod 静默剥掉未声明的字段，引擎返回的 relPath 到不了界面，
+           * 于是传了个 undefined 下去。报错说的是下一个接口，
+           * 问题却在这个接口的返回值上。
+           */
+          relPath: z.string().min(1),
           bytes: z.number().int().min(0),
           sha256: z.string(),
         }),
@@ -745,6 +791,25 @@ const SPECS = {
     // 与 env.install 同一条理由：会动本机文件的操作只允许本地 UI 触发
     scope: null,
     summary: '导出脱敏的诊断包',
+  },
+  'env.diagnostics': {
+    // 图纸「06 首次安装与检测」与「05 设置与环境」底部的「导出脱敏报告」。
+    //
+    // 那两屏都还没有任何一次运行，所以 run.diagnostics（要 runId）用不上。
+    // 与它共用同一条脱敏管道：用户要把环境情况发给别人看，
+    // 而手工整理必然会漏掉某处的 token。
+    input: z.object({}),
+    output: z.object({
+      /** 诊断包落在哪。界面显示它，用户自己去取。 */
+      path: z.string().min(1),
+      bytes: z.number().int().min(0),
+    }),
+    mutates: true,
+    audited: true,
+    // 与 env.install / run.diagnostics 同一条理由：会动本机文件的操作
+    // 只允许本地 UI 触发，绝不给远端 Scope
+    scope: null,
+    summary: '导出脱敏的环境诊断包',
   },
   'env.install': {
     input: z.object({ tools: z.array(z.string().min(1)).min(1) }),
