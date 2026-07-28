@@ -123,6 +123,8 @@
     "mcp.confirmStatus",
     "mcp.pendingConfirms",
     "mcp.decideConfirm",
+    "mcp.status",
+    "mcp.connect",
     "workspace.settings",
     "workspace.updateSettings",
     "workspace.stats",

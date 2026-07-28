@@ -40,7 +40,7 @@ fn main() {
         std::process::exit(1);
     }
 
-    let mut config = match aiwf_mcp::config::load_or_create(&data_dir) {
+    let mut config = match aiwf_core_api::mcp_config::load_or_create(&data_dir) {
         Ok(config) => config,
         Err(error) => {
             eprintln!("{error}");
@@ -68,8 +68,8 @@ fn main() {
     println!("接入 Claude Code：");
     println!(
         "  {}",
-        aiwf_mcp::clients::install_command(
-            aiwf_mcp::clients::Client::Claude,
+        aiwf_core_api::mcp_clients::install_command(
+            aiwf_core_api::mcp_clients::Client::Claude,
             handle.port,
             &handle.token
         )
@@ -78,8 +78,8 @@ fn main() {
     println!("接入 Codex：");
     println!(
         "  {}",
-        aiwf_mcp::clients::install_command(
-            aiwf_mcp::clients::Client::Codex,
+        aiwf_core_api::mcp_clients::install_command(
+            aiwf_core_api::mcp_clients::Client::Codex,
             handle.port,
             &handle.token
         )

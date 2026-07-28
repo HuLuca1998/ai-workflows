@@ -24,7 +24,7 @@ fn 起一个() -> 服务 {
     aiwf_store::Store::open(&db).unwrap();
 
     let handle =
-        http::serve(0, http::generate_token(), db, dir.path().to_path_buf()).expect("MCP 起不来");
+        http::serve(0, aiwf_core_api::mcp_config::generate_token(), db, dir.path().to_path_buf()).expect("MCP 起不来");
 
     服务 { handle, _dir: dir }
 }

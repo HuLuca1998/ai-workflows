@@ -275,6 +275,18 @@ pub fn dispatch(
             string(input, "id")?,
             boolean(input, "approved"),
         )?),
+        // 工具与资源的条数由 MCP crate 那边知道（它依赖 core-api，反过来不行），
+        // 所以由调用方传进来。传 0 只会让界面显示 0，不会说谎成别的数
+        "mcp_status" => to_value(api::mcp_status(
+            data_dir,
+            opt_int(input, "toolCount").unwrap_or(0),
+            opt_int(input, "resourceCount").unwrap_or(0),
+        )?),
+        "mcp_connect" => to_value(api::mcp_connect(
+            data_dir,
+            string(input, "client")?,
+            boolean(input, "disconnect"),
+        )?),
         "workspace_settings" => to_value(api::workspace_settings(&store)?),
         "workspace_update_settings" => to_value(api::workspace_update_settings(
             &store,

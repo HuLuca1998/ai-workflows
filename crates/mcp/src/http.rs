@@ -15,7 +15,7 @@
 //! 所以令牌也接受放在路径里（`/mcp/<token>`），两种都认。
 
 use std::collections::HashMap;
-use std::io::Read;
+
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
@@ -23,10 +23,9 @@ use aiwf_engine::supervisor::Supervisor;
 use aiwf_store::Store;
 use serde_json::{Value, json};
 
-use crate::protocol::{McpContext, SUPPORTED_PROTOCOL_VERSIONS, handle_message};
+use aiwf_core_api::mcp_config::generate_token;
 
-/// 默认端口。5177 是开发桥接，往后排一个。
-pub const DEFAULT_PORT: u16 = 5178;
+use crate::protocol::{McpContext, SUPPORTED_PROTOCOL_VERSIONS, handle_message};
 
 /// 同时处理请求的线程数。
 ///
@@ -131,24 +130,6 @@ pub fn serve(
     }
 
     Ok(ServerHandle { port, token, stop })
-}
-
-/// 生成一个令牌。
-///
-/// 走 `/dev/urandom`，不用时间戳做种：时间戳可预测，而这个令牌是
-/// 「本机上除了这个应用之外谁都不该知道」的那一份。
-#[must_use]
-pub fn generate_token() -> String {
-    let mut bytes = [0_u8; 24];
-    if std::fs::File::open("/dev/urandom")
-        .and_then(|mut file| file.read_exact(&mut bytes))
-        .is_err()
-    {
-        // 拿不到熵源时不能退回一个可猜的值。宁可让调用方看到一个
-        // 明显不对的令牌去查，也不能给一个「看起来正常但能被算出来」的
-        return String::new();
-    }
-    bytes.iter().map(|b| format!("{b:02x}")).collect()
 }
 
 fn handle(mut request: tiny_http::Request, ctx: &McpContext<'_>, token: &str, sessions: &Sessions) {
@@ -326,7 +307,7 @@ fn handle_post(
 
     // initialize 的响应要带上新会话 id
     let new_session = is_initialize(&message).then(|| {
-        let id = crate::http::generate_token();
+        let id = generate_token();
         touch_session(sessions, &id);
         id
     });

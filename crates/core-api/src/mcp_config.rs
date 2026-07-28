@@ -9,9 +9,31 @@
 //! Claude Code / Codex 配置里的那份今天就失效了，而用户看到的是
 //! 「工具突然全没了」。
 
+use std::io::Read;
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
+
+/// 默认端口。5177 是开发桥接，往后排一个。
+pub const DEFAULT_PORT: u16 = 5178;
+
+/// 生成一个访问令牌。
+///
+/// 走 `/dev/urandom`，不用时间戳做种：时间戳可预测，而这个令牌是
+/// 「本机上除了这个应用之外谁都不该知道」的那一份。
+#[must_use]
+pub fn generate_token() -> String {
+    let mut bytes = [0_u8; 24];
+    if std::fs::File::open("/dev/urandom")
+        .and_then(|mut file| file.read_exact(&mut bytes))
+        .is_err()
+    {
+        // 拿不到熵源时不能退回一个可猜的值。宁可让调用方看到一个
+        // 明显不对的令牌去查，也不能给一个「看起来正常但能被算出来」的
+        return String::new();
+    }
+    bytes.iter().map(|b| format!("{b:02x}")).collect()
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -36,21 +58,21 @@ pub fn load_or_create(data_dir: &Path) -> Result<McpConfig, String> {
 
     // 文件坏了就重建，而不是让整个应用起不来 ——
     // 一个手滑写坏的 JSON 不该是「应用打不开」的原因
-    if let Ok(text) = std::fs::read_to_string(&file) {
-        if let Ok(config) = serde_json::from_str::<McpConfig>(&text) {
-            if !config.token.is_empty() && config.port > 0 {
-                return Ok(config);
-            }
-        }
+    if let Some(config) = std::fs::read_to_string(&file)
+        .ok()
+        .and_then(|text| serde_json::from_str::<McpConfig>(&text).ok())
+        .filter(|config| !config.token.is_empty() && config.port > 0)
+    {
+        return Ok(config);
     }
 
-    let token = crate::http::generate_token();
+    let token = generate_token();
     if token.is_empty() {
         return Err("拿不到随机数来生成 MCP 令牌，这台机器上没有 /dev/urandom".to_string());
     }
 
     let config = McpConfig {
-        port: crate::http::DEFAULT_PORT,
+        port: DEFAULT_PORT,
         token,
     };
     save(data_dir, &config)?;

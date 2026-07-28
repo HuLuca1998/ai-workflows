@@ -619,6 +619,25 @@ fn workflow_diff(
 }
 
 #[tauri::command]
+fn mcp_status(state: State<'_, AppState>) -> IpcResult<api::McpStatusDto> {
+    // 工具与资源的条数由 MCP crate 知道 —— 它依赖 core-api，反过来不行
+    api::mcp_status(
+        &state.data_dir,
+        aiwf_mcp::catalog::tools().len() as i64,
+        aiwf_mcp::knowledge::resources().len() as i64,
+    )
+}
+
+#[tauri::command]
+fn mcp_connect(
+    state: State<'_, AppState>,
+    client: String,
+    disconnect: Option<bool>,
+) -> IpcResult<api::McpConnectDto> {
+    api::mcp_connect(&state.data_dir, client, disconnect.unwrap_or(false))
+}
+
+#[tauri::command]
 fn workflow_publish(state: State<'_, AppState>, id: String, rev: i64) -> IpcResult<PublishedDto> {
     let store = lock(&state)?;
     api::workflow_publish(&store, id, rev)
@@ -772,6 +791,18 @@ pub fn run() {
             let data_dir = path
                 .parent()
                 .map_or_else(std::env::temp_dir, std::path::Path::to_path_buf);
+            // 系统 MCP 跟着应用一起起来。
+            //
+            // 起不来**不拦住应用**：MCP 只是把能力开给外部客户端，
+            // 界面本身照常可用。但要留一行日志 —— 静默失败的症状是
+            // 「一键接入点了没反应」，而用户无从知道服务根本没起来。
+            match aiwf_mcp::config::load_or_create(&data_dir)
+                .and_then(|config| aiwf_mcp::start(&data_dir, path.clone(), config))
+            {
+                Ok(handle) => println!("[aiwf] 系统 MCP 已就绪：{}", handle.plain_url()),
+                Err(error) => eprintln!("[aiwf] 系统 MCP 没起来：{error}"),
+            }
+
             app.manage(AppState {
                 store: Mutex::new(store),
                 supervisor: Supervisor::new(path),
@@ -810,6 +841,8 @@ pub fn run() {
             workflow_create,
             workflow_get,
             workflow_save_draft,
+            mcp_status,
+            mcp_connect,
             workflow_patch,
             workflow_validate,
             workflow_diff,

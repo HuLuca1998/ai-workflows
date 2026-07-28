@@ -10,8 +10,8 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
-use aiwf_mcp::clients::{self, Client};
-use aiwf_mcp::config;
+use aiwf_core_api::mcp_clients::{self as clients, Client};
+use aiwf_core_api::mcp_config as config;
 
 const 令牌: &str = "0123456789abcdef0123456789abcdef0123456789abcdef";
 

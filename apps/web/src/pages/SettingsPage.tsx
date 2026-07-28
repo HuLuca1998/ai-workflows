@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { EnvHealth } from '../settings/EnvHealth.js';
+import { McpIntegration } from '../settings/McpIntegration.js';
 import { PermissionPolicy } from '../settings/PermissionPolicy.js';
 import { createUpdaterBackend } from '../updater/backend.js';
 import { UpdateCard } from '../updater/UpdateCard.js';
@@ -55,6 +56,8 @@ export function SettingsPage() {
             <PermissionPolicy />
             <UpdateCard versionInfo={versionInfo} backend={createUpdaterBackend()} />
           </>
+        ) : tab === 'mcp' ? (
+          <McpIntegration />
         ) : tab === 'security' ? (
           <PermissionPolicy />
         ) : (

@@ -180,6 +180,55 @@ const SPECS = {
     scope: null,
     summary: '用户对一条 MCP 写操作的决定',
   },
+  'mcp.status': {
+    // 「设置与环境 · MCP 与集成」那一档读它。
+    input: z.object({}),
+    output: z.object({
+      running: z.boolean(),
+      /** 写进客户端配置的那个地址。**带令牌**，界面上默认打码。 */
+      url: z.string(),
+      /** 不带令牌的端点，配合 Authorization 头用。 */
+      endpoint: z.string(),
+      port: z.number().int().min(0),
+      toolCount: z.number().int().min(0),
+      resourceCount: z.number().int().min(0),
+      clients: z.array(
+        z.object({
+          id: z.enum(['claude', 'codex']),
+          label: z.string(),
+          /** 命令行工具在不在 PATH 里。不在就没法一键接入。 */
+          cliInstalled: z.boolean(),
+          /** 已经接进去了。 */
+          connected: z.boolean(),
+        }),
+      ),
+    }),
+    mutates: false,
+    audited: false,
+    // 本地专属：把 MCP 自己的接线情况暴露给 MCP，等于让 Agent 看得见
+    // 自己的令牌，而那个令牌就是它的全部权限
+    scope: null,
+    summary: '系统 MCP 的运行状态与客户端接入情况',
+  },
+  'mcp.connect': {
+    input: z.object({
+      client: z.enum(['claude', 'codex']),
+      /** 反过来：把它从客户端里摘掉。 */
+      disconnect: z.boolean().optional(),
+    }),
+    output: z.object({
+      ok: z.boolean(),
+      /** 给用户看的一句话。失败时说清接下来该干什么。 */
+      detail: z.string(),
+      /** 实际执行的命令。失败时用户能自己复制去跑一遍。 */
+      command: z.string(),
+    }),
+    mutates: true,
+    audited: true,
+    // 同上：让 Agent 能改客户端的 MCP 配置等于让它给自己扩权
+    scope: null,
+    summary: '把本地 Claude Code / Codex 接入系统 MCP',
+  },
   'workspace.settings': {
     // 顶栏的工作目录、侧栏的权限档与环境状态都读这里。
     //

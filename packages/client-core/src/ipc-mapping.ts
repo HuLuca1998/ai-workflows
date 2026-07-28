@@ -23,6 +23,8 @@ const COMMANDS: Partial<Record<CoreApiMethod, string>> = {
   'mcp.confirmStatus': 'mcp_confirm_status',
   'mcp.pendingConfirms': 'mcp_pending_confirms',
   'mcp.decideConfirm': 'mcp_decide_confirm',
+  'mcp.status': 'mcp_status',
+  'mcp.connect': 'mcp_connect',
   'workspace.settings': 'workspace_settings',
   'env.diagnostics': 'env_diagnostics',
   'workspace.updateSettings': 'workspace_update_settings',

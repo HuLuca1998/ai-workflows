@@ -12,6 +12,8 @@
 
 pub mod dispatch;
 pub mod env;
+pub mod mcp_clients;
+pub mod mcp_config;
 
 pub use env::{EnvHealthItem, EnvHealthReport, EnvSource, EnvStatus, env_health};
 
@@ -246,6 +248,8 @@ pub const COMMANDS: &[&str] = &[
     "mcp_confirm_status",
     "mcp_pending_confirms",
     "mcp_decide_confirm",
+    "mcp_status",
+    "mcp_connect",
     "env_diagnostics",
     "workspace_update_settings",
     "env_health",
@@ -2518,4 +2522,136 @@ pub fn preferred_acp_runtime<'a>(installed: &[&'a str]) -> Option<&'a str> {
         }
     }
     installed.first().copied()
+}
+
+// ── 系统 MCP 的接线 ─────────────────────────────────────────────────────────
+
+/// 一个客户端的接入情况。
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct McpClientDto {
+    pub id: String,
+    pub label: String,
+    pub cli_installed: bool,
+    pub connected: bool,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct McpStatusDto {
+    pub running: bool,
+    /// 写进客户端配置的那个地址，**带令牌**。界面上默认打码。
+    pub url: String,
+    /// 不带令牌的端点，配合 Authorization 头用。
+    pub endpoint: String,
+    pub port: i64,
+    pub tool_count: i64,
+    pub resource_count: i64,
+    pub clients: Vec<McpClientDto>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct McpConnectDto {
+    pub ok: bool,
+    pub detail: String,
+    pub command: String,
+}
+
+/// 系统 MCP 现在是什么状态。
+///
+/// `running` 是**真的探一次**，不是「配置文件在就算跑着」——
+/// 后者会让用户对着一个「运行中」却连不上的服务查半天。
+///
+/// # Errors
+/// 配置读不出来（目录不可写之类）时返回 Err。
+pub fn mcp_status(
+    data_dir: &std::path::Path,
+    tool_count: i64,
+    resource_count: i64,
+) -> ApiResult<McpStatusDto> {
+    let config = mcp_config::load_or_create(data_dir).map_err(ApiError::validation)?;
+
+    let clients = [mcp_clients::Client::Claude, mcp_clients::Client::Codex]
+        .into_iter()
+        .map(|client| McpClientDto {
+            id: client.cli().to_string(),
+            label: client.label().to_string(),
+            cli_installed: client.installed(),
+            connected: mcp_clients::connected(client),
+        })
+        .collect();
+
+    Ok(McpStatusDto {
+        running: mcp_alive(config.port, &config.token),
+        url: format!("http://127.0.0.1:{}/mcp/{}", config.port, config.token),
+        endpoint: format!("http://127.0.0.1:{}/mcp", config.port),
+        port: i64::from(config.port),
+        tool_count,
+        resource_count,
+        clients,
+    })
+}
+
+/// 真的发一条 ping 过去。
+///
+/// 只做 TCP connect 的话，任何占着这个端口的东西都会被算成「MCP 在跑」——
+/// 而那正是端口冲突时最容易误导人的地方。
+fn mcp_alive(port: u16, token: &str) -> bool {
+    use std::io::{Read, Write};
+
+    let Ok(mut stream) = std::net::TcpStream::connect_timeout(
+        &std::net::SocketAddr::from(([127, 0, 0, 1], port)),
+        std::time::Duration::from_millis(500),
+    ) else {
+        return false;
+    };
+    let _ = stream.set_read_timeout(Some(std::time::Duration::from_millis(1500)));
+
+    let body = r#"{"jsonrpc":"2.0","id":1,"method":"ping"}"#;
+    let request = format!(
+        "POST /mcp/{token} HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Type: application/json\r\n\
+         Content-Length: {}\r\nConnection: close\r\n\r\n{body}",
+        body.len()
+    );
+    if stream.write_all(request.as_bytes()).is_err() {
+        return false;
+    }
+
+    let mut response = String::new();
+    let _ = stream.read_to_string(&mut response);
+    response.starts_with("HTTP/1.1 200")
+}
+
+/// 一键接入 / 断开。
+///
+/// # Errors
+/// 客户端名认不出来时返回 Err。
+pub fn mcp_connect(
+    data_dir: &std::path::Path,
+    client: String,
+    disconnect: bool,
+) -> ApiResult<McpConnectDto> {
+    let target = match client.as_str() {
+        "claude" => mcp_clients::Client::Claude,
+        "codex" => mcp_clients::Client::Codex,
+        other => {
+            return Err(ApiError::validation(format!(
+                "不认识的客户端 {other}，只支持 claude 与 codex"
+            )));
+        }
+    };
+
+    let outcome = if disconnect {
+        mcp_clients::disconnect(target)
+    } else {
+        let config = mcp_config::load_or_create(data_dir).map_err(ApiError::validation)?;
+        mcp_clients::connect(target, config.port, &config.token)
+    };
+
+    Ok(McpConnectDto {
+        ok: outcome.ok,
+        detail: outcome.detail,
+        command: outcome.command,
+    })
 }

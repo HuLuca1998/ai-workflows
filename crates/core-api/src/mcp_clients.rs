@@ -213,3 +213,68 @@ pub fn connect(client: Client, port: u16, token: &str) -> ConnectOutcome {
         },
     }
 }
+
+/// 这个客户端里已经有 aiwf 这条了吗。
+///
+/// 问 CLI 而不是自己解析配置文件：`~/.claude.json` 与
+/// `~/.codex/config.toml` 的格式是它们自己的事。
+///
+/// 认不出来时一律当作「没接」——显示成「已接入」而实际上没有，
+/// 会让用户对着一个空的工具列表找半天。
+#[must_use]
+pub fn connected(client: Client) -> bool {
+    if !client.installed() {
+        return false;
+    }
+    Command::new(client.cli())
+        .args(["mcp", "list"])
+        .output()
+        .is_ok_and(|out| {
+            out.status.success()
+                && String::from_utf8_lossy(&out.stdout)
+                    .lines()
+                    // 名字要在行首那一列 —— 只要 contains 的话，
+                    // 一条 URL 里恰好带 aiwf 的别的 server 也会算数
+                    .any(|line| line.split_whitespace().next() == Some(SERVER_NAME))
+        })
+}
+
+/// 把它从客户端里摘掉。
+pub fn disconnect(client: Client) -> ConnectOutcome {
+    let remove = uninstall_command(client);
+    let 命令行 = remove.display();
+
+    if !client.installed() {
+        return ConnectOutcome {
+            client,
+            ok: false,
+            detail: format!("{} 的命令行工具不在 PATH 里", client.label()),
+            command: 命令行,
+        };
+    }
+
+    match Command::new(&remove.program).args(&remove.args).output() {
+        Ok(out) if out.status.success() => ConnectOutcome {
+            client,
+            ok: true,
+            detail: format!("已从 {} 里移除", client.label()),
+            command: 命令行,
+        },
+        Ok(out) => ConnectOutcome {
+            client,
+            ok: false,
+            detail: format!(
+                "{} 没能移除：{}",
+                client.label(),
+                String::from_utf8_lossy(&out.stderr).trim()
+            ),
+            command: 命令行,
+        },
+        Err(error) => ConnectOutcome {
+            client,
+            ok: false,
+            detail: format!("起不来 `{}`：{error}", client.cli()),
+            command: 命令行,
+        },
+    }
+}

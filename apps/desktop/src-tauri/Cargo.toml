@@ -16,6 +16,7 @@ tauri-build = { version = "2", features = [] }
 [dependencies]
 aiwf-core-api = { path = "../../../crates/core-api" }
 aiwf-engine = { path = "../../../crates/engine" }
+aiwf-mcp = { path = "../../../crates/mcp" }
 aiwf-store = { path = "../../../crates/store" }
 serde = { workspace = true }
 serde_json = { workspace = true }

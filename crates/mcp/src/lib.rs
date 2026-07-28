@@ -13,12 +13,14 @@
 //! 那会绕过版本守卫与审计（技术选型 §6）。
 
 pub mod catalog;
-pub mod clients;
-pub mod config;
 pub mod http;
 pub mod knowledge;
 pub mod protocol;
 
+/// 配置（端口与令牌）住在 core-api —— MCP 依赖它，反过来会成环。
+/// 这里转发一下，调用方不必知道这条依赖方向。
+pub use aiwf_core_api::mcp_clients as clients;
+pub use aiwf_core_api::mcp_config as config;
 pub use http::{ServerHandle, serve};
 pub use protocol::{McpContext, handle_message};
 
@@ -33,7 +35,7 @@ pub use protocol::{McpContext, handle_message};
 pub fn start(
     data_dir: &std::path::Path,
     db_path: std::path::PathBuf,
-    config: config::McpConfig,
+    config: aiwf_core_api::mcp_config::McpConfig,
 ) -> Result<ServerHandle, String> {
     let mut last = String::new();
     for offset in 0..10_u16 {
@@ -46,9 +48,9 @@ pub fn start(
         ) {
             Ok(handle) => {
                 if handle.port != config.port {
-                    let _ = config::save(
+                    let _ = aiwf_core_api::mcp_config::save(
                         data_dir,
-                        &config::McpConfig {
+                        &aiwf_core_api::mcp_config::McpConfig {
                             port: handle.port,
                             token: config.token.clone(),
                         },

@@ -8,6 +8,22 @@
 
 use aiwf_mcp::catalog::{self, WriteGate};
 
+/// 契约里 `scope: null` 的方法 —— 本地专属，不对 MCP 开放。
+///
+/// 这份名单**只是把契约里的事实抄过来**，抄错了下面那条测试会红。
+/// 不直接读生成物是因为要在断言里说清「为什么这个不在」。
+const 本地专属: &[&str] = &[
+    "mcp_pending_confirms",
+    "mcp_decide_confirm",
+    // 把 MCP 自己的接线情况暴露给 MCP，等于让 Agent 看得见自己的令牌，
+    // 而那个令牌就是它的全部权限
+    "mcp_status",
+    "mcp_connect",
+    "model_test",
+    "run_diagnostics",
+    "env_diagnostics",
+];
+
 #[test]
 fn 每个可分派的命令都是一个工具() {
     let 暴露: Vec<&str> = catalog::tools().iter().map(|t| t.name.as_str()).collect();
@@ -17,6 +33,7 @@ fn 每个可分派的命令都是一个工具() {
         .copied()
         .filter(|name| !暴露.contains(name))
         .filter(|name| !catalog::DELIBERATELY_HIDDEN.contains(name))
+        .filter(|name| !本地专属.contains(name))
         .collect();
 
     assert!(
@@ -24,6 +41,45 @@ fn 每个可分派的命令都是一个工具() {
         "这些能力界面上有、MCP 里没有：{漏掉的:?}。\
          真要藏就写进 DELIBERATELY_HIDDEN 并说明理由"
     );
+}
+
+#[test]
+fn 本地专属那份名单与契约一致() {
+    // 名单是手抄的，会过期。契约里给某个方法补了 scope 之后，
+    // 它就该自动出现在 MCP 里 —— 那时这条会红，提醒把它从名单里划掉
+    let schema: serde_json::Value = serde_json::from_str(include_str!(
+        "../../../packages/contracts/generated/core-api.schema.json"
+    ))
+    .expect("契约生成物读不出来");
+
+    let 契约说的: Vec<String> = schema
+        .as_object()
+        .expect("生成物不是对象")
+        .iter()
+        .filter(|(_, entry)| entry["scope"].is_null())
+        .map(|(method, _)| {
+            let (head, tail) = method.split_once('.').unwrap_or((method.as_str(), ""));
+            let mut out = format!("{head}_");
+            for ch in tail.chars() {
+                if ch.is_ascii_uppercase() {
+                    out.push('_');
+                    out.push(ch.to_ascii_lowercase());
+                } else {
+                    out.push(ch);
+                }
+            }
+            out
+        })
+        // 契约里有、但引擎压根不能分派的（env_install）不算数
+        .filter(|name| aiwf_core_api::COMMANDS.contains(&name.as_str()))
+        .collect();
+
+    let mut 期望: Vec<String> = 契约说的;
+    期望.sort();
+    let mut 实际: Vec<String> = 本地专属.iter().map(|s| (*s).to_string()).collect();
+    实际.sort();
+
+    assert_eq!(实际, 期望, "本地专属名单与契约的 scope: null 对不上");
 }
 
 #[test]

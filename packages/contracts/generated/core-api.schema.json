@@ -159,6 +159,131 @@
       ]
     }
   },
+  "mcp.status": {
+    "summary": "系统 MCP 的运行状态与客户端接入情况",
+    "scope": null,
+    "mutates": false,
+    "audited": false,
+    "input": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {}
+    },
+    "output": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "running": {
+          "type": "boolean"
+        },
+        "url": {
+          "type": "string"
+        },
+        "endpoint": {
+          "type": "string"
+        },
+        "port": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "toolCount": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "resourceCount": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "clients": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "enum": [
+                  "claude",
+                  "codex"
+                ]
+              },
+              "label": {
+                "type": "string"
+              },
+              "cliInstalled": {
+                "type": "boolean"
+              },
+              "connected": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "id",
+              "label",
+              "cliInstalled",
+              "connected"
+            ]
+          }
+        }
+      },
+      "required": [
+        "running",
+        "url",
+        "endpoint",
+        "port",
+        "toolCount",
+        "resourceCount",
+        "clients"
+      ]
+    }
+  },
+  "mcp.connect": {
+    "summary": "把本地 Claude Code / Codex 接入系统 MCP",
+    "scope": null,
+    "mutates": true,
+    "audited": true,
+    "input": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "client": {
+          "type": "string",
+          "enum": [
+            "claude",
+            "codex"
+          ]
+        },
+        "disconnect": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "client"
+      ]
+    },
+    "output": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "ok": {
+          "type": "boolean"
+        },
+        "detail": {
+          "type": "string"
+        },
+        "command": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "ok",
+        "detail",
+        "command"
+      ]
+    }
+  },
   "workspace.settings": {
     "summary": "读工作区设置（工作目录、权限档、上次环境检查）",
     "scope": "workflow:read",

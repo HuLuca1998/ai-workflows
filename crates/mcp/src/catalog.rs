@@ -81,6 +81,12 @@ fn build() -> Vec<McpTool> {
         if !dispatchable.contains(&name.as_str()) || DELIBERATELY_HIDDEN.contains(&name.as_str()) {
             continue;
         }
+        // 契约里 `scope: null` 的意思就是「本地专属方法，不对 MCP 开放」。
+        // 在这里另立一套判断的话，两边迟早对不上 —— 而对不上的样子是
+        // 契约说不开放、清单里却有
+        if entry.get("scope").is_none_or(Value::is_null) {
+            continue;
+        }
 
         let summary = entry
             .get("summary")
