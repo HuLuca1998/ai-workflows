@@ -11,7 +11,7 @@
 | M2 · 4 周 | 执行态         | ✅ 已完成（AI 节点留给 M3）     |
 | M3 · 3 周 | AI 能力        | ✅ 已完成                       |
 | M4 · 3 周 | 主管 AI 与记忆 | ✅ 写确认已接通                 |
-| M5 · 3 周 | 可交付         | 🟡 差首次配置引导与签名公证     |
+| M5 · 3 周 | 可交付         | 🟡 只差 Apple 证书（代码已就绪）|
 | M6 · 3 周 | Web 形态       | 🟡 部分提前（外壳与路由已就位） |
 
 ---
@@ -214,7 +214,27 @@
 
 剩余：
 
-- [ ] Apple 证书签名公证
+- [ ] **Apple 证书签名公证** —— 代码这一侧已经就绪，缺的是证书本身。
+
+      `.github/workflows/release.yml` 有两个互斥的构建步骤：配了证书走签名+公证，
+          没配走 ad-hoc（`APPLE_SIGNING_IDENTITY: '-'`，Apple Silicon 要求 arm64 有
+          bundle 级签名，否则应用报「已损坏」）。拆成两步是因为**空的
+          `APPLE_CERTIFICATE` 也算「已设置」**，tauri-action 会去 import 一张空证书。
+
+          要开签名，在仓库 Secrets 里配齐这六个（需要 Apple Developer 账号，
+          个人 99 美元/年）：
+
+          | Secret | 从哪来 |
+          | --- | --- |
+          | `APPLE_CERTIFICATE` | Developer ID Application 证书导出成 .p12 后 base64 |
+          | `APPLE_CERTIFICATE_PASSWORD` | 导出 .p12 时设的密码 |
+          | `APPLE_SIGNING_IDENTITY` | 形如 `Developer ID Application: 你的名字 (TEAMID)` |
+          | `APPLE_ID` | Apple ID 邮箱 |
+          | `APPLE_PASSWORD` | App 专用密码（不是 Apple ID 密码） |
+          | `APPLE_TEAM_ID` | 开发者账号的 Team ID |
+
+          配好之后 `gh workflow run Release -f version=x.y.z` 即可 —— 不需要改代码。
+
 - [x] **设置屏的分组导航与权限策略三档**：图纸「05 设置与环境」的左边 184px
       八个分组 + 右边三张权限卡。**引擎真的按档位办事**：
       `review_every_change` 下有副作用的节点（脚本、worktree、commit、PR、
