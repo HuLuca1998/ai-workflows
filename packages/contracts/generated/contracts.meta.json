@@ -134,6 +134,7 @@
     "prompt.list",
     "prompt.create",
     "prompt.update",
+    "prompt.versions",
     "prompt.duplicate",
     "prompt.delete",
     "model.list",

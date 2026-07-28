@@ -361,6 +361,18 @@ fn map_memory_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<MemoryRow> {
 ///
 /// 「系统调用 AI 的每一处都在这里：节点、⌘K 协作、记忆提议、通知与失败归因。」
 /// 所以提示词是一等实体，有分组、有版本、有变量清单。
+/// 提示词的一个历史版本。
+#[derive(Debug, Clone)]
+pub struct PromptVersionRow {
+    pub ver: i64,
+    pub name: String,
+    pub sections_json: String,
+    pub vars_json: String,
+    /// 「你」还是「AI 提议」。
+    pub changed_by: Option<String>,
+    pub created_at: String,
+}
+
 pub struct NewPrompt {
     pub group: String,
     pub name: String,
@@ -1533,6 +1545,10 @@ impl Store {
     ///
     /// 运行记录引用的是具体版本号，所以版本必须只增不改 ——
     /// 同一个 ver 前后指向两份不同的正文，历史结果就再也解释不清了。
+    /// 保存新版本。
+    ///
+    /// `changed_by` 是「你」还是「AI 提议」—— 分不清人改的还是 AI 改的，
+    /// 版本页那句「历史结果始终可解释」就少了一半。缺省算用户改的。
     pub fn update_prompt(
         &self,
         id: &str,
@@ -1540,11 +1556,25 @@ impl Store {
         name: Option<&str>,
         sections_json: Option<&str>,
         vars_json: Option<&str>,
+        changed_by: Option<&str>,
     ) -> Result<i64> {
         // 校验放在乐观锁之前：非法分段无论版本对不对都不该落库
         if let Some(sections) = sections_json {
             validate_sections(sections)?;
         }
+
+        // 把**将被替换掉的那份**存进历史。放在 UPDATE 之前 ——
+        // 之后再存的话读到的已经是新内容了。
+        // 版本号对不上时这条 INSERT 不影响什么：下面的 UPDATE 会因为
+        // 乐观锁失败而整体回滚（同一个连接、同一个隐式事务）
+        self.conn.execute(
+            "INSERT INTO prompt_version
+                (prompt_id, ver, name, sections_json, vars_json, changed_by, created_at)
+             SELECT id, ver, name, sections_json, vars_json, ?2, ?3
+             FROM prompt WHERE id = ?1 AND ver = ?4
+             ON CONFLICT(prompt_id, ver) DO NOTHING",
+            params![id, changed_by.unwrap_or("你"), now_iso(), base_ver],
+        )?;
 
         let changed = self.conn.execute(
             "UPDATE prompt SET
@@ -1591,6 +1621,27 @@ impl Store {
 
     /// 删除提示词。内置的不能删 —— 「系统调用 AI 的每一处都在这里」，
     /// 删掉内置的会让某处调用没有提示词可用。
+    /// 一条提示词的全部历史版本，按版本号倒序（最近的在最前）。
+    ///
+    /// 当前版本不在里面 —— 它在 prompt 表里，界面自己拼上去。
+    pub fn prompt_versions(&self, prompt_id: &str) -> Result<Vec<PromptVersionRow>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT ver, name, sections_json, vars_json, changed_by, created_at
+             FROM prompt_version WHERE prompt_id = ?1 ORDER BY ver DESC",
+        )?;
+        let rows = stmt.query_map(params![prompt_id], |row| {
+            Ok(PromptVersionRow {
+                ver: row.get(0)?,
+                name: row.get(1)?,
+                sections_json: row.get(2)?,
+                vars_json: row.get(3)?,
+                changed_by: row.get(4)?,
+                created_at: row.get(5)?,
+            })
+        })?;
+        Ok(rows.collect::<std::result::Result<Vec<_>, _>>()?)
+    }
+
     pub fn delete_prompt(&self, id: &str) -> Result<()> {
         let prompt = self.get_prompt(id)?.ok_or(StoreError::NotFound {
             kind: "提示词",

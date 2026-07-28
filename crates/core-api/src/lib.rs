@@ -140,6 +140,7 @@ pub const COMMANDS: &[&str] = &[
     "prompt_list",
     "prompt_create",
     "prompt_update",
+    "prompt_versions",
     "prompt_duplicate",
     "prompt_delete",
     "agent_list",
@@ -1362,6 +1363,7 @@ pub fn prompt_update(
     name: Option<String>,
     sections_json: Option<String>,
     vars_json: Option<String>,
+    changed_by: Option<String>,
 ) -> ApiResult<VerOnly> {
     let ver = store.update_prompt(
         &id,
@@ -1369,8 +1371,38 @@ pub fn prompt_update(
         name.as_deref(),
         sections_json.as_deref(),
         vars_json.as_deref(),
+        changed_by.as_deref(),
     )?;
     Ok(VerOnly { ver })
+}
+
+/// 一条提示词的历史版本。
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PromptVersionDto {
+    pub ver: i64,
+    pub name: String,
+    /// 分段的 JSON 原文。界面自己解析 —— 引擎不需要理解它的结构。
+    pub sections_json: String,
+    pub vars_json: String,
+    pub changed_by: String,
+    pub created_at: String,
+}
+
+/// 图纸「06 提示词库」版本页。只返回**历史**版本，当前那份在 prompt.list 里。
+pub fn prompt_versions(store: &Store, prompt_id: String) -> ApiResult<Vec<PromptVersionDto>> {
+    Ok(store
+        .prompt_versions(&prompt_id)?
+        .into_iter()
+        .map(|row| PromptVersionDto {
+            ver: row.ver,
+            name: row.name,
+            sections_json: row.sections_json,
+            vars_json: row.vars_json,
+            changed_by: row.changed_by.unwrap_or_else(|| "你".to_string()),
+            created_at: row.created_at,
+        })
+        .collect())
 }
 
 pub fn prompt_duplicate(store: &Store, id: String, name: String) -> ApiResult<String> {

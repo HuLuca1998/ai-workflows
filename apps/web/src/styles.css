@@ -3500,6 +3500,75 @@
   margin: 0 0 6px;
 }
 
+/* 「插入变量」在每段标题右边（图纸第 940 行）。
+   它是教语法的地方 —— 变量表没有「添加」按钮，变量写在正文里 */
+.prompts__insert-var {
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--color-accent);
+  font-size: 11.5px;
+  cursor: pointer;
+}
+
+.prompts__insert-var:hover {
+  text-decoration: underline;
+}
+
+/* 「添加分段（Examples / 失败处理 / 语言风格…）」在分段列表底部 */
+.prompts__add-section {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 9px 12px;
+  border: 1px dashed var(--color-divider);
+  border-radius: var(--radius-md);
+  background: none;
+  color: var(--color-neutral-500);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.prompts__add-section:hover {
+  border-color: var(--color-neutral-700);
+  color: var(--color-neutral-300);
+}
+
+.prompts__add-section-form {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.prompts__add-section-form input {
+  flex: 1;
+  min-width: 0;
+  height: 30px;
+  padding: 0 10px;
+  border: 1px solid var(--color-divider);
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--color-bg) 82%, #000);
+  color: inherit;
+  font-size: 12.5px;
+}
+
+/* 存过但正文里已经没有的变量：多半是改正文时把它删掉了 */
+.prompts__var-unused {
+  margin-left: 6px;
+  padding: 1px 6px;
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--color-status-failed) 14%, transparent);
+  color: var(--color-status-failed);
+  font-size: 10.5px;
+}
+
+.prompts__version-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
 /* 分段正文用等宽：提示词里的缩进与变量占位对齐才看得清 */
 .prompts__section-body {
   padding: 11px 13px;

@@ -41,6 +41,8 @@ const 映射: { dto: string; method: CoreApiMethod; 字段路径?: string }[] = 
   { dto: 'DryRunDto', method: 'run.dryRun' },
   { dto: 'WorkspaceStatsDto', method: 'workspace.stats' },
   { dto: 'WorkspaceSettingsDto', method: 'workspace.settings' },
+  // sectionsJson / varsJson 在映射层解析成 sections / vars（引擎不理解它们的结构），
+  // 字段名对不上是**有意**的，所以豁免而不是登记
 ];
 
 /**
@@ -119,7 +121,16 @@ describe('引擎 DTO 与契约 output 不能漂移', () => {
     const 源码里的 = [...源码.matchAll(/pub struct (\w+Dto) \{/g)].map((m) => m[1]!);
     const 已覆盖 = new Set(映射.map((e) => e.dto));
     // 有几个 DTO 是别的 DTO 的容器或嵌套片段，不直接对应一个方法
-    const 豁免 = new Set(['ArtifactsDto', 'LastRunDto', 'VersionMetaDto', 'PublishedDto']);
+    const 豁免 = new Set([
+      'ArtifactsDto',
+      'LastRunDto',
+      'VersionMetaDto',
+      'PublishedDto',
+      // 分段与变量以 JSON 字符串带回，映射层解析成数组 —— 字段名有意不同
+      'PromptVersionDto',
+      // 它只有 runId + nodeId，手写的 Serialize，没有 rename_all 可扫
+      'RewindResult',
+    ]);
     const 没人守的 = 源码里的.filter((名) => !已覆盖.has(名) && !豁免.has(名));
 
     expect(没人守的, `这些 DTO 没有对应的漂移守卫：${没人守的.join('、')}`).toEqual([]);

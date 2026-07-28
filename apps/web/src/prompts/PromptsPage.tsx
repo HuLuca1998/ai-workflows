@@ -342,7 +342,11 @@ export function PromptsPage() {
                   onChange={setSections}
                 />
               ) : null}
-              {tab === 'vars' ? <VarsTab vars={selected.vars} /> : null}
+              {/* 变量以**编辑中的正文**为准：用户刚写进去的占位符
+                  也要立刻出现在表里 */}
+              {tab === 'vars' ? (
+                <VarsTab vars={selected.vars} sections={sections ?? selected.sections} />
+              ) : null}
               {tab === 'preview' ? <PreviewTab /> : null}
               {tab === 'versions' ? <VersionsTab prompt={selected} /> : null}
             </div>
@@ -355,6 +359,9 @@ export function PromptsPage() {
   );
 }
 
+/** 「插入变量」插进去的写法。用户由此学会占位符长什么样。 */
+const VAR_PLACEHOLDER = '${input.}';
+
 function TemplateTab({
   sections,
   readOnly,
@@ -364,6 +371,19 @@ function TemplateTab({
   readOnly: boolean;
   onChange: (next: Section[]) => void;
 }) {
+  /** 正在添加的新分段的标题；null 表示没在添加。 */
+  const [adding, setAdding] = useState<string | null>(null);
+
+  const insertVar = (index: number) => {
+    const section = sections[index];
+    if (!section) return;
+    const next = [...sections];
+    // 插在末尾而不是光标处：受控 textarea 拿光标位置要额外接一层 ref，
+    // 而这个按钮的目的是「让用户看见语法」，插哪儿都能达到
+    next[index] = { title: section.title, body: `${section.body}${VAR_PLACEHOLDER}` };
+    onChange(next);
+  };
+
   return (
     <div className="prompts__sections">
       {sections.map((section, index) => (
@@ -372,6 +392,20 @@ function TemplateTab({
             <label className="runs__label" htmlFor={`section-${section.title}`}>
               {section.title}
             </label>
+            {readOnly ? null : (
+              <>
+                <span className="runs__grow" />
+                {/* 图纸每段标题右边都有它。变量表没有「添加」按钮 ——
+                    变量是写在正文里的占位符，这个按钮就是教语法的地方 */}
+                <button
+                  type="button"
+                  className="prompts__insert-var"
+                  onClick={() => insertVar(index)}
+                >
+                  插入变量
+                </button>
+              </>
+            )}
           </p>
           {readOnly ? (
             // 内置条目只读：改它等于改掉系统某处调用的行为，而那处调用别人也在用。
@@ -392,6 +426,38 @@ function TemplateTab({
           )}
         </div>
       ))}
+
+      {readOnly ? null : adding === null ? (
+        <button type="button" className="prompts__add-section" onClick={() => setAdding('')}>
+          <i className="ph ph-plus" aria-hidden="true" />
+          添加分段（Examples / 失败处理 / 语言风格…）
+        </button>
+      ) : (
+        <form
+          className="prompts__add-section-form"
+          onSubmit={(event) => {
+            event.preventDefault();
+            const title = adding.trim();
+            // 同名分段会让 key 撞车，也会让「Role」这种标题出现两次
+            if (!title || sections.some((s) => s.title === title)) return;
+            onChange([...sections, { title, body: '' }]);
+            setAdding(null);
+          }}
+        >
+          <input
+            aria-label="新分段的标题"
+            value={adding}
+            placeholder="Examples"
+            onChange={(event) => setAdding(event.target.value)}
+          />
+          <button type="submit" className="runs__action runs__action--primary">
+            添加
+          </button>
+          <button type="button" className="runs__action" onClick={() => setAdding(null)}>
+            取消
+          </button>
+        </form>
+      )}
     </div>
   );
 }
@@ -457,7 +523,31 @@ function PromptForm({
   );
 }
 
-function VarsTab({ vars }: { vars: readonly PromptVar[] }) {
+/** 从正文里认出 `${…}` 占位符。同一个出现多次只算一次，保持出现顺序。 */
+function extractVars(sections: readonly Section[]): string[] {
+  const found: string[] = [];
+  for (const section of sections) {
+    for (const match of section.body.matchAll(/\$\{[^}\s]+\}/gu)) {
+      if (!found.includes(match[0])) found.push(match[0]);
+    }
+  }
+  return found;
+}
+
+/**
+ * 变量表 —— 图纸「06 提示词库」的变量页。
+ *
+ * 图纸这张表**没有「添加」按钮**：变量是写在正文里的占位符，
+ * 表格只是把它们列出来说明各自从哪来。所以这里以正文为准 ——
+ * 只显示后端存的那份的话，用户在正文里写了 `${input.repo}` 也不会出现，
+ * 于是「0 变量」和正文里明明有的占位符对不上。
+ */
+function VarsTab({ vars, sections }: { vars: readonly PromptVar[]; sections: readonly Section[] }) {
+  const inBody = extractVars(sections);
+  const known = new Map(vars.map((item) => [item.name, item]));
+  // 正文里的排前面（那是实际会被替换的），存过但正文里没有的跟在后面
+  const names = [...inBody, ...vars.map((v) => v.name).filter((n) => !inBody.includes(n))];
+
   return (
     <div className="prompts__vars">
       <div className="prompts__vars-head">
@@ -465,13 +555,29 @@ function VarsTab({ vars }: { vars: readonly PromptVar[] }) {
         <span>运行时来源</span>
         <span>缺失时</span>
       </div>
-      {vars.map((item) => (
-        <div key={item.name} className="prompts__vars-row">
-          <span className="prompts__var-name">{item.name}</span>
-          <span>{item.source}</span>
-          <span>{ON_MISSING_LABELS[item.onMissing] ?? item.onMissing}</span>
-        </div>
-      ))}
+      {names.map((name) => {
+        const item = known.get(name);
+        return (
+          <div key={name} className="prompts__vars-row">
+            <span className="prompts__var-name">{name}</span>
+            <span>
+              {item?.source ?? '未登记'}
+              {inBody.includes(name) ? null : (
+                // 存过但正文里没有：多半是改正文时把它删掉了，
+                // 而运行时那份仍然会被当成「这条提示词需要的输入」
+                <span className="prompts__var-unused">正文里没用到</span>
+              )}
+            </span>
+            <span>{ON_MISSING_LABELS[item?.onMissing ?? 'empty_and_log'] ?? '留空并记录'}</span>
+          </div>
+        );
+      })}
+      {names.length === 0 ? (
+        <p className="runs__empty">
+          还没有变量。在分段正文里写 <code>{VAR_PLACEHOLDER}</code>{' '}
+          这样的占位符，或点分段标题旁的「插入变量」。
+        </p>
+      ) : null}
       <p className="prompts__vars-foot">Secret 只能以引用形式出现，预览与日志中永不展开明文。</p>
     </div>
   );
@@ -489,16 +595,74 @@ function PreviewTab() {
   );
 }
 
+interface PromptVersion {
+  ver: number;
+  name: string;
+  changedBy: string;
+  createdAt: string;
+}
+
+/**
+ * 版本页 —— 图纸「06 提示词库」：v4 · 当前 / v3 / v2，每条带时间与改的人。
+ *
+ * 只显示当前版本的话，这一页底部那句「运行记录会引用当时的提示词版本，
+ * 历史结果始终可解释」就是空的 —— 历史根本看不到。
+ */
 function VersionsTab({ prompt }: { prompt: Prompt }) {
+  const [history, setHistory] = useState<PromptVersion[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    setHistory(null);
+    setError(null);
+    coreClient
+      .call('prompt.versions', { promptId: prompt.id })
+      .then((result) => {
+        if (!cancelled) setHistory((result as { items: PromptVersion[] }).items);
+      })
+      .catch((err: unknown) => {
+        // 当前版本照旧显示，报错单独说 —— 取不到历史不该让整页空白
+        if (!cancelled) setError(err instanceof Error ? err.message : String(err));
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [prompt.id]);
+
   return (
     <div className="prompts__versions">
-      <div className="prompts__version prompts__version--current">
-        <span className="prompts__version-row">
-          <span className="prompts__version-name">v{prompt.ver} · 当前</span>
-          <span className="runs__grow" />
-          <span className="prompts__version-when">{formatTime(prompt.updatedAt)}</span>
-        </span>
-      </div>
+      {error ? (
+        <p className="runs__error" role="alert">
+          {error}
+        </p>
+      ) : null}
+
+      <ul className="prompts__version-list">
+        <li className="prompts__version prompts__version--current">
+          <span className="prompts__version-row">
+            <span className="prompts__version-name">v{prompt.ver} · 当前</span>
+            <span className="runs__grow" />
+            <span className="prompts__version-when">{formatTime(prompt.updatedAt)}</span>
+          </span>
+        </li>
+        {(history ?? []).map((item) => (
+          <li key={item.ver} className="prompts__version">
+            <span className="prompts__version-row">
+              <span className="prompts__version-name">v{item.ver}</span>
+              <span className="runs__grow" />
+              <span className="prompts__version-when">
+                {formatTime(item.createdAt)} · {item.changedBy}
+              </span>
+            </span>
+          </li>
+        ))}
+      </ul>
+
+      {history !== null && history.length === 0 ? (
+        <p className="runs__empty">还没有改过。保存新版本之后，被替换掉的那份会留在这里。</p>
+      ) : null}
+
       <p className="agents__foot">
         <i className="ph ph-info" aria-hidden="true" />
         运行记录会引用当时的提示词版本，历史结果始终可解释。

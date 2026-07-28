@@ -674,12 +674,43 @@ const SPECS = {
     summary: '新建提示词',
   },
   'prompt.update': {
-    input: PromptSchema.partial().extend({ id: z.string().min(1), ver: z.number().int().min(1) }),
+    input: PromptSchema.partial().extend({
+      id: z.string().min(1),
+      ver: z.number().int().min(1),
+      /**
+       * 是谁改的：「你」还是「AI 提议」。缺省算用户自己改的。
+       *
+       * 版本页要把这两种分开显示（图纸「v3 · 上周 · AI 提议」）——
+       * 分不清人改的还是 AI 改的，「历史结果始终可解释」就少了一半。
+       */
+      changedBy: z.string().min(1).optional(),
+    }),
     output: z.object({ ver: z.number().int().min(1) }),
     mutates: true,
     audited: true,
     scope: 'workflow:write-draft',
     summary: '保存为新版本（运行记录引用具体版本号）',
+  },
+  'prompt.versions': {
+    // 图纸「06 提示词库」版本页：v4 · 当前 / v3 / v2，每条带时间与改的人。
+    // 只返回**历史**版本，当前那份在 prompt.list 里，界面自己拼上去。
+    input: z.object({ promptId: z.string().min(1) }),
+    output: z.object({
+      items: z.array(
+        z.object({
+          ver: z.number().int().min(1),
+          name: z.string().min(1),
+          sections: z.array(z.object({ title: z.string().min(1), body: z.string() })),
+          vars: z.array(z.unknown()).default([]),
+          changedBy: z.string().min(1),
+          createdAt: z.iso.datetime(),
+        }),
+      ),
+    }),
+    mutates: false,
+    audited: false,
+    scope: 'workflow:read',
+    summary: '一条提示词的历史版本',
   },
   'prompt.duplicate': {
     // 图纸详情区有「复制」：内置提示词不能改，但可以复制一份自己的

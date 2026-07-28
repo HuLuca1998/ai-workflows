@@ -1015,6 +1015,7 @@ fn 保存新版本让版本号递增() {
             None,
             Some(r#"[{"title":"Role","body":"改过了"}]"#),
             None,
+            None,
         )
         .unwrap();
     let after = store.get_prompt(&id).unwrap().unwrap();
@@ -1469,12 +1470,12 @@ fn 更新提示词返回新版本号并带乐观锁() {
 
     let sections = r#"[{"title":"Role","body":"改过的"}]"#;
     let after = store
-        .update_prompt(&id, base, None, Some(sections), None)
+        .update_prompt(&id, base, None, Some(sections), None, None)
         .unwrap();
     assert_eq!(after, base + 1);
 
     let err = store
-        .update_prompt(&id, base, None, Some(sections), None)
+        .update_prompt(&id, base, None, Some(sections), None, None)
         .unwrap_err();
     assert!(format!("{err}").contains("已被改过"), "实际：{err}");
 }
@@ -1488,7 +1489,7 @@ fn 更新提示词仍然拒绝非法分段() {
     // 乐观锁不能把原有的分段校验挤掉
     assert!(
         store
-            .update_prompt(&id, base, None, Some("不是数组"), None)
+            .update_prompt(&id, base, None, Some("不是数组"), None, None)
             .is_err()
     );
     assert_eq!(store.get_prompt(&id).unwrap().unwrap().ver, base);
@@ -2450,5 +2451,107 @@ mod 回到最近审批点 {
 
         assert!(store.latest_approval_checkpoint(&另一条).unwrap().is_none());
         assert!(store.latest_approval_checkpoint(&run_id).unwrap().is_some());
+    }
+}
+
+/// 提示词的版本历史 —— 图纸「06 提示词库」的版本页。
+///
+/// 图纸列的是「v4 · 当前 / 2 天前 · 你 / 加入『信息不足时列出缺什么』约束」，
+/// 下面还有 v3、v2。之前只显示当前版本，而底部文案写着
+/// 「运行记录会引用当时的提示词版本，历史结果始终可解释」——
+/// 历史都看不到，那句话就是空的。
+mod 提示词版本历史 {
+    use super::*;
+
+    fn 分段(body: &str) -> String {
+        format!(r#"[{{"key":"role","title":"Role","body":"{body}"}}]"#)
+    }
+
+    fn 新提示词(name: &str, sections: &str) -> aiwf_store::NewPrompt {
+        aiwf_store::NewPrompt {
+            group: "分析".to_string(),
+            name: name.to_string(),
+            sections_json: sections.to_string(),
+            vars_json: "[]".to_string(),
+        }
+    }
+
+    #[test]
+    fn 保存新版本时把旧的存进历史() {
+        let store = store();
+        let id = store
+            .create_prompt(&新提示词("根因分析", &分段("第一版")))
+            .unwrap();
+        store
+            .update_prompt(&id, 1, None, Some(&分段("第二版")), None, None)
+            .unwrap();
+
+        let 历史 = store.prompt_versions(&id).unwrap();
+        assert_eq!(历史.len(), 1, "旧版本没进历史");
+        assert_eq!(历史[0].ver, 1);
+        assert!(历史[0].sections_json.contains("第一版"));
+    }
+
+    #[test]
+    fn 历史按版本号倒序_最近的在最前() {
+        let store = store();
+        let id = store
+            .create_prompt(&新提示词("根因分析", &分段("v1")))
+            .unwrap();
+        for (ver, body) in [(1, "v2"), (2, "v3"), (3, "v4")] {
+            store
+                .update_prompt(&id, ver, None, Some(&分段(body)), None, None)
+                .unwrap();
+        }
+
+        let 历史 = store.prompt_versions(&id).unwrap();
+        assert_eq!(
+            历史.iter().map(|v| v.ver).collect::<Vec<_>>(),
+            vec![3, 2, 1]
+        );
+    }
+
+    #[test]
+    fn 历史里记着是谁改的() {
+        // 图纸写的是「2 天前 · 你」与「上周 · AI 提议」——
+        // 分不清人改的还是 AI 改的，「历史结果可解释」就少了一半
+        let store = store();
+        let id = store
+            .create_prompt(&新提示词("根因分析", &分段("v1")))
+            .unwrap();
+        store
+            .update_prompt(&id, 1, None, Some(&分段("v2")), None, None)
+            .unwrap();
+
+        let 历史 = store.prompt_versions(&id).unwrap();
+        assert_eq!(
+            历史[0].changed_by.as_deref(),
+            Some("你"),
+            "没记来源时算用户改的"
+        );
+    }
+
+    #[test]
+    fn 没改过的提示词没有历史() {
+        let store = store();
+        let id = store
+            .create_prompt(&新提示词("根因分析", &分段("v1")))
+            .unwrap();
+
+        assert!(store.prompt_versions(&id).unwrap().is_empty());
+    }
+
+    #[test]
+    fn 删掉提示词时历史一起走() {
+        let store = store();
+        let id = store
+            .create_prompt(&新提示词("根因分析", &分段("v1")))
+            .unwrap();
+        store
+            .update_prompt(&id, 1, None, Some(&分段("v2")), None, None)
+            .unwrap();
+        store.delete_prompt(&id).unwrap();
+
+        assert!(store.prompt_versions(&id).unwrap().is_empty());
     }
 }

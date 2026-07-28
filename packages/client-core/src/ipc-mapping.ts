@@ -56,6 +56,7 @@ const COMMANDS: Partial<Record<CoreApiMethod, string>> = {
   'prompt.list': 'prompt_list',
   'prompt.create': 'prompt_create',
   'prompt.update': 'prompt_update',
+  'prompt.versions': 'prompt_versions',
   'prompt.duplicate': 'prompt_duplicate',
   'prompt.delete': 'prompt_delete',
   'agent.list': 'agent_list',
@@ -155,6 +156,9 @@ function shapeFor(method: CoreApiMethod, record: Record<string, unknown>): Recor
       ...(record.name ? { name: record.name } : {}),
       ...(record.sections ? { sectionsJson: JSON.stringify(record.sections) } : {}),
       ...(record.vars ? { varsJson: JSON.stringify(record.vars) } : {}),
+      // 「是谁改的」要带过去 —— 这层是白名单式的，漏一个就静默丢掉，
+      // ver 和 run.list 的分页参数都这么丢过
+      ...(record.changedBy ? { changedBy: record.changedBy } : {}),
     };
   }
 
@@ -363,6 +367,28 @@ export function fromIpcResult(method: CoreApiMethod, raw: unknown): unknown {
     case 'run.artifactContent':
       return raw;
 
+    case 'prompt.versions': {
+      // Rust 侧把分段与变量作为 JSON 字符串带回来（引擎不需要理解它们的结构）
+      const rows = (raw ?? []) as {
+        ver: number;
+        name: string;
+        sectionsJson: string;
+        varsJson: string;
+        changedBy: string;
+        createdAt: string;
+      }[];
+      return {
+        items: rows.map((row) => ({
+          ver: row.ver,
+          name: row.name,
+          sections: safeParse(row.sectionsJson, []),
+          vars: safeParse(row.varsJson, []),
+          changedBy: row.changedBy,
+          createdAt: row.createdAt,
+        })),
+      };
+    }
+
     case 'run.cancel':
     case 'run.resume':
     // 引擎侧返回 ()，序列化成 null；契约要 { ok: true }
@@ -474,4 +500,13 @@ export function createTauriTransport(invoke: InvokeFn): Transport {
       return () => {};
     },
   };
+}
+
+/** 解析引擎带回来的 JSON 字符串。坏了就当空 —— 一条历史读不出来不该让整页崩掉。 */
+function safeParse<T>(text: string, fallback: T): T {
+  try {
+    return JSON.parse(text) as T;
+  } catch {
+    return fallback;
+  }
 }

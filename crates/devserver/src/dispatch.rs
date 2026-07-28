@@ -83,6 +83,7 @@ pub fn dispatch(
             string(input, "sectionsJson")?,
             opt_string(input, "varsJson"),
         )?),
+        "prompt_versions" => to_value(api::prompt_versions(&store, string(input, "promptId")?)?),
         "prompt_update" => to_value(api::prompt_update(
             &store,
             string(input, "id")?,
@@ -90,6 +91,7 @@ pub fn dispatch(
             opt_string(input, "name"),
             opt_string(input, "sectionsJson"),
             opt_string(input, "varsJson"),
+            opt_string(input, "changedBy"),
         )?),
         "prompt_duplicate" => to_value(api::prompt_duplicate(
             &store,

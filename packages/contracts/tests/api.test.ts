@@ -816,3 +816,53 @@ describe('回到最近审批点', () => {
     expect(spec.scope).toBe('workflow:run');
   });
 });
+
+describe('提示词的版本历史', () => {
+  /**
+   * 图纸「06 提示词库」版本页列的是「v4 · 当前 / 2 天前 · 你 /
+   * 加入『信息不足时列出缺什么』约束」，下面还有 v3、v2。
+   *
+   * 之前只显示当前版本，而那一页底部写着「运行记录会引用当时的提示词版本，
+   * 历史结果始终可解释」—— 历史都看不到，那句话就是空的。
+   */
+  it('只要 promptId', () => {
+    const spec = getMethodSpec('prompt.versions');
+    expect(spec.input.safeParse({ promptId: 'pr_1' }).success).toBe(true);
+    expect(spec.input.safeParse({}).success).toBe(false);
+  });
+
+  it('每条带版本号、时间和是谁改的', () => {
+    const spec = getMethodSpec('prompt.versions');
+    const parsed = spec.output.safeParse({
+      items: [
+        {
+          ver: 3,
+          name: '根因分析',
+          sections: [{ key: 'role', title: 'Role', body: '你是…' }],
+          vars: [],
+          changedBy: '你',
+          createdAt: '2026-07-26T10:00:00Z',
+        },
+      ],
+    });
+    expect(parsed.success).toBe(true);
+  });
+
+  it('一条历史都没有是合法的 —— 从没改过的提示词就是这样', () => {
+    const spec = getMethodSpec('prompt.versions');
+    expect(spec.output.safeParse({ items: [] }).success).toBe(true);
+  });
+
+  it('是只读的', () => {
+    const spec = getMethodSpec('prompt.versions');
+    expect(spec.mutates).toBe(false);
+    expect(spec.scope).toBe('workflow:read');
+  });
+
+  it('prompt.update 能带上「是谁改的」—— AI 提议与人工修改要分得开', () => {
+    const spec = getMethodSpec('prompt.update');
+    expect(spec.input.safeParse({ id: 'pr_1', ver: 1, changedBy: 'AI 提议' }).success).toBe(true);
+    // 不带就是用户自己改的
+    expect(spec.input.safeParse({ id: 'pr_1', ver: 1 }).success).toBe(true);
+  });
+});

@@ -142,9 +142,19 @@ fn prompt_update(
     name: Option<String>,
     sections_json: Option<String>,
     vars_json: Option<String>,
+    changed_by: Option<String>,
 ) -> IpcResult<api::VerOnly> {
     let store = lock(&state)?;
-    api::prompt_update(&store, id, ver, name, sections_json, vars_json)
+    api::prompt_update(&store, id, ver, name, sections_json, vars_json, changed_by)
+}
+
+#[tauri::command]
+fn prompt_versions(
+    state: State<'_, AppState>,
+    prompt_id: String,
+) -> IpcResult<Vec<api::PromptVersionDto>> {
+    let store = lock(&state)?;
+    api::prompt_versions(&store, prompt_id)
 }
 
 #[tauri::command]
@@ -739,6 +749,7 @@ pub fn run() {
             prompt_list,
             prompt_create,
             prompt_update,
+            prompt_versions,
             prompt_duplicate,
             prompt_delete,
             agent_list,

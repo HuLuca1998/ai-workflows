@@ -8,7 +8,7 @@ use rusqlite::Connection;
 use crate::Result;
 
 /// 当前 schema 版本。新增迁移时同时更新这里与 `MIGRATIONS`。
-pub const EXPECTED_SCHEMA_VERSION: i64 = 7;
+pub const EXPECTED_SCHEMA_VERSION: i64 = 9;
 
 /// (版本号, 说明, SQL)
 const MIGRATIONS: &[(i64, &str, &str)] = &[
@@ -47,6 +47,11 @@ const MIGRATIONS: &[(i64, &str, &str)] = &[
         8,
         "工作区设置",
         include_str!("sql/008_workspace_setting.sql"),
+    ),
+    (
+        9,
+        "提示词版本历史",
+        include_str!("sql/009_prompt_version.sql"),
     ),
 ];
 
