@@ -460,6 +460,31 @@ fn 换行也不能拆出新的一行命令() {
 
 // ── AI 节点（M3）──────────────────────────────────────────────────────────
 
+/// 夹具里那几个 AI 节点引用的内置角色。
+///
+/// 节点写了 `agentProfileId` 而执行器查不到就是硬错误 ——
+/// 那正是「界面上显示着审查者，实际跑的是一个没有人设的模型」的防线。
+/// 所以凡是用了角色 id 的夹具，都得把角色一起给它。
+fn 内置角色() -> Vec<aiwf_engine::executor::AgentProfile> {
+    ["builtin:analyst", "builtin:reviewer", "builtin:builder", "builtin:operator"]
+        .into_iter()
+        .map(|id| aiwf_engine::executor::AgentProfile {
+            id: id.to_string(),
+            name: id.to_string(),
+            role: String::new(),
+            goal: String::new(),
+            persona: String::new(),
+            // 空串表示「角色没指定 runtime」，于是听节点的 —— 这些夹具
+            // 测的是别的东西，不该被 runtime 的归属搅进来
+            runtime: String::new(),
+            model_ref: "model:codex".to_string(),
+            output_contract: String::new(),
+            capabilities_json: r#"{"file":"read-write","command":"any","network":"any","memory":"read-write","secret":[]}"#.to_string(),
+            timeout_ms: 900_000,
+        })
+        .collect()
+}
+
 /// 让执行器用 mock adapter 而不是真的 claude-agent-acp。
 fn with_mock_adapter(dir: std::path::PathBuf) -> NodeExecutor {
     let script = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -467,10 +492,12 @@ fn with_mock_adapter(dir: std::path::PathBuf) -> NodeExecutor {
         .and_then(|p| p.parent())
         .expect("仓库根")
         .join("tests/fixtures/acp-mock.mjs");
-    NodeExecutor::new(dir).with_acp_command(
-        "node",
-        &[script.display().to_string(), "normal".to_string()],
-    )
+    NodeExecutor::new(dir)
+        .with_agent_profiles(&内置角色())
+        .with_acp_command(
+            "node",
+            &[script.display().to_string(), "normal".to_string()],
+        )
 }
 
 fn ai_dir(name: &str) -> std::path::PathBuf {
@@ -594,6 +621,7 @@ fn 未插值的引用不会被发给_agent() {
 fn adapter_没装时说清楚要装什么_而不是假装成功() {
     let dir = ai_dir("noadapter");
     let executor = NodeExecutor::new(dir)
+        .with_agent_profiles(&内置角色())
         .with_acp_command("definitely-not-an-adapter", &[])
         .with_permission_preset("workspace_safe");
 
@@ -984,4 +1012,188 @@ mod 能力声明是硬的 {
 
         assert!(!marker.exists(), "脚本已经跑了才拦，副作用已经发生");
     }
+}
+
+// ── Agent 角色真的生效（M3 出口标准）────────────────────────────────────────
+//
+// 图纸「05 Agent 角色」把角色画成四块：角色与目标、性格与指令、
+// 模型与 Runtime、权限与工具。而 `run_ai` 长期只读 `instruction` 与
+// `runtime` —— 用户在那一屏上填的目标、人设、输出契约、能力，
+// 一个字都没到过模型面前。
+//
+// 症状不是报错，是「界面上摆着一排设置，改了没有任何区别」。
+// 而运行记录里那句「用了哪个角色」也就无从谈起。
+
+fn 角色(id: &str) -> aiwf_engine::executor::AgentProfile {
+    aiwf_engine::executor::AgentProfile {
+        id: id.to_string(),
+        name: "审查者".to_string(),
+        role: "审查".to_string(),
+        goal: "只读检查改动，按严重度排序".to_string(),
+        persona: "挑毛病，但每条都要能落到具体某一行".to_string(),
+        runtime: "acp.claude".to_string(),
+        model_ref: "model:codex".to_string(),
+        output_contract: "问题清单：严重度、文件与行、复现方式".to_string(),
+        capabilities_json:
+            r#"{"file":"read","command":"none","network":"none","memory":"read","secret":[]}"#
+                .to_string(),
+        timeout_ms: 900_000,
+    }
+}
+
+fn 挂角色的_ai_节点(profile_id: &str) -> GraphNode {
+    node(
+        "review",
+        "ai.review",
+        serde_json::json!({
+            "agentProfileId": profile_id,
+            "instruction": "看看这段改动",
+            "target": "diff",
+            "outputSchema": {}
+        }),
+    )
+}
+
+#[test]
+fn 角色的目标人设与输出契约都进了提示词() {
+    let (command, args) = mock_acp();
+    let executor = NodeExecutor::new(workdir())
+        .with_acp_command(&command, &args)
+        .with_agent_profiles(&[角色("builtin:reviewer")]);
+
+    let mut scope = Scope::new("run_role");
+    let outcome = executor
+        .execute(&挂角色的_ai_节点("builtin:reviewer"), &mut scope)
+        .unwrap();
+    assert!(
+        matches!(outcome, NodeOutcome::Succeeded { .. }),
+        "{outcome:?}"
+    );
+
+    let prompt = 收到的提示词(&scope, "review");
+    for 片段 in [
+        "只读检查改动，按严重度排序",
+        "挑毛病，但每条都要能落到具体某一行",
+        "问题清单：严重度、文件与行、复现方式",
+    ] {
+        assert!(
+            prompt.contains(片段),
+            "角色的「{片段}」没进提示词：\n{prompt}"
+        );
+    }
+    // 节点自己的指令仍然要在，而且在最后 —— 它是这一次要干的事
+    assert!(prompt.trim_end().ends_with("看看这段改动"), "{prompt}");
+}
+
+#[test]
+fn 角色不存在时当场失败_而不是悄悄按没有角色跑() {
+    // 悄悄跑下去的话，用户得到的分析是一个没有人设、没有输出契约、
+    // 也没有权限约束的模型给的 —— 而界面上显示的是「审查者」
+    let (command, args) = mock_acp();
+    let executor = NodeExecutor::new(workdir()).with_acp_command(&command, &args);
+
+    let mut scope = Scope::new("run_role");
+    let outcome = executor
+        .execute(&挂角色的_ai_节点("builtin:nobody"), &mut scope)
+        .unwrap();
+
+    match outcome {
+        NodeOutcome::Failed { message } => {
+            assert!(message.contains("builtin:nobody"), "{message}");
+            assert!(
+                message.contains("Agent 角色"),
+                "要说清缺的是什么：{message}"
+            );
+        }
+        other => panic!("角色不存在该失败，实得 {other:?}"),
+    }
+}
+
+#[test]
+fn 角色声明的能力被引擎强制_提示词改不了它() {
+    // 「权限（引擎强制，Prompt 无法越权）」——审查者是 command: none，
+    // 那么挂着它的节点就不该能执行命令，哪怕节点自己说要
+    let (command, args) = mock_acp();
+    let executor = NodeExecutor::new(workdir())
+        .with_acp_command(&command, &args)
+        .with_permission_preset("trusted_workflow")
+        .with_agent_profiles(&[角色("builtin:reviewer")]);
+
+    let 脚本 = node(
+        "sh",
+        "script.shell",
+        serde_json::json!({
+            "interpreter": "zsh",
+            "script": "echo hi",
+            "agentProfileId": "builtin:reviewer"
+        }),
+    );
+
+    let outcome = executor
+        .execute(&脚本, &mut Scope::new("run_caps"))
+        .unwrap();
+    match outcome {
+        NodeOutcome::Failed { message } => {
+            assert!(message.contains("命令"), "要说清是哪一项权限：{message}");
+        }
+        other => panic!("审查者不该能执行命令，实得 {other:?}"),
+    }
+}
+
+#[test]
+fn 角色的_runtime_压过节点上写的那个() {
+    // 节点上的 runtime 是 M2 时期的写法（那时还没有角色）。
+    // 两处都写着时以角色为准 —— 界面上用户改的是角色那一栏
+    let profiles = [aiwf_engine::executor::AgentProfile {
+        runtime: "acp.codex".to_string(),
+        ..角色("builtin:reviewer")
+    }];
+    let executor = NodeExecutor::new(workdir()).with_agent_profiles(&profiles);
+
+    assert_eq!(
+        executor.resolved_runtime(&挂角色的_ai_节点("builtin:reviewer")),
+        "acp.codex",
+        "节点上写的是 acp.claude，但角色说 acp.codex"
+    );
+}
+
+#[test]
+fn 解析结果记在执行器上_供上层写可解释性事件() {
+    // 「用了哪个模型 / 哪条提示词 / 哪个角色」是运行记录要回答的问题。
+    // 执行器不碰数据库，所以把它报给上层去写 system.model_resolved
+    let (command, args) = mock_acp();
+    let executor = NodeExecutor::new(workdir())
+        .with_acp_command(&command, &args)
+        .with_agent_profiles(&[角色("builtin:reviewer")]);
+
+    executor
+        .execute(
+            &挂角色的_ai_节点("builtin:reviewer"),
+            &mut Scope::new("run_x"),
+        )
+        .unwrap();
+
+    let 记录 = executor.resolutions();
+    assert_eq!(记录.len(), 1, "一个 AI 节点该留一条解析记录");
+    let 一条 = &记录[0];
+    assert_eq!(一条.node_id, "review");
+    assert_eq!(一条.agent_profile_id, "builtin:reviewer");
+    assert_eq!(一条.model_ref, "model:codex");
+    assert_eq!(一条.runtime, "acp.claude");
+}
+
+#[test]
+fn 没挂角色的_ai_节点照旧能跑() {
+    // 已经存在的工作流里有一堆没写 agentProfileId 的 AI 节点。
+    // 一刀切要求挂角色的话，它们会在这次升级之后全部跑不了
+    let (command, args) = mock_acp();
+    let executor = NodeExecutor::new(workdir()).with_acp_command(&command, &args);
+
+    let outcome = executor
+        .execute(&ai_节点(), &mut Scope::new("run_plain"))
+        .unwrap();
+    assert!(
+        matches!(outcome, NodeOutcome::Succeeded { .. }),
+        "{outcome:?}"
+    );
 }

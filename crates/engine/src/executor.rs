@@ -63,6 +63,43 @@ pub struct NodeExecutor {
      * 那时不拦，否则所有现成的工作流都跑不了。
      */
     capabilities: Option<serde_json::Value>,
+    /// 这张图里用到的 Agent 角色，按 id 索引。
+    agent_profiles: Vec<AgentProfile>,
+    /// 每个 AI 节点实际用了什么。上层据此写可解释性事件。
+    resolutions: std::sync::Mutex<Vec<Resolution>>,
+}
+
+/// 一个 Agent 角色，解析好的形态。
+///
+/// **执行器不碰数据库** —— 上层查好了传进来。这样它既能单测，
+/// 也不会在执行中途因为角色被改而拿到前后不一致的两份。
+#[derive(Debug, Clone)]
+pub struct AgentProfile {
+    pub id: String,
+    pub name: String,
+    pub role: String,
+    pub goal: String,
+    pub persona: String,
+    pub runtime: String,
+    pub model_ref: String,
+    pub output_contract: String,
+    /// 引擎强制的能力声明（JSON）。图纸「05 Agent 角色」写着
+    /// 「权限（引擎强制，Prompt 无法越权）」——就靠它。
+    pub capabilities_json: String,
+    pub timeout_ms: i64,
+}
+
+/// 一个 AI 节点实际用了什么。上层据此写 `system.model_resolved`。
+///
+/// 「用了哪个模型 / 哪个角色 / 哪条提示词」是运行记录必须回答的问题。
+/// 不记下来的话，执行记录里那句「可解释」就只是一个标题。
+#[derive(Debug, Clone)]
+pub struct Resolution {
+    pub node_id: String,
+    pub agent_profile_id: String,
+    pub agent_name: String,
+    pub model_ref: String,
+    pub runtime: String,
 }
 
 /// 有副作用因而受权限档管的节点类型。
@@ -94,7 +131,53 @@ impl NodeExecutor {
             permission_preset: "review_every_change".to_string(),
             approved_nodes: Vec::new(),
             capabilities: None,
+            agent_profiles: Vec::new(),
+            resolutions: std::sync::Mutex::new(Vec::new()),
         }
+    }
+
+    /// 这张图里用到的 Agent 角色。
+    ///
+    /// 不传的话 AI 节点仍能跑（已有的工作流里有一堆没写 agentProfileId 的），
+    /// 但节点上写了 id 而这里查不到，就是硬错误 ——
+    /// 悄悄按「没有角色」跑下去的话，用户得到的分析是一个没有人设、
+    /// 没有输出契约、也没有权限约束的模型给的，而界面上显示的是「审查者」。
+    #[must_use]
+    pub fn with_agent_profiles(mut self, profiles: &[AgentProfile]) -> Self {
+        self.agent_profiles = profiles.to_vec();
+        self
+    }
+
+    /// 每个 AI 节点实际用了什么。上层据此写 `system.model_resolved`。
+    pub fn resolutions(&self) -> Vec<Resolution> {
+        self.resolutions
+            .lock()
+            .map(|list| list.clone())
+            .unwrap_or_default()
+    }
+
+    /// 节点挂着的角色。节点上没写 id 时返回 None。
+    fn profile_for(&self, node: &GraphNode) -> Option<&AgentProfile> {
+        let id = node.config.get("agentProfileId")?.as_str()?;
+        self.agent_profiles.iter().find(|p| p.id == id)
+    }
+
+    /// 这个节点最终跑在哪个 runtime 上。
+    ///
+    /// 角色说了算：节点上的 `runtime` 是 M2 时期的写法（那时还没有角色），
+    /// 两处都写着时以界面上用户真正在改的那一栏为准。
+    #[must_use]
+    pub fn resolved_runtime(&self, node: &GraphNode) -> String {
+        if let Some(profile) = self.profile_for(node) {
+            if !profile.runtime.is_empty() {
+                return profile.runtime.clone();
+            }
+        }
+        node.config
+            .get("runtime")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("acp.codex")
+            .to_string()
     }
 
     /// Agent 角色声明的能力。不传表示这次运行没挂角色。
@@ -109,9 +192,17 @@ impl NodeExecutor {
     /// 返回 Err 里带的是**面向用户的**说明：「命令执行未授权」比
     /// 「capability denied」有用得多 —— 用户要知道去哪儿改。
     fn check_capability(&self, node: &GraphNode) -> std::result::Result<(), String> {
-        let Some(caps) = &self.capabilities else {
-            return Ok(());
+        // 节点挂着角色时以角色的能力为准 —— 那是用户在「Agent 角色」屏上
+        // 逐项设过的东西。运行级的 capabilities 是兜底
+        let 角色的 = self
+            .profile_for(node)
+            .and_then(|profile| serde_json::from_str(&profile.capabilities_json).ok());
+        let caps: serde_json::Value = match (角色的, &self.capabilities) {
+            (Some(value), _) => value,
+            (None, Some(value)) => value.clone(),
+            (None, None) => return Ok(()),
         };
+        let caps = &caps;
         let level = |key: &str| {
             caps.get(key)
                 .and_then(serde_json::Value::as_str)
@@ -418,6 +509,26 @@ impl NodeExecutor {
     /// 复用会话能省启动时间，但也让「这个节点看到了什么上下文」
     /// 变得说不清 —— 而可解释性是这个产品的核心。
     fn run_ai(&self, node: &GraphNode, scope: &mut Scope) -> Result<NodeOutcome> {
+        // 节点写了角色 id 而查不到 —— 硬错误。
+        //
+        // 悄悄按「没有角色」跑下去的话，用户得到的分析是一个没有人设、
+        // 没有输出契约、也没有权限约束的模型给的，而画布上那个节点
+        // 显示的是「审查者」。错得越安静越难查。
+        let declared = node
+            .config
+            .get("agentProfileId")
+            .and_then(serde_json::Value::as_str)
+            .filter(|id| !id.is_empty());
+        let profile = self.profile_for(node);
+        if let (Some(id), None) = (declared, profile) {
+            return Ok(NodeOutcome::Failed {
+                message: format!(
+                    "找不到 Agent 角色 {id}。在「Agent 角色」屏上确认它还在，\
+                     或者把节点改成引用一个存在的角色"
+                ),
+            });
+        }
+
         let instruction_raw = self.require_str(node, "instruction")?;
         let instruction = match interpolate(&instruction_raw, scope) {
             Ok(text) => text,
@@ -450,14 +561,57 @@ impl NodeExecutor {
             prefixed
         };
 
-        // 节点没指定时默认 codex：这个应用本身跑在 Claude Code 里开发，
+        // 角色拼在最前面，节点的指令留在最后。
+        //
+        // 顺序是有讲究的：角色说的是「你是谁、你怎么做事、交出什么形状」，
+        // 那是**这一整类任务**都成立的；指令是「这一次要干什么」。
+        // 把指令埋在中间的话，多轮下来模型容易把它当成背景说明。
+        let instruction = match profile {
+            None => instruction,
+            Some(profile) => {
+                let mut prompt = String::new();
+                if !profile.role.is_empty() || !profile.name.is_empty() {
+                    prompt.push_str(&format!("你的角色：{}（{}）\n", profile.name, profile.role));
+                }
+                if !profile.goal.is_empty() {
+                    prompt.push_str(&format!("你的目标：{}\n", profile.goal));
+                }
+                if !profile.persona.is_empty() {
+                    prompt.push_str(&format!("你的做事方式：{}\n", profile.persona));
+                }
+                if !profile.output_contract.is_empty() {
+                    prompt.push_str(&format!(
+                        "交出来的东西要是这个形状：{}\n",
+                        profile.output_contract
+                    ));
+                }
+                if !prompt.is_empty() {
+                    prompt.push('\n');
+                }
+                prompt.push_str(&instruction);
+                prompt
+            }
+        };
+
+        // runtime 由角色说了算；角色没说才看节点。
+        // 都没有时默认 codex：这个应用本身跑在 Claude Code 里开发，
         // 用 claude 的 adapter 会与开发环境互相干扰 —— 嵌套的 agent 会话、
         // 共用的登录态、同一份配额
-        let runtime = node
-            .config
-            .get("runtime")
-            .and_then(serde_json::Value::as_str)
-            .unwrap_or("acp.codex");
+        let runtime = self.resolved_runtime(node);
+        let runtime = runtime.as_str();
+
+        // 记下这个节点实际用了什么，供上层写 system.model_resolved。
+        // 写在真正连 adapter **之前**：连不上也是一次「用了它」，
+        // 而排查连不上的第一个问题就是「它到底想连哪个」
+        if let Ok(mut list) = self.resolutions.lock() {
+            list.push(Resolution {
+                node_id: node.id.clone(),
+                agent_profile_id: profile.map(|p| p.id.clone()).unwrap_or_default(),
+                agent_name: profile.map(|p| p.name.clone()).unwrap_or_default(),
+                model_ref: profile.map(|p| p.model_ref.clone()).unwrap_or_default(),
+                runtime: runtime.to_string(),
+            });
+        }
 
         let (command, args) = match &self.acp_override {
             Some((command, args)) => (command.clone(), args.clone()),
@@ -481,10 +635,13 @@ impl NodeExecutor {
             },
         };
 
+        // 超时：节点上写了就听节点的（那是针对这一步调的），
+        // 否则用角色的 —— 执行者跑得久，审查者不该等那么长
         let timeout_ms = node
             .config
             .get("timeoutMs")
             .and_then(serde_json::Value::as_u64)
+            .or_else(|| profile.and_then(|p| u64::try_from(p.timeout_ms).ok()))
             .unwrap_or(900_000);
 
         let mut client = match AcpClient::connect(

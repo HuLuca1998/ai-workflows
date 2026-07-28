@@ -137,7 +137,15 @@ impl Runner {
         F: Fn(&crate::graph::GraphNode) -> NodeOutcome,
     {
         let mut scope = Scope::new(run_id);
-        self.advance(store, run_id, &mut scope, |node, _| execute(node))
+        // 这条路径是测试与外部调度用的，调用方自带执行逻辑，
+        // 「用了哪个模型」它自己知道 —— 这里不替它编一条
+        self.advance(
+            store,
+            run_id,
+            &mut scope,
+            |node, _| execute(node),
+            |_| Vec::new(),
+        )
     }
 
     /// 用真实执行器推进一个节点。
@@ -148,24 +156,53 @@ impl Runner {
         executor: &NodeExecutor,
         scope: &mut Scope,
     ) -> Result<StepResult> {
-        self.advance(store, run_id, scope, |node, scope| {
-            executor
-                .execute(node, scope)
-                .unwrap_or_else(|error| NodeOutcome::Failed {
-                    message: error.to_string(),
-                })
-        })
+        self.advance(
+            store,
+            run_id,
+            scope,
+            |node, scope| {
+                executor
+                    .execute(node, scope)
+                    .unwrap_or_else(|error| NodeOutcome::Failed {
+                        message: error.to_string(),
+                    })
+            },
+            // 「这一步用了哪个角色、哪个模型」由执行器记下（它不碰数据库），
+            // 这里取出来写成事件
+            |node_id| {
+                executor
+                    .resolutions()
+                    .into_iter()
+                    .filter(|item| item.node_id == node_id)
+                    .map(|item| {
+                        if item.agent_profile_id.is_empty() {
+                            format!("runtime {} · 没挂 Agent 角色", item.runtime)
+                        } else {
+                            format!(
+                                "Agent 角色「{}」（{}）· 模型 {} · runtime {}",
+                                item.agent_name,
+                                item.agent_profile_id,
+                                item.model_ref,
+                                item.runtime
+                            )
+                        }
+                    })
+                    .collect()
+            },
+        )
     }
 
-    fn advance<F>(
+    fn advance<F, R>(
         &self,
         store: &Store,
         run_id: &str,
         scope: &mut Scope,
         execute: F,
+        resolutions: R,
     ) -> Result<StepResult>
     where
         F: Fn(&crate::graph::GraphNode, &mut Scope) -> NodeOutcome,
+        R: Fn(&str) -> Vec<String>,
     {
         let status = self.status(store, run_id)?;
         if matches!(status.as_str(), "succeeded" | "failed" | "cancelled") {
@@ -236,6 +273,22 @@ impl Runner {
         } else {
             execute(node, scope)
         };
+
+        // 「这一步用了哪个角色、哪个模型、跑在哪个 runtime 上」。
+        //
+        // 写在 outcome 之后、node.succeeded 之前：**失败的那次也要写**——
+        // 排查「AI 节点连不上」的第一个问题就是「它到底想连哪个」。
+        for 解析 in resolutions(&node_id) {
+            self.emit_node(
+                store,
+                run_id,
+                "system.model_resolved",
+                &node_id,
+                &node.title,
+                "engine",
+                &解析,
+            )?;
+        }
 
         match outcome {
             NodeOutcome::Succeeded { port } => {
@@ -376,11 +429,18 @@ impl Runner {
             .unwrap_or_else(|| "review_every_change".to_string());
         let approved = self.approved_nodes(store, run_id)?;
 
+        // 图里引用到的 Agent 角色，一次性查好交给执行器。
+        //
+        // 执行器不碰数据库：中途角色被改的话，同一次运行的前后两个节点
+        // 会拿到不一样的人设，而运行记录上看不出这件事发生过。
+        let profiles = self.agent_profiles_for(store, run_id)?;
+
         let executor = NodeExecutor::new(workdir)
             .with_run_id(run_id)
             .with_memories(&memories)
             .with_permission_preset(&preset)
-            .with_approved_nodes(&approved);
+            .with_approved_nodes(&approved)
+            .with_agent_profiles(&profiles);
 
         // 「记忆注入可在事件中溯源」：在**取快照时**就写下，
         // 而不是等某个 AI 节点跑完 —— 那个节点可能失败、可能被取消，
@@ -645,6 +705,54 @@ impl Runner {
             }
         }
         Ok(last)
+    }
+
+    /// 这次运行的图里引用到的 Agent 角色。
+    ///
+    /// 只查图里真的用到的那几个：全表拉出来在角色多了之后是白花的，
+    /// 而且会把「这次运行涉及哪些角色」这件事糊掉。
+    fn agent_profiles_for(
+        &self,
+        store: &Store,
+        run_id: &str,
+    ) -> Result<Vec<crate::executor::AgentProfile>> {
+        let (graph, _) = self.load_plan(store, run_id)?;
+
+        let mut ids: Vec<String> = Vec::new();
+        for node in &graph.nodes {
+            let Some(id) = node
+                .config
+                .get("agentProfileId")
+                .and_then(serde_json::Value::as_str)
+                .filter(|id| !id.is_empty())
+            else {
+                continue;
+            };
+            if !ids.iter().any(|seen| seen == id) {
+                ids.push(id.to_string());
+            }
+        }
+
+        let mut profiles = Vec::new();
+        for id in ids {
+            // 查不到就不放进去 —— 执行器会在跑到那个节点时报
+            // 「找不到 Agent 角色 X」，那句话比这里静默跳过有用
+            if let Some(row) = store.get_agent(&id)? {
+                profiles.push(crate::executor::AgentProfile {
+                    id: row.id,
+                    name: row.name,
+                    role: row.role,
+                    goal: row.goal,
+                    persona: row.persona,
+                    runtime: row.runtime,
+                    model_ref: row.model_ref,
+                    output_contract: row.output_contract,
+                    capabilities_json: row.capabilities_json,
+                    timeout_ms: row.timeout_ms,
+                });
+            }
+        }
+        Ok(profiles)
     }
 
     fn emit(

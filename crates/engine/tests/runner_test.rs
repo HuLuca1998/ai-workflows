@@ -533,3 +533,100 @@ fn 停用的记忆不注入() {
         "停用的记忆不该被注入"
     );
 }
+
+// ── 可解释性：这一步用了什么（M4 出口标准）──────────────────────────────────
+//
+// 执行记录那一屏的承诺是「用了哪个模型 / 提示词 / 注入了哪些记忆 /
+// 谁批准了什么」。前两样长期没有落点：AI 节点连 agentProfileId 都不读，
+// 事件流里自然也没有一条说得清「这一步是谁在跑」。
+
+fn 挂角色的图(agent_id: &str) -> String {
+    format!(
+        r#"{{
+  "nodes": [
+    {{"id":"entry","type":"entry","title":"入口","position":{{"x":0,"y":0}},"config":{{}}}},
+    {{"id":"think","type":"ai.analyze","title":"分析","position":{{"x":1,"y":0}},
+     "config":{{"agentProfileId":"{agent_id}","instruction":"看一眼"}}}}
+  ],
+  "edges": [
+    {{"id":"e1","source":{{"nodeId":"entry","port":"success"}},"target":{{"nodeId":"think","port":"input"}}}}
+  ],
+  "groups": []
+}}"#
+    )
+}
+
+fn 建一个分析师(store: &Store) -> String {
+    store
+        .create_builtin_agent(&aiwf_store::NewAgent {
+            name: "分析师".to_string(),
+            role: "分析".to_string(),
+            goal: "定位根因".to_string(),
+            persona: "只看证据说话".to_string(),
+            runtime: "acp.codex".to_string(),
+            model_ref: "model:codex".to_string(),
+            fallback_model_ref: None,
+            tools: vec![],
+            capabilities_json:
+                r#"{"file":"read","command":"none","network":"none","memory":"read","secret":[]}"#
+                    .to_string(),
+            output_contract: "根因 + 方案清单".to_string(),
+            turn_limit: 12,
+            timeout_ms: 900_000,
+        })
+        .unwrap()
+}
+
+#[test]
+fn 运行记录说得清这一步用了哪个角色与模型() {
+    let store = Store::open_in_memory().unwrap();
+    store
+        .set_workspace_setting("permissionPreset", "workspace_safe")
+        .unwrap();
+    let agent = 建一个分析师(&store);
+    let workflow = store
+        .create_workflow_with_graph("测试流程", None, &挂角色的图(&agent))
+        .unwrap();
+
+    let runner = Runner::new();
+    let run_id = runner.start(&store, request(&workflow)).unwrap();
+    // adapter 多半没装，跑失败也没关系 —— 解析事件在连 adapter 之前就写下了
+    let _ = runner.run_all(&store, &run_id);
+
+    let events = store.events(&run_id, 0, 200).unwrap();
+    let 解析 = events
+        .iter()
+        .find(|e| e.kind == "system.model_resolved")
+        .expect("AI 节点该留一条 system.model_resolved");
+
+    assert_eq!(解析.node_id.as_deref(), Some("think"));
+    for 片段 in ["分析师", agent.as_str(), "model:codex", "acp.codex"] {
+        assert!(
+            解析.summary.contains(片段),
+            "「{片段}」没写进事件：{}",
+            解析.summary
+        );
+    }
+}
+
+#[test]
+fn 角色被删掉时运行失败并说清缺的是哪一个() {
+    // 悄悄按「没有角色」跑下去的话，用户得到的分析是一个没有人设、
+    // 没有输出契约、也没有权限约束的模型给的，而画布上写着「分析师」
+    let (store, workflow) = setup(&挂角色的图("agent_没有这个"));
+
+    let runner = Runner::new();
+    let run_id = runner.start(&store, request(&workflow)).unwrap();
+    let _ = runner.run_all(&store, &run_id);
+
+    let events = store.events(&run_id, 0, 200).unwrap();
+    let 失败 = events
+        .iter()
+        .find(|e| e.kind == "node.failed")
+        .expect("角色不存在该让节点失败");
+    assert!(
+        失败.summary.contains("agent_没有这个"),
+        "要说清缺的是哪一个：{}",
+        失败.summary
+    );
+}
