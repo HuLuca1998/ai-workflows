@@ -272,6 +272,38 @@ bash scripts/install-app.sh ~/Downloads/AI\ Workflows_x.y.z_universal.dmg
 
 ---
 
+## M7 · 系统级 MCP（2026-07-29）
+
+**范围**：把整个应用通过 MCP 开给外部 AI 客户端，并让应用内的主管 AI
+走同一条路。
+
+**出口标准**：一个不知道这个系统长什么样的 AI 客户端，能只靠 MCP
+把一条工作流从零搭出来、跑起来、出问题时自己读事件流找到原因、修好、再跑。
+
+已交付：
+
+- [x] **传输**：MCP Streamable HTTP（规范 2025-03-26 起）。单一端点 `/mcp`，
+      协议版本按客户端要的回（认 4 个）。Origin 校验、只绑 127.0.0.1、
+      令牌鉴权 —— 规范的三条安全要求一条不省，**刻意不加 CORS 头**
+- [x] **能力**：50 个工具，清单 = 契约方法 ∩ 可分派命令，由契约派生。
+      只藏两类：确认通道自己、`workflow.saveDraft`（整份回写）
+- [x] **知识**：7 份资源（三份指南 + 节点目录 + 配置 Schema + 契约元数据 + 实时 inventory）、2 条提示词模板
+- [x] **一键接入**：Claude Code 走 `Authorization` 头，Codex 走 URL 路径
+      （它的 `mcp add --url` 带不了自定义头）
+- [x] **引擎自己应用 Patch**（ADR-0009）：Rust 侧补齐 patch / validate / diff，
+      与 TypeScript 逐字等价，43 组夹具压着
+- [x] **AI 节点真的用上 Agent 角色**：目标、人设、输出契约进提示词，
+      能力由引擎强制，每步写 `system.model_resolved`
+- [x] **首次启动的内置数据**：2 模型 / 4 角色 / 4 提示词 / 4 记忆，
+      只种一次（`bootstrap` 表记账），用户改过删过的不被冲回去
+
+**出口标准验证**：见 [`docs/testing/mcp-e2e-report.md`](testing/mcp-e2e-report.md)。
+codex 通过 MCP 自主搭出 11 节点 / 10 连线的工作流，自主循环诊断修复 5 轮，
+过程中抓到三个只有真跑才暴露的问题（`${…}` 重复加引号、worktree 相对路径
+按错基准、AI 节点没读角色），都已修复并补了测试。
+
+---
+
 ## 已知风险
 
 来自技术选型 §9，加上施工中发现的：
