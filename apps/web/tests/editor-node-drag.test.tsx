@@ -1,5 +1,8 @@
 import { act, render } from '@testing-library/react';
 import type { Node, NodeChange, ReactFlowProps } from '@xyflow/react';
+// 只要类型的命名空间导入：`import * as` 会把被 mock 的模块又当值引一次，
+// 而 `import type * as` 不产生运行时引用
+import type * as XYFlow from '@xyflow/react';
 import { MemoryRouter, Route, Routes } from 'react-router';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { EditorPage } from '../src/editor/EditorPage.js';
@@ -12,7 +15,7 @@ const captured = vi.hoisted(() => ({
 // 这里不测试 XYFlow 自己的拖拽实现，只截住它交给受控组件的 changes，
 // 验证编辑器有没有把拖动中的位置立即回传给 nodes prop。
 vi.mock('@xyflow/react', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@xyflow/react')>();
+  const actual = await importOriginal<typeof XYFlow>();
   const React = await import('react');
   return {
     ...actual,
