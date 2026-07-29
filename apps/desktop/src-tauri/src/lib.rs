@@ -954,10 +954,17 @@ pub fn run() {
         ])
         .build(tauri::generate_context!())
         .expect("启动桌面壳失败")
-        .run(|app, event| {
-            if let tauri::RunEvent::Reopen { .. } = event {
+        .run(|app, event| match event {
+            tauri::RunEvent::Reopen { .. } => {
                 // 点 Dock 图标时窗口已隐藏，重新显示而不是新建一个
                 show_main_window(app);
             }
+            // 主管 AI 的 ACP 会话池里放的是活的 adapter 子进程。
+            // 不在退出时收掉的话，用户关了 App 之后机器上还留着几个
+            // node 进程 —— 而他没有任何入口能看到、更别说关掉它们
+            tauri::RunEvent::Exit => {
+                aiwf_engine::acp::SessionPool::shared().shutdown();
+            }
+            _ => {}
         });
 }

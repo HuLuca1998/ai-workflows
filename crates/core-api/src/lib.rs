@@ -2010,43 +2010,50 @@ pub fn supervisor_ask(
         },
     );
 
-    let mut client = AcpClient::connect(
-        &command,
-        &[],
-        &env_to_remove(runtime),
-        std::time::Duration::from_secs(180),
-    )
-    .map_err(|error| ApiError {
-        code: "EXTERNAL".to_string(),
-        message: format!("连不上 adapter：{error}"),
-        retriable: true,
-        hint: None,
-    })?;
-
-    let session = client
-        .new_session_with_mcp(&data_dir.display().to_string(), mcp.as_slice())
-        .map_err(|error| ApiError {
-            code: "EXTERNAL".to_string(),
-            message: format!("建会话失败：{error}"),
-            retriable: true,
-            hint: None,
-        })?;
+    // 一条主管对话复用一条 ACP 会话。
+    //
+    // 每问一句就 connect + session/new 的话，agent 手上永远是一张白纸：
+    // 用户问「那第二个方案呢」，它根本不知道第一个是什么 ——
+    // 我们只能把历史重新拼进 prompt，那不是对话，
+    // 是每次重新做一次自我介绍。顺带每问一句还要起一个 adapter 进程。
+    //
+    // 池的 key 用会话 id；还没有会话 id 的（这是这条对话的第一句）
+    // 用一个只在这一轮有效的 key —— 它建出来的会话在下面拿到
+    // 真正的 session id 之后会被改挂过去
+    let pool = aiwf_engine::acp::SessionPool::shared();
+    let 池键 = session_id
+        .clone()
+        .unwrap_or_else(|| format!("新对话:{question}"));
 
     let mut text = String::new();
     let mut tool_calls = 0_u32;
+    let cwd = data_dir.display().to_string();
 
-    client
-        .prompt(&session.id, &prompt, |update| match update {
+    pool.prompt(
+        &池键,
+        || {
+            let mut client = AcpClient::connect(
+                &command,
+                &[],
+                &env_to_remove(runtime),
+                std::time::Duration::from_secs(180),
+            )?;
+            let session = client.new_session_with_mcp(&cwd, mcp.as_slice())?;
+            Ok((client, session.id))
+        },
+        &prompt,
+        |update| match update {
             SessionUpdate::AgentText { text: chunk } => text.push_str(chunk),
             SessionUpdate::ToolCall { .. } => tool_calls += 1,
             _ => {}
-        })
-        .map_err(|error| ApiError {
-            code: "EXTERNAL".to_string(),
-            message: format!("主管 AI 失败：{error}"),
-            retriable: true,
-            hint: None,
-        })?;
+        },
+    )
+    .map_err(|error| ApiError {
+        code: "EXTERNAL".to_string(),
+        message: format!("主管 AI 失败：{error}"),
+        retriable: true,
+        hint: None,
+    })?;
 
     let (text, proposal) = extract_proposal(&text);
 
@@ -2076,6 +2083,15 @@ pub fn supervisor_ask(
             }
         }
     });
+
+    // 把这一轮建起来的 ACP 会话改挂到真正的会话 id 下。
+    //
+    // 第一句是在还没有 id 的时候发出去的（id 要等答完落库才拿得到），
+    // 用的是一个临时 key。不改挂的话，第二句带着真实 id 进来会认不出
+    // 上一条，于是又建一条 —— 复用等于没做，agent 照样记不住上一句。
+    if let Some(id) = &session {
+        pool.rekey(&池键, id);
+    }
 
     match &session {
         Some(id) => {

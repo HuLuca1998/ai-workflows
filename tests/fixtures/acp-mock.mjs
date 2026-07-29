@@ -22,6 +22,9 @@ const scenario = process.argv[2] ?? 'normal';
 /** 等着客户端应答的那条反向请求。收到应答后才把这一轮收尾。 */
 let pendingPermission = null;
 
+/** 建过几条会话。count-sessions 场景靠它把「复用」与「每次新建」区分开。 */
+let sessionSeq = 0;
+
 // hang：什么都不回，用来验证客户端的超时。
 // 必须在注册 stdin 监听之前就停住 —— 否则照样会应答 initialize
 if (scenario === 'hang') {
@@ -98,8 +101,14 @@ function handle(message) {
             .join(',')
         : '';
 
+    // count-sessions 场景：每次 session/new 返回一个新编号，
+    // 而 prompt 把收到的 sessionId 回显出来 —— 这样测试能看出
+    // 两轮对话到底是复用了同一条会话还是各建了一条
+    sessionSeq += 1;
+    const 编号 = scenario === 'count-sessions' ? `-${sessionSeq}` : '';
+
     reply(id, {
-      sessionId: `mock-session-${leaked}`,
+      sessionId: `mock-session${编号}${leaked}`,
       modes: {
         currentModeId: 'default',
         availableModes: [
@@ -153,6 +162,20 @@ function handle(message) {
     if (scenario === 'crash-after-session') {
       // 不回复，直接退出 —— 客户端应当报「进程退出」而不是无限等
       process.exit(1);
+    }
+
+    // count-sessions 场景：把这一轮用的 sessionId 回显出来。
+    // 复用同一条会话时两轮拿到的是同一个编号，各建一条时编号会涨
+    if (scenario === 'count-sessions') {
+      notify('session/update', {
+        sessionId: params.sessionId,
+        update: {
+          sessionUpdate: 'agent_message_chunk',
+          content: { type: 'text', text: params.sessionId },
+        },
+      });
+      reply(id, { stopReason: 'end_turn' });
+      return;
     }
 
     // echo-prompt 场景：把收到的提示词原样回显。

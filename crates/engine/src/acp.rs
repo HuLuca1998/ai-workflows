@@ -685,3 +685,182 @@ pub fn capability_flags(capabilities: &Value) -> HashMap<String, bool> {
     }
     flags
 }
+
+/// 主管 AI 的 ACP 会话池。
+///
+/// **一条主管对话对应一条活着的 ACP 会话。** 每问一句就
+/// `connect` + `session/new` 的话，agent 手上永远是一张白纸 ——
+/// 用户问「那第二个方案呢」，它根本不知道第一个是什么，
+/// 我们只能把历史重新拼进 prompt。那不是对话，
+/// 是每次重新做一次自我介绍，而且每问一句还要起一个 adapter 进程。
+///
+/// 池子里放的是**活的子进程**，所以有两件事必须做：
+///
+/// - **会死**：adapter 会因为升级、被杀、自己崩而退出。一条死会话留在池里的话，
+///   用户之后每问一句都失败，而他不知道该怎么办 —— 关掉抽屉重开也没用。
+///   所以一轮失败之后丢掉重建，再试一次
+/// - **要回收**：用户问完一句就去干别的了，一个常驻的 node 进程在那儿
+///   占着内存与登录态。空闲超过 `idle` 就收走
+///
+/// 锁是整池一把：主管 AI 是单用户交互，同时只会有一条对话在跑，
+/// 而**同一条对话本来就不该并发**（两轮 prompt 交错发给同一个 session，
+/// agent 那边的上下文会乱掉）。
+pub struct SessionPool {
+    live: std::sync::Mutex<HashMap<String, Live>>,
+    idle: Duration,
+}
+
+struct Live {
+    client: AcpClient,
+    session_id: String,
+    last_used: std::time::Instant,
+}
+
+/// 主管 AI 的会话空闲多久就收掉。
+///
+/// 十分钟：用户问完一句去改工作流、跑一次运行，回来接着问是常事，
+/// 那期间不该把进程杀掉让他重新等一次握手；但也不能真的常驻 ——
+/// 一个闲着的 node 进程占着内存与登录态。
+const SUPERVISOR_IDLE: Duration = Duration::from_secs(600);
+
+impl SessionPool {
+    #[must_use]
+    pub fn new(idle: Duration) -> Self {
+        Self {
+            live: std::sync::Mutex::new(HashMap::new()),
+            idle,
+        }
+    }
+
+    /// 整个进程共用的那一个池。
+    ///
+    /// 是全局的，而且**应该**是全局的：池子里放的是活的子进程，
+    /// 同一个 App 里存在两个池就意味着同一条对话可能对上两个 adapter，
+    /// 而其中一个永远没人回收。桌面壳与 MCP 那两条调用路径
+    /// （`supervisor_ask` 的两个入口）必须落在同一个池上。
+    pub fn shared() -> &'static Self {
+        static SHARED: std::sync::OnceLock<SessionPool> = std::sync::OnceLock::new();
+        SHARED.get_or_init(|| Self::new(SUPERVISOR_IDLE))
+    }
+
+    /// 在 `key` 这条对话上跑一轮。会话不在或者已经死了就用 `建` 新建一条。
+    ///
+    /// `建` 拿的是 `&self` 之外的东西（adapter 命令、cwd、MCP 配置），
+    /// 由调用方闭包带进来 —— 池子不该知道主管 AI 是怎么配的。
+    pub fn prompt(
+        &self,
+        key: &str,
+        建: impl Fn() -> Result<(AcpClient, String)>,
+        text: &str,
+        mut on_update: impl FnMut(SessionUpdate<'_>),
+    ) -> Result<PromptOutcome> {
+        let mut live = self.live.lock().map_err(|_| AcpError::Disconnected)?;
+
+        // 先清掉放太久的：借这次调用顺手做，不额外起一个收割线程 ——
+        // 那个线程的生命周期又要跟着 App 管一遍
+        let idle = self.idle;
+        live.retain(|_, session| session.last_used.elapsed() < idle);
+
+        if !live.contains_key(key) {
+            let (client, session_id) = 建()?;
+            live.insert(
+                key.to_string(),
+                Live {
+                    client,
+                    session_id,
+                    last_used: std::time::Instant::now(),
+                },
+            );
+        }
+
+        let 结果 = {
+            let session = live.get_mut(key).ok_or(AcpError::Disconnected)?;
+            let id = session.session_id.clone();
+            session.last_used = std::time::Instant::now();
+            session.client.prompt(&id, text, &mut on_update)
+        };
+
+        match 结果 {
+            Ok(outcome) => Ok(outcome),
+            // 失败多半是进程没了。丢掉重建再试一次 ——
+            // 把「adapter 昨天半夜被升级了」这种事报给用户没有意义，
+            // 他能做的也只是再点一次
+            Err(_) => {
+                live.remove(key);
+                let (mut client, session_id) = 建()?;
+                let outcome = client.prompt(&session_id, text, &mut on_update);
+                // 新会话照样放回池里：这一轮可能还是失败（adapter 真的坏了），
+                // 但下一轮不该再为此多起一个进程
+                live.insert(
+                    key.to_string(),
+                    Live {
+                        client,
+                        session_id,
+                        last_used: std::time::Instant::now(),
+                    },
+                );
+                outcome
+            }
+        }
+    }
+
+    /// 把一条会话改挂到新的 key 下。
+    ///
+    /// 主管对话的第一句是在**还没有会话 id 的时候**发出去的 ——
+    /// id 要等答完之后落库才拿得到。不改挂的话，第二句带着真实 id 进来
+    /// 会认不出上一条，于是又建一条：复用等于没做。
+    pub fn rekey(&self, from: &str, to: &str) {
+        if from == to {
+            return;
+        }
+        if let Ok(mut live) = self.live.lock()
+            && let Some(session) = live.remove(from)
+        {
+            live.insert(to.to_string(), session);
+        }
+    }
+
+    /// 池子里现在活着几条。
+    #[must_use]
+    pub fn live_count(&self) -> usize {
+        self.live.lock().map(|live| live.len()).unwrap_or(0)
+    }
+
+    /// 收掉空闲太久的会话。
+    ///
+    /// `prompt` 每次也会顺手做一遍，这个方法是给「一直没人说话」的情况用的。
+    pub fn reap_idle(&self) {
+        if let Ok(mut live) = self.live.lock() {
+            let idle = self.idle;
+            live.retain(|_, session| session.last_used.elapsed() < idle);
+        }
+    }
+
+    /// 全部关掉。App 退出时走这条，不然会留下一堆孤儿 adapter 进程。
+    pub fn shutdown(&self) {
+        if let Ok(mut live) = self.live.lock() {
+            live.clear();
+        }
+    }
+
+    /// 测试脚手架：把某条会话的进程弄死，用来验证「死了会自己重建」。
+    #[doc(hidden)]
+    pub fn kill_for_test(&self, key: &str) {
+        if let Ok(mut live) = self.live.lock() {
+            live.remove(key);
+        }
+    }
+
+    /// 测试脚手架：某条会话背后是哪个进程。
+    ///
+    /// 「复用了同一条会话」最硬的证据是 pid 没变 —— session id 靠不住，
+    /// 两个各自新起的 adapter 进程完全可能给出一样的 id。
+    #[doc(hidden)]
+    #[must_use]
+    pub fn pid_for_test(&self, key: &str) -> Option<u32> {
+        self.live
+            .lock()
+            .ok()
+            .and_then(|live| live.get(key).map(|s| s.client.pid()))
+    }
+}
