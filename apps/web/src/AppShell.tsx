@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Route, Routes } from 'react-router';
 
 import { SideNav } from './layout/SideNav.js';
+import { useTrayNavigation } from './layout/useTrayNavigation.js';
 import { SupervisorDrawer } from './supervisor/SupervisorDrawer.js';
 import { useEditor } from './editor/editorStore.js';
 import { TitleBar } from './layout/TitleBar.js';
@@ -26,6 +27,8 @@ export function AppShell() {
   const environment = environmentDisplay(settings);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const editor = useEditor();
+  // 托盘「检查更新…」把用户带到「系统版本」屏
+  useTrayNavigation();
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {

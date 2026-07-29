@@ -526,6 +526,53 @@ fn workspace_update_settings(
 }
 
 #[tauri::command]
+fn workspace_reset_preview(state: State<'_, AppState>) -> IpcResult<api::ResetPreviewDto> {
+    let data_dir = state.data_dir.clone();
+    let store = lock(&state)?;
+    let workdir = 授权目录(&store);
+    api::workspace_reset_preview(&store, &data_dir, workdir.as_deref())
+}
+
+#[tauri::command]
+fn workspace_reset(
+    state: State<'_, AppState>,
+    confirm: bool,
+    include_artifacts: Option<bool>,
+) -> IpcResult<api::ResetResultDto> {
+    // 契约那侧 confirm 是 z.literal(true)。这里再挡一次是因为
+    // IPC 收到的是解过的参数，没经过 Zod —— 而这条命令删得掉用户全部的东西
+    if !confirm {
+        return Err(ApiError {
+            code: "VALIDATION".into(),
+            message: "一键初始化需要显式确认".into(),
+            retriable: false,
+            hint: None,
+        });
+    }
+    let data_dir = state.data_dir.clone();
+    let mut store = lock(&state)?;
+    let workdir = 授权目录(&store);
+    api::workspace_reset(
+        &mut store,
+        &data_dir,
+        workdir.as_deref(),
+        include_artifacts.unwrap_or(false),
+    )
+}
+
+/// 用户授权的工作目录。产物落在它下面的 `.aiwf-artifacts` 里。
+///
+/// 读不到当「还没授权」：那种情况下产物目录本来就不存在，
+/// 让一键初始化因为读不到设置而整个失败没有道理。
+fn 授权目录(store: &Store) -> Option<std::path::PathBuf> {
+    store
+        .workspace_settings()
+        .ok()
+        .and_then(|s| s.workdir)
+        .map(std::path::PathBuf::from)
+}
+
+#[tauri::command]
 fn run_artifact_content(
     state: State<'_, AppState>,
     run_id: String,
@@ -757,9 +804,12 @@ fn build_tray(app: &tauri::AppHandle) -> tauri::Result<()> {
                 tray::TrayAction::ShowWindow => show_main_window(app),
                 tray::TrayAction::CheckUpdate => {
                     show_main_window(app);
-                    // 更新流程在前端（设置页的更新卡片），这里只负责把用户带过去
+                    // 更新流程在前端（设置 →「系统版本」），这里只负责把用户带过去。
+                    // 带上 ?tab= 才算真的带到：只跳 /settings 会停在默认档，
+                    // 用户还得自己在左栏找。接这个事件的是 apps/web 的
+                    // useTrayNavigation —— 在它之前这一行 emit 出去没人听
                     if let Some(window) = app.get_webview_window("main") {
-                        let _ = window.emit("navigate", "/settings");
+                        let _ = window.emit("navigate", "/settings?tab=version");
                     }
                 }
                 tray::TrayAction::Quit => {
@@ -837,6 +887,8 @@ pub fn run() {
             run_rewind_to_approval,
             env_diagnostics,
             workspace_update_settings,
+            workspace_reset_preview,
+            workspace_reset,
             env_health,
             run_diagnostics,
             run_artifact_content,

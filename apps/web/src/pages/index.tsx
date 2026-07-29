@@ -33,7 +33,6 @@ const FULL_SCREENS: Record<string, ReactElement> = {
   '/agents': <AgentsPage />,
   '/prompts': <PromptsPage />,
   '/memory': <MemoryPage />,
-  '/onboarding': <OnboardingPage />,
   '/settings': <SettingsPage />,
 };
 
@@ -41,6 +40,9 @@ const FULL_SCREENS: Record<string, ReactElement> = {
 const EXTRA_ROUTES: readonly PageRoute[] = [
   // 编辑器要拿到工作流 id；不带 id 时显示「先选一个工作流」
   { path: '/editor/:workflowId', element: <EditorPage /> },
+  // 首次配置从主导航撤走了（现在是设置里的一档），但路由留着：
+  // 首次启动要能直达，收藏与文档里的旧链接也不该断
+  { path: '/onboarding', element: <OnboardingPage /> },
 ];
 
 const BASE_PAGES: readonly PageRoute[] = NAV_ITEMS.map((item) => ({

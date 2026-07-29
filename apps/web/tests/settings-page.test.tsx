@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { MemoryRouter } from 'react-router';
 
 /**
  * 设置与环境 —— 图纸「05 设置与环境」。
@@ -54,17 +55,24 @@ beforeEach(() => {
   respond();
 });
 
-const view = () => render(<SettingsPage />);
+const view = () => render(
+    <MemoryRouter>
+      <SettingsPage />
+    </MemoryRouter>,
+  );
 
-describe('左侧分组导航照图纸', () => {
-  it('八个分组，顺序与文案都照图纸', async () => {
+describe('左侧分组导航', () => {
+  it('图纸那八档一项不少，中间那段顺序照旧', async () => {
+    // 首尾各多一档（首次配置 / 系统版本），
+    // 见 docs/adr/0010-settings-holds-setup-and-version.md。
+    // 这条只守图纸那八档没被动过 —— 完整顺序由 settings-tabs.test.tsx 守
     view();
     const nav = await screen.findByRole('tablist', { name: '设置分组' });
     const labels = within(nav)
       .getAllByRole('tab')
       .map((el) => el.textContent);
 
-    expect(labels).toEqual([
+    expect(labels.slice(1, -1)).toEqual([
       '通用',
       'AI 与 Agent',
       'Git 与 GitHub',

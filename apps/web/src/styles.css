@@ -81,6 +81,7 @@
 /* 整页滚动的屏。分栏的屏不用它 —— 它们各栏自己滚 */
 .overview,
 .settings,
+.sysver,
 .placeholder {
   overflow: auto;
 }
@@ -5539,4 +5540,295 @@
   font-family: ui-monospace, Menlo, monospace;
   font-size: 11.5px;
   color: var(--color-neutral-300);
+}
+
+/* ── 一键初始化（设置 · 高级） ─────────────────────────────────────────────
+   图纸没画这一档的内容，所以只用既有令牌与既有的卡片骨架，
+   不引入新的形状语言。危险色沿用全局那个 #e0685c ——
+   界面上「出错了 / 会失去东西」一直是这个红。 */
+.reset {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.reset__title {
+  margin: 0;
+}
+
+.reset__detail,
+.reset__keep {
+  margin: 0;
+  max-width: 640px;
+  font-size: 12.5px;
+  line-height: 1.7;
+  color: var(--color-neutral-400);
+}
+
+.reset__keep {
+  color: var(--color-neutral-500);
+}
+
+.reset__warn {
+  color: #e0685c;
+  font-weight: inherit;
+}
+
+.reset__go {
+  margin-top: 4px;
+  border-color: rgb(224 104 92 / 45%);
+  color: #e0685c;
+}
+
+.reset__go:hover {
+  border-color: #e0685c;
+}
+
+.reset__done {
+  margin: 0;
+  max-width: 640px;
+  padding: 10px 14px;
+  border-radius: 9px;
+  border: 1px solid rgb(111 185 114 / 30%);
+  background: linear-gradient(90deg, rgb(111 185 114 / 12%), transparent);
+  font-size: 12.5px;
+  line-height: 1.7;
+  color: var(--color-neutral-300);
+}
+
+/* fixed 而不是 absolute：设置页右栏自己是滚动容器，
+   absolute 的遮罩会跟着内容滚走，露出下面能点的东西 */
+.reset__backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  display: grid;
+  place-items: center;
+  background: rgb(9 10 16 / 62%);
+  backdrop-filter: blur(3px);
+}
+
+.reset__dialog {
+  width: 620px;
+  max-width: calc(100% - 32px);
+  max-height: calc(100% - 64px);
+  overflow: auto;
+  padding: 20px 22px;
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--color-surface) 55%, var(--color-bg));
+  border: 1px solid var(--color-neutral-700);
+  box-shadow: 0 30px 70px rgb(0 0 0 / 70%);
+}
+
+.reset__dialog:focus-visible {
+  outline: none;
+}
+
+.reset__dialog-title {
+  margin: 0 0 6px;
+}
+
+.reset__dialog-lead {
+  margin: 0 0 14px;
+  font-size: 12.5px;
+  color: var(--color-neutral-400);
+}
+
+/* 计数排成一行小格子：数字要大得一眼看见 ——
+   「12 条运行记录」与「1200 条」是两个完全不同的决定 */
+.reset__counts {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  margin: 0 0 16px;
+  padding: 0;
+  list-style: none;
+}
+
+.reset__counts li {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 9px 12px;
+  border-radius: 9px;
+  border: 1px solid var(--color-divider);
+  background: var(--color-surface);
+}
+
+.reset__count-num {
+  font-size: 17px;
+  color: var(--color-neutral-100);
+}
+
+.reset__count-label {
+  font-size: 11.5px;
+  color: var(--color-neutral-500);
+}
+
+.reset__dirs {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0 0 14px;
+  padding: 0;
+  list-style: none;
+}
+
+.reset__dirs li {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 2px 12px;
+  padding: 9px 12px;
+  border-radius: 9px;
+  border: 1px solid var(--color-divider);
+  background: var(--color-surface);
+}
+
+/* 在用户自己仓库里的那条描红。它与「删 App 自己的地盘」
+   是两件严重程度不同的事，长得一样会被一起略过 */
+.reset__dirs li[data-inside-workdir='true'] {
+  border-color: rgb(224 104 92 / 35%);
+  background: linear-gradient(90deg, rgb(224 104 92 / 10%), transparent);
+}
+
+.reset__dir-kind {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12.5px;
+}
+
+.reset__dir-warn {
+  font-style: normal;
+  font-size: 11px;
+  color: #e0685c;
+}
+
+.reset__dir-path {
+  grid-column: 1;
+  font-family: ui-monospace, Menlo, monospace;
+  font-size: 11px;
+  color: var(--color-neutral-500);
+  word-break: break-all;
+}
+
+.reset__dir-size {
+  grid-row: 1;
+  grid-column: 2;
+  font-size: 11.5px;
+  color: var(--color-neutral-500);
+}
+
+.reset__opt {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  margin-bottom: 16px;
+  padding: 11px 13px;
+  border-radius: 9px;
+  border: 1px solid var(--color-divider);
+  font-size: 12px;
+  line-height: 1.65;
+  color: var(--color-neutral-400);
+  cursor: pointer;
+}
+
+.reset__opt input {
+  margin-top: 2px;
+  flex: none;
+  accent-color: #e0685c;
+}
+
+.reset__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.reset__confirm {
+  border-color: rgb(224 104 92 / 55%);
+  background: rgb(224 104 92 / 16%);
+  color: #e0685c;
+}
+
+.reset__confirm:hover:not(:disabled) {
+  background: rgb(224 104 92 / 26%);
+}
+
+.reset__actions button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* 「设置也会没」放在清单前面。用户扫确认框时先看数字，
+   这句话得挡在数字前面才拦得住手快的人 */
+.reset__dialog-note {
+  margin: -8px 0 14px;
+  font-size: 12px;
+  line-height: 1.65;
+  color: #e0685c;
+}
+
+/* ── 系统版本 ───────────────────────────────────────────────────────────────
+   图纸没有这一屏（ADR-0010）。骨架照概览页那套：kicker + h1 + 内容，
+   不引入新的形状语言。 */
+/* overflow 在上面那份「整页滚动的屏」名单里统一给，这里不重复 */
+.sysver {
+  padding: 26px 30px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  align-items: flex-start;
+}
+
+.sysver__head h1 {
+  margin: 0;
+  font-size: 24px;
+}
+
+/* 卡片不铺满整屏：这一屏内容少，撑满会显得空荡荡的 */
+.sysver .update-card {
+  width: 100%;
+  max-width: 560px;
+}
+
+.sysver__note {
+  margin: 0;
+  max-width: 560px;
+  font-size: 12.5px;
+  line-height: 1.7;
+  color: var(--color-neutral-500);
+}
+
+/* ── 设置里的两档新住户 ─────────────────────────────────────────────────────
+   首次配置与系统版本从别处搬进设置（ADR-0010）。 */
+
+/* 首次配置原本是整屏，自带 padding 与滚动。嵌进设置右栏后两者都要让出去 ——
+   不让的话内容左边缩进 54px（两层 padding 叠加），而且出现两条滚动条：
+   外面那条滚不动，里面那条用户找不到 */
+.settings .onboarding {
+  padding: 0;
+  overflow: visible;
+}
+
+.verpanel {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  align-items: flex-start;
+}
+
+/* 卡片不铺满：这一档内容少，撑到 1200px 宽会显得空荡荡的 */
+.verpanel .update-card {
+  width: 100%;
+  max-width: 560px;
+}
+
+.verpanel__note {
+  margin: 0;
+  max-width: 560px;
+  font-size: 12.5px;
+  line-height: 1.7;
+  color: var(--color-neutral-500);
 }

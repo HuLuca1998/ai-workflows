@@ -40,8 +40,15 @@ export const NAV_ITEMS: readonly NavItem[] = [
     summary: '系统调用 AI 的每一处提示词都可见可改',
   },
   { path: '/models', label: '模型', icon: 'ph-cpu', summary: '统一登记可用模型' },
+  /**
+   * 首次配置与系统版本**不在这里** —— 它们是设置页左栏的两档
+   * （见 `docs/adr/0010-settings-holds-setup-and-version.md`）。
+   *
+   * 图纸的导航里有「首次配置」，撤掉它是有意的：那一屏装完就不再进，
+   * 常驻在主导航里占的是一个每天都要扫过的位置。`/onboarding` 路由
+   * 保留 —— 首次启动仍要能直达。
+   */
   { path: '/settings', label: '设置与环境', icon: 'ph-gear', summary: '运行环境健康与权限策略' },
-  { path: '/onboarding', label: '首次配置', icon: 'ph-rocket-launch', summary: '装好即可用' },
 ] as const;
 
 /** 主导航在窗口窄于这个宽度时收成图标栏（屏幕清单 §11）。 */
