@@ -1530,7 +1530,7 @@
         "ok": false,
         "error": {
           "code": "VALIDATION",
-          "message": "第 2 个操作的节点配置不合法"
+          "message": "第 2 个操作的节点配置不合法：解释器只能是：zsh / bash / sh；脚本内容是必填项"
         }
       }
     },

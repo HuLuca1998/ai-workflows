@@ -9,6 +9,7 @@ import {
   type ValidationResult,
   type WorkflowGraph,
 } from './graph.js';
+import { describeIssue } from './nodes/issue-text.js';
 import { NODE_TYPES, getNodeDefinition, type NodeType } from './nodes/index.js';
 
 /**
@@ -101,6 +102,25 @@ export interface PatchResult {
   validation: ValidationResult;
 }
 
+/**
+ * 把逐字段的原因拼成一句话。
+ *
+ * `details` 里一直有结构化 issues，但 `message` 只说「配置不合法」——
+ * 而从 MCP 连进来的 Agent 中间没有界面替它把 details 逐字段标红，
+ * 它读到的就是那一句无从下手的判决。
+ *
+ * 只取前几条：一次错十几个字段的话，全列出来反而看不到重点。
+ * 引擎侧（crates/engine/src/patch.rs）用的是同一套规则 —— 一致性夹具逐字比对。
+ */
+function describeIssues(issues: readonly z.core.$ZodIssue[], schema: z.ZodType): string {
+  const MAX = 3;
+  const head = issues
+    .slice(0, MAX)
+    .map((issue) => describeIssue(issue, schema))
+    .join('；');
+  return issues.length > MAX ? `${head}（另有 ${issues.length - MAX} 处）` : head;
+}
+
 const notFound = (what: string, id: string) =>
   new CoreApiError({
     code: 'VALIDATION',
@@ -144,13 +164,16 @@ export function applyPatch(
           throw new CoreApiError({ code: 'VALIDATION', message: `节点 id ${nodeId} 已存在` });
         }
         // 用节点定义解析一次，把 Schema 默认值固化进草稿：运行时行为不依赖读取方
-        const parsed = getNodeDefinition(operation.type as NodeType).configSchema.safeParse(
-          operation.config ?? {},
-        );
+        const schema = getNodeDefinition(operation.type as NodeType).configSchema;
+        const parsed = schema.safeParse(operation.config ?? {});
         if (!parsed.success) {
           throw new CoreApiError({
             code: 'VALIDATION',
-            message: `第 ${index + 1} 个操作的节点配置不合法`,
+            message: `第 ${index + 1} 个操作的节点配置不合法：${describeIssues(
+              parsed.error.issues,
+              schema,
+            )}`,
+            hint: '按上面列出的字段改配置后重试；字段的取值范围见节点定义',
             details: parsed.error.issues,
           });
         }
@@ -217,11 +240,13 @@ export function applyPatch(
 
       case 'setConfig': {
         const node = findNode(operation.nodeId);
-        const parsed = getNodeDefinition(node.type).configSchema.safeParse(operation.config ?? {});
+        const schema = getNodeDefinition(node.type).configSchema;
+        const parsed = schema.safeParse(operation.config ?? {});
         if (!parsed.success) {
           throw new CoreApiError({
             code: 'VALIDATION',
-            message: `节点 ${node.id} 的新配置不合法`,
+            message: `节点 ${node.id} 的新配置不合法：${describeIssues(parsed.error.issues, schema)}`,
+            hint: '按上面列出的字段改配置后重试；字段的取值范围见节点定义',
             details: parsed.error.issues,
           });
         }

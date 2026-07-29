@@ -24,6 +24,13 @@ pub enum PatchError {
 
     #[error("{0}")]
     Validation(String),
+
+    /// 配置本身写错了。**与上面那条分开只为了 hint**：
+    /// 「id 不存在」要人去重读草稿核对 id，「配置写错了」要人去改字段。
+    /// 给同一句话的话，配置写错的人会被支去核对一个根本没问题的 id。
+    /// 对外的 code 仍是 VALIDATION —— 契约里没有第二个码。
+    #[error("{0}")]
+    ConfigInvalid(String),
 }
 
 impl PatchError {
@@ -31,7 +38,7 @@ impl PatchError {
     pub fn code(&self) -> &'static str {
         match self {
             Self::RevisionConflict { .. } => "REVISION_CONFLICT",
-            Self::Validation(_) => "VALIDATION",
+            Self::Validation(_) | Self::ConfigInvalid(_) => "VALIDATION",
         }
     }
 
@@ -41,6 +48,7 @@ impl PatchError {
         match self {
             Self::RevisionConflict { .. } => "重新读取草稿并基于最新 rev 重新生成 Patch",
             Self::Validation(_) => "先用 workflow.get 读取当前草稿，再基于真实 id 重试",
+            Self::ConfigInvalid(_) => "按上面列出的字段改配置后重试；字段的取值范围见节点定义",
         }
     }
 }
@@ -180,7 +188,13 @@ fn add_node(
     // 用节点定义解析一次，把 Schema 默认值固化进草稿：
     // 运行时行为不依赖读取方
     let config = catalog::parse_config(node_type, operation.get("config").unwrap_or(&Value::Null))
-        .map_err(|_| PatchError::Validation(format!("第 {} 个操作的节点配置不合法", index + 1)))?;
+        .map_err(|reasons| {
+            PatchError::ConfigInvalid(format!(
+                "第 {} 个操作的节点配置不合法：{}",
+                index + 1,
+                describe(&reasons)
+            ))
+        })?;
 
     let mut node = Map::new();
     node.insert("id".to_string(), Value::String(node_id.clone()));
@@ -286,6 +300,29 @@ fn move_node(graph: &mut Value, operation: &Value) -> Result<()> {
     Ok(())
 }
 
+/// 把逐字段的原因拼成一句话。
+///
+/// `parse_config` 本来就算出了「解释器只能是：bash、zsh…」这种话
+/// （schema.rs 与契约的 describeIssue 对齐过），丢掉它只剩「配置不合法」，
+/// 调用方拿到的是一句无从下手的判决 —— 从 MCP 连进来的 Agent 更是，
+/// 它中间没有界面可以逐字段标红。
+///
+/// 只取前几条：一次配置错十几个字段的话，全列出来反而看不到重点。
+fn describe(reasons: &[String]) -> String {
+    const MAX: usize = 3;
+    let head = reasons
+        .iter()
+        .take(MAX)
+        .map(String::as_str)
+        .collect::<Vec<_>>()
+        .join("；");
+    if reasons.len() > MAX {
+        format!("{head}（另有 {} 处）", reasons.len() - MAX)
+    } else {
+        head
+    }
+}
+
 fn set_config(graph: &mut Value, diff: &mut WorkflowDiff, operation: &Value) -> Result<()> {
     let node_id = str_field(operation, "nodeId");
     let node = find_node(graph, node_id)?;
@@ -293,7 +330,12 @@ fn set_config(graph: &mut Value, diff: &mut WorkflowDiff, operation: &Value) -> 
     let before = node.get("config").cloned().unwrap_or(Value::Null);
 
     let config = catalog::parse_config(&node_type, operation.get("config").unwrap_or(&Value::Null))
-        .map_err(|_| PatchError::Validation(format!("节点 {node_id} 的新配置不合法")))?;
+        .map_err(|reasons| {
+            PatchError::ConfigInvalid(format!(
+                "节点 {node_id} 的新配置不合法：{}",
+                describe(&reasons)
+            ))
+        })?;
 
     node_mut(graph, node_id)?["config"] = config.clone();
 

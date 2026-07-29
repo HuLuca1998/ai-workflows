@@ -209,3 +209,105 @@ fn 汇聚策略的字符串映射与契约一致() {
     );
     assert_eq!(JoinStrategy::parse("majority"), None);
 }
+
+// ── 配置不合法时要说清是哪一个字段 ──────────────────────────────────────────
+//
+// 实跑时撞到的：改一个脚本节点的配置，返回「节点 push_pr 的新配置不合法」，
+// 提示还写着「先用 workflow.get 读取当前草稿，再基于真实 id 重试」——
+// 而 id 根本没问题。照着提示做一遍，什么也解决不了。
+//
+// 引擎本来就算出了逐字段的中文消息（schema.rs 与契约的 describeIssue 对齐），
+// 是 `map_err(|_| …)` 把它整个丢掉了。
+
+fn 脚本节点图() -> serde_json::Value {
+    serde_json::json!({
+        "nodes": [{
+            "id": "s", "type": "script.shell", "title": "跑个脚本",
+            "position": {"x": 0, "y": 0},
+            "config": {"interpreter": "bash", "script": "echo hi", "timeoutMs": 1000}
+        }],
+        "edges": [], "groups": []
+    })
+}
+
+#[test]
+fn set_config_不合法时带上字段级原因() {
+    let graph = 脚本节点图();
+    let error = aiwf_engine::patch::apply_patch(
+        &graph,
+        0,
+        &serde_json::json!({"baseRevision": 0, "operations": [{
+            "op": "setConfig", "nodeId": "s",
+            // interpreter 少了，且 timeoutMs 给成了字符串
+            "config": {"script": "echo hi", "timeoutMs": "很久"}
+        }]}),
+    )
+    .expect_err("配置不合法该报错");
+
+    let text = error.to_string();
+    assert!(
+        text.contains("timeoutMs") || text.contains("超时"),
+        "要指出是哪个字段：{text}"
+    );
+    assert!(text.contains('s'), "要指出是哪个节点：{text}");
+}
+
+#[test]
+fn add_node_不合法时也带上字段级原因() {
+    let graph = 脚本节点图();
+    let error = aiwf_engine::patch::apply_patch(
+        &graph,
+        0,
+        &serde_json::json!({"baseRevision": 0, "operations": [{
+            "op": "addNode", "nodeId": "s2", "type": "script.shell",
+            "title": "另一个", "position": {"x": 1, "y": 1},
+            "config": {"interpreter": "不存在的解释器", "script": "echo hi"}
+        }]}),
+    )
+    .expect_err("配置不合法该报错");
+
+    let text = error.to_string();
+    assert!(
+        text.contains("解释器") || text.contains("interpreter"),
+        "要指出是哪个字段：{text}"
+    );
+}
+
+/// 「id 不存在」与「配置写错了」是两件要采取不同行动的事：
+/// 前者去重读草稿，后者去改字段。给同一句提示的话，配置写错的人
+/// 会被支去核对一个根本没问题的 id —— `RevisionConflict` 那条注释
+/// 讲的就是这个道理，只是它在 Validation 内部又犯了一次。
+#[test]
+fn 配置不合法与_id_不存在给的提示不一样() {
+    let graph = 脚本节点图();
+    let patch = |op: serde_json::Value| {
+        aiwf_engine::patch::apply_patch(
+            &graph,
+            0,
+            &serde_json::json!({"baseRevision": 0, "operations": [op]}),
+        )
+        .expect_err("该报错")
+    };
+
+    let 配置错 = patch(serde_json::json!({
+        "op": "setConfig", "nodeId": "s", "config": {"timeoutMs": "很久"}
+    }));
+    let id错 = patch(serde_json::json!({
+        "op": "setConfig", "nodeId": "根本没有这个节点", "config": {}
+    }));
+
+    assert_eq!(配置错.code(), "VALIDATION");
+    assert_eq!(id错.code(), "VALIDATION");
+    assert_ne!(
+        配置错.hint(),
+        id错.hint(),
+        "两种错该给不同的下一步：{} / {}",
+        配置错.hint(),
+        id错.hint()
+    );
+    assert!(
+        !配置错.hint().contains("id"),
+        "配置写错了不该被支去核对 id：{}",
+        配置错.hint()
+    );
+}
