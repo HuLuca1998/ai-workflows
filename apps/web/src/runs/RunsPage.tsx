@@ -7,6 +7,7 @@ import { type RunStatusName, StatusBadge } from '@aiwf/ui';
 import { Pager } from '../layout/Pager.js';
 import { coreClient } from '../data/workspace.js';
 import { ConversationView } from './ConversationView.js';
+import { NodeDetail } from './NodeDetail.js';
 import { type RunEvent, type RunFilter, type RunSummary, useRuns } from './runsStore.js';
 
 /**
@@ -388,13 +389,24 @@ export function RunsPage() {
 
             <div className="runs__detail-body">
               {tab === 'events' ? (
-                <EventList
-                  events={
-                    selectedNode
-                      ? runs.events.filter((event) => event.nodeId === selectedNode)
-                      : runs.events
-                  }
-                />
+                selectedNode ? (
+                  // 选中一个节点时给它的**专属视图**：脚本看命令与退出码、
+                  // AI 看对话、worktree 看分支。同一张按时间排的事件表
+                  // 等于让用户自己去认哪几行有用 —— 一次 AI 分析有几十条
+                  // 工具调用，结论那一条淹在中间
+                  <NodeDetail
+                    nodeId={selectedNode}
+                    nodeType={runs.nodeTypes[selectedNode] ?? ''}
+                    nodeLabel={nodeLabelOf(runs.events, selectedNode)}
+                    events={runs.events.filter((event) => event.nodeId === selectedNode)}
+                    onOpenArtifact={(relPath) => {
+                      setJumpToArtifact(relPath);
+                      setTab('artifacts');
+                    }}
+                  />
+                ) : (
+                  <EventList events={runs.events} />
+                )
               ) : null}
               {tab === 'artifacts' ? (
                 <ArtifactList runId={selected.id} openInitially={jumpToArtifact} />

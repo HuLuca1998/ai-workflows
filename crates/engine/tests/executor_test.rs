@@ -285,7 +285,21 @@ fn 没有输出的脚本不留空产物文件() {
         )
         .unwrap();
 
-    assert_eq!(executor.artifacts().list("run_art2").unwrap().len(), 0);
+    // 不留**空**的日志文件 —— 那是这条用例的本意。
+    // command.sh 是另一回事：它记的是「插值之后真正跑的那份脚本」，
+    // 排查时第一个要看的就是它，任何一次执行都该有
+    let 产物: Vec<String> = executor
+        .artifacts()
+        .list("run_art2")
+        .unwrap()
+        .into_iter()
+        .map(|a| a.name)
+        .collect();
+    assert_eq!(
+        产物,
+        vec!["command.sh".to_string()],
+        "只该有命令，没有空日志"
+    );
 }
 
 #[test]
@@ -1669,4 +1683,192 @@ fn 工具调用的完成事件带得上标题_计数也不翻倍() {
                 .find_map(|v| v.get("toolCalls")?.as_u64())
         });
     assert_eq!(次数, Some(1), "两帧算一次调用");
+}
+
+// ── 每类节点各自的记录 ──────────────────────────────────────────────────────
+//
+// 「每个节点的信息全部分开，不同节点展示方式不同」——前提是每类节点
+// 得先**各自留下记录**。而在此之前，脚本节点跑完只有 node.started /
+// node.succeeded 两条：命令是什么、退出码多少、输出在哪，一概没有。
+// 契约里 script.started / stdout / stderr / exited 四类事件一条都没人发。
+
+fn 收集(node: &GraphNode, executor: &NodeExecutor) -> (收集器, NodeOutcome) {
+    let sink = 收集器::default();
+    let outcome = executor
+        .execute_with_sink(node, &mut Scope::new("run_pernode"), &|event| {
+            if let Ok(mut list) = sink.0.lock() {
+                list.push(event);
+            }
+        })
+        .unwrap();
+    (sink, outcome)
+}
+
+#[test]
+fn 脚本节点记下命令与退出码() {
+    let dir = workdir();
+    let executor = NodeExecutor::new(dir).with_permission_preset("workspace_safe");
+    let (sink, outcome) = 收集(
+        &node(
+            "sh",
+            "script.shell",
+            serde_json::json!({ "interpreter": "zsh", "script": "echo 干活了" }),
+        ),
+        &executor,
+    );
+    assert!(
+        matches!(outcome, NodeOutcome::Succeeded { .. }),
+        "{outcome:?}"
+    );
+
+    let 开始 = sink.某类("script.started");
+    assert_eq!(开始.len(), 1, "要记下这一步到底跑了什么");
+    assert!(开始[0].summary.contains("zsh"), "{}", 开始[0].summary);
+    assert!(
+        开始[0].summary.contains("echo 干活了"),
+        "{}",
+        开始[0].summary
+    );
+    assert_eq!(
+        开始[0].payload_ref.as_deref(),
+        Some("sh/command.sh"),
+        "插值之后的完整命令要落产物 —— 摘要装不下几十行脚本"
+    );
+
+    let 结束 = sink.某类("script.exited");
+    assert_eq!(结束.len(), 1);
+    assert!(
+        结束[0].summary.contains('0'),
+        "退出码要写出来：{}",
+        结束[0].summary
+    );
+}
+
+#[test]
+fn 脚本的输出各自成一条_指向各自的产物() {
+    let dir = workdir();
+    let executor = NodeExecutor::new(dir).with_permission_preset("workspace_safe");
+    let (sink, _) = 收集(
+        &node(
+            "sh2",
+            "script.shell",
+            serde_json::json!({
+                "interpreter": "zsh",
+                "script": "echo 正常输出; echo 出错了 >&2"
+            }),
+        ),
+        &executor,
+    );
+
+    let out = sink.某类("script.stdout");
+    assert_eq!(out.len(), 1);
+    assert!(out[0].summary.contains("正常输出"));
+    assert_eq!(out[0].payload_ref.as_deref(), Some("sh2/stdout.log"));
+
+    let err = sink.某类("script.stderr");
+    assert_eq!(err.len(), 1);
+    assert!(err[0].summary.contains("出错了"));
+    assert_eq!(err[0].payload_ref.as_deref(), Some("sh2/stderr.log"));
+}
+
+#[test]
+fn 没有输出时不发空的输出事件() {
+    // 一条「stdout：」后面什么都没有，比没有这条更糟
+    let dir = workdir();
+    let executor = NodeExecutor::new(dir).with_permission_preset("workspace_safe");
+    let (sink, _) = 收集(
+        &node(
+            "sh3",
+            "script.shell",
+            serde_json::json!({ "interpreter": "zsh", "script": "true" }),
+        ),
+        &executor,
+    );
+    assert!(sink.某类("script.stdout").is_empty());
+    assert!(sink.某类("script.stderr").is_empty());
+    // 但「跑了、退出码 0」这两条仍然要有
+    assert_eq!(sink.某类("script.started").len(), 1);
+    assert_eq!(sink.某类("script.exited").len(), 1);
+}
+
+#[test]
+fn 脚本失败时日志事件照样发() {
+    // 失败时最需要看日志。失败分支提前 return 的话，
+    // 恰恰是这时候什么都没有
+    let dir = workdir();
+    let executor = NodeExecutor::new(dir).with_permission_preset("workspace_safe");
+    let (sink, outcome) = 收集(
+        &node(
+            "sh4",
+            "script.shell",
+            serde_json::json!({ "interpreter": "zsh", "script": "echo 要炸了 >&2; exit 3" }),
+        ),
+        &executor,
+    );
+    assert!(matches!(outcome, NodeOutcome::Failed { .. }), "{outcome:?}");
+
+    assert_eq!(sink.某类("script.stderr").len(), 1, "失败时更需要日志");
+    let 结束 = sink.某类("script.exited");
+    assert_eq!(结束.len(), 1);
+    assert!(
+        结束[0].summary.contains('3'),
+        "退出码要是真的：{}",
+        结束[0].summary
+    );
+}
+
+#[test]
+fn worktree_节点记下分支与路径() {
+    // 「在哪个分支、哪个目录里改的」是这一步唯一要说清的事，
+    // 而它原先只躺在 scope 里 —— 运行记录上看不到
+    let tmp = tempfile::tempdir().unwrap();
+    let dir = tmp.path().to_path_buf();
+    let repo = dir.join("repo");
+    std::fs::create_dir_all(&repo).unwrap();
+    for args in [
+        vec!["init", "-q", "-b", "main"],
+        vec!["config", "user.email", "t@example.com"],
+        vec!["config", "user.name", "测试"],
+    ] {
+        std::process::Command::new("git")
+            .args(&args)
+            .current_dir(&repo)
+            .output()
+            .unwrap();
+    }
+    std::fs::write(repo.join("README.md"), "hi").unwrap();
+    for args in [vec!["add", "."], vec!["commit", "-qm", "初始"]] {
+        std::process::Command::new("git")
+            .args(&args)
+            .current_dir(&repo)
+            .output()
+            .unwrap();
+    }
+
+    let executor = NodeExecutor::new(dir).with_permission_preset("workspace_safe");
+    let (sink, outcome) = 收集(
+        &node(
+            "wt",
+            "git.worktree",
+            serde_json::json!({
+                "repoRoot": "repo",
+                "baseBranch": "main",
+                "branchTemplate": "fix/记录测试"
+            }),
+        ),
+        &executor,
+    );
+    assert!(
+        matches!(outcome, NodeOutcome::Succeeded { .. }),
+        "{outcome:?}"
+    );
+
+    let 输出 = sink.某类("node.output_emitted");
+    assert_eq!(输出.len(), 1);
+    assert!(
+        输出[0].summary.contains("fix/记录测试"),
+        "{}",
+        输出[0].summary
+    );
+    assert!(输出[0].summary.contains("worktree"), "{}", 输出[0].summary);
 }

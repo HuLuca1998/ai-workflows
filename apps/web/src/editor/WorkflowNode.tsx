@@ -1,3 +1,4 @@
+import { memo } from 'react';
 import { Handle, Position, type NodeProps } from '@xyflow/react';
 import type { NodeType } from '@aiwf/contracts';
 import { TONE_VISUALS, iconFor, isAiNode, type NodeTone } from './nodeVisuals.js';
@@ -22,7 +23,7 @@ export interface WorkflowNodeData extends Record<string, unknown> {
   hasIssue?: boolean;
 }
 
-export function WorkflowNode({ data, selected }: NodeProps) {
+export const WorkflowNode = memo(function WorkflowNode({ data, selected }: NodeProps) {
   const node = data as WorkflowNodeData;
   const visual = TONE_VISUALS[node.tone];
 
@@ -65,4 +66,4 @@ export function WorkflowNode({ data, selected }: NodeProps) {
       />
     </div>
   );
-}
+});

@@ -4,12 +4,14 @@ import type { Node, NodeChange, ReactFlowProps } from '@xyflow/react';
 // 而 `import type * as` 不产生运行时引用
 import type * as XYFlow from '@xyflow/react';
 import { MemoryRouter, Route, Routes } from 'react-router';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { EditorPage } from '../src/editor/EditorPage.js';
 import { useEditor } from '../src/editor/editorStore.js';
 
 const captured = vi.hoisted(() => ({
   props: null as ReactFlowProps | null,
+  nodeLibraryRenders: 0,
+  animationFrames: [] as FrameRequestCallback[],
 }));
 
 // 这里不测试 XYFlow 自己的拖拽实现，只截住它交给受控组件的 changes，
@@ -38,6 +40,16 @@ vi.mock('@xyflow/react', async (importOriginal) => {
   };
 });
 
+vi.mock('../src/editor/NodeLibrary.js', async () => {
+  const React = await import('react');
+  return {
+    NodeLibrary: () => {
+      captured.nodeLibraryRenders += 1;
+      return React.createElement('aside', { 'aria-label': '节点库' });
+    },
+  };
+});
+
 const graph = {
   nodes: [
     {
@@ -63,6 +75,13 @@ function positionOf(nodeId: string): { x: number; y: number } | undefined {
 
 beforeEach(() => {
   captured.props = null;
+  captured.nodeLibraryRenders = 0;
+  captured.animationFrames = [];
+  vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
+    captured.animationFrames.push(callback);
+    return captured.animationFrames.length;
+  });
+  vi.stubGlobal('cancelAnimationFrame', () => {});
   useEditor.setState({
     workflowId: 'wf_1',
     name: '拖拽测试',
@@ -80,6 +99,8 @@ beforeEach(() => {
   });
 });
 
+afterEach(() => vi.unstubAllGlobals());
+
 describe('节点拖动', () => {
   it('按住鼠标时节点逐帧跟随，松手后才把最终位置写入草稿', () => {
     const apply = vi.fn();
@@ -94,6 +115,7 @@ describe('节点拖动', () => {
     );
 
     expect(positionOf('entry')).toEqual({ x: 40, y: 34 });
+    const rendersBeforeDrag = captured.nodeLibraryRenders;
 
     act(() => {
       flowProps().onNodesChange?.([
@@ -104,10 +126,24 @@ describe('节点拖动', () => {
           dragging: true,
         },
       ] as NodeChange[]);
+      flowProps().onNodesChange?.([
+        {
+          id: 'entry',
+          type: 'position',
+          position: { x: 190, y: 130 },
+          dragging: true,
+        },
+      ] as NodeChange[]);
     });
 
-    expect(positionOf('entry')).toEqual({ x: 180, y: 120 });
+    // 同一屏幕帧里的高频 pointermove 被合并，只渲染最新坐标。
+    expect(positionOf('entry')).toEqual({ x: 40, y: 34 });
+    expect(captured.animationFrames).toHaveLength(1);
+    act(() => captured.animationFrames.shift()?.(0));
+
+    expect(positionOf('entry')).toEqual({ x: 190, y: 130 });
     expect(apply).not.toHaveBeenCalled();
+    expect(captured.nodeLibraryRenders).toBe(rendersBeforeDrag);
 
     act(() => {
       flowProps().onNodesChange?.([

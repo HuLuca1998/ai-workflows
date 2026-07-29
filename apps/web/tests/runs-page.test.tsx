@@ -436,15 +436,19 @@ describe('节点行可选中（图纸「03 执行记录」）', () => {
     expect((行 as HTMLElement).dataset.selected).toBe('true');
   });
 
-  it('选中之后事件流只剩那个节点的 —— 那才是「看这个节点发生了什么」', () => {
+  it('选中之后换成那个节点的专属面板 —— 那才是「看这个节点发生了什么」', () => {
+    // 原先是把同一张事件表按 nodeId 筛一遍。筛完仍然是一串
+    // `node.started / tool.call_finished / …`，用户还得自己认哪几行有用 ——
+    // 一次 AI 分析有几十条工具调用，结论那一条淹在中间。
+    // 现在按节点类型分发到各自的视图（脚本看命令与退出码、AI 看对话、
+    // worktree 看分支），见 NodeDetail
     打开一条运行();
 
-    const 全部 = document.querySelectorAll('.runs__event').length;
+    expect(document.querySelectorAll('.runs__event').length).toBeGreaterThan(0);
     fireEvent.click(document.querySelector('.runs__node') as Element);
-    const 筛后 = document.querySelectorAll('.runs__event').length;
 
-    expect(筛后, '选中节点后事件没被筛').toBeLessThan(全部);
-    expect(筛后).toBeGreaterThan(0);
+    expect(document.querySelector('.ndetail'), '没换成节点详情面板').toBeTruthy();
+    expect(document.querySelectorAll('.runs__event').length, '整条运行的事件流还留在那儿').toBe(0);
   });
 
   it('再点一次取消选中 —— 回到整条运行的视图', () => {

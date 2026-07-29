@@ -1017,6 +1017,7 @@
   cursor: grab;
   user-select: none;
   box-sizing: border-box;
+  backface-visibility: hidden;
 }
 
 .wf-node[data-tone='done'] {
@@ -1036,8 +1037,9 @@
 }
 
 .wf-node[data-tone='idle'] {
-  background: color-mix(in srgb, var(--color-surface) 55%, var(--color-bg));
-  border: 1px dashed var(--color-neutral-700);
+  background: color-mix(in srgb, var(--color-surface) 82%, var(--color-neutral-800));
+  border: 1px solid var(--color-neutral-600);
+  box-shadow: inset 0 1px rgb(255 255 255 / 4%);
 }
 
 .wf-node[data-tone='ghost'] {
@@ -1047,8 +1049,11 @@
 }
 
 .wf-node[data-selected='true'] {
-  outline: 2px solid var(--color-accent);
-  outline-offset: 2px;
+  border-color: var(--color-accent-400);
+  border-style: solid;
+  box-shadow:
+    0 0 0 3px rgb(145 132 217 / 20%),
+    0 10px 26px rgb(0 0 0 / 38%);
 }
 
 /* 校验有问题的节点：颜色之外再加一条实边，灰度下也能分辨 */
@@ -1088,7 +1093,7 @@
 }
 
 .wf-node[data-tone='idle'] .wf-node__head i {
-  color: var(--color-neutral-500);
+  color: var(--color-neutral-300);
 }
 
 .wf-node__title {
@@ -1102,7 +1107,7 @@
 }
 
 .wf-node[data-tone='idle'] .wf-node__title {
-  color: var(--color-neutral-400);
+  color: var(--color-neutral-200);
 }
 
 .wf-node[data-tone='wait'] .wf-node__title {
@@ -1123,7 +1128,7 @@
   flex: none;
   white-space: nowrap;
   font-size: 10.5px;
-  color: var(--color-neutral-600);
+  color: var(--color-neutral-500);
 }
 
 .wf-node[data-tone='done'] .wf-node__badge {
@@ -1143,7 +1148,7 @@
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  color: var(--color-neutral-600);
+  color: var(--color-neutral-500);
 }
 
 .wf-node[data-tone='wait'] .wf-node__sub {
@@ -1159,22 +1164,22 @@
 }
 
 .wf-port--in {
-  background: var(--color-neutral-800) !important;
+  background: var(--color-neutral-600) !important;
 }
 
 .wf-port--out {
-  background: var(--color-neutral-600) !important;
+  background: var(--color-accent-500) !important;
   cursor: crosshair !important;
 }
 
 /* XYFlow 默认样式的覆盖：网格与连线颜色跟随令牌 */
 .react-flow__background {
-  color: var(--color-neutral-800);
+  color: color-mix(in srgb, var(--color-neutral-700) 62%, transparent);
 }
 
 .react-flow__edge-path {
-  stroke: var(--color-neutral-700);
-  stroke-width: 1.5;
+  stroke: color-mix(in srgb, var(--color-accent-500) 72%, var(--color-neutral-500));
+  stroke-width: 1.8;
 }
 
 .react-flow__edge.selected .react-flow__edge-path {
@@ -1194,6 +1199,16 @@
 .react-flow__selection {
   background: color-mix(in srgb, var(--color-accent) 12%, transparent);
   border: 1px solid var(--color-accent-600);
+}
+
+/* 拖动只提升当前节点为合成候选，避免给 200 个静止节点常驻 GPU 图层。 */
+.react-flow__node.dragging {
+  z-index: 10 !important;
+  will-change: transform;
+}
+
+.react-flow__node.dragging .wf-node {
+  cursor: grabbing;
 }
 
 /* ── 节点配置弹层（图纸：760px 居中浮层）───────────────────────────────── */
@@ -2568,6 +2583,115 @@
 .runs__event-title {
   font-size: 12.5px;
   line-height: 1.65;
+}
+
+/* 节点详情：按类型分栏。同一张事件表看不出「这一步到底干了什么」。 */
+.ndetail {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  width: min(680px, 100%);
+}
+
+.ndetail__section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.ndetail__section-title {
+  margin: 0;
+  font-size: 11px;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--color-neutral-600);
+  font-weight: 400;
+}
+
+/* 命令与输出用等宽：那是要一个字一个字对的东西 */
+.ndetail__pre {
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--color-bg) 76%, #000);
+  border: 1px solid var(--color-divider);
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  line-height: 1.7;
+  color: var(--color-neutral-300);
+  white-space: pre-wrap;
+  word-break: break-word;
+  /* 长输出不该把整页撑起来 */
+  max-height: 320px;
+  overflow: auto;
+}
+
+.ndetail__who,
+.ndetail__decision {
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 1.7;
+  color: var(--color-neutral-300);
+}
+
+.ndetail__note {
+  margin: 0;
+  font-size: 11.5px;
+  color: var(--color-neutral-500);
+}
+
+/* 退出码：0 与非 0 一眼分得开 */
+.ndetail__exit {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: #7fb894;
+}
+
+.ndetail__exit[data-ok='no'] {
+  color: #e0685c;
+}
+
+/* 失败原因在最前，且要显眼 */
+.ndetail__fail {
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1px solid rgba(224, 104, 92, 0.35);
+  background: rgba(224, 104, 92, 0.08);
+  font-size: 12.5px;
+  line-height: 1.7;
+  color: #f0a49b;
+}
+
+.ndetail__plain {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 12.5px;
+}
+
+.ndetail__plain li {
+  display: flex;
+  gap: 10px;
+  align-items: baseline;
+}
+
+.ndetail__plain-time,
+.ndetail__plain-type {
+  flex: none;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--color-neutral-600);
+}
+
+/* 节点详情里的对话不再自己居中 —— 外面那一栏已经限宽了 */
+.ndetail .conv {
+  width: 100%;
+  margin: 0;
 }
 
 /* 对话视图 —— 图纸「03 执行记录」的 conv 那一支：

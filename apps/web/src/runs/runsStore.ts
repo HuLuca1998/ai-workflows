@@ -61,6 +61,17 @@ interface RunsState {
   nextSeq: number;
   /** 事件太多、翻页到上限了。界面据此提示「还有更多没显示」。 */
   truncated: boolean;
+  /**
+   * 选中运行所引用的那张图里，每个节点的类型（`nodeId → type`）。
+   *
+   * 详情面板按类型分发渲染：脚本节点看命令与退出码，AI 节点看对话，
+   * worktree 看分支。**类型只有图里有** —— 事件里没有，
+   * 靠事件形状去猜会立起第二套真源，加一种节点类型就得改猜法。
+   *
+   * 取不到时是空表，详情面板退回通用的事件列表 ——
+   * 那比一片空白诚实。
+   */
+  nodeTypes: Record<string, string>;
   /** 满足当前筛选的总条数。分页控件靠它。 */
   total: number;
   offset: number;
@@ -71,6 +82,7 @@ interface RunsState {
 
   load: () => Promise<void>;
   select: (runId: string) => Promise<void>;
+  loadNodeTypes: (runId: string) => Promise<void>;
   pollEvents: () => Promise<void>;
   setFilter: (filter: RunFilter) => Promise<void>;
   search: (query: string) => Promise<void>;
@@ -93,6 +105,7 @@ export const useRuns = create<RunsState>((set, get) => ({
   items: [],
   selectedId: null,
   events: [],
+  nodeTypes: {},
   nextSeq: 0,
   truncated: false,
   total: 0,
@@ -124,8 +137,38 @@ export const useRuns = create<RunsState>((set, get) => ({
 
   select: async (runId: string) => {
     // 先清空再拉：留着上一个运行的事件会让用户看到别的运行的记录
-    set({ selectedId: runId, events: [], nextSeq: 0, truncated: false, error: null });
-    await get().pollEvents();
+    set({
+      selectedId: runId,
+      events: [],
+      nextSeq: 0,
+      truncated: false,
+      error: null,
+      nodeTypes: {},
+    });
+    await Promise.all([get().pollEvents(), get().loadNodeTypes(runId)]);
+  },
+
+  /**
+   * 取这次运行引用的那张图，记下每个节点的类型。
+   *
+   * 拿不到不算错误：运行可能引用的是一个已经被删掉的版本，
+   * 而那时事件流本身还是完整的 —— 详情面板退回通用列表就行，
+   * 不该因为图读不到就让整页报错。
+   */
+  loadNodeTypes: async (runId: string) => {
+    const run = get().items.find((item) => item.id === runId);
+    if (!run?.versionId) return;
+    try {
+      const result = (await coreClient.call('workflow.versionGraph', {
+        versionId: run.versionId,
+      })) as { graph: { nodes: { id: string; type: string }[] } };
+      const types: Record<string, string> = {};
+      for (const node of result.graph.nodes) types[node.id] = node.type;
+      // 期间用户可能已经切走了，别把上一条运行的类型盖到新选中的那条上
+      if (get().selectedId === runId) set({ nodeTypes: types });
+    } catch {
+      // 静默：详情面板会退回通用列表
+    }
   },
 
   /**

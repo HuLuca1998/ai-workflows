@@ -12,6 +12,7 @@ import {
   type NodeChange,
   type NodeTypes,
   type OnSelectionChangeParams,
+  type ReactFlowProps,
   type XYPosition,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
@@ -31,6 +32,108 @@ import { NODE_HEIGHT, NODE_WIDTH } from './nodeVisuals.js';
 import { minimalConfigFor, titleFor } from './nodeDefaults.js';
 
 const NODE_TYPES: NodeTypes = { workflow: WorkflowNode };
+
+interface LiveReactFlowProps extends Omit<ReactFlowProps, 'nodes' | 'onNodesChange'> {
+  nodes: NonNullable<ReactFlowProps['nodes']>;
+  onNodesChange: (changes: NodeChange[]) => void;
+}
+
+/**
+ * 只让 React Flow 子树响应 pointermove。
+ *
+ * 拖动位置如果放在 EditorCanvas，工具栏、节点库、状态栏与所有浮层都会跟着
+ * 每个鼠标事件重渲染。这里把高频状态隔离起来，并用 rAF 合并高采样率鼠标在
+ * 同一屏幕帧内产生的多次 change；草稿仍然只在 dragging=false 时更新一次。
+ */
+function LiveReactFlow({
+  nodes: graphNodes,
+  onNodesChange: persistNodeChanges,
+  ...props
+}: LiveReactFlowProps) {
+  const positionsRef = useRef<Map<string, XYPosition>>(new Map());
+  const activeDragIdsRef = useRef<Set<string>>(new Set());
+  const frameRef = useRef<number | null>(null);
+  const [dragPositions, setDragPositions] = useState<ReadonlyMap<string, XYPosition>>(
+    () => new Map(),
+  );
+
+  const flushDragPositions = useCallback(() => {
+    frameRef.current = null;
+    setDragPositions(new Map(positionsRef.current));
+  }, []);
+
+  useEffect(
+    () => () => {
+      if (frameRef.current !== null) cancelAnimationFrame(frameRef.current);
+    },
+    [],
+  );
+
+  // 最终坐标进入 graph 后再清临时覆盖，前后两层位置相同，不会在松手时跳一帧。
+  useEffect(() => {
+    setDragPositions((current) => {
+      let changed = false;
+      const next = new Map(current);
+      for (const [id, position] of current) {
+        if (activeDragIdsRef.current.has(id)) continue;
+        const graphNode = graphNodes.find((node) => node.id === id);
+        if (graphNode?.position.x === position.x && graphNode.position.y === position.y) {
+          next.delete(id);
+          positionsRef.current.delete(id);
+          changed = true;
+        }
+      }
+      return changed ? next : current;
+    });
+  }, [graphNodes]);
+
+  const nodes = useMemo(() => {
+    if (dragPositions.size === 0) return graphNodes;
+    return graphNodes.map((node) => {
+      const position = dragPositions.get(node.id);
+      return position ? { ...node, position } : node;
+    });
+  }, [graphNodes, dragPositions]);
+
+  const onNodesChange = useCallback(
+    (changes: NodeChange[]) => {
+      let shouldScheduleFrame = false;
+      let shouldFlushNow = false;
+
+      for (const change of changes) {
+        if (change.type === 'position' && change.position) {
+          if (change.dragging === true) {
+            positionsRef.current.set(change.id, change.position);
+            activeDragIdsRef.current.add(change.id);
+            shouldScheduleFrame = true;
+          } else if (change.dragging === false) {
+            positionsRef.current.set(change.id, change.position);
+            activeDragIdsRef.current.delete(change.id);
+            shouldFlushNow = true;
+          }
+        }
+
+        if (change.type === 'remove') {
+          positionsRef.current.delete(change.id);
+          activeDragIdsRef.current.delete(change.id);
+          shouldFlushNow = true;
+        }
+      }
+
+      if (shouldFlushNow) {
+        if (frameRef.current !== null) cancelAnimationFrame(frameRef.current);
+        flushDragPositions();
+      } else if (shouldScheduleFrame && frameRef.current === null) {
+        frameRef.current = requestAnimationFrame(flushDragPositions);
+      }
+
+      persistNodeChanges(changes);
+    },
+    [flushDragPositions, persistNodeChanges],
+  );
+
+  return <ReactFlow {...props} nodes={nodes} onNodesChange={onNodesChange} />;
+}
 
 /**
  * 导出为 JSON 文件。图纸的版本抽屉有「导出此版本」，
@@ -96,16 +199,6 @@ function EditorCanvas() {
   const wrapper = useRef<HTMLDivElement>(null);
   const [zoom, setZoom] = useState(1);
   const [selectedCount, setSelectedCount] = useState(0);
-  /**
-   * 拖动中的视觉位置。
-   *
-   * graph 是需要持久化的受控状态，不能每个 pointermove 都往里面塞一个 Patch；
-   * 但完全不回传 position change，受控的 React Flow 又只能等松手后才移动。
-   * 这层只活在本次拖动里，松手时清掉并把最终位置一次性写入 graph。
-   */
-  const [dragPositions, setDragPositions] = useState<ReadonlyMap<string, XYPosition>>(
-    () => new Map(),
-  );
   /** 双击打开的节点（图纸：双击节点打开配置弹层）。 */
   const [configNodeId, setConfigNodeId] = useState<string | null>(null);
   /** 右键菜单：目标与屏幕位置。 */
@@ -169,17 +262,10 @@ function EditorCanvas() {
   }, [setSelection]);
 
   const selectedIds = useMemo(() => new Set(selection), [selection]);
-  const graphNodes = useMemo(
+  const nodes = useMemo(
     () => toFlowNodes(graph, { issues: validation.issues, selected: selectedIds }),
     [graph, validation, selectedIds],
   );
-  const nodes = useMemo(() => {
-    if (dragPositions.size === 0) return graphNodes;
-    return graphNodes.map((node) => {
-      const position = dragPositions.get(node.id);
-      return position ? { ...node, position } : node;
-    });
-  }, [graphNodes, dragPositions]);
   const edges = useMemo(() => toFlowEdges(graph), [graph]);
   const groups = useMemo(() => groupBoxes(graph), [graph]);
   const configNode = useMemo(
@@ -187,32 +273,9 @@ function EditorCanvas() {
     [configNodeId, graph],
   );
 
-  // 切换工作流时不能把上一个画布尚未结束的拖动位置带过来。
-  useEffect(() => setDragPositions(new Map()), [workflowId]);
-
   /** 拖动中只更新画面；拖动结束才把最终位置作为一个 Patch 写入草稿。 */
   const onNodesChange = useCallback(
     (changes: NodeChange[]) => {
-      const hasVisualPositionChange = changes.some(
-        (change) =>
-          (change.type === 'position' && change.position && change.dragging !== undefined) ||
-          change.type === 'remove',
-      );
-
-      if (hasVisualPositionChange) {
-        setDragPositions((current) => {
-          const next = new Map(current);
-          for (const change of changes) {
-            if (change.type === 'position' && change.position) {
-              if (change.dragging === true) next.set(change.id, change.position);
-              if (change.dragging === false) next.delete(change.id);
-            }
-            if (change.type === 'remove') next.delete(change.id);
-          }
-          return next;
-        });
-      }
-
       const operations: Parameters<typeof apply>[0] = [];
       for (const change of changes) {
         if (change.type === 'position' && change.dragging === false && change.position) {
@@ -372,7 +435,8 @@ function EditorCanvas() {
         <NodeLibrary onDragStart={() => {}} />
 
         <div className="editor__canvas" ref={wrapper}>
-          <ReactFlow
+          <LiveReactFlow
+            key={workflowId}
             nodes={nodes}
             edges={edges}
             nodeTypes={NODE_TYPES}
@@ -425,7 +489,7 @@ function EditorCanvas() {
               />
             </ViewportPortal>
             <Background variant={BackgroundVariant.Dots} gap={22} size={1} />
-          </ReactFlow>
+          </LiveReactFlow>
 
           {graph.nodes.length === 0 ? <p className="editor__hint">从左侧拖入入口节点</p> : null}
 

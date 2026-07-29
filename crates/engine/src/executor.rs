@@ -464,8 +464,8 @@ impl NodeExecutor {
             // 审批是引擎强制的暂停点，执行器不做决定
             "approval" => Ok(NodeOutcome::NeedsApproval),
 
-            "script.shell" => self.run_shell(node, scope),
-            "git.worktree" => self.run_worktree(node, scope),
+            "script.shell" => self.run_shell(node, scope, sink),
+            "git.worktree" => self.run_worktree(node, scope, sink),
 
             "ai.analyze" | "ai.execute" | "ai.review" | "ai.decide" => {
                 self.run_ai(node, scope, sink)
@@ -477,7 +477,12 @@ impl NodeExecutor {
         }
     }
 
-    fn run_shell(&self, node: &GraphNode, scope: &mut Scope) -> Result<NodeOutcome> {
+    fn run_shell(
+        &self,
+        node: &GraphNode,
+        scope: &mut Scope,
+        sink: &EventSink<'_>,
+    ) -> Result<NodeOutcome> {
         let script_raw = self.require_str(node, "script")?;
         // 插值结果直接进 bash -c：不转义的话，启动参数里一个 `; rm -rf ~`
         // 就是另一条命令。工作流作者写脚本本来就有这个权限，
@@ -498,13 +503,25 @@ impl NodeExecutor {
             .and_then(serde_json::Value::as_u64)
             .unwrap_or(300_000);
 
+        let interpreter = node
+            .config
+            .get("interpreter")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("zsh")
+            .to_string();
+
+        // 「这一步到底跑了什么」——插值之后的那一份，不是配置里写的那份。
+        // 两者常常差很远（`${input.repo}` 变成一个真实路径），
+        // 而排查时要看的永远是真正执行的那一份
+        sink(NodeEvent {
+            kind: "script.started",
+            node_id: node.id.clone(),
+            summary: format!("{interpreter} · {}", 摘要(&script)),
+            payload_ref: self.save_output(&node.id, "command.sh", &script),
+        });
+
         let outcome = run_script(ScriptRequest {
-            interpreter: node
-                .config
-                .get("interpreter")
-                .and_then(serde_json::Value::as_str)
-                .unwrap_or("zsh")
-                .to_string(),
+            interpreter,
             script,
             workdir: self.workdir.clone(),
             env: scope.env_vars(),
@@ -532,9 +549,36 @@ impl NodeExecutor {
                 ..
             } => {
                 // 落产物必须在判断成败**之前**：脚本失败时最需要看日志，
-                // 而失败分支提前 return 的话，恰恰是这时候没有日志可看
-                let _ = self.save_output(&node.id, "stdout.log", &stdout);
-                let _ = self.save_output(&node.id, "stderr.log", &stderr);
+                // 而失败分支提前 return 的话，恰恰是这时候没有日志可看。
+                // 事件同理 —— 下面这三条也在成败判断之前发
+                let out_ref = self.save_output(&node.id, "stdout.log", &stdout);
+                let err_ref = self.save_output(&node.id, "stderr.log", &stderr);
+
+                if !stdout.trim().is_empty() {
+                    sink(NodeEvent {
+                        kind: "script.stdout",
+                        node_id: node.id.clone(),
+                        summary: 摘要(&stdout),
+                        payload_ref: out_ref,
+                    });
+                }
+                if !stderr.trim().is_empty() {
+                    sink(NodeEvent {
+                        kind: "script.stderr",
+                        node_id: node.id.clone(),
+                        summary: 摘要(&stderr),
+                        payload_ref: err_ref,
+                    });
+                }
+                sink(NodeEvent {
+                    kind: "script.exited",
+                    node_id: node.id.clone(),
+                    summary: format!(
+                        "退出码 {code}{}",
+                        if truncated { " · 输出已截断" } else { "" }
+                    ),
+                    payload_ref: None,
+                });
 
                 if code != 0 {
                     return Ok(NodeOutcome::Failed {
@@ -565,7 +609,12 @@ impl NodeExecutor {
         }
     }
 
-    fn run_worktree(&self, node: &GraphNode, scope: &mut Scope) -> Result<NodeOutcome> {
+    fn run_worktree(
+        &self,
+        node: &GraphNode,
+        scope: &mut Scope,
+        sink: &EventSink<'_>,
+    ) -> Result<NodeOutcome> {
         let resolve = |field: &str, fallback: &str| -> std::result::Result<String, String> {
             let raw = node
                 .config
@@ -615,6 +664,20 @@ impl NodeExecutor {
             parent_dir: self.worktree_parent.clone(),
         }) {
             Ok(result) => {
+                // 「在哪个分支、哪个目录里改的」是这一步唯一要说清的事。
+                // 只放进 scope 的话，运行记录上看不到 —— 而那正是
+                // 事后要核对「它有没有污染主分支」的地方
+                sink(NodeEvent {
+                    kind: "node.output_emitted",
+                    node_id: node.id.clone(),
+                    summary: format!(
+                        "分支 {} · worktree {}",
+                        result.branch,
+                        result.path.display()
+                    ),
+                    payload_ref: None,
+                });
+
                 scope.set_node_output(
                     &node.id,
                     "success",
