@@ -169,38 +169,96 @@ if (可解释.length === 0) {
   console.log();
 }
 
-// ── 对话 ────────────────────────────────────────────────────────────────────
+// ── 逐个节点 ────────────────────────────────────────────────────────────────
 //
-// 「AI 调用过程、思考过程、操作过程全都有迹可循」——那句话的落点就是这里。
-// 事件里只有摘要，全文在 payloadRef 指的产物里。
+// 「每个节点的信息全部分开，不同节点展示方式不同」——报告与界面同一个原则。
+// 一张按时间排的大表看不出「这一步到底干了什么」：一次 AI 分析有几十条
+// 工具调用事件，结论那一条淹在中间。
 
-const 对话 = events.filter(
-  (e) =>
-    e.type.startsWith('conversation.') ||
-    e.type.startsWith('reasoning.') ||
-    e.type.startsWith('tool.'),
-);
+/** 事件里挑一条。 */
+const pick = (list, type) => list.find((e) => e.type === type);
 
-console.log('## AI 说了什么\n');
-if (对话.length === 0) {
-  console.log('（没有）—— 这次运行没有 AI 节点。\n');
-} else {
-  console.log('| seq | 节点 | 类型 | 摘要 | 全文 |');
-  console.log('| --- | --- | --- | --- | --- |');
-  for (const event of 对话) {
-    console.log(
-      `| ${event.seq} | ${event.node_id ?? '—'} | \`${event.type}\` | ${esc(event.summary)} | ${
-        event.payload_ref ? `\`${esc(event.payload_ref)}\`` : '—'
-      } |`,
+console.log('## 逐个节点\n');
+for (const node of graph.nodes ?? []) {
+  const mine = events.filter((e) => e.node_id === node.id);
+  if (mine.length === 0) continue;
+
+  const last = [...mine].reverse().find((e) => e.type.startsWith('node.'));
+  const 结果 =
+    {
+      'node.succeeded': '✅ 成功',
+      'node.failed': '❌ 失败',
+      'node.skipped': '⤼ 跳过',
+      'node.cancelled': '⊘ 取消',
+    }[last?.type ?? ''] ?? '⏳ 未结束';
+
+  console.log(`### ${node.title} · \`${node.id}\`（${node.type}）${结果}\n`);
+
+  const 失败 = pick(mine, 'node.failed');
+  if (失败) console.log(`> **失败原因**：${esc(失败.summary)}\n`);
+
+  if (node.type.startsWith('ai.')) {
+    const 用了谁 = pick(mine, 'system.model_resolved');
+    if (用了谁) console.log(`**这一步用了谁**：${esc(用了谁.summary)}\n`);
+
+    const 对话 = mine.filter(
+      (e) => e.type.startsWith('conversation.') || e.type.startsWith('reasoning.'),
     );
-  }
-  console.log();
+    for (const item of 对话) {
+      const 谁 =
+        {
+          'conversation.user_message': '提问',
+          'reasoning.summary': '推理',
+          'conversation.agent_message': '回答',
+        }[item.type] ?? item.type;
+      console.log(
+        `**${谁}**（seq ${item.seq}${item.payload_ref ? ` · 全文 \`${item.payload_ref}\`` : ''}）\n`,
+      );
+      console.log('```');
+      console.log(item.summary);
+      console.log('```\n');
+    }
 
-  const 工具 = 对话.filter((e) => e.type.startsWith('tool.'));
-  if (工具.length > 0) {
+    const 工具 = mine.filter((e) => e.type.startsWith('tool.'));
+    if (工具.length > 0) {
+      const 完成 = 工具.filter((e) => e.type === 'tool.call_finished').length;
+      const 失败数 = 工具.filter((e) => e.type === 'tool.call_failed').length;
+      console.log(`**工具活动**：${完成 + 失败数} 次调用（失败 ${失败数} 次）\n`);
+      console.log('| seq | 状态 | 调了什么 |');
+      console.log('| --- | --- | --- |');
+      for (const item of 工具.filter((e) => e.type !== 'tool.call_started')) {
+        console.log(
+          `| ${item.seq} | ${item.type === 'tool.call_failed' ? '失败' : '完成'} | ${esc(item.summary)} |`,
+        );
+      }
+      console.log();
+    }
+  } else if (node.type.startsWith('script.')) {
+    for (const [标题, type] of [
+      ['跑的是什么', 'script.started'],
+      ['结果', 'script.exited'],
+      ['标准输出', 'script.stdout'],
+      ['标准错误', 'script.stderr'],
+    ]) {
+      const item = pick(mine, type);
+      if (!item) continue;
+      console.log(`**${标题}**${item.payload_ref ? `（全文 \`${item.payload_ref}\`）` : ''}\n`);
+      console.log('```');
+      console.log(item.summary);
+      console.log('```\n');
+    }
+  } else if (node.type === 'git.worktree') {
+    const 输出 = pick(mine, 'node.output_emitted');
+    console.log(`**隔离工作区**：${esc(输出?.summary ?? '（没有留下分支信息）')}\n`);
+  } else if (node.type === 'approval') {
+    const 决定 = pick(mine, 'approval.decided');
     console.log(
-      `工具调用共 ${工具.length} 次，其中失败 ${工具.filter((e) => e.type === 'tool.call_failed').length} 次。\n`,
+      决定
+        ? `**审批**：${esc(决定.summary)} · 由 ${决定.actor} 于 ${决定.ts}\n`
+        : '**审批**：还在等人决定\n',
     );
+  } else {
+    console.log(`${esc(last?.summary ?? '')}\n`);
   }
 }
 
