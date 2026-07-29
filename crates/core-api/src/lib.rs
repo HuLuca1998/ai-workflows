@@ -252,6 +252,8 @@ pub const COMMANDS: &[&str] = &[
     "mcp_connect",
     "env_diagnostics",
     "workspace_update_settings",
+    "workspace_reset_preview",
+    "workspace_reset",
     "env_health",
     "run_artifact_content",
     "run_diagnostics",
@@ -1045,6 +1047,155 @@ pub fn workspace_stats(store: &Store, workdir: Option<&Path>) -> ApiResult<Works
         tokens_this_week: None,
         active_worktrees: count,
         worktree_bytes: bytes,
+    })
+}
+
+// ── 一键初始化 ──────────────────────────────────────────────────────────────
+//
+// 破坏性最强的一条命令。契约那侧已经把它挡在 MCP 与 HTTP 之外
+// （`scope: null`），这一层负责的是「删之前先说清楚要删什么」。
+//
+// 产物目录是这里唯一真正危险的东西：它落在用户自己授权的工作目录下
+// （`<workdir>/.aiwf-artifacts`），不在 App 数据目录里。所以它
+// 默认不删，而且预览里单独标出来 —— 用户要能看见自己的代码仓库
+// 里有东西要没。
+
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ResetCountsDto {
+    pub workflows: i64,
+    pub runs: i64,
+    pub memories: i64,
+    pub agents: i64,
+    pub prompts: i64,
+    pub models: i64,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ResetDirectoryDto {
+    pub path: String,
+    /// `runs` / `logs` / `artifacts`。界面按它分组与配图标。
+    pub kind: String,
+    pub bytes: i64,
+    /// 在不在用户授权的工作目录里。界面据此把警告分成两档。
+    pub inside_workdir: bool,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ResetPreviewDto {
+    pub counts: ResetCountsDto,
+    pub directories: Vec<ResetDirectoryDto>,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ResetResultDto {
+    pub ok: bool,
+    /// **真的删掉了**哪些目录，不是打算删哪些。
+    /// 界面照这份清单说「已清除以下位置」，多一条就是在说假话。
+    pub removed_directories: Vec<String>,
+}
+
+/// App 自己的地盘。这两个目录删起来没有顾虑。
+const APP_DIRS: [&str; 2] = ["runs", "logs"];
+
+/// 产物目录名。与 `crates/engine` 里 `ArtifactStore` 用的那个一致。
+const ARTIFACTS_DIR: &str = ".aiwf-artifacts";
+
+/// 一键初始化会清掉什么。
+///
+/// 只列**真的存在**的目录：列一个不存在的路径，用户会以为那里有他的东西。
+pub fn workspace_reset_preview(
+    store: &Store,
+    data_dir: &Path,
+    workdir: Option<&Path>,
+) -> ApiResult<ResetPreviewDto> {
+    // limit 取 1：要的是 total，不是内容。分页方法本来就把总数一起返回，
+    // 为这一处再加六个 count 查询不值得
+    let counts = ResetCountsDto {
+        workflows: store.list_workflows_paged(1, 0)?.1,
+        runs: store.list_runs_paged(None, &[], None, 1, 0)?.1,
+        memories: store.list_memories_paged(None, None, 1, 0)?.1,
+        agents: store.list_agents_paged(None, 1, 0)?.1,
+        prompts: store.list_prompts_paged(None, None, 1, 0)?.1,
+        // enabled_only = false：用户停用的模型也会被清掉，得算进去
+        models: store.list_models_paged(false, None, 1, 0)?.1,
+    };
+
+    let mut directories = Vec::new();
+    for kind in APP_DIRS {
+        let path = data_dir.join(kind);
+        if path.is_dir() {
+            directories.push(ResetDirectoryDto {
+                path: path.display().to_string(),
+                kind: kind.to_string(),
+                bytes: dir_size(&path),
+                inside_workdir: false,
+            });
+        }
+    }
+    if let Some(workdir) = workdir {
+        let path = workdir.join(ARTIFACTS_DIR);
+        if path.is_dir() {
+            directories.push(ResetDirectoryDto {
+                path: path.display().to_string(),
+                kind: "artifacts".to_string(),
+                bytes: dir_size(&path),
+                inside_workdir: true,
+            });
+        }
+    }
+
+    Ok(ResetPreviewDto {
+        counts,
+        directories,
+    })
+}
+
+/// 执行一键初始化：清库、重种内置数据、删运行目录。
+///
+/// **真·恢复出厂**：工作目录授权与权限档也存在 `workspace_setting` 表里，
+/// 跟着一起没。清库之后写回去是另一种做法，没选它是因为「数据库里的
+/// 东西全没了」这句话不该有例外 —— 有例外的话，下一个人得先读一遍
+/// 实现才知道哪些留哪些不留。界面在入口与确认框里都写明了这件事。
+///
+/// 所以 `workdir` 是调用方在**清库之前**读出来传进来的：
+/// 清完再读只会得到 None，那时产物路径已经无从算起。
+///
+/// `include_artifacts` 单独一个开关，默认由调用方给 false ——
+/// `<workdir>/.aiwf-artifacts` 在用户的代码仓库里，「没说」只能理解成「别碰」。
+/// 删的也只是那一个目录，工作目录里别的东西一概不碰（PathGuard 那条纪律
+/// 在这里同样成立：用户的代码不是我们的地盘）。
+pub fn workspace_reset(
+    store: &mut Store,
+    data_dir: &Path,
+    workdir: Option<&Path>,
+    include_artifacts: bool,
+) -> ApiResult<ResetResultDto> {
+    // 先清库。目录删一半而库没清的话，界面上还留着一堆运行记录，
+    // 点开每一条都是「产物不见了」—— 那比什么都没做更难解释
+    store.reset_workspace()?;
+
+    let mut removed = Vec::new();
+    let mut 删掉 = |path: std::path::PathBuf| {
+        // 不存在就跳过：回报里只放真的删掉的
+        if path.is_dir() && std::fs::remove_dir_all(&path).is_ok() {
+            removed.push(path.display().to_string());
+        }
+    };
+
+    for kind in APP_DIRS {
+        删掉(data_dir.join(kind));
+    }
+    if include_artifacts && let Some(workdir) = workdir {
+        删掉(workdir.join(ARTIFACTS_DIR));
+    }
+
+    Ok(ResetResultDto {
+        ok: true,
+        removed_directories: removed,
     })
 }
 

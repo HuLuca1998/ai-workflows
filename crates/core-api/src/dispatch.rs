@@ -25,7 +25,8 @@ pub fn dispatch(
     supervisor: &Supervisor,
     data_dir: &std::path::Path,
 ) -> ApiResult<Value> {
-    let store = store.lock().map_err(|_| ApiError {
+    // mut 是给 workspace_reset 的：它要在同一条连接上 DROP 再重建
+    let mut store = store.lock().map_err(|_| ApiError {
         code: "INTERNAL".to_string(),
         message: "数据库锁已损坏，需要重启服务".to_string(),
         retriable: false,
@@ -294,6 +295,30 @@ pub fn dispatch(
             input.get("permissionPreset").and_then(|v| v.as_str()),
             input.get("envCheckedAt").and_then(|v| v.as_str()),
         )?),
+        "workspace_reset_preview" => {
+            let workdir = 授权目录(&store);
+            to_value(api::workspace_reset_preview(
+                &store,
+                data_dir,
+                workdir.as_deref(),
+            )?)
+        }
+        "workspace_reset" => {
+            // 契约那侧 confirm 是 z.literal(true)，但 MCP 与 HTTP 不都经过 Zod。
+            // 这条命令删得掉用户全部的东西，不能指望上游都校验过
+            if !boolean(input, "confirm") {
+                return Err(ApiError::validation(
+                    "一键初始化需要显式确认：带上 confirm: true".to_string(),
+                ));
+            }
+            let workdir = 授权目录(&store);
+            to_value(api::workspace_reset(
+                &mut store,
+                data_dir,
+                workdir.as_deref(),
+                boolean(input, "includeArtifacts"),
+            )?)
+        }
         "run_artifact_content" => to_value(api::run_artifact_content(
             &store,
             string(input, "runId")?,
@@ -418,6 +443,18 @@ fn opt_int(input: &Value, key: &str) -> Option<i64> {
 
 fn boolean(input: &Value, key: &str) -> bool {
     input.get(key).and_then(Value::as_bool).unwrap_or(false)
+}
+
+/// 用户授权的工作目录。产物就落在它下面的 `.aiwf-artifacts` 里。
+///
+/// 读不到一律当「还没授权」：那种情况下产物目录本来就不存在，
+/// 让一键初始化因为读不到设置而整个失败没有道理。
+fn 授权目录(store: &Store) -> Option<std::path::PathBuf> {
+    store
+        .workspace_settings()
+        .ok()
+        .and_then(|s| s.workdir)
+        .map(std::path::PathBuf::from)
 }
 
 fn opt_bool(input: &Value, key: &str) -> Option<bool> {

@@ -28,6 +28,8 @@ const COMMANDS: Partial<Record<CoreApiMethod, string>> = {
   'workspace.settings': 'workspace_settings',
   'env.diagnostics': 'env_diagnostics',
   'workspace.updateSettings': 'workspace_update_settings',
+  'workspace.resetPreview': 'workspace_reset_preview',
+  'workspace.reset': 'workspace_reset',
   'env.health': 'env_health',
   'run.diagnostics': 'run_diagnostics',
   'supervisor.sessions': 'supervisor_sessions',
@@ -443,6 +445,10 @@ export function fromIpcResult(method: CoreApiMethod, raw: unknown): unknown {
     case 'supervisor.session':
     case 'supervisor.ask':
     case 'workspace.stats':
+    // 这两个的形状引擎那边已经是契约要的样子（DTO 带 camelCase），
+    // 原样带过来 —— 在这里重组一遍只会多一处能漂移的地方
+    case 'workspace.resetPreview':
+    case 'workspace.reset':
     case 'env.health':
     case 'run.diagnostics':
     case 'workflow.discardIfEmpty':

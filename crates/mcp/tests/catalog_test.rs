@@ -22,6 +22,12 @@ const 本地专属: &[&str] = &[
     "model_test",
     "run_diagnostics",
     "env_diagnostics",
+    // 一键初始化。这不是「怕 Agent 扩权」，是这条命令的语义本身 ——
+    // 它把用户全部的工作流、运行记录与产物清掉重来。权限档挡不住它，
+    // 因为它压根不属于「文件读写 / 执行命令 / 访问网络」里的任何一档。
+    // 预览一并挡住：它报的是用户机器上的真实路径
+    "workspace_reset",
+    "workspace_reset_preview",
 ];
 
 #[test]
