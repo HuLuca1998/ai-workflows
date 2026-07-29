@@ -99,7 +99,7 @@ fn 工具调用也走同一条通知流() {
     let mut tools = Vec::new();
     client
         .prompt(&session.id, "读一下文件", |update| {
-            if let SessionUpdate::ToolCall { title, status } = update {
+            if let SessionUpdate::ToolCall { title, status, .. } = update {
                 tools.push(format!("{title}:{status}"));
             }
         })
@@ -275,4 +275,31 @@ fn 不认识的反向请求也要回一句_否则同样是互等() {
     assert_eq!(outcome, PromptOutcome::EndTurn);
     // JSON-RPC 的「方法不存在」——比不回话强得多
     assert!(text.contains("error"), "应该回一个错误应答，实际：{text}");
+}
+
+#[test]
+fn 工具调用的更新帧带得出它是哪一次() {
+    // ACP 的 `tool_call` 首帧带标题，`tool_call_update` 只带 id 与状态。
+    // 不把 id 交出去的话，上层拿到的完成帧是一条「（completed）」——
+    // 说不出完成的是哪一次调用，而对话视图里那一行就是空的
+    let mut client = connect("normal").expect("连不上 mock");
+    let session = client.new_session("/tmp").expect("建会话失败");
+
+    let mut 收到: Vec<(String, String, String)> = Vec::new();
+    client
+        .prompt(&session.id, "随便问问", |update| {
+            if let SessionUpdate::ToolCall { id, title, status } = update {
+                收到.push((id.to_string(), title.to_string(), status.to_string()));
+            }
+        })
+        .expect("prompt 失败");
+
+    assert_eq!(收到.len(), 2, "首帧 + 更新帧：{收到:?}");
+    assert_eq!(收到[0].0, "call_1");
+    assert_eq!(收到[0].1, "读取 src/cache.js");
+    assert_eq!(收到[0].2, "in_progress");
+
+    assert_eq!(收到[1].0, "call_1", "更新帧要说清是哪一次");
+    assert!(收到[1].1.is_empty(), "更新帧本来就不带标题");
+    assert_eq!(收到[1].2, "completed");
 }

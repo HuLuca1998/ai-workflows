@@ -1640,3 +1640,33 @@ fn 非_ai_节点不往对话流里塞东西() {
         "脚本节点不该产生对话事件"
     );
 }
+
+#[test]
+fn 工具调用的完成事件带得上标题_计数也不翻倍() {
+    // ACP 的首帧带标题，更新帧只带 id 与状态。不按 id 记住标题的话，
+    // 完成事件是一条「（completed）」—— 对话视图那一行说不出调了什么。
+    // 而两帧都计数的话，「工具活动 · N 次」会翻倍。
+    let (sink, scope) = 跑一个_ai_节点带工具调用();
+
+    let 完成 = sink.某类("tool.call_finished");
+    assert_eq!(完成.len(), 1, "一次调用一条完成事件");
+    assert!(
+        完成[0].summary.contains("读取 src/cache.js"),
+        "更新帧要补上首帧的标题：{}",
+        完成[0].summary
+    );
+
+    let 开始 = sink.某类("tool.call_started");
+    assert_eq!(开始.len(), 1, "首帧是 in_progress，落成 started");
+
+    // 输出里的次数按「结束」算，不是按帧数
+    let 次数 = scope.snapshot()["outputs"]["n.success"]["toolCalls"]
+        .as_u64()
+        .or_else(|| {
+            scope.snapshot()["outputs"]
+                .as_object()?
+                .values()
+                .find_map(|v| v.get("toolCalls")?.as_u64())
+        });
+    assert_eq!(次数, Some(1), "两帧算一次调用");
+}

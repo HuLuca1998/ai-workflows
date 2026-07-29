@@ -177,8 +177,19 @@ function handle(message) {
         sessionUpdate: 'tool_call',
         toolCallId: 'call_1',
         title: '读取 src/cache.js',
-        status: 'completed',
+        status: 'in_progress',
         kind: 'read',
+      },
+    });
+
+    // 真实 adapter 的形态：**更新帧只带 id 与状态，不重复标题**。
+    // 只发一个 completed 帧的话，测不出「更新帧里标题丢了」这个坑
+    notify('session/update', {
+      sessionId: params.sessionId,
+      update: {
+        sessionUpdate: 'tool_call_update',
+        toolCallId: 'call_1',
+        status: 'completed',
       },
     });
 

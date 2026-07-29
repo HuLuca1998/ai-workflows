@@ -843,6 +843,10 @@ impl NodeExecutor {
         let mut text = String::new();
         let mut reasoning = String::new();
         let mut tool_calls = 0_u32;
+        // 工具调用的标题只在首帧里。更新帧只带 id 与状态 ——
+        // 不记住的话，完成事件是一条「（completed）」，说不出完成的是哪一次
+        let mut tool_titles: std::collections::HashMap<String, String> =
+            std::collections::HashMap::new();
 
         let outcome = client.prompt(&session.id, &instruction, |update| match update {
             SessionUpdate::AgentText { text: chunk } => text.push_str(chunk),
@@ -851,8 +855,15 @@ impl NodeExecutor {
             // 「工具活动 · 6 次读取，2 次搜索」，那需要知道每次调的是什么。
             // 而且它们边跑边出现 —— AI 节点要好几分钟，这期间
             // 用户唯一能看到的「它还活着」就是这些
-            SessionUpdate::ToolCall { title, status } => {
-                tool_calls += 1;
+            SessionUpdate::ToolCall { id, title, status } => {
+                // 首帧带标题就记下；更新帧拿它补上
+                let 标题 = if title.is_empty() {
+                    tool_titles.get(id).cloned().unwrap_or_default()
+                } else {
+                    tool_titles.insert(id.to_string(), title.to_string());
+                    title.to_string()
+                };
+
                 // 按 status 分成契约里的三种，不是一律 started：
                 // 对话投影只收 finished / failed（started 是过程噪声），
                 // 全发 started 的话工具活动那一行永远是空的
@@ -861,10 +872,19 @@ impl NodeExecutor {
                     "completed" | "success" => "tool.call_finished",
                     _ => "tool.call_started",
                 };
+                // 只在**结束**时计数：一次调用会来两帧（首帧 + 更新帧），
+                // 每帧都加的话「工具活动 · 6 次」会翻倍
+                if kind != "tool.call_started" {
+                    tool_calls += 1;
+                }
                 sink(NodeEvent {
                     kind,
                     node_id: node.id.clone(),
-                    summary: format!("{title}（{status}）"),
+                    summary: if 标题.is_empty() {
+                        format!("工具调用 {id}（{status}）")
+                    } else {
+                        format!("{标题}（{status}）")
+                    },
                     payload_ref: None,
                 });
             }

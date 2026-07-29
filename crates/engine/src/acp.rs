@@ -72,7 +72,16 @@ pub enum SessionUpdate<'a> {
     /// 推理摘要（有的 adapter 会单独给）。
     Reasoning { text: &'a str },
     /// 工具调用。图纸对话视图里「工具活动 · 6 次读取」的数字来自这里。
-    ToolCall { title: &'a str, status: &'a str },
+    ///
+    /// `id` 是必须的：ACP 的首帧（`tool_call`）带标题，
+    /// 更新帧（`tool_call_update`）**只带 id 与状态**。
+    /// 不把 id 交出去的话，上层拿到的完成帧是一条「（completed）」，
+    /// 说不出完成的是哪一次调用。
+    ToolCall {
+        id: &'a str,
+        title: &'a str,
+        status: &'a str,
+    },
     /// 其余类型原样带过去，界面可以按需展示而不必改这里。
     Other { kind: &'a str, raw: &'a Value },
 }
@@ -590,6 +599,10 @@ fn dispatch_update(params: &Value, on_update: &mut impl FnMut(SessionUpdate<'_>)
         }
         "tool_call" | "tool_call_update" => {
             on_update(SessionUpdate::ToolCall {
+                id: update
+                    .get("toolCallId")
+                    .and_then(Value::as_str)
+                    .unwrap_or(""),
                 title: update.get("title").and_then(Value::as_str).unwrap_or(""),
                 status: update.get("status").and_then(Value::as_str).unwrap_or(""),
             });
