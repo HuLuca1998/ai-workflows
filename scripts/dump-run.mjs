@@ -201,6 +201,13 @@ for (const node of graph.nodes ?? []) {
     const 用了谁 = pick(mine, 'system.model_resolved');
     if (用了谁) console.log(`**这一步用了谁**：${esc(用了谁.summary)}\n`);
 
+    // 它到底动了哪些文件。放在对话之前 —— 读报告的人先要知道
+    // 「这一步有没有真的做事」，再去看它是怎么说的。
+    // 曾经有一次 AI 节点报成功而工作区一个字节没变，一路过了审查、
+    // 分级与人工审批，直到 git push 才暴露
+    const 改动 = pick(mine, 'node.output_emitted');
+    if (改动) console.log(`**改了什么**：${esc(改动.summary)}\n`);
+
     const 对话 = mine.filter(
       (e) => e.type.startsWith('conversation.') || e.type.startsWith('reasoning.'),
     );

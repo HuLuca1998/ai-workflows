@@ -51,23 +51,31 @@ Claude Code 那条接入路径单独验过：
 
 ### 修复是真的
 
-`fix` 节点的 Agent 在隔离 worktree 里真的改了代码并提交：
+`fix` 节点的 Agent 在隔离 worktree 里真的改了代码，`push_pr` 真的提交、
+推送并开了 PR —— [aiwf-e2e-fixture#6](https://github.com/HuLuca1998/aiwf-e2e-fixture/pull/6)：
 
 ```
-fb8c7c8 fix(cache): invalidate changed config entries
- src/cache.js       |  2 +-
- test/cache.test.js | 21 +++++++++++++++++++++
+6fa9263 fix: 配置热重载后清空对应缓存键（#1）
+ src/cache.js | 1 file changed, +1 −2
 ```
 
 ```diff
 -// BUG: 热重载时没有清空缓存，watcher 只更新了磁盘快照
  export function onFileChanged(key) {
-   readFromDisk(key);
+-  readFromDisk(key);
 +  cache.delete(key);
  }
 ```
 
-这正是 issue #1 描述的缺陷，而且它顺手补了回归测试。
+这正是 fixture 仓库 issue #1 描述的缺陷。
+
+`review` 节点的 Agent 独立复核了它，给出行号与复现路径后放行：
+
+> 问题清单：无问题，审查通过。
+> `src/cache.js:14` 正确失效指定 key；确定性复现验证及 `git diff --check` 均通过。
+
+它没有顺着「上一步说修好了」往下走，而是自己去跑了一遍。
+产出原样留在 `evidence/mcp-e2e/review-agent.md`。
 
 ## 抓到的真问题（都已修复，都补了测试）
 
@@ -196,27 +204,48 @@ hint，而这两件事要采取的行动不一样。
 
 ## 留档的那一次运行
 
-`docs/testing/evidence/mcp-e2e/run-report.md` 是清理后留下的唯一一次运行
-（`node scripts/dump-run.mjs` 生成，路径已缩短）：12 节点、37 条事件、
-`succeeded`，含一次真实的审批暂停与恢复。
+`docs/testing/evidence/mcp-e2e/run-report.md` 是清理后留下的**唯一一次**运行
+（`node scripts/dump-run.mjs` 生成）：`run_18c6a6bb11d596f0`，12 节点、
+249 条事件、`succeeded`，含一次真实的审批暂停与恢复。
 
-两件事值得单独说：
+它的产出是真的：**[aiwf-e2e-fixture#6](https://github.com/HuLuca1998/aiwf-e2e-fixture/pull/6)**，
+一条开着的 PR，diff 就是 Issue #1 那个 bug 的修复：
 
-**审查者真的在审查。** 这一次的 `fix` Agent 只做了只读检查没改文件，
-而 `review` Agent 独立发现了这一点并给出阻塞结论：
+```diff
+-// BUG: 热重载时没有清空缓存，watcher 只更新了磁盘快照
+ export function onFileChanged(key) {
+-  readFromDisk(key);
++  cache.delete(key);
+ }
+```
 
-> 审查结论：不通过。修复分支与 `main` 的 SHA 相同，工作区无任何改动。
-> 严重度 🔴 阻塞 · src/cache.js:15 · 依次调用 `getConfig("x")`、
-> `onFileChanged("x")`、`getConfig("x")`，实测第二次读取与第一次是同一对象，
-> `loadedAt` 完全相同 —— 仍返回 TTL 缓存中的旧值。
+这条链路走完了目标场景的全部九步：读 Issue → 分析根因 → 克隆 →
+隔离 worktree → 修复 → 审查 → 风险分级 → 人工审批 → 提交并建 PR → 通知。
 
-它没有顺着「上一步说修好了」往下走，而是自己去复现了一遍。
-产出在 `evidence/mcp-e2e/review-agent.md`。
+**每一步都留下了它做了什么**：
 
-**分析者抱怨「给定工作目录不是 Git 仓库」** —— 那是这条工作流的
-设计问题，不是引擎的：AI 生成的图把 `analyze` 排在 `clone_repo` 之前。
-分析是只读的，放在克隆之后会更有料。这条留着不改，因为它正说明
-「运行数据能把设计问题指出来」。
+| 想知道                                 | 去看                                        |
+| -------------------------------------- | ------------------------------------------- |
+| 用了哪个角色、哪个模型、在哪个目录     | `system.model_resolved`                     |
+| 注入了哪些长期记忆                     | `system.memory_injected`                    |
+| 问了它什么（含拼进去的人设与上游输出） | `conversation.user_message` + `prompt.md`   |
+| 它怎么想的                             | `reasoning.summary` + `reasoning.md`        |
+| 它动了哪些工具                         | `tool.call_started / finished / failed`     |
+| 它改了哪些文件                         | `node.output_emitted`                       |
+| 它最后说了什么                         | `conversation.agent_message` + `agent.md`   |
+| 脚本跑的是什么、退出码、两路输出       | `script.started / exited / stdout / stderr` |
+| 谁在什么时候批准了什么                 | `approval.requested` + `approval.decided`   |
+
+**这一次之前失败过三次**，每次都失败在不同的地方，每次都改的是产品而不是测试：
+
+| 第几次 | 死在哪               | 真正的问题                                     |
+| ------ | -------------------- | ---------------------------------------------- |
+| 一     | 报成功，但 PR 不存在 | `gh pr create` 失败被 `\| tail -2` 吞掉退出码  |
+| 二     | `push_pr` 明确失败   | 修复节点没留下任何改动，而没人发现（→ 问题 7） |
+| 三     | `clone_repo`         | 工作目录复用了上一次的，`repo/` 已存在         |
+
+第一次那种最危险：系统说完成了，通知也发了，而事实上什么都没发生。
+第二次是同一件事被**提前**暴露出来 —— 那正是加守卫想要的效果。
 
 ## 数据完整性
 
