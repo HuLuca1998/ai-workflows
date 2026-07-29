@@ -32,7 +32,7 @@ const AGENT = {
   runtime: 'acp.claude',
   modelRef: 'model_1',
   tools: ['read'],
-  capabilities: { fileRead: true, fileWrite: false, network: 'none' },
+  capabilities: { file: 'read', command: 'none', network: 'none', memory: 'read', secret: [] },
   outputContract: '',
   turnLimit: 12,
   timeoutMs: 900_000,
@@ -267,5 +267,60 @@ describe('新建后要能立刻编辑', () => {
     await waitFor(() => {
       expect((screen.getByLabelText('角色名称') as HTMLInputElement).value).toBe('审查 Agent');
     });
+  });
+});
+
+/**
+ * 新建角色时发出去的权限。
+ *
+ * 这一处骗得过 `_contractClient` 的校验：Zod 对未知键是 **strip**，
+ * 对缺失键是**填默认值**，所以发 `{fileRead, fileWrite}` 校验照样通过，
+ * 只是到引擎那边变成了全 `none` —— 用户新建的角色挂到脚本节点上必然失败，
+ * 而表单底下写着「默认只读文件、不联网」。
+ *
+ * 所以断言的不是「校验有没有过」，而是**校验之后还剩什么**。
+ */
+describe('新建角色的权限', () => {
+  const 取入参 = () =>
+    call.mock.calls.find(([method]) => method === 'agent.create')?.[1] as
+      { capabilities?: Record<string, unknown> } | undefined;
+
+  const 建一个 = async () => {
+    const user = userEvent.setup();
+    render(<AgentsPage />);
+    await screen.findByText('分析 Agent');
+    await user.click(screen.getByRole('button', { name: '新建角色' }));
+    await user.type(screen.getByLabelText('名称'), '审查 Agent');
+    await user.type(screen.getByLabelText('角色'), '代码审查');
+    await user.click(screen.getByRole('button', { name: '创建' }));
+    await waitFor(() => expect(取入参()).toBeTruthy());
+  };
+
+  it('过完契约校验之后权限还在 —— 不是被 strip 成全 none', async () => {
+    await 建一个();
+
+    const { getMethodSpec } = await import('@aiwf/contracts');
+    const 校验后 = getMethodSpec('agent.create').input.parse(取入参()) as {
+      capabilities: Record<string, unknown>;
+    };
+
+    // 表单底下承诺的是「默认只读文件、不联网」
+    expect(校验后.capabilities).toEqual({
+      file: 'read',
+      command: 'none',
+      network: 'none',
+      memory: 'read',
+      secret: [],
+    });
+  });
+
+  it('不发契约之外的键 —— 那种键会被静默丢掉，没有任何一处会报', async () => {
+    await 建一个();
+
+    const { CapabilitiesSchema } = await import('@aiwf/contracts');
+    const 契约的键 = Object.keys(CapabilitiesSchema.shape);
+    const 发出去的键 = Object.keys(取入参()?.capabilities ?? {});
+
+    expect(发出去的键.filter((key) => !契约的键.includes(key))).toEqual([]);
   });
 });

@@ -49,6 +49,103 @@
 
 ---
 
+## 〇、第 1 轮探索新发现（按「用户多久会撞上」排）
+
+来自第 1 轮派出去的探索 agent，每条都核过代码。**这一节优先做完。**
+
+### X-1 · 新建的 Agent 角色权限被 Zod 悄悄清空 ← 已验证
+
+`AgentsPage.tsx:181` 发的是 `{fileRead, fileWrite, network}`，
+而 `CapabilitiesSchema` 的键是 `{file, command, network, memory, secret}`。
+`client.ts` 用 `parsedInput.data` 发出去 —— Zod **strip 未知键再填默认值**，
+于是变成全 `none`，而且**校验通过、不报任何错**。
+
+用户新建角色（引导后的第一件事）→ 挂到脚本节点 → 运行当场失败。
+表单底下还写着「新建时默认只读文件、不联网」，真实结果连只读都不是。
+`agents-editing.test.tsx:35` 那条绿测试把这份错误形状当 fixture 固化了。
+
+**验收**：断言 `agent.create` 的入参过完校验后五个键齐全且与表单承诺一致；
+补一条端到端（新建角色 → 挂 script.shell → 真的跑起来）；
+给 AgentsPage 加断言禁止出现 `CAPABILITY_FIELDS` 之外的键。
+
+### X-2 · AI 节点收到「拒绝 / 超 token / 被取消」照样报成功
+
+`acp.rs` 认真把 `stopReason` 解析成五种，`executor.rs:994` 一种都不看 ——
+只要 `prompt()` 返回 `Ok` 就是 `Succeeded`。模型拒答、答到一半被截断，
+全记成成功，半句话原样进 scope 交给下游。mock 从头到尾只回 `end_turn`，
+非正常结束一条测试都没有。
+
+**验收**：mock 补 `refusal` / `max_tokens` 场景；拒绝 → 节点失败并写明原因；
+截断 → 至少一条事件说清输出不完整。`stopReason` 要进事件流，不能只躺在 checkpoint 里。
+
+### X-3 · ACP 权限请求一律拒绝，`ai.execute` 也走这条
+
+`answer_reverse_call` 一律回 reject，注释只论证了主管 AI 的场景 ——
+而 `AcpClient` 是同一个。仓库自己的实测文档写着 codex **跑命令前**触发
+`request_permission`、reject 真实生效，且 codex 的文件隔离靠
+`session/set_mode`（全仓零调用）。这解释了 `executor.rs:1109` 记的那次事故：
+「`ai.execute` 报完成而工作区一个字节没变」。
+
+**验收**：裁决按场景分开（主管全拒；节点执行按能力声明裁决），每次裁决写进事件流；
+建会话时按权限档调一次 `session/set_mode`。
+
+### X-4 · 取消运行不打断正在跑的节点
+
+`cancel()` 置标志就返回，执行线程还阻塞在 `execute()` 里（AI 节点默认 900 秒）。
+跑完之后照常 emit `node.succeeded` / `run.failed` —— **取消之后还在写事件**。
+`AcpClient::cancel`（`session/cancel`）零调用点。
+
+**验收**：取消时对活会话调 `session/cancel`、对脚本进程组发信号；
+取消后的节点结束事件不写或写成 `node.cancelled`。
+
+### X-5 · 事件摘要从没过脱敏，而界面写着「已脱敏」 ← 已验证
+
+`Redactor` 只在三个**读取点**用过，事件写入链路一次都没有。
+`redactor.rs` 的模块文档写着「统一过这里才落库」—— 不成立。
+脚本 `echo $TOKEN` → 明文进 `run_event.summary` → 明文进 FTS 索引 →
+显示在事件列表里，正下方写着「Secret 值在写入事件存储前已脱敏」。
+
+还有两份互不相同的「什么算密钥」：`store/lib.rs` 11 条前缀匹配 vs
+`redactor.rs` 一组正则，谁也不知道另一边漏了什么。
+
+**验收**：在 `emit_full`（唯一写入口）过一遍脱敏；测试断言 summary、FTS、
+`run.events` 三处都查不到原文；两份判据合成一份。
+
+### X-6 · `client-core` 那层事件投影是死代码，界面各自又写了一份
+
+`EventStore` 从未被实例化，7 个投影方法零调用点，却有 14 条绿测试守着。
+界面重复实现了 `toTurns` / `progress` / `category` 三份。后果之一：
+`RunsPage.tsx:867` 手写的映射表把 9 类压成 4 个中文词，
+`script.stdout` 的类别标签显示成「运行」——而契约明说「前缀即分类，UI 不需要另维护映射表」。
+
+**验收**：二选一（界面改用 EventStore，或删掉没人用的方法连同测试）；
+类别必须来自 `categoryOfEventType`。
+
+### X-7 · `ai.execute` 不受权限档管，档位说明点名的节点不存在
+
+`SIDE_EFFECT_NODES` 六项里 `git.commit` / `github.pr` **不是契约里的节点类型**，
+`script.python` / `mcp.tool` 未实现 —— 真正生效的只有两条。
+而 `ai.execute`（唯一会放自主 agent 进 worktree 写文件的节点）
+既不在这个数组里，`check_capability` 也没有它的分支。
+设置页却写着「commit、PR 与 MCP 工具节点会挂起等你审批」。
+另外未知权限档一律放行，与「认不出的档位按最严处理」相反。
+
+**验收**：`ai.execute` 进 `SIDE_EFFECT_NODES` 与 `check_capability`；
+数组里不存在的类型删掉并加元测试断言它是 `NODE_TYPES` 的子集；
+未知档位按最严；设置页说明与数组同源生成。
+
+### X-8 · `PathGuard` 从未被调用，35 项逃逸测试守着没接电的开关
+
+生产代码零调用点，而 `PROJECT.md` / ADR-0002 / CLAUDE.md 三处都写着它在守。
+两个接受外部路径的落点（`ai.execute` 的 `declared` workdir、
+`git.worktree` 的 `repoRoot`）都不过它 —— 配置里写 `/` 或 `~/.ssh` 就用它。
+同形态还有 `capabilities.ts` 零测试、`isWithinCapabilities` 零调用点。
+
+**验收**：两个落点都过 `PathGuard::check`，授权根取工作区 workdir；
+各配一条越权用例；再配一条故意越权、断言变红的元测试。
+
+---
+
 ## 一、ACP 与 Agent 架构
 
 ### A-1 · 主管 AI 每问一句就新建一个 ACP 会话

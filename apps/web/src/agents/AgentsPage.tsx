@@ -178,7 +178,18 @@ export function AgentsPage() {
       const result = (await coreClient.call('agent.create', {
         ...input,
         tools: [],
-        capabilities: { fileRead: true, fileWrite: false, network: 'none' },
+        // 键必须与 CapabilitiesSchema 一致。写成 `{fileRead, fileWrite}` 的话
+        // **校验照样通过** —— Zod 对未知键是 strip、对缺失键是填默认值，
+        // 于是到引擎那边变成全 none：用户新建的角色挂到脚本节点上必然失败，
+        // 而下面那句文案还写着「默认只读文件、不联网」
+        capabilities: {
+          file: 'read',
+          command: 'none',
+          network: 'none',
+          // 读记忆：AI 节点靠注入的记忆才知道这个工作区的长期约定
+          memory: 'read',
+          secret: [],
+        },
         outputContract: '',
         turnLimit: 12,
         timeoutMs: 900_000,
