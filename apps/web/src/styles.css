@@ -2570,6 +2570,135 @@
   line-height: 1.65;
 }
 
+/* 对话视图 —— 图纸「03 执行记录」的 conv 那一支：
+   680px 居中的一列，用户是气泡，Agent 是头像 + 正文。 */
+.conv {
+  list-style: none;
+  margin: 0 auto;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  width: min(680px, 88%);
+}
+
+.conv__turn {
+  display: flex;
+  gap: 10px;
+}
+
+/* 用户那条是一整块气泡，没有独立头像列 —— 与图纸一致 */
+.conv__turn[data-kind='user'] {
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px 14px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--color-surface) 62%, var(--color-bg));
+  border: 1px solid var(--color-divider);
+}
+
+.conv__avatar {
+  width: 20px;
+  height: 20px;
+  flex: none;
+  border-radius: 6px;
+  display: grid;
+  place-items: center;
+  font-size: 10px;
+  background: rgba(145, 132, 217, 0.2);
+  color: var(--color-accent-300);
+}
+
+.conv__turn[data-kind='user'] .conv__avatar {
+  background: var(--color-neutral-700);
+  color: var(--color-neutral-300);
+}
+
+.conv__body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.conv__meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  font-size: 12px;
+  color: var(--color-neutral-500);
+}
+
+.conv__who {
+  color: var(--color-neutral-400);
+}
+
+.conv__tag {
+  padding: 1px 6px;
+  border-radius: 20px;
+  font-size: 10.5px;
+  background: rgba(233, 233, 237, 0.07);
+  color: var(--color-neutral-500);
+}
+
+.conv__full {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 7px;
+  border-radius: 6px;
+  border: 1px solid var(--color-divider);
+  background: none;
+  font: inherit;
+  font-size: 11px;
+  color: var(--color-neutral-400);
+  cursor: pointer;
+}
+
+.conv__full:hover {
+  color: var(--color-neutral-200);
+  border-color: var(--color-neutral-600);
+}
+
+.conv__text {
+  margin: 0;
+  line-height: 1.75;
+  font-size: 13px;
+  /* 摘要里可能有换行（模型的分点回答），保住它 */
+  white-space: pre-wrap;
+}
+
+/* 工具活动折成一行：一次分析十几次调用，逐条列出来会把结论冲掉 */
+.conv__tools {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0;
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--color-surface) 35%, var(--color-bg));
+  border: 1px solid var(--color-divider);
+  font-size: 12px;
+  color: var(--color-neutral-400);
+}
+
+/* 审批在对话里是一张有边框的卡，与普通消息区分开 */
+.conv__turn[data-kind='approval'] .conv__body {
+  border-radius: 10px;
+  border: 1px solid rgba(145, 132, 217, 0.3);
+  background: linear-gradient(180deg, rgba(145, 132, 217, 0.1), transparent);
+  padding: 14px;
+}
+
+.conv__turn[data-kind='reasoning'] .conv__text {
+  color: var(--color-neutral-500);
+  border-left: 2px solid var(--color-neutral-700);
+  padding-left: 10px;
+}
+
 .runs__redact {
   display: flex;
   align-items: center;

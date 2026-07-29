@@ -1464,3 +1464,179 @@ fn 各类_ai_节点走的端口都在节点目录里() {
         );
     }
 }
+
+// ── 对话、推理、工具调用要进事件流 ─────────────────────────────────────────
+//
+// 契约里有 conversation.* / reasoning.* / tool.* 九类事件，
+// `event-store.ts` 的对话投影收着它们，执行记录那一屏有一个「对话」tab。
+// 而执行器把 agent 的文本攒进一个本地变量、存成产物就完了 ——
+// 一条都不发。
+//
+// 结果是：跑完一条有 4 个 AI 节点的工作流，「对话」tab 里写着
+// 「这次运行没有 AI 节点，所以没有对话」。产物里明明躺着 2943 字节的
+// 审查结论，用户在界面上一个字都看不到。
+
+#[derive(Default)]
+struct 收集器(std::sync::Mutex<Vec<aiwf_engine::executor::NodeEvent>>);
+
+impl 收集器 {
+    fn 取(&self) -> Vec<aiwf_engine::executor::NodeEvent> {
+        self.0.lock().map(|v| v.clone()).unwrap_or_default()
+    }
+    fn 某类(&self, kind: &str) -> Vec<aiwf_engine::executor::NodeEvent> {
+        self.取().into_iter().filter(|e| e.kind == kind).collect()
+    }
+}
+
+fn 跑一个_ai_节点带收集() -> (收集器, Scope) {
+    // echo-prompt 场景：把收到的提示词原样回显，方便断言内容
+    let (command, args) = mock_acp();
+    跑带收集(&command, &args)
+}
+
+/// normal 场景会报一次工具调用；echo-prompt 不会。
+fn 跑一个_ai_节点带工具调用() -> (收集器, Scope) {
+    let script = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .and_then(|p| p.parent())
+        .expect("仓库根")
+        .join("tests/fixtures/acp-mock.mjs");
+    跑带收集(
+        "node",
+        &[script.display().to_string(), "normal".to_string()],
+    )
+}
+
+fn 跑带收集(command: &str, args: &[String]) -> (收集器, Scope) {
+    let executor = NodeExecutor::new(workdir())
+        .with_acp_command(command, args)
+        .with_agent_profiles(&内置角色());
+
+    let sink = 收集器::default();
+    let mut scope = Scope::new("run_conv");
+    executor
+        .execute_with_sink(&ai_节点(), &mut scope, &|event| {
+            if let Ok(mut list) = sink.0.lock() {
+                list.push(event);
+            }
+        })
+        .unwrap();
+    (sink, scope)
+}
+
+#[test]
+fn 发出去的提示词进对话流_那是往返的另一半() {
+    // 「含 AI 节点的运行会在这里显示完整的往返消息」—— 只有 agent 的回答
+    // 不叫往返。用户要能看到「我们到底问了它什么」，包括拼进去的记忆与角色
+    let (sink, _) = 跑一个_ai_节点带收集();
+    let 提问 = sink.某类("conversation.user_message");
+
+    assert_eq!(提问.len(), 1, "该有且只有一条提问");
+    assert_eq!(提问[0].node_id, "analyze");
+    assert!(
+        提问[0].summary.contains("看看这段代码"),
+        "摘要里要看得出问的是什么：{}",
+        提问[0].summary
+    );
+    assert!(
+        提问[0].payload_ref.is_some(),
+        "全文要落产物 —— 提示词拼上记忆和角色之后可能几 KB"
+    );
+}
+
+#[test]
+fn agent_的回答进对话流_全文落产物() {
+    let (sink, _) = 跑一个_ai_节点带收集();
+    let 回答 = sink.某类("conversation.agent_message");
+
+    assert_eq!(回答.len(), 1);
+    assert_eq!(回答[0].node_id, "analyze");
+    assert!(!回答[0].summary.is_empty());
+    assert_eq!(
+        回答[0].payload_ref.as_deref(),
+        Some("analyze/agent.md"),
+        "payload_ref 要指得到产物，界面才点得开全文"
+    );
+}
+
+#[test]
+fn 摘要不超过存储层的上限() {
+    // 存储层拒收超过 2000 字符的摘要（逼大内容走 artifact + payload_ref）。
+    // 超了的话事件根本写不进去 —— 而那时对话流会**静默地少一条**
+    let (sink, _) = 跑一个_ai_节点带收集();
+    for event in sink.取() {
+        assert!(
+            event.summary.chars().count() <= 2000,
+            "{} 的摘要有 {} 字符",
+            event.kind,
+            event.summary.chars().count()
+        );
+    }
+}
+
+#[test]
+fn 工具调用逐个发_不是只留一个总数() {
+    // 图纸的对话视图里是「工具活动 · 6 次读取，2 次搜索」——
+    // 那需要知道每次调的是什么，一个总数拼不出这句话
+    let (sink, _) = 跑一个_ai_节点带工具调用();
+    // mock 报的是 status=completed，所以落成 finished ——
+    // 对话投影只收 finished / failed，全发 started 的话那一行永远是空的
+    let 工具 = sink.某类("tool.call_finished");
+
+    assert!(!工具.is_empty(), "mock 会报一次工具调用");
+    assert!(
+        工具.iter().any(|e| e.summary.contains("读取 src/cache.js")),
+        "每条要说清调的是什么：{:?}",
+        工具.iter().map(|e| &e.summary).collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn 没有推理时不发空的推理事件() {
+    // 一条「推理摘要：」后面什么都没有，比没有这条更糟
+    let (sink, _) = 跑一个_ai_节点带收集();
+    for event in sink.某类("reasoning.summary") {
+        assert!(!event.summary.trim().is_empty());
+    }
+}
+
+#[test]
+fn 不带_sink_时照旧能跑() {
+    // 已有的调用点（测试、外部调度）用的是 execute()，
+    // 加了事件通道不能让它们全部改签名
+    let (command, args) = mock_acp();
+    let outcome = NodeExecutor::new(workdir())
+        .with_acp_command(&command, &args)
+        .with_agent_profiles(&内置角色())
+        .execute(&ai_节点(), &mut Scope::new("run_nosink"))
+        .unwrap();
+    assert!(matches!(outcome, NodeOutcome::Succeeded { .. }));
+}
+
+#[test]
+fn 非_ai_节点不往对话流里塞东西() {
+    // 脚本节点的 stdout 有自己的 script.* 事件与产物，
+    // 混进对话流会把「AI 说了什么」淹掉
+    let sink = 收集器::default();
+    NodeExecutor::new(workdir())
+        .with_permission_preset("workspace_safe")
+        .execute_with_sink(
+            &node(
+                "sh",
+                "script.shell",
+                serde_json::json!({ "interpreter": "zsh", "script": "echo hi" }),
+            ),
+            &mut Scope::new("run_sh"),
+            &|event| {
+                if let Ok(mut list) = sink.0.lock() {
+                    list.push(event);
+                }
+            },
+        )
+        .unwrap();
+
+    assert!(
+        sink.某类("conversation.agent_message").is_empty(),
+        "脚本节点不该产生对话事件"
+    );
+}

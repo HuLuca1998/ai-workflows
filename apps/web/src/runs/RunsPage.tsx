@@ -6,6 +6,7 @@ import { useSearchParams } from 'react-router';
 import { type RunStatusName, StatusBadge } from '@aiwf/ui';
 import { Pager } from '../layout/Pager.js';
 import { coreClient } from '../data/workspace.js';
+import { ConversationView } from './ConversationView.js';
 import { type RunEvent, type RunFilter, type RunSummary, useRuns } from './runsStore.js';
 
 /**
@@ -44,6 +45,13 @@ export function RunsPage() {
   });
   const [params] = useSearchParams();
   const [tab, setTab] = useState<DetailTab>('events');
+  /**
+   * 从对话里点「全文」要跳到产物 tab 并展开那一条。
+   *
+   * 只传路径不传「打开过了没有」：展开状态归 ArtifactList 自己管，
+   * 这里只说「进来的时候先展开这条」。
+   */
+  const [jumpToArtifact, setJumpToArtifact] = useState<string | null>(null);
   /** 刚导出的诊断包路径。不告诉用户在哪的话他找不到。 */
   const [diagnostics, setDiagnostics] = useState<string | null>(null);
   /** 选中的节点；null 表示看整条运行。图纸的节点进度栏每行都可点。 */
@@ -388,11 +396,20 @@ export function RunsPage() {
                   }
                 />
               ) : null}
-              {tab === 'artifacts' ? <ArtifactList runId={selected.id} /> : null}
+              {tab === 'artifacts' ? (
+                <ArtifactList runId={selected.id} openInitially={jumpToArtifact} />
+              ) : null}
               {tab === 'conversation' ? (
-                <p className="runs__empty">
-                  这次运行没有 AI 节点，所以没有对话。含 AI 节点的运行会在这里显示完整的往返消息。
-                </p>
+                <ConversationView
+                  events={runs.events}
+                  // 「有没有 AI 节点」从事件流推：图这一层这里拿不到，
+                  // 而 system.model_resolved 只有 AI 节点会写
+                  hasAiNode={runs.events.some((event) => event.type === 'system.model_resolved')}
+                  onOpenArtifact={(relPath) => {
+                    setJumpToArtifact(relPath);
+                    setTab('artifacts');
+                  }}
+                />
               ) : null}
             </div>
           </>
@@ -488,7 +505,14 @@ interface Preview {
   bytes: number;
 }
 
-function ArtifactList({ runId }: { runId: string }) {
+function ArtifactList({
+  runId,
+  openInitially = null,
+}: {
+  runId: string;
+  /** 进来时先展开哪一条（从对话里点「全文」跳过来的）。 */
+  openInitially?: string | null;
+}) {
   const [items, setItems] = useState<Artifact[] | null>(null);
   const [root, setRoot] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -518,6 +542,15 @@ function ArtifactList({ runId }: { runId: string }) {
       setError(err instanceof Error ? err.message : String(err));
     }
   };
+
+  // 从对话跳过来时把那一条展开。放在 effect 里而不是初始 state：
+  // 用户在产物 tab 里点开了别的，再切回对话又切回来，不该被强行拉回去
+  useEffect(() => {
+    if (openInitially) void togglePreview(openInitially);
+    // togglePreview 每次渲染都是新函数，列进依赖会无限循环；
+    // 这里要的就是「openInitially 变了才跑一次」
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [openInitially]);
 
   useEffect(() => {
     let cancelled = false;

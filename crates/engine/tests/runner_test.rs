@@ -630,3 +630,52 @@ fn 角色被删掉时运行失败并说清缺的是哪一个() {
         失败.summary
     );
 }
+
+// ── 对话进事件流（M3 的「对话」tab 靠它）────────────────────────────────────
+
+#[test]
+fn ai_节点的对话与工具调用真的落进事件表() {
+    // 执行器把事件交给一个回调，runner 负责落库。中间断一环的话，
+    // 「对话」tab 会空着 —— 而产物里明明躺着几 KB 的回答。
+    let store = Store::open_in_memory().unwrap();
+    store
+        .set_workspace_setting("permissionPreset", "workspace_safe")
+        .unwrap();
+    let agent = 建一个分析师(&store);
+    let workflow = store
+        .create_workflow_with_graph("测试流程", None, &挂角色的图(&agent))
+        .unwrap();
+
+    let runner = Runner::new();
+    let run_id = runner.start(&store, request(&workflow)).unwrap();
+    let _ = runner.run_all(&store, &run_id);
+
+    let events = store.events(&run_id, 0, 200).unwrap();
+    let 类型: Vec<&str> = events.iter().map(|e| e.kind.as_str()).collect();
+
+    // adapter 装了才跑得到对话；没装的话节点会失败，那时这条不该误报
+    let 连上了 = events
+        .iter()
+        .any(|e| e.kind == "node.succeeded" && e.node_id.as_deref() == Some("think"));
+    if !连上了 {
+        eprintln!("跳过：ACP adapter 没装，跑不到对话那一步");
+        return;
+    }
+
+    assert!(
+        类型.contains(&"conversation.user_message"),
+        "发出去的提示词该进对话流：{类型:?}"
+    );
+    assert!(
+        类型.contains(&"conversation.agent_message"),
+        "agent 的回答该进对话流：{类型:?}"
+    );
+
+    let 提问 = events
+        .iter()
+        .find(|e| e.kind == "conversation.user_message")
+        .unwrap();
+    assert_eq!(提问.node_id.as_deref(), Some("think"));
+    assert_eq!(提问.actor, "agent", "对话事件的 actor 不是 engine");
+    assert!(提问.payload_ref.is_some(), "全文要落产物，事件里只留摘要");
+}

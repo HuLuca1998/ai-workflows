@@ -169,6 +169,41 @@ if (可解释.length === 0) {
   console.log();
 }
 
+// ── 对话 ────────────────────────────────────────────────────────────────────
+//
+// 「AI 调用过程、思考过程、操作过程全都有迹可循」——那句话的落点就是这里。
+// 事件里只有摘要，全文在 payloadRef 指的产物里。
+
+const 对话 = events.filter(
+  (e) =>
+    e.type.startsWith('conversation.') ||
+    e.type.startsWith('reasoning.') ||
+    e.type.startsWith('tool.'),
+);
+
+console.log('## AI 说了什么\n');
+if (对话.length === 0) {
+  console.log('（没有）—— 这次运行没有 AI 节点。\n');
+} else {
+  console.log('| seq | 节点 | 类型 | 摘要 | 全文 |');
+  console.log('| --- | --- | --- | --- | --- |');
+  for (const event of 对话) {
+    console.log(
+      `| ${event.seq} | ${event.node_id ?? '—'} | \`${event.type}\` | ${esc(event.summary)} | ${
+        event.payload_ref ? `\`${esc(event.payload_ref)}\`` : '—'
+      } |`,
+    );
+  }
+  console.log();
+
+  const 工具 = 对话.filter((e) => e.type.startsWith('tool.'));
+  if (工具.length > 0) {
+    console.log(
+      `工具调用共 ${工具.length} 次，其中失败 ${工具.filter((e) => e.type === 'tool.call_failed').length} 次。\n`,
+    );
+  }
+}
+
 // ── 产物 ────────────────────────────────────────────────────────────────────
 
 // 产物的真源是**磁盘**，不是 `artifact` 表 —— `run.artifacts` 也是扫目录的。

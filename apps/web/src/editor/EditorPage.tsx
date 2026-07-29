@@ -12,6 +12,7 @@ import {
   type NodeChange,
   type NodeTypes,
   type OnSelectionChangeParams,
+  type XYPosition,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import type { NodeType } from '@aiwf/contracts';
@@ -95,6 +96,16 @@ function EditorCanvas() {
   const wrapper = useRef<HTMLDivElement>(null);
   const [zoom, setZoom] = useState(1);
   const [selectedCount, setSelectedCount] = useState(0);
+  /**
+   * 拖动中的视觉位置。
+   *
+   * graph 是需要持久化的受控状态，不能每个 pointermove 都往里面塞一个 Patch；
+   * 但完全不回传 position change，受控的 React Flow 又只能等松手后才移动。
+   * 这层只活在本次拖动里，松手时清掉并把最终位置一次性写入 graph。
+   */
+  const [dragPositions, setDragPositions] = useState<ReadonlyMap<string, XYPosition>>(
+    () => new Map(),
+  );
   /** 双击打开的节点（图纸：双击节点打开配置弹层）。 */
   const [configNodeId, setConfigNodeId] = useState<string | null>(null);
   /** 右键菜单：目标与屏幕位置。 */
@@ -158,10 +169,17 @@ function EditorCanvas() {
   }, [setSelection]);
 
   const selectedIds = useMemo(() => new Set(selection), [selection]);
-  const nodes = useMemo(
+  const graphNodes = useMemo(
     () => toFlowNodes(graph, { issues: validation.issues, selected: selectedIds }),
     [graph, validation, selectedIds],
   );
+  const nodes = useMemo(() => {
+    if (dragPositions.size === 0) return graphNodes;
+    return graphNodes.map((node) => {
+      const position = dragPositions.get(node.id);
+      return position ? { ...node, position } : node;
+    });
+  }, [graphNodes, dragPositions]);
   const edges = useMemo(() => toFlowEdges(graph), [graph]);
   const groups = useMemo(() => groupBoxes(graph), [graph]);
   const configNode = useMemo(
@@ -169,17 +187,42 @@ function EditorCanvas() {
     [configNodeId, graph],
   );
 
-  /** 拖动结束才写入草稿：拖动过程中每帧都提交会产生几十个无意义的修订。 */
+  // 切换工作流时不能把上一个画布尚未结束的拖动位置带过来。
+  useEffect(() => setDragPositions(new Map()), [workflowId]);
+
+  /** 拖动中只更新画面；拖动结束才把最终位置作为一个 Patch 写入草稿。 */
   const onNodesChange = useCallback(
     (changes: NodeChange[]) => {
+      const hasVisualPositionChange = changes.some(
+        (change) =>
+          (change.type === 'position' && change.position && change.dragging !== undefined) ||
+          change.type === 'remove',
+      );
+
+      if (hasVisualPositionChange) {
+        setDragPositions((current) => {
+          const next = new Map(current);
+          for (const change of changes) {
+            if (change.type === 'position' && change.position) {
+              if (change.dragging === true) next.set(change.id, change.position);
+              if (change.dragging === false) next.delete(change.id);
+            }
+            if (change.type === 'remove') next.delete(change.id);
+          }
+          return next;
+        });
+      }
+
+      const operations: Parameters<typeof apply>[0] = [];
       for (const change of changes) {
         if (change.type === 'position' && change.dragging === false && change.position) {
-          apply([{ op: 'moveNode', nodeId: change.id, position: change.position }]);
+          operations.push({ op: 'moveNode', nodeId: change.id, position: change.position });
         }
         if (change.type === 'remove') {
-          apply([{ op: 'removeNode', nodeId: change.id }]);
+          operations.push({ op: 'removeNode', nodeId: change.id });
         }
       }
+      if (operations.length > 0) apply(operations);
     },
     [apply],
   );

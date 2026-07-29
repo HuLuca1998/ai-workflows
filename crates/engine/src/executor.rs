@@ -108,6 +108,43 @@ pub struct Resolution {
     pub workdir: String,
 }
 
+/// 节点执行途中要写进事件流的一条。
+///
+/// **执行器不碰数据库** —— 它把事件交给一个回调，由上层落库。
+/// 攒到节点跑完再一起写也行，但 AI 节点要跑好几分钟，那期间
+/// 界面上什么都没有；而「对话」这一屏的价值恰恰在于边跑边看。
+#[derive(Debug, Clone)]
+pub struct NodeEvent {
+    /// 契约里的 `RunEventType`，如 `conversation.agent_message`。
+    pub kind: &'static str,
+    pub node_id: String,
+    /// 面向人的一句话。**存储层拒收超过 2000 字符的摘要** ——
+    /// 大内容一律走 `payload_ref`。
+    pub summary: String,
+    /// 全文落在哪个产物里（相对路径，如 `analyze/agent.md`）。
+    pub payload_ref: Option<String>,
+}
+
+/// 事件回调。不关心事件去哪 —— 测试收进一个 Vec，运行时写进事件表。
+pub type EventSink<'a> = dyn Fn(NodeEvent) + 'a;
+
+/// 摘要的长度上限。
+///
+/// 存储层的硬上限是 2000 字符，但对话流里一条几千字的气泡也没法看。
+/// 截到能一眼扫完的长度，全文点 payload_ref 去看。
+const SUMMARY_CHARS: usize = 400;
+
+fn 摘要(text: &str) -> String {
+    let trimmed = text.trim();
+    if trimmed.chars().count() <= SUMMARY_CHARS {
+        return trimmed.to_string();
+    }
+    format!(
+        "{}…",
+        trimmed.chars().take(SUMMARY_CHARS).collect::<String>()
+    )
+}
+
 /// 有副作用因而受权限档管的节点类型。
 ///
 /// transform 只改内存里的数据、分支只看条件 —— 逐项审批它们没有意义，
@@ -390,7 +427,22 @@ impl NodeExecutor {
         &self.workdir
     }
 
+    /// 跑一个节点。不需要事件流的调用方用这个。
     pub fn execute(&self, node: &GraphNode, scope: &mut Scope) -> Result<NodeOutcome> {
+        self.execute_with_sink(node, scope, &|_| {})
+    }
+
+    /// 跑一个节点，途中的对话 / 推理 / 工具调用交给 `sink`。
+    ///
+    /// 事件通道是**参数**而不是执行器上的一个字段：加成字段就得给
+    /// `NodeExecutor` 挂一个生命周期（sink 要借 `&Store`），
+    /// 而它在几十处测试里是按值构造的。
+    pub fn execute_with_sink(
+        &self,
+        node: &GraphNode,
+        scope: &mut Scope,
+        sink: &EventSink<'_>,
+    ) -> Result<NodeOutcome> {
         // 权限档先说话。「Review Every Change」这一档的原话是
         //「文件写入、命令与外部写操作逐项审批」—— 引擎不拦的话，
         // 设置屏那三张卡就只是三个好看的卡片
@@ -415,7 +467,9 @@ impl NodeExecutor {
             "script.shell" => self.run_shell(node, scope),
             "git.worktree" => self.run_worktree(node, scope),
 
-            "ai.analyze" | "ai.execute" | "ai.review" | "ai.decide" => self.run_ai(node, scope),
+            "ai.analyze" | "ai.execute" | "ai.review" | "ai.decide" => {
+                self.run_ai(node, scope, sink)
+            }
 
             other => Ok(NodeOutcome::Failed {
                 message: format!("节点类型 {other} 尚未实现。这个节点不会被执行，运行到此为止"),
@@ -479,8 +533,8 @@ impl NodeExecutor {
             } => {
                 // 落产物必须在判断成败**之前**：脚本失败时最需要看日志，
                 // 而失败分支提前 return 的话，恰恰是这时候没有日志可看
-                self.save_output(&node.id, "stdout.log", &stdout);
-                self.save_output(&node.id, "stderr.log", &stderr);
+                let _ = self.save_output(&node.id, "stdout.log", &stdout);
+                let _ = self.save_output(&node.id, "stderr.log", &stderr);
 
                 if code != 0 {
                     return Ok(NodeOutcome::Failed {
@@ -584,17 +638,25 @@ impl NodeExecutor {
     ///
     /// 写失败不让节点失败：脚本已经成功跑完了，因为存不下日志而
     /// 判它失败，会让用户去查一个根本没出问题的脚本。
-    fn save_output(&self, node_id: &str, name: &str, content: &str) {
+    /// 存一份产物，返回它的**相对路径**（`analyze/agent.md`）。
+    ///
+    /// 相对路径就是 `run.artifacts` 给界面的那个 `relPath`，也是事件里
+    /// `payload_ref` 该写的值 —— 界面拿它去调 `run.artifactContent`。
+    /// 原先这里把返回值丢了，于是事件想指向产物也指不了。
+    fn save_output(&self, node_id: &str, name: &str, content: &str) -> Option<String> {
         if content.is_empty() {
-            return;
+            return None;
         }
-        let _ = self.artifacts.save(
-            &self.run_id,
-            node_id,
-            ArtifactKind::Log,
-            name,
-            content.as_bytes(),
-        );
+        self.artifacts
+            .save(
+                &self.run_id,
+                node_id,
+                ArtifactKind::Log,
+                name,
+                content.as_bytes(),
+            )
+            .ok()
+            .map(|_| format!("{node_id}/{name}"))
     }
 
     /// 跑一个 AI 节点：起 adapter → 建会话 → 发提示词 → 收流式回答。
@@ -602,7 +664,12 @@ impl NodeExecutor {
     /// 会话是**一次性**的：每个节点起一个 adapter 进程，跑完就收掉。
     /// 复用会话能省启动时间，但也让「这个节点看到了什么上下文」
     /// 变得说不清 —— 而可解释性是这个产品的核心。
-    fn run_ai(&self, node: &GraphNode, scope: &mut Scope) -> Result<NodeOutcome> {
+    fn run_ai(
+        &self,
+        node: &GraphNode,
+        scope: &mut Scope,
+        sink: &EventSink<'_>,
+    ) -> Result<NodeOutcome> {
         // 节点写了角色 id 而查不到 —— 硬错误。
         //
         // 悄悄按「没有角色」跑下去的话，用户得到的分析是一个没有人设、
@@ -761,6 +828,18 @@ impl NodeExecutor {
             }
         };
 
+        // 发出去的提示词进对话流 —— 那是「往返」的另一半。
+        //
+        // 只记 agent 的回答不叫往返：用户看到一个出乎意料的结论时，
+        // 第一个要问的是「我们到底问了它什么」，而那份提示词里拼着
+        // 角色的人设、注入的记忆、上游节点的输出，都不是他手写的。
+        sink(NodeEvent {
+            kind: "conversation.user_message",
+            node_id: node.id.clone(),
+            summary: 摘要(&instruction),
+            payload_ref: self.save_output(&node.id, "prompt.md", &instruction),
+        });
+
         let mut text = String::new();
         let mut reasoning = String::new();
         let mut tool_calls = 0_u32;
@@ -768,16 +847,56 @@ impl NodeExecutor {
         let outcome = client.prompt(&session.id, &instruction, |update| match update {
             SessionUpdate::AgentText { text: chunk } => text.push_str(chunk),
             SessionUpdate::Reasoning { text: chunk } => reasoning.push_str(chunk),
-            SessionUpdate::ToolCall { .. } => tool_calls += 1,
+            // 工具调用**逐个**发，不攒一个总数：图纸的对话视图里是
+            // 「工具活动 · 6 次读取，2 次搜索」，那需要知道每次调的是什么。
+            // 而且它们边跑边出现 —— AI 节点要好几分钟，这期间
+            // 用户唯一能看到的「它还活着」就是这些
+            SessionUpdate::ToolCall { title, status } => {
+                tool_calls += 1;
+                // 按 status 分成契约里的三种，不是一律 started：
+                // 对话投影只收 finished / failed（started 是过程噪声），
+                // 全发 started 的话工具活动那一行永远是空的
+                let kind = match status {
+                    "failed" | "error" => "tool.call_failed",
+                    "completed" | "success" => "tool.call_finished",
+                    _ => "tool.call_started",
+                };
+                sink(NodeEvent {
+                    kind,
+                    node_id: node.id.clone(),
+                    summary: format!("{title}（{status}）"),
+                    payload_ref: None,
+                });
+            }
             SessionUpdate::Other { .. } => {}
         });
 
         match outcome {
             Ok(stop) => {
                 // 回答落产物：几十 KB 的分析不该进事件表
-                self.save_output(&node.id, "agent.md", &text);
-                if !reasoning.is_empty() {
-                    self.save_output(&node.id, "reasoning.md", &reasoning);
+                let answer_ref = self.save_output(&node.id, "agent.md", &text);
+                let reasoning_ref = if reasoning.is_empty() {
+                    None
+                } else {
+                    self.save_output(&node.id, "reasoning.md", &reasoning)
+                };
+
+                // 推理在回答之前发：它是「怎么想的」，读起来在结论之前
+                if !reasoning.trim().is_empty() {
+                    sink(NodeEvent {
+                        kind: "reasoning.summary",
+                        node_id: node.id.clone(),
+                        summary: 摘要(&reasoning),
+                        payload_ref: reasoning_ref,
+                    });
+                }
+                if !text.trim().is_empty() {
+                    sink(NodeEvent {
+                        kind: "conversation.agent_message",
+                        node_id: node.id.clone(),
+                        summary: 摘要(&text),
+                        payload_ref: answer_ref,
+                    });
                 }
 
                 // 端口从节点目录取，不硬编码 "success"：

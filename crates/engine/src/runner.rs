@@ -161,8 +161,37 @@ impl Runner {
             run_id,
             scope,
             |node, scope| {
+                // 对话 / 推理 / 工具调用**边跑边写**。
+                //
+                // 攒到节点跑完再一起写也行，但 AI 节点要跑好几分钟，
+                // 那期间界面上除了一条 node.started 什么都没有 ——
+                // 而「对话」这一屏的价值恰恰在于边跑边看。
+                let label = node.title.clone();
+                let emit = |event: crate::executor::NodeEvent| {
+                    let written = store.append_event(&NewRunEvent {
+                        run_id: run_id.to_string(),
+                        kind: event.kind.to_string(),
+                        node_id: Some(event.node_id),
+                        node_label: Some(label.clone()),
+                        attempt: None,
+                        actor: "agent".to_string(),
+                        status: None,
+                        summary: event.summary,
+                        payload_ref: event.payload_ref,
+                        artifact_refs: vec![],
+                        parent_event_id: None,
+                        sensitivity: "internal".to_string(),
+                        schema_ver: 1,
+                    });
+                    // 写不进去只影响记录，不该让节点本身失败 ——
+                    // 但要留痕：静默丢掉的话，对话流里会**少一条**而没人知道
+                    if let Err(error) = written {
+                        eprintln!("[runner] 对话事件没写进去（{}）：{error}", event.kind);
+                    }
+                };
+
                 executor
-                    .execute(node, scope)
+                    .execute_with_sink(node, scope, &emit)
                     .unwrap_or_else(|error| NodeOutcome::Failed {
                         message: error.to_string(),
                     })
