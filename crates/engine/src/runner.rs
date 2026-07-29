@@ -554,15 +554,41 @@ impl Runner {
         )?;
 
         if decision == "approved" {
-            self.emit_node(
-                store,
-                run_id,
-                "node.succeeded",
-                node_id,
-                &label,
-                "engine",
-                "审批通过",
-            )?;
+            // 「批准」对两种节点意味着完全不同的事：
+            //
+            // - `approval` 类型本身就是引擎强制的暂停点，它没有要执行的东西，
+            //   批准即完成
+            // - 其余节点是**因为权限档**（review_every_change）被拦在执行之前的。
+            //   对它们发 node.succeeded 就等于跳过真正的执行 ——
+            //   `completed_nodes` 信任所有 node.succeeded，下一轮推进直接走到
+            //   下游去了。用户报的正是这个：他批准了「读取 Issue」，
+            //   界面写着「审批通过」，而 `gh issue view` 一次都没跑，
+            //   下游的 AI 于是拿到一个空的分析对象
+            //
+            // 不标完成，只回到 running：下一次推进会重新执行它，
+            // 而 `approved_nodes`（从 approval.decided 事件算出来）
+            // 保证这一次不会再被拦一遍
+            if self.node_type(store, run_id, node_id)? == "approval" {
+                self.emit_node(
+                    store,
+                    run_id,
+                    "node.succeeded",
+                    node_id,
+                    &label,
+                    "engine",
+                    "审批通过",
+                )?;
+            } else {
+                self.emit_node(
+                    store,
+                    run_id,
+                    "node.started",
+                    node_id,
+                    &label,
+                    "engine",
+                    &format!("{label} 已批准，开始执行"),
+                )?;
+            }
             let _ = store.advance_run_status(run_id, "running", Some(node_id))?;
         } else {
             self.emit_node(
@@ -885,6 +911,24 @@ impl Runner {
 
     /// 从运行引用的图里查节点标题。查不到就退回 id ——
     /// 显示一个 id 总好过让审批决定写不进事件。
+    /// 节点类型。`decide_approval` 靠它区分「审批节点」与
+    /// 「因权限档被拦下的节点」—— 两者对「批准」的含义完全不同。
+    ///
+    /// 查不到时返回空串：那会走「重新执行」那一支，而重跑一个
+    /// 已经批准过的节点，最坏是多做一次；反过来漏掉执行是静默跳过。
+    fn node_type(&self, store: &Store, run_id: &str, node_id: &str) -> Result<String> {
+        let Some(graph_json) = store.run_graph(run_id)? else {
+            return Ok(String::new());
+        };
+        let graph: WorkflowGraph =
+            serde_json::from_str(&graph_json).map_err(|e| RunError::GraphInvalid(e.to_string()))?;
+        Ok(graph
+            .nodes
+            .iter()
+            .find(|n| n.id == node_id)
+            .map_or_else(String::new, |n| n.node_type.clone()))
+    }
+
     fn node_title(&self, store: &Store, run_id: &str, node_id: &str) -> Result<String> {
         let Some(graph_json) = store.run_graph(run_id)? else {
             return Ok(node_id.to_string());

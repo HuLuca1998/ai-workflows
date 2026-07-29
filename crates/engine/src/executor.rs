@@ -5,7 +5,6 @@
 //! 那时错误离原因已经很远。
 
 use std::path::{Path, PathBuf};
-use std::process::Command;
 use std::time::Duration;
 
 use crate::acp::{AcpClient, SessionUpdate, adapter_command, adapter_installed, env_to_remove};
@@ -791,6 +790,43 @@ impl NodeExecutor {
             prefixed
         };
 
+        // 分析 / 审查对象拼在指令**前面**。
+        //
+        // `target` 是契约里 `ai.analyze` / `ai.review` 的**必填**字段
+        // （「分析对象」/「审查对象」），而这里曾经根本不读它 ——
+        // 内置模板用 `target: "${read_issue.success}"` 把 issue 正文交给分析师，
+        // agent 收到的却只有角色和记忆，于是回一句
+        // 「请提供要分析的具体问题和现有证据」。界面能填、能存、能校验，
+        // 引擎不读，这比直接报错更糟：没有任何一处会告诉用户它没生效。
+        //
+        // 材料在前、指令在后：issue 正文可能有几千字，把指令压在它下面的话，
+        // 「这一次要干什么」就被推到很远的地方去了 —— 而下面那段注释
+        // （「指令留在最后」）说的正是同一件事。带个抬头是为了让模型
+        // 分得清哪些是给它的指令、哪些是要它处理的材料。
+        let instruction = match node
+            .config
+            .get("target")
+            .and_then(serde_json::Value::as_str)
+            .map(str::trim)
+            .filter(|text| !text.is_empty())
+        {
+            // ai.decide / ai.execute 的契约里没有这个字段，缺了很正常
+            None => instruction,
+            Some(raw) => {
+                // 不解析就发出去的话，agent 看到的是 `${read_issue.success}`
+                // 这串字面量，会把它当成一个真实存在的东西去理解
+                let target = match interpolate(raw, scope) {
+                    Ok(text) => text,
+                    Err(error) => {
+                        return Ok(NodeOutcome::Failed {
+                            message: error.to_string(),
+                        });
+                    }
+                };
+                format!("要处理的对象：\n{target}\n\n{instruction}")
+            }
+        };
+
         // 角色拼在最前面，节点的指令留在最后。
         //
         // 顺序是有讲究的：角色说的是「你是谁、你怎么做事、交出什么形状」，
@@ -1088,7 +1124,7 @@ pub fn workspace_changes(dir: &Path) -> Option<WorkspaceChanges> {
     // `-uall` 让新建目录里的文件逐个列出，而不是折成一个目录名
     // `core.quotePath=false`：默认会把非 ASCII 路径转义成八进制
     // （`新的.rs` → `\346\226\260…`），事件摘要里就成了一串乱码
-    let output = Command::new("git")
+    let output = crate::tooling::command("git")
         .args([
             "-c",
             "core.quotePath=false",

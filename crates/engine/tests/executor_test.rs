@@ -1872,3 +1872,116 @@ fn worktree_节点记下分支与路径() {
     );
     assert!(输出[0].summary.contains("worktree"), "{}", 输出[0].summary);
 }
+
+/// `target` 是契约里 `ai.analyze` / `ai.review` 的**必填**配置字段
+/// （`z.string().min(1)`，描述是「分析对象」/「审查对象」）。
+///
+/// 用户报的：内置模板用 `target: "${read_issue.success}"` 把 issue 正文
+/// 传给分析师，而引擎从不读这个字段 —— AI 收到的提示词里只有角色和记忆，
+/// 于是回了一句「请提供要分析的具体问题和现有证据」。
+/// 界面能填、能存、能校验，引擎不读 —— 填了不生效比报错更糟。
+mod 分析对象 {
+    #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+
+    use super::{mock_acp, node, workdir, 收到的提示词};
+    use aiwf_engine::executor::NodeExecutor;
+    use aiwf_engine::interp::Scope;
+    use aiwf_engine::runner::NodeOutcome;
+
+    #[test]
+    fn target_要进提示词() {
+        let (command, args) = mock_acp();
+        let executor = NodeExecutor::new(workdir()).with_acp_command(&command, &args);
+
+        let mut scope = Scope::new("run_target");
+        let outcome = executor
+            .execute(
+                &node(
+                    "analyze",
+                    "ai.analyze",
+                    serde_json::json!({
+                        "instruction": "定位根因",
+                        "target": "登录接口偶发 500，日志里有 connection reset",
+                        "runtime": "acp.claude"
+                    }),
+                ),
+                &mut scope,
+            )
+            .unwrap();
+        assert!(
+            matches!(outcome, NodeOutcome::Succeeded { .. }),
+            "{outcome:?}"
+        );
+
+        let prompt = 收到的提示词(&scope, "analyze");
+        assert!(
+            prompt.contains("connection reset"),
+            "分析对象没进提示词，AI 拿到的是一个空任务：{prompt}"
+        );
+        assert!(prompt.contains("定位根因"), "指令也要在：{prompt}");
+    }
+
+    #[test]
+    fn target_里的变量引用要先解析() {
+        // 内置模板写的是 `${read_issue.success}` —— 不解析的话，
+        // agent 收到的是那串字面量，会把它当成一个真实存在的东西去理解
+        let (command, args) = mock_acp();
+        let executor = NodeExecutor::new(workdir()).with_acp_command(&command, &args);
+
+        let mut scope = Scope::new("run_target_interp");
+        scope.set_node_output(
+            "read_issue",
+            "success",
+            serde_json::json!("标题：登录超时\n正文：并发一高就 500"),
+        );
+
+        executor
+            .execute(
+                &node(
+                    "analyze",
+                    "ai.analyze",
+                    serde_json::json!({
+                        "instruction": "定位根因",
+                        "target": "${read_issue.success}",
+                        "runtime": "acp.claude"
+                    }),
+                ),
+                &mut scope,
+            )
+            .unwrap();
+
+        let prompt = 收到的提示词(&scope, "analyze");
+        assert!(prompt.contains("并发一高就 500"), "{prompt}");
+        assert!(!prompt.contains("${read_issue"), "留下了字面量：{prompt}");
+    }
+
+    #[test]
+    fn 没有_target_的节点照常跑() {
+        // ai.decide / ai.execute 的契约里没有 target —— 不能因为缺它就失败
+        let (command, args) = mock_acp();
+        let executor = NodeExecutor::new(workdir()).with_acp_command(&command, &args);
+
+        let mut scope = Scope::new("run_no_target");
+        let outcome = executor
+            .execute(
+                &node(
+                    "act",
+                    "ai.execute",
+                    // workdirSource 用 inherit：默认的 worktree 要求上游有
+                    // git.worktree 节点，那是另一回事，会盖住这条要测的东西
+                    serde_json::json!({
+                        "instruction": "改一下",
+                        "workdirSource": "inherit",
+                        "runtime": "acp.claude"
+                    }),
+                ),
+                &mut scope,
+            )
+            .unwrap();
+
+        assert!(
+            matches!(outcome, NodeOutcome::Succeeded { .. }),
+            "{outcome:?}"
+        );
+    }
+}

@@ -679,3 +679,166 @@ fn ai_节点的对话与工具调用真的落进事件表() {
     assert_eq!(提问.actor, "agent", "对话事件的 actor 不是 engine");
     assert!(提问.payload_ref.is_some(), "全文要落产物，事件里只留摘要");
 }
+
+/// 权限档挂起的节点，批准之后必须**真的执行**。
+///
+/// 用户报的：内置模板里那个「读取 Issue」（`script.shell`）在
+/// review_every_change 档下挂起等审批，他点了同意，界面写着「审批通过」，
+/// 而 `gh issue view` 一次都没跑 —— 下游的 AI 分析于是拿到一个空的分析对象，
+/// 回了一句「请提供要分析的具体问题和现有证据」。
+///
+/// `decide_approval` 里那条注释早就写着这个危害：「completed_nodes 信任所有
+/// node.succeeded，那个节点的真实脚本就被整个跳过了」——
+/// 它防住了「审批指向错节点」，却没防住「因权限档挂起的节点」走同一条路。
+mod 权限档审批 {
+    #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+
+    use aiwf_engine::runner::{NodeOutcome, RunRequest, Runner, StepResult};
+    use aiwf_store::Store;
+
+    const 脚本图: &str = r#"{
+      "nodes": [
+        {"id":"entry","type":"entry","title":"入口","position":{"x":0,"y":0},"config":{}},
+        {"id":"read","type":"script.shell","title":"读取 Issue","position":{"x":1,"y":0},"config":{}},
+        {"id":"done","type":"end","title":"结束","position":{"x":2,"y":0},"config":{}}
+      ],
+      "edges": [
+        {"id":"e1","source":{"nodeId":"entry","port":"success"},"target":{"nodeId":"read","port":"input"}},
+        {"id":"e2","source":{"nodeId":"read","port":"success"},"target":{"nodeId":"done","port":"input"}}
+      ],
+      "groups": []
+    }"#;
+
+    /// 走默认权限档（review_every_change）—— 用户撞上的就是这一档。
+    fn 库() -> (Store, String) {
+        let store = Store::open_in_memory().unwrap();
+        let workflow = store
+            .create_workflow_with_graph("测试流程", None, 脚本图)
+            .unwrap();
+        (store, workflow)
+    }
+
+    fn 请求(workflow_id: &str) -> RunRequest {
+        RunRequest {
+            workflow_id: workflow_id.to_string(),
+            version_id: None,
+            draft_rev: Some(0),
+            inputs_json: "{}".to_string(),
+            workdir: "/tmp/aiwf-test".to_string(),
+        }
+    }
+
+    #[test]
+    fn 批准之后脚本真的被执行了() {
+        let (store, workflow) = 库();
+        let runner = Runner::new();
+        let run_id = runner.start(&store, 请求(&workflow)).unwrap();
+
+        // 跑到脚本节点，它应当因为权限档挂起
+        loop {
+            let 结果 = runner
+                .step(&store, &run_id, |node| {
+                    if node.id == "read" {
+                        return NodeOutcome::NeedsApproval;
+                    }
+                    NodeOutcome::Succeeded {
+                        port: "success".to_string(),
+                    }
+                })
+                .unwrap();
+            if !matches!(结果, StepResult::Advanced { .. }) {
+                break;
+            }
+        }
+        assert_eq!(
+            runner.status(&store, &run_id).unwrap(),
+            "waiting_approval",
+            "脚本节点应当先挂起等审批"
+        );
+
+        runner
+            .decide_approval(&store, &run_id, "read", "approved")
+            .unwrap();
+
+        // 批准之后再推进：这一次那个节点必须真的进执行器
+        let 批准后执行 = std::cell::Cell::new(false);
+        while let StepResult::Advanced { .. } = runner
+            .step(&store, &run_id, |node| {
+                if node.id == "read" {
+                    批准后执行.set(true);
+                }
+                NodeOutcome::Succeeded {
+                    port: "success".to_string(),
+                }
+            })
+            .unwrap()
+        {}
+
+        assert!(
+            批准后执行.get(),
+            "批准之后节点没有再被执行 —— 界面写着「审批通过」，而脚本一次都没跑"
+        );
+        assert_eq!(runner.status(&store, &run_id).unwrap(), "succeeded");
+    }
+
+    #[test]
+    fn approval_节点本身批准即完成_不重复执行() {
+        // 审批节点是引擎强制的暂停点，它没有「要执行的东西」。
+        // 把它也拉回去重跑的话，用户会被同一个审批问第二次
+        let store = Store::open_in_memory().unwrap();
+        let graph = r#"{
+          "nodes": [
+            {"id":"entry","type":"entry","title":"入口","position":{"x":0,"y":0},"config":{}},
+            {"id":"ap","type":"approval","title":"审批","position":{"x":1,"y":0},"config":{"title":"确认"}},
+            {"id":"done","type":"end","title":"结束","position":{"x":2,"y":0},"config":{}}
+          ],
+          "edges": [
+            {"id":"e1","source":{"nodeId":"entry","port":"success"},"target":{"nodeId":"ap","port":"input"}},
+            {"id":"e2","source":{"nodeId":"ap","port":"approved"},"target":{"nodeId":"done","port":"input"}}
+          ],
+          "groups": []
+        }"#;
+        let workflow = store
+            .create_workflow_with_graph("测试流程", None, graph)
+            .unwrap();
+        let runner = Runner::new();
+        let run_id = runner.start(&store, 请求(&workflow)).unwrap();
+
+        loop {
+            let 结果 = runner
+                .step(&store, &run_id, |node| {
+                    if node.node_type == "approval" {
+                        return NodeOutcome::NeedsApproval;
+                    }
+                    NodeOutcome::Succeeded {
+                        port: "success".to_string(),
+                    }
+                })
+                .unwrap();
+            if !matches!(结果, StepResult::Advanced { .. }) {
+                break;
+            }
+        }
+
+        runner
+            .decide_approval(&store, &run_id, "ap", "approved")
+            .unwrap();
+
+        let 又问了一次 = std::cell::Cell::new(false);
+        while let StepResult::Advanced { .. } = runner
+            .step(&store, &run_id, |node| {
+                if node.node_type == "approval" {
+                    又问了一次.set(true);
+                    return NodeOutcome::NeedsApproval;
+                }
+                NodeOutcome::Succeeded {
+                    port: "success".to_string(),
+                }
+            })
+            .unwrap()
+        {}
+
+        assert!(!又问了一次.get(), "同一个审批不该问第二次");
+        assert_eq!(runner.status(&store, &run_id).unwrap(), "succeeded");
+    }
+}
