@@ -2966,6 +2966,64 @@ fn node_事件缺_attempt_时拒收() {
     );
 }
 
+/// 契约那条 refine 管两件事：nodeId 与 attempt。只堵一半的话，
+/// 下一条写入路径分岔时分的就是另一半 —— 症状一模一样（整页不合契约）。
+#[test]
+fn node_事件缺_node_id_时拒收() {
+    let store = Store::open_in_memory().unwrap();
+    let workflow = store.create_workflow("流程", None).unwrap();
+    let run = store.create_run(&workflow, None, Some(0), "{}").unwrap();
+
+    let 结果 = store.append_event(&aiwf_store::NewRunEvent {
+        run_id: run.clone(),
+        kind: "node.started".to_string(),
+        node_id: None,
+        node_label: None,
+        attempt: Some(1),
+        actor: "system".to_string(),
+        status: None,
+        summary: "开始".to_string(),
+        payload_ref: None,
+        artifact_refs: vec![],
+        parent_event_id: None,
+        sensitivity: "internal".to_string(),
+        schema_ver: 1,
+    });
+
+    let error = 结果.expect_err("node.* 缺 node_id 该被拒收");
+    assert!(
+        error.to_string().contains("node_id"),
+        "要说清缺的是什么：{error}"
+    );
+}
+
+/// 非 node.* 不受这两条约束 —— conversation / tool / script / reasoning
+/// 本来就没有节点归属或轮次的概念，一刀切会把它们全挡在外面。
+#[test]
+fn 非_node_事件不受这两条约束() {
+    let store = Store::open_in_memory().unwrap();
+    let workflow = store.create_workflow("流程", None).unwrap();
+    let run = store.create_run(&workflow, None, Some(0), "{}").unwrap();
+
+    store
+        .append_event(&aiwf_store::NewRunEvent {
+            run_id: run,
+            kind: "run.started".to_string(),
+            node_id: None,
+            node_label: None,
+            attempt: None,
+            actor: "system".to_string(),
+            status: None,
+            summary: "开跑".to_string(),
+            payload_ref: None,
+            artifact_refs: vec![],
+            parent_event_id: None,
+            sensitivity: "internal".to_string(),
+            schema_ver: 1,
+        })
+        .expect("run.* 没有 attempt 的概念，不该被这条拦住");
+}
+
 #[test]
 fn node_事件带了_attempt_就收() {
     let store = Store::open_in_memory().unwrap();

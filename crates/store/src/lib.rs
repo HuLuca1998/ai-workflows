@@ -2206,20 +2206,30 @@ impl Store {
 
     /// 追加事件。seq 在写入前分配，保证同一 run 内连续且不重复。
     pub fn append_event(&self, event: &NewRunEvent) -> Result<AppendedEvent> {
-        // 契约：`node.*` 事件必须带 attempt（重试历史靠它区分轮次）。
+        // 契约对 `node.*` 有两条硬要求：带 nodeId（否则画布里定位不到）、
+        // 带 attempt（重试历史靠它区分轮次）。两条都拦在这里。
         //
         // 拦在这里而不是靠每条写入路径自觉 —— 写入路径会一直加，
         // 而这条是契约的规则不是某条路径的。issue #1 就是这么来的：
         // 引擎多了一条事件通道，它填 `attempt: None`，于是
         // `node.output_emitted` 缺 attempt，界面把**整页**事件流判为不合契约。
+        // 一条事件坏了整页看不了，所以宁可写不进去也不能写脏。
         //
         // 只管 `node.*`：conversation / tool / script / reasoning 没有
         // attempt 的概念，一刀切要求的话它们全写不进去。
-        if event.kind.starts_with("node.") && event.attempt.is_none() {
-            return Err(StoreError::Invalid(format!(
-                "{} 缺 attempt。契约要求每个 node.* 事件带上它 —— 重试历史靠它区分轮次",
-                event.kind
-            )));
+        if event.kind.starts_with("node.") {
+            if event.node_id.is_none() {
+                return Err(StoreError::Invalid(format!(
+                    "{} 缺 node_id。契约要求每个 node.* 事件带上它 —— 没有它就没法在画布里定位",
+                    event.kind
+                )));
+            }
+            if event.attempt.is_none() {
+                return Err(StoreError::Invalid(format!(
+                    "{} 缺 attempt。契约要求每个 node.* 事件带上它 —— 重试历史靠它区分轮次",
+                    event.kind
+                )));
+            }
         }
         if event.summary.chars().count() > EVENT_SUMMARY_MAX {
             return Err(StoreError::Invalid(format!(
