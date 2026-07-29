@@ -26,13 +26,9 @@
                 "title": "Issue 编号"
               },
               "repo": {
-                "type": "string",
-                "title": "仓库"
-              },
-              "base": {
-                "type": "string",
-                "title": "基础分支",
-                "default": "main"
+                "type": "object",
+                "format": "repo",
+                "title": "仓库与分支"
               }
             }
           },
@@ -103,8 +99,8 @@
           "y": 184
         },
         "config": {
-          "repoRoot": "${input.repo}",
-          "baseBranch": "${input.base}",
+          "repoRoot": "${input.repo.name}",
+          "baseBranch": "${input.repo.branch}",
           "branchTemplate": "fix/${input.issue}-${run.id}",
           "parentDir": "~/worktrees",
           "fetch": true,

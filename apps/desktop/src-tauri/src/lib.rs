@@ -600,6 +600,17 @@ fn env_health(recheck: Option<bool>) -> IpcResult<api::EnvHealthReport> {
 }
 
 #[tauri::command]
+fn github_repos(query: Option<String>, limit: Option<i64>) -> IpcResult<api::github::RepoListDto> {
+    // 同样不碰 store：它问的是当前 gh 账号能看到什么
+    api::github::repos(query, limit)
+}
+
+#[tauri::command]
+fn github_branches(repo: String) -> IpcResult<api::github::BranchListDto> {
+    api::github::branches(repo)
+}
+
+#[tauri::command]
 fn workflow_create(
     state: State<'_, AppState>,
     name: Option<String>,
@@ -890,6 +901,8 @@ pub fn run() {
             workspace_reset_preview,
             workspace_reset,
             env_health,
+            github_repos,
+            github_branches,
             run_diagnostics,
             run_artifact_content,
             workflow_create,

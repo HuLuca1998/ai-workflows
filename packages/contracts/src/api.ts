@@ -1053,6 +1053,51 @@ const SPECS = {
     summary: '删除 Agent 角色（被引用时拒绝）',
   },
 
+  // ── GitHub ──────────────────────────────────────────────────────────────
+  //
+  // 启动表单里的仓库字段（`format: 'repo'`）靠这两条填下拉。
+  //
+  // 为什么值得单开两个方法：仓库全名与分支名是**用户记不住也不该记**的东西 ——
+  // 手填一个 `owner/name` 打错一个字，要等运行跑到 git clone 那一步才报错，
+  // 而那时 worktree 已经建好了。让他从自己有权限的仓库里选，这类错就不存在。
+  //
+  // 都走本机已登录的 `gh`。gh 没装或没登录时**报错而不是返回空列表** ——
+  // 一个空下拉看着像「你没有仓库」，用户会去 GitHub 上找自己哪儿配错了。
+  'github.repos': {
+    input: z.object({
+      /** 按全名过滤，留空给最近推送过的那些。 */
+      query: z.string().optional(),
+      limit: z.number().int().positive().max(200).default(100),
+    }),
+    output: z.object({
+      items: z.array(
+        z.object({
+          /** `owner/name`。这就是 git 与 gh 都认的那个标识。 */
+          fullName: z.string().min(1),
+          defaultBranch: z.string().min(1),
+          /** 组织仓库。界面上分组显示，个人的和组织的混在一起很难找。 */
+          isOrg: z.boolean(),
+        }),
+      ),
+    }),
+    mutates: false,
+    audited: false,
+    scope: 'workflow:read',
+    summary: '列出当前 gh 账号有权限的仓库（含组织仓库）',
+  },
+  'github.branches': {
+    input: z.object({ repo: z.string().min(1) }),
+    output: z.object({
+      items: z.array(z.string().min(1)),
+      /** 默认分支排在前面，也用来给启动表单预选。 */
+      defaultBranch: z.string().min(1),
+    }),
+    mutates: false,
+    audited: false,
+    scope: 'workflow:read',
+    summary: '列出一个仓库的分支',
+  },
+
   // ── 环境 ────────────────────────────────────────────────────────────────
   'env.health': {
     input: z.object({ recheck: z.boolean().default(false) }),

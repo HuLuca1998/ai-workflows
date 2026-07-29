@@ -12,10 +12,14 @@
 
 pub mod dispatch;
 pub mod env;
+pub mod github;
 pub mod mcp_clients;
 pub mod mcp_config;
 
-pub use env::{EnvHealthItem, EnvHealthReport, EnvSource, EnvStatus, env_health};
+pub use env::{
+    EnvHealthItem, EnvHealthReport, EnvSource, EnvStatus, adapter_missing_detail, env_health,
+    gh_login_state,
+};
 
 use std::path::Path;
 
@@ -2630,25 +2634,29 @@ pub fn model_test(store: &Store, id: String) -> ApiResult<ModelTestResult> {
         })?;
 
     let started = std::time::Instant::now();
-    let 结果 = probe_runtime(&model.runtime, |command| {
-        let mut client = AcpClient::connect(
-            command,
-            &[],
-            &env_to_remove(&model.runtime),
-            std::time::Duration::from_secs(30),
-        )
-        .map_err(|error| format!("连不上 adapter：{error}"))?;
+    let 结果 = probe_runtime(
+        &model.runtime,
+        aiwf_engine::acp::adapter_installed,
+        |command| {
+            let mut client = AcpClient::connect(
+                command,
+                &[],
+                &env_to_remove(&model.runtime),
+                std::time::Duration::from_secs(30),
+            )
+            .map_err(|error| format!("连不上 adapter：{error}"))?;
 
-        let session = client
-            .new_session(&std::env::temp_dir().display().to_string())
-            .map_err(|error| format!("握手成功但建会话失败：{error}"))?;
+            let session = client
+                .new_session(&std::env::temp_dir().display().to_string())
+                .map_err(|error| format!("握手成功但建会话失败：{error}"))?;
 
-        Ok(format!(
-            "握手成功 · 协议 v{} · 会话已建立（{} 个权限档）",
-            client.protocol_version(),
-            session.modes.len()
-        ))
-    });
+            Ok(format!(
+                "握手成功 · 协议 v{} · 会话已建立（{} 个权限档）",
+                client.protocol_version(),
+                session.modes.len()
+            ))
+        },
+    );
     let latency_ms = i64::try_from(started.elapsed().as_millis()).unwrap_or(i64::MAX);
 
     // 失败也记：用户看到一个停在上周的延迟会以为现在还是那么快
@@ -2669,18 +2677,23 @@ pub fn model_test(store: &Store, id: String) -> ApiResult<ModelTestResult> {
 }
 
 /// 找到运行时对应的 adapter 再跑探测。找不到时给出可照做的说明。
-fn probe_runtime(
+///
+/// `找_adapter` 是参数而不是直接调 `adapter_installed`，**为的是能测**：
+/// 「adapter 没装时说什么」这条分支原先只能靠「跑测试的机器上恰好没装」
+/// 来触发 —— 开发机上一装 adapter 它就变成真的去握手，
+/// 于是一条本该几微秒的单测会起一个 codex 进程，最长等 30 秒，
+/// 而断言「没装」的那句话再也测不到。
+pub fn probe_runtime(
     runtime: &str,
+    找_adapter: impl FnOnce(&str) -> Option<String>,
     probe: impl FnOnce(&str) -> std::result::Result<String, String>,
 ) -> std::result::Result<String, String> {
-    use aiwf_engine::acp::{adapter_command, adapter_installed};
-
-    if adapter_command(runtime).is_none() {
+    if aiwf_engine::acp::adapter_command(runtime).is_none() {
         return Err(format!(
             "{runtime} 不是 ACP 运行时，连通性测试只支持 ACP（acp.claude / acp.codex）"
         ));
     }
-    let Some(command) = adapter_installed(runtime) else {
+    let Some(command) = 找_adapter(runtime) else {
         return Err(format!(
             "{runtime} 的 adapter 没有安装。在「设置与环境」里能看到怎么装"
         ));

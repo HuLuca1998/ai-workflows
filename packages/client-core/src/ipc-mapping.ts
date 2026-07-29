@@ -31,6 +31,8 @@ const COMMANDS: Partial<Record<CoreApiMethod, string>> = {
   'workspace.resetPreview': 'workspace_reset_preview',
   'workspace.reset': 'workspace_reset',
   'env.health': 'env_health',
+  'github.repos': 'github_repos',
+  'github.branches': 'github_branches',
   'run.diagnostics': 'run_diagnostics',
   'supervisor.sessions': 'supervisor_sessions',
   'supervisor.session': 'supervisor_session',
@@ -450,6 +452,8 @@ export function fromIpcResult(method: CoreApiMethod, raw: unknown): unknown {
     case 'workspace.resetPreview':
     case 'workspace.reset':
     case 'env.health':
+    case 'github.repos':
+    case 'github.branches':
     case 'run.diagnostics':
     case 'workflow.discardIfEmpty':
       return raw;

@@ -55,6 +55,7 @@ mod 回到审批点 {
 mod 模型连通性 {
     #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
+    use aiwf_core_api::probe_runtime;
     use aiwf_store::{NewModel, Store};
 
     fn 模型(store: &Store, runtime: &str) -> String {
@@ -79,18 +80,28 @@ mod 模型连通性 {
     }
 
     #[test]
-    fn adapter_没装时不算报错_而是_ok_false_加原因() {
-        // 这是最常见的情况，用户需要的是「装什么」，不是一个红色的异常
-        let store = Store::open_in_memory().unwrap();
-        let id = 模型(&store, "acp.codex");
+    fn adapter_没装时不算报错_而是给出可照做的说明() {
+        // 这是最常见的情况，用户需要的是「装什么」，不是一个红色的异常。
+        //
+        // 「没装」这个条件由测试自己造，不靠跑测试的机器上恰好没装 ——
+        // 这条原先就是那么写的，于是开发机一装上 adapter 它就变成
+        // 真的去握手（起一个 codex 进程，最长 30 秒），而要断言的那句话
+        // 反而再也走不到
+        let 话 = probe_runtime("acp.codex", |_| None, |_| panic!("没装就不该去探测"))
+            .expect_err("adapter 没装却报告成功");
 
-        let 结果 = aiwf_core_api::model_test(&store, id).unwrap();
-        assert!(!结果.ok);
-        assert!(
-            结果.detail.contains("adapter"),
-            "没说清是 adapter 的问题：{}",
-            结果.detail
+        assert!(话.contains("adapter"), "没说清是 adapter 的问题：{话}");
+        assert!(话.contains("设置与环境"), "没说去哪儿看怎么装：{话}");
+    }
+
+    #[test]
+    fn adapter_装了就把它交给探测() {
+        let 结果 = probe_runtime(
+            "acp.codex",
+            |_| Some("/somewhere/codex-acp".to_string()),
+            |command| Ok(format!("探测用的是 {command}")),
         );
+        assert_eq!(结果.unwrap(), "探测用的是 /somewhere/codex-acp");
     }
 
     #[test]
@@ -106,9 +117,12 @@ mod 模型连通性 {
 
     #[test]
     fn 测过之后延迟写回模型行() {
-        // 图纸的凭据卡里有一行「延迟 · 1.4s（最近一次测试）」
+        // 图纸的凭据卡里有一行「延迟 · 1.4s（最近一次测试）」。
+        //
+        // 用 provider.api：它在第一道分支就被挡下，测的是「失败也记延迟」，
+        // 而不用去起一个真的 adapter 进程
         let store = Store::open_in_memory().unwrap();
-        let id = 模型(&store, "acp.codex");
+        let id = 模型(&store, "provider.api");
 
         let _ = aiwf_core_api::model_test(&store, id.clone()).unwrap();
         let 模型行 = store.get_model(&id).unwrap().unwrap();

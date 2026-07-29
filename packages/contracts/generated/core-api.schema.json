@@ -5980,6 +5980,100 @@
       ]
     }
   },
+  "github.repos": {
+    "summary": "列出当前 gh 账号有权限的仓库（含组织仓库）",
+    "scope": "workflow:read",
+    "mutates": false,
+    "audited": false,
+    "input": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "query": {
+          "type": "string"
+        },
+        "limit": {
+          "default": 100,
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 200
+        }
+      }
+    },
+    "output": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "items": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "fullName": {
+                "type": "string",
+                "minLength": 1
+              },
+              "defaultBranch": {
+                "type": "string",
+                "minLength": 1
+              },
+              "isOrg": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "fullName",
+              "defaultBranch",
+              "isOrg"
+            ]
+          }
+        }
+      },
+      "required": [
+        "items"
+      ]
+    }
+  },
+  "github.branches": {
+    "summary": "列出一个仓库的分支",
+    "scope": "workflow:read",
+    "mutates": false,
+    "audited": false,
+    "input": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "repo": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "repo"
+      ]
+    },
+    "output": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "items": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "defaultBranch": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "items",
+        "defaultBranch"
+      ]
+    }
+  },
   "env.health": {
     "summary": "环境健康报告",
     "scope": "workflow:read",

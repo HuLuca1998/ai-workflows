@@ -46,8 +46,12 @@ const ISSUE_FIX: WorkflowTemplate = {
           required: ['issue', 'repo'],
           properties: {
             issue: { type: 'string', title: 'Issue 编号' },
-            repo: { type: 'string', title: '仓库' },
-            base: { type: 'string', title: '基础分支', default: 'main' },
+            // `format: 'repo'` —— 启动表单据此渲染仓库与分支两个联动下拉，
+            // 列表来自本机已登录的 gh。值是 `{name, branch}`：
+            // 分支只有在某个仓库里才有意义，拆成两个字段填的话，
+            // 用户可以给 A 仓库配上一个 B 仓库才有的分支，
+            // 而那要等运行跑到 git checkout 才报错
+            repo: { type: 'object', format: 'repo', title: '仓库与分支' },
           },
         },
         injectedFields: ['run.id', 'run.startedAt'],
@@ -98,8 +102,8 @@ const ISSUE_FIX: WorkflowTemplate = {
       title: '创建 Git worktree',
       position: { x: 790, y: 184 },
       config: {
-        repoRoot: '${input.repo}',
-        baseBranch: '${input.base}',
+        repoRoot: '${input.repo.name}',
+        baseBranch: '${input.repo.branch}',
         branchTemplate: 'fix/${input.issue}-${run.id}',
         // 保留到 PR 合并：图纸里那条记忆说的就是这件事
         cleanupPolicy: 'manual',

@@ -263,6 +263,11 @@ pub fn dispatch(
         "env_health" => to_value(api::env_health(
             opt_bool(input, "recheck").unwrap_or(false),
         )?),
+        "github_repos" => to_value(api::github::repos(
+            opt_string(input, "query"),
+            opt_int(input, "limit"),
+        )?),
+        "github_branches" => to_value(api::github::branches(string(input, "repo")?)?),
         "workspace_stats" => to_value(api::workspace_stats(&store, Some(data_dir))?),
         "mcp_request_confirm" => to_value(api::mcp_request_confirm(
             &store,

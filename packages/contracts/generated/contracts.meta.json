@@ -178,6 +178,8 @@
     "agent.update",
     "agent.duplicate",
     "agent.delete",
+    "github.repos",
+    "github.branches",
     "env.health",
     "run.diagnostics",
     "env.diagnostics",
