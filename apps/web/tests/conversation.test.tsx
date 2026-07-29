@@ -146,8 +146,12 @@ describe('对话视图', () => {
         hasAiNode
       />,
     );
-    expect(screen.getByText(/人工审批/u)).toBeTruthy();
-    expect(screen.getByText(/approved/u)).toBeTruthy();
+    // 请求与决定合成**一张**卡：拆成两条读起来是「审批 / 审批」
+    const 卡 = screen.getAllByRole('listitem');
+    expect(卡).toHaveLength(1);
+    expect(within(卡[0]!).getByText(/approved/u)).toBeTruthy();
+    expect(within(卡[0]!).getByText(/user/u)).toBeTruthy();
+    expect(screen.getByRole('separator').textContent).toContain('人工审批');
   });
 
   it('推理摘要与回答分开显示', () => {
@@ -162,5 +166,64 @@ describe('对话视图', () => {
     );
     expect(screen.getByText(/先看 watcher 的顺序/u)).toBeTruthy();
     expect(screen.getByText(/推理/u)).toBeTruthy();
+  });
+});
+
+describe('按节点分段', () => {
+  it('跨节点时插一条分隔，不让四个 Agent 的消息混在一起', () => {
+    render(
+      <ConversationView
+        events={[
+          事件('conversation.agent_message', {
+            nodeId: 'analyze',
+            nodeLabel: '分析 Issue',
+            summary: '根因是缓存',
+          }),
+          事件('conversation.agent_message', {
+            nodeId: 'review',
+            nodeLabel: '审查修复',
+            summary: '有一个阻塞问题',
+          }),
+        ]}
+        hasAiNode
+      />,
+    );
+
+    const 分段 = screen.getAllByRole('separator');
+    expect(分段).toHaveLength(2);
+    expect(分段[0]!.textContent).toContain('分析 Issue');
+    expect(分段[1]!.textContent).toContain('审查修复');
+  });
+
+  it('同一个节点的连续消息不重复插分隔', () => {
+    render(
+      <ConversationView
+        events={[
+          事件('conversation.user_message', {
+            nodeId: 'analyze',
+            nodeLabel: '分析',
+            summary: '问',
+          }),
+          事件('conversation.agent_message', {
+            nodeId: 'analyze',
+            nodeLabel: '分析',
+            summary: '答',
+          }),
+        ]}
+        hasAiNode
+      />,
+    );
+    expect(screen.getAllByRole('separator')).toHaveLength(1);
+  });
+
+  it('只有一个节点时不插分隔 —— 节点详情里已经知道是谁了', () => {
+    render(
+      <ConversationView
+        events={[事件('conversation.agent_message', { nodeId: 'analyze', summary: '答' })]}
+        hasAiNode
+        singleNode
+      />,
+    );
+    expect(screen.queryAllByRole('separator')).toHaveLength(0);
   });
 });

@@ -2843,6 +2843,31 @@
   color: var(--color-neutral-400);
 }
 
+/* 审批的结论：与请求同一张卡里的第二行 */
+.conv__decision {
+  margin: 0;
+  font-size: 12px;
+  color: #7fb894;
+}
+
+/* 跨节点的分隔：四个 Agent 的消息连着排，读的人分不清哪段是谁说的 */
+.conv__divider {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 4px 0 -6px;
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  color: var(--color-neutral-600);
+}
+
+.conv__divider::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--color-divider);
+}
+
 /* 审批在对话里是一张有边框的卡，与普通消息区分开 */
 .conv__turn[data-kind='approval'] .conv__body {
   border-radius: 10px;

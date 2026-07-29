@@ -13,7 +13,6 @@ import {
   type NodeTypes,
   type OnSelectionChangeParams,
   type ReactFlowProps,
-  type XYPosition,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import type { NodeType } from '@aiwf/contracts';
@@ -39,100 +38,54 @@ interface LiveReactFlowProps extends Omit<ReactFlowProps, 'nodes' | 'onNodesChan
 }
 
 /**
- * 只让 React Flow 子树响应 pointermove。
+ * 让拖动期间的位置完全留在 React Flow 自己的 store。
  *
- * 拖动位置如果放在 EditorCanvas，工具栏、节点库、状态栏与所有浮层都会跟着
- * 每个鼠标事件重渲染。这里把高频状态隔离起来，并用 rAF 合并高采样率鼠标在
- * 同一屏幕帧内产生的多次 change；草稿仍然只在 dragging=false 时更新一次。
+ * `nodes` 会把组件切到受控模式：XYFlow 每次 pointermove 只上报 change，必须
+ * 等 React props 回灌位置才能画下一帧。这里使用 `defaultNodes`，使其在拖动
+ * 热路径里直接更新内部 Zustand store；外部 graph 变化时才命令式同步一次。
  */
 function LiveReactFlow({
   nodes: graphNodes,
   onNodesChange: persistNodeChanges,
   ...props
 }: LiveReactFlowProps) {
-  const positionsRef = useRef<Map<string, XYPosition>>(new Map());
+  const { setNodes } = useReactFlow();
   const activeDragIdsRef = useRef<Set<string>>(new Set());
-  const frameRef = useRef<number | null>(null);
-  const [dragPositions, setDragPositions] = useState<ReadonlyMap<string, XYPosition>>(
-    () => new Map(),
-  );
+  const previousGraphNodesRef = useRef(graphNodes);
 
-  const flushDragPositions = useCallback(() => {
-    frameRef.current = null;
-    setDragPositions(new Map(positionsRef.current));
-  }, []);
-
-  useEffect(
-    () => () => {
-      if (frameRef.current !== null) cancelAnimationFrame(frameRef.current);
-    },
-    [],
-  );
-
-  // 最终坐标进入 graph 后再清临时覆盖，前后两层位置相同，不会在松手时跳一帧。
   useEffect(() => {
-    setDragPositions((current) => {
-      let changed = false;
-      const next = new Map(current);
-      for (const [id, position] of current) {
-        if (activeDragIdsRef.current.has(id)) continue;
-        const graphNode = graphNodes.find((node) => node.id === id);
-        if (graphNode?.position.x === position.x && graphNode.position.y === position.y) {
-          next.delete(id);
-          positionsRef.current.delete(id);
-          changed = true;
-        }
-      }
-      return changed ? next : current;
-    });
-  }, [graphNodes]);
+    if (previousGraphNodesRef.current === graphNodes) return;
+    previousGraphNodesRef.current = graphNodes;
 
-  const nodes = useMemo(() => {
-    if (dragPositions.size === 0) return graphNodes;
-    return graphNodes.map((node) => {
-      const position = dragPositions.get(node.id);
-      return position ? { ...node, position } : node;
+    setNodes((currentNodes) => {
+      if (activeDragIdsRef.current.size === 0) return graphNodes;
+
+      // 配置、校验或选中态可以在拖动中变化；同步这些字段时保住 XYFlow
+      // 已经算好的实时坐标，不能拿持久层里的旧位置把节点拽回去。
+      const currentById = new Map(currentNodes.map((node) => [node.id, node]));
+      return graphNodes.map((node) => {
+        if (!activeDragIdsRef.current.has(node.id)) return node;
+        const current = currentById.get(node.id);
+        return current ? { ...node, position: current.position } : node;
+      });
     });
-  }, [graphNodes, dragPositions]);
+  }, [graphNodes, setNodes]);
 
   const onNodesChange = useCallback(
     (changes: NodeChange[]) => {
-      let shouldScheduleFrame = false;
-      let shouldFlushNow = false;
-
       for (const change of changes) {
-        if (change.type === 'position' && change.position) {
-          if (change.dragging === true) {
-            positionsRef.current.set(change.id, change.position);
-            activeDragIdsRef.current.add(change.id);
-            shouldScheduleFrame = true;
-          } else if (change.dragging === false) {
-            positionsRef.current.set(change.id, change.position);
-            activeDragIdsRef.current.delete(change.id);
-            shouldFlushNow = true;
-          }
+        if (change.type === 'position') {
+          if (change.dragging === true) activeDragIdsRef.current.add(change.id);
+          if (change.dragging === false) activeDragIdsRef.current.delete(change.id);
         }
-
-        if (change.type === 'remove') {
-          positionsRef.current.delete(change.id);
-          activeDragIdsRef.current.delete(change.id);
-          shouldFlushNow = true;
-        }
+        if (change.type === 'remove') activeDragIdsRef.current.delete(change.id);
       }
-
-      if (shouldFlushNow) {
-        if (frameRef.current !== null) cancelAnimationFrame(frameRef.current);
-        flushDragPositions();
-      } else if (shouldScheduleFrame && frameRef.current === null) {
-        frameRef.current = requestAnimationFrame(flushDragPositions);
-      }
-
       persistNodeChanges(changes);
     },
-    [flushDragPositions, persistNodeChanges],
+    [persistNodeChanges],
   );
 
-  return <ReactFlow {...props} nodes={nodes} onNodesChange={onNodesChange} />;
+  return <ReactFlow {...props} defaultNodes={graphNodes} onNodesChange={onNodesChange} />;
 }
 
 /**

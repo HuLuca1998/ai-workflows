@@ -1,3 +1,5 @@
+import { Fragment } from 'react';
+
 import type { RunEvent } from './runsStore.js';
 
 /**
@@ -23,6 +25,10 @@ interface ToolActivity {
 
 interface Turn {
   key: string;
+  /** 审批的结论。请求与决定合成一张卡 —— 图纸里就是一张。 */
+  decision?: string;
+  /** 这条属于哪个节点。跨节点时要插一条分隔。 */
+  nodeId?: string;
   kind: 'user' | 'agent' | 'reasoning' | 'approval' | 'outcome';
   /** 谁说的。用户是「你」，Agent 是节点标题。 */
   who: string;
@@ -59,6 +65,7 @@ function toTurns(events: readonly RunEvent[]): Turn[] {
       turns.push({
         key: `tools-${pending[0]!.seq}`,
         kind: 'agent',
+        ...(pending[0]!.nodeId === undefined ? {} : { nodeId: pending[0]!.nodeId }),
         who: pending[0]!.nodeLabel ?? pending[0]!.nodeId ?? 'Agent',
         text: '',
         ts: pending[0]!.ts,
@@ -77,6 +84,7 @@ function toTurns(events: readonly RunEvent[]): Turn[] {
     const base = {
       key: event.id,
       ts: event.ts,
+      ...(event.nodeId === undefined ? {} : { nodeId: event.nodeId }),
       ...(event.payloadRef === undefined ? {} : { payloadRef: event.payloadRef }),
     };
 
@@ -112,7 +120,6 @@ function toTurns(events: readonly RunEvent[]): Turn[] {
       }
 
       case 'approval.requested':
-      case 'approval.decided':
         flushInto(turns.at(-1));
         turns.push({
           ...base,
@@ -121,6 +128,24 @@ function toTurns(events: readonly RunEvent[]): Turn[] {
           text: event.summary,
         });
         break;
+
+      case 'approval.decided': {
+        // 折进那张请求卡，不另起一条：「请求了什么」与「批没批」
+        // 是同一件事的两面，拆成两条读起来是「审批 / 审批」
+        const card = [...turns].reverse().find((item) => item.kind === 'approval');
+        const decision = `${event.summary} · 由 ${event.actor}`;
+        if (card) {
+          card.decision = decision;
+        } else {
+          turns.push({
+            ...base,
+            kind: 'approval',
+            who: event.nodeLabel ?? event.nodeId ?? '审批',
+            text: decision,
+          });
+        }
+        break;
+      }
 
       case 'node.failed':
       case 'run.failed':
@@ -153,11 +178,22 @@ export interface ConversationViewProps {
    * 混成一句的话，用户会以为自己的 AI 节点没生效。
    */
   hasAiNode: boolean;
+  /**
+   * 这一份只属于一个节点（节点详情里用的那种）。
+   *
+   * 那时不插节点分隔 —— 外面那一栏已经写着是谁了，再插一条是噪声。
+   */
+  singleNode?: boolean;
   /** 点「全文」时把 payloadRef 交出去，由外层去读产物。 */
   onOpenArtifact?: (relPath: string) => void;
 }
 
-export function ConversationView({ events, hasAiNode, onOpenArtifact }: ConversationViewProps) {
+export function ConversationView({
+  events,
+  hasAiNode,
+  singleNode = false,
+  onOpenArtifact,
+}: ConversationViewProps) {
   const turns = toTurns(events);
 
   if (turns.length === 0) {
@@ -173,45 +209,56 @@ export function ConversationView({ events, hasAiNode, onOpenArtifact }: Conversa
   return (
     <>
       <ul className="conv">
-        {turns.map((turn) => (
-          <li key={turn.key} className="conv__turn" data-kind={turn.kind}>
-            <span className="conv__avatar" aria-hidden="true">
-              {turn.kind === 'user' ? (
-                '你'
-              ) : (
-                <i className={turn.kind === 'approval' ? 'ph ph-user-check' : 'ph ph-sparkle'} />
-              )}
-            </span>
-            <div className="conv__body">
-              <p className="conv__meta">
-                <span className="conv__who">{turn.who}</span>
-                <span className="conv__time">{formatClock(turn.ts)}</span>
-                {turn.kind === 'reasoning' ? <span className="conv__tag">推理</span> : null}
-                {turn.payloadRef && onOpenArtifact ? (
-                  <button
-                    type="button"
-                    className="conv__full"
-                    onClick={() => onOpenArtifact(turn.payloadRef!)}
-                  >
-                    <i className="ph ph-arrows-out-simple" aria-hidden="true" />
-                    全文
-                  </button>
-                ) : null}
-              </p>
-              {/* 摘要与署名一样时不重复显示：审批事件的 summary 常常
-                  就是节点标题，渲染出来是「人工审批 / 人工审批」 */}
-              {turn.text && turn.text !== turn.who ? (
-                <p className="conv__text">{turn.text}</p>
-              ) : null}
-              {turn.tools ? (
-                <p className="conv__tools" title={turn.tools.titles.join('\n')}>
-                  <i className="ph ph-wrench" aria-hidden="true" />
-                  工具活动 · {turn.tools.count} 次
-                  {turn.tools.failed > 0 ? `（${turn.tools.failed} 次失败）` : ''}
+        {turns.map((turn, index) => (
+          <Fragment key={turn.key}>
+            {/* 跨节点时插一条分隔。四个 Agent 的消息连着排，
+                读的人分不清哪一段是谁说的 —— 而每段的判断依据不一样：
+                分析给的是方案，审查给的是结论 */}
+            {!singleNode && turn.nodeId && turn.nodeId !== turns[index - 1]?.nodeId ? (
+              <li className="conv__divider" role="separator">
+                {nodeLabelOf(events, turn.nodeId)}
+              </li>
+            ) : null}
+            <li className="conv__turn" data-kind={turn.kind}>
+              <span className="conv__avatar" aria-hidden="true">
+                {turn.kind === 'user' ? (
+                  '你'
+                ) : (
+                  <i className={turn.kind === 'approval' ? 'ph ph-user-check' : 'ph ph-sparkle'} />
+                )}
+              </span>
+              <div className="conv__body">
+                <p className="conv__meta">
+                  <span className="conv__who">{turn.who}</span>
+                  <span className="conv__time">{formatClock(turn.ts)}</span>
+                  {turn.kind === 'reasoning' ? <span className="conv__tag">推理</span> : null}
+                  {turn.payloadRef && onOpenArtifact ? (
+                    <button
+                      type="button"
+                      className="conv__full"
+                      onClick={() => onOpenArtifact(turn.payloadRef!)}
+                    >
+                      <i className="ph ph-arrows-out-simple" aria-hidden="true" />
+                      全文
+                    </button>
+                  ) : null}
                 </p>
-              ) : null}
-            </div>
-          </li>
+                {/* 摘要与署名一样时不重复显示：审批事件的 summary 常常
+                  就是节点标题，渲染出来是「人工审批 / 人工审批」 */}
+                {turn.text && turn.text !== turn.who ? (
+                  <p className="conv__text">{turn.text}</p>
+                ) : null}
+                {turn.decision ? <p className="conv__decision">{turn.decision}</p> : null}
+                {turn.tools ? (
+                  <p className="conv__tools" title={turn.tools.titles.join('\n')}>
+                    <i className="ph ph-wrench" aria-hidden="true" />
+                    工具活动 · {turn.tools.count} 次
+                    {turn.tools.failed > 0 ? `（${turn.tools.failed} 次失败）` : ''}
+                  </p>
+                ) : null}
+              </div>
+            </li>
+          </Fragment>
         ))}
       </ul>
       <p className="runs__redact">
@@ -220,6 +267,11 @@ export function ConversationView({ events, hasAiNode, onOpenArtifact }: Conversa
       </p>
     </>
   );
+}
+
+/** 节点的标题。事件里带 nodeLabel（当时的标题），没有才退回 id。 */
+function nodeLabelOf(events: readonly RunEvent[], nodeId: string): string {
+  return events.find((event) => event.nodeId === nodeId && event.nodeLabel)?.nodeLabel ?? nodeId;
 }
 
 /** 与事件列表同一种时间格式 —— 两个 tab 并排看时不该有两种写法。 */

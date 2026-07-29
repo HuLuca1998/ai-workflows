@@ -4,14 +4,13 @@ import type { Node, NodeChange, ReactFlowProps } from '@xyflow/react';
 // 而 `import type * as` 不产生运行时引用
 import type * as XYFlow from '@xyflow/react';
 import { MemoryRouter, Route, Routes } from 'react-router';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { EditorPage } from '../src/editor/EditorPage.js';
 import { useEditor } from '../src/editor/editorStore.js';
 
 const captured = vi.hoisted(() => ({
   props: null as ReactFlowProps | null,
   nodeLibraryRenders: 0,
-  animationFrames: [] as FrameRequestCallback[],
 }));
 
 // 这里不测试 XYFlow 自己的拖拽实现，只截住它交给受控组件的 changes，
@@ -69,19 +68,9 @@ function flowProps(): ReactFlowProps {
   return captured.props;
 }
 
-function positionOf(nodeId: string): { x: number; y: number } | undefined {
-  return (flowProps().nodes as Node[] | undefined)?.find((node) => node.id === nodeId)?.position;
-}
-
 beforeEach(() => {
   captured.props = null;
   captured.nodeLibraryRenders = 0;
-  captured.animationFrames = [];
-  vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
-    captured.animationFrames.push(callback);
-    return captured.animationFrames.length;
-  });
-  vi.stubGlobal('cancelAnimationFrame', () => {});
   useEditor.setState({
     workflowId: 'wf_1',
     name: '拖拽测试',
@@ -99,8 +88,6 @@ beforeEach(() => {
   });
 });
 
-afterEach(() => vi.unstubAllGlobals());
-
 describe('节点拖动', () => {
   it('按住鼠标时节点逐帧跟随，松手后才把最终位置写入草稿', () => {
     const apply = vi.fn();
@@ -114,7 +101,13 @@ describe('节点拖动', () => {
       </MemoryRouter>,
     );
 
-    expect(positionOf('entry')).toEqual({ x: 40, y: 34 });
+    // 拖动必须交给 XYFlow 的内部 store。传 nodes 会进入受控模式：每次
+    // pointermove 都要等 React props 回灌坐标，内部与外部状态会争抢而闪烁。
+    expect(flowProps().nodes).toBeUndefined();
+    expect((flowProps().defaultNodes as Node[] | undefined)?.[0]?.position).toEqual({
+      x: 40,
+      y: 34,
+    });
     const rendersBeforeDrag = captured.nodeLibraryRenders;
 
     act(() => {
@@ -136,12 +129,6 @@ describe('节点拖动', () => {
       ] as NodeChange[]);
     });
 
-    // 同一屏幕帧里的高频 pointermove 被合并，只渲染最新坐标。
-    expect(positionOf('entry')).toEqual({ x: 40, y: 34 });
-    expect(captured.animationFrames).toHaveLength(1);
-    act(() => captured.animationFrames.shift()?.(0));
-
-    expect(positionOf('entry')).toEqual({ x: 190, y: 130 });
     expect(apply).not.toHaveBeenCalled();
     expect(captured.nodeLibraryRenders).toBe(rendersBeforeDrag);
 

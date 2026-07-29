@@ -145,6 +145,7 @@ function AiNode({
         <ConversationView
           events={conversationEvents}
           hasAiNode
+          singleNode
           {...(onOpenArtifact ? { onOpenArtifact } : {})}
         />
       </Section>
