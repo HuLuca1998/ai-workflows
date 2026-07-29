@@ -1,4 +1,4 @@
-import { render, screen, within } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 import { NodeDetail } from '../src/runs/NodeDetail.js';
 import type { RunEvent } from '../src/runs/runsStore.js';
@@ -152,5 +152,54 @@ describe('节点详情', () => {
     );
     const 面板 = screen.getByRole('group', { name: '失败原因' });
     expect(within(面板).getByText(/退出码 1/u)).toBeTruthy();
+  });
+});
+
+describe('节点详情 · 耗时与折叠', () => {
+  it('显示这一步花了多久', () => {
+    // AI 节点动辄两三分钟。不显示耗时的话，用户分不清
+    //「它很慢」和「它卡住了」——而那是两件要采取不同行动的事
+    render(
+      <NodeDetail
+        nodeId="n"
+        nodeType="ai.analyze"
+        nodeLabel="分析"
+        events={[
+          事件('node.started', { ts: '2026-07-28T12:00:00.000Z' }),
+          事件('conversation.agent_message', { summary: '结论', actor: 'agent' }),
+          事件('node.succeeded', { ts: '2026-07-28T12:02:35.000Z' }),
+        ]}
+      />,
+    );
+    expect(screen.getByText(/2m35s/u)).toBeTruthy();
+  });
+
+  it('还没结束的节点显示「进行中」而不是一个假的耗时', () => {
+    render(
+      <NodeDetail
+        nodeId="n"
+        nodeType="ai.analyze"
+        nodeLabel="分析"
+        events={[事件('node.started', { ts: '2026-07-28T12:00:00.000Z' })]}
+      />,
+    );
+    expect(screen.getByText(/进行中/u)).toBeTruthy();
+  });
+
+  it('工具活动可以折起来 —— 几十条调用会把结论冲掉', () => {
+    const events = [
+      事件('conversation.agent_message', { summary: '结论在这里', actor: 'agent' }),
+      ...Array.from({ length: 12 }, (_, i) =>
+        事件('tool.call_finished', { summary: `读取 ${i}.js（completed）` }),
+      ),
+    ];
+    render(<NodeDetail nodeId="n" nodeType="ai.analyze" nodeLabel="分析" events={events} />);
+
+    // 默认折起：只有一行汇总，看不到逐条
+    expect(screen.getByText(/工具活动 · 12 次/u)).toBeTruthy();
+    expect(screen.queryByText(/读取 5\.js/u)).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: /工具活动/u }));
+    expect(screen.getByText(/读取 5\.js/u)).toBeTruthy();
   });
 });

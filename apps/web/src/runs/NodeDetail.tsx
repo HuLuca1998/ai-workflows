@@ -1,3 +1,5 @@
+import { useState } from 'react';
+
 import { ConversationView } from './ConversationView.js';
 import type { RunEvent } from './runsStore.js';
 
@@ -80,6 +82,13 @@ export function NodeDetail({
 
   return (
     <div className="ndetail" data-node-type={nodeType}>
+      {/* 耗时顶在最上面。AI 节点动辄两三分钟，不显示的话用户分不清
+          「它很慢」和「它卡住了」—— 而那是两件要采取不同行动的事 */}
+      <p className="ndetail__elapsed">
+        <i className="ph ph-timer" aria-hidden="true" />
+        {elapsedOf(ordered)}
+      </p>
+
       {/* 失败原因永远在最前面：出问题时用户第一眼要看的是「为什么」，
           不是按时间顺序翻到最后一行 */}
       {failure ? (
@@ -115,6 +124,11 @@ function AiNode({
   onOpenArtifact?: (relPath: string) => void;
 }) {
   const resolved = events.find((event) => event.type === 'system.model_resolved');
+  const toolCalls = events.filter(
+    (event) => event.type === 'tool.call_finished' || event.type === 'tool.call_failed',
+  );
+  // 对话那一栏不再重复渲染工具活动 —— 它有自己一栏了
+  const conversationEvents = events.filter((event) => !event.type.startsWith('tool.'));
 
   return (
     <>
@@ -129,14 +143,69 @@ function AiNode({
 
       <Section name="对话">
         <ConversationView
-          events={events}
+          events={conversationEvents}
           hasAiNode
           {...(onOpenArtifact ? { onOpenArtifact } : {})}
         />
       </Section>
+
+      {/* 工具调用单列一栏并**默认折起**。一次分析几十次调用，
+          铺开的话结论那一条会被冲掉；但折掉不等于丢掉 ——
+          「它到底动了什么」是要能展开逐条看的 */}
+      {toolCalls.length > 0 ? <ToolActivity items={toolCalls} /> : null}
       <p className="sr-only">{nodeId}</p>
     </>
   );
+}
+
+function ToolActivity({ items }: { items: readonly RunEvent[] }) {
+  const [open, setOpen] = useState(false);
+  const failed = items.filter((event) => event.type === 'tool.call_failed').length;
+
+  return (
+    <section className="ndetail__section" role="group" aria-label="工具活动">
+      <button
+        type="button"
+        className="ndetail__fold"
+        aria-expanded={open}
+        onClick={() => setOpen((on) => !on)}
+      >
+        <i className={open ? 'ph ph-caret-down' : 'ph ph-caret-right'} aria-hidden="true" />
+        <i className="ph ph-wrench" aria-hidden="true" />
+        工具活动 · {items.length} 次{failed > 0 ? `（${failed} 次失败）` : ''}
+      </button>
+      {open ? (
+        <ul className="ndetail__plain">
+          {items.map((event) => (
+            <li key={event.id} data-failed={event.type === 'tool.call_failed' ? 'true' : undefined}>
+              <span className="ndetail__plain-time">{formatClock(event.ts)}</span>
+              <span>{event.summary}</span>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+    </section>
+  );
+}
+
+/**
+ * 这一步花了多久。
+ *
+ * 没结束就说「进行中」，不编一个「到现在为止」的数字 ——
+ * 那个数字每次刷新都在变，看起来像耗时其实不是。
+ */
+function elapsedOf(events: readonly RunEvent[]): string {
+  const started = events.find((event) => event.type === 'node.started');
+  const ended = events.find((event) =>
+    ['node.succeeded', 'node.failed', 'node.skipped', 'node.cancelled'].includes(event.type),
+  );
+  if (!started) return '耗时未知';
+  if (!ended) return '进行中';
+
+  const ms = new Date(ended.ts).getTime() - new Date(started.ts).getTime();
+  if (!Number.isFinite(ms) || ms < 0) return '耗时未知';
+  const seconds = Math.round(ms / 1000);
+  return seconds < 60 ? `耗时 ${seconds}s` : `耗时 ${Math.floor(seconds / 60)}m${seconds % 60}s`;
 }
 
 // ── 脚本节点 ────────────────────────────────────────────────────────────────

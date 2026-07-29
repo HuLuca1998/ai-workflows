@@ -2688,6 +2688,40 @@
   color: var(--color-neutral-600);
 }
 
+/* 耗时顶在最上面：分不清「很慢」与「卡住了」是两件要采取不同行动的事 */
+.ndetail__elapsed {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  font-size: 11.5px;
+  color: var(--color-neutral-500);
+}
+
+/* 工具活动默认折起：一次分析几十次调用，铺开会把结论冲掉 */
+.ndetail__fold {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--color-divider);
+  background: color-mix(in srgb, var(--color-surface) 35%, var(--color-bg));
+  font: inherit;
+  font-size: 12px;
+  color: var(--color-neutral-400);
+  cursor: pointer;
+  text-align: left;
+}
+
+.ndetail__fold:hover {
+  color: var(--color-neutral-200);
+}
+
+.ndetail__plain li[data-failed] span:last-child {
+  color: #e0685c;
+}
+
 /* 节点详情里的对话不再自己居中 —— 外面那一栏已经限宽了 */
 .ndetail .conv {
   width: 100%;
