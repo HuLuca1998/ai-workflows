@@ -1,6 +1,6 @@
 import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
-import type { GraphNode, WorkflowGraph } from '@aiwf/contracts';
+import { fieldDescriptors, type GraphNode, type WorkflowGraph } from '@aiwf/contracts';
 import { NodeConfigDialog } from '../src/editor/NodeConfigDialog.js';
 
 /**
@@ -144,7 +144,11 @@ describe('Schema 驱动的表单', () => {
       },
     };
     renderDialog(exec);
-    expect(screen.getByText(/由引擎强制，Prompt 不能改变安全边界/u)).toBeInTheDocument();
+    // 从 Schema 取，不在测试里抄一份文案 —— 抄了的话改说明就得改两处，
+    // 而这条测试要守的是「describe 的第二行到得了界面」，不是某句具体的话
+    const hint = fieldDescriptors('ai.execute').find((f) => f.key === 'workdirSource')?.hint;
+    expect(hint, 'workdirSource 该有第二行提示').toBeTruthy();
+    expect(screen.getByText(hint!)).toBeInTheDocument();
   });
 });
 
