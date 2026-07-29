@@ -234,7 +234,7 @@ const DEFINITIONS: Record<NodeType, NodeDefinition> = {
       workdirSource: z
         .enum(['inherit', 'worktree', 'declared'])
         .default('worktree')
-        .describe('工作目录来源\n由引擎强制，Prompt 不能改变安全边界'),
+        .describe('工作目录来源\n引擎决定它，Prompt 改不了；它设的是 cwd，不管 agent 读写哪里'),
       verifyCommands: z.array(z.string().min(1)).default([]).describe('验证命令'),
     }),
     ports: {

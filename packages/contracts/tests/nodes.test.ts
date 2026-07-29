@@ -359,3 +359,30 @@ describe('长文本由 Schema 声明，不靠字段名猜', () => {
     ).toBe(false);
   });
 });
+
+/**
+ * issue #2：`workdirSource` 的说明曾经写着「由引擎强制，Prompt 不能改变
+ * 安全边界」，读起来像是「agent 被关在这个目录里」。
+ *
+ * 引擎做的只有把 cwd 设成 worktree 路径。cwd 不是边界 —— 实测里
+ * `ai.execute` 拿绝对路径读到了用户的另一个仓库（10 条 tool 调用为证）。
+ *
+ * 安全相关的说明尤其不能超额承诺：用户会基于这句话决定
+ * 要不要让 AI 碰这台机器。
+ */
+describe('字段说明不超额承诺隔离', () => {
+  const 承诺隔离的词 = /安全边界|沙箱|隔离在|限制在|访问不到|出不去/u;
+
+  it('没有字段自称它提供了文件系统隔离', async () => {
+    const { readFileSync } = await import('node:fs');
+    const { join } = await import('node:path');
+    const 源 = readFileSync(join(import.meta.dirname, '../src/nodes/definitions.ts'), 'utf8');
+    // 只看 .describe(…) 里的话 —— 注释里讨论这件事是可以的
+    const 说明 = [...源.matchAll(/\.describe\(\s*(['"`])([\s\S]*?)\1\s*\)/gu)].map(
+      (m) => m[2] ?? '',
+    );
+
+    const 越界的 = 说明.filter((text) => 承诺隔离的词.test(text));
+    expect(越界的, `这些说明承诺了引擎并不提供的隔离：\n${越界的.join('\n')}`).toEqual([]);
+  });
+});
