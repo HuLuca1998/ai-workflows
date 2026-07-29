@@ -150,3 +150,89 @@ fn 安装命令带上出处() {
         }
     }
 }
+
+#[test]
+fn 安装命令在没有本仓库的机器上也跑得通() {
+    // ACP adapter 那两条原本给的是
+    // `pnpm --filter @aiwf/acp-sidecar add …` —— 那要在本仓库里才成立，
+    // 而装了 App 的用户手上根本没有仓库，照着复制只会得到
+    // 一句「找不到 @aiwf/acp-sidecar」。安装提示是说给他听的，
+    // 不是说给从源码跑的我们听的
+    let report = env_health(false).unwrap();
+    for item in &report.items {
+        if let Some(hint) = &item.install_hint {
+            assert!(
+                !hint.command.contains("--filter") && !hint.command.contains("@aiwf/"),
+                "{} 的安装命令依赖本仓库：{}",
+                item.capability,
+                hint.command
+            );
+        }
+    }
+}
+
+#[test]
+fn adapter_缺失时说清楚我们用的是哪个_node() {
+    // 「未安装」三个字对一个刚跑完 `npm install -g` 的人没有信息。
+    // 真实发生过：用户那个终端的 nvm 切在 v22 上，包装进了 v22 的 bin，
+    // 而应用读的登录 shell 用的是 v25 —— 两边都没错，只是不是同一个 node。
+    // npm 全局包跟着 node 版本走，不说这件事，用户只会反复重装同一条命令
+    let 有 =
+        aiwf_core_api::adapter_missing_detail(Some("/Users/x/.nvm/versions/node/v25.6.1/bin/node"));
+    assert!(
+        有.contains("/Users/x/.nvm/versions/node/v25.6.1/bin/node"),
+        "{有}"
+    );
+
+    // node 本身都没有时别绕圈子 —— 先解决它，adapter 是下一步
+    let 无 = aiwf_core_api::adapter_missing_detail(None);
+    assert!(无.contains("Node.js"), "{无}");
+    assert!(
+        !无.contains("npm install"),
+        "node 都没有就别先教装 adapter：{无}"
+    );
+}
+
+#[test]
+fn gh_装了还要问一句登录没有() {
+    // 只跑 `gh --version` 的话，「装了但没登录」这一项会报「已就绪」——
+    // 而用户真正用到它时（列仓库、建 PR）才发现用不了。
+    // 用户原话：「你检查环境的时候检查 gh，这里为什么不用 gh 呢」
+    let 登录了 = aiwf_core_api::gh_login_state(true);
+    assert_eq!(登录了.0, EnvStatus::Ready);
+    assert!(登录了.1.contains("已登录"), "{:?}", 登录了.1);
+    assert!(
+        登录了.2.is_none(),
+        "已就绪还给安装命令，用户会以为该重装一下"
+    );
+
+    let 没登录 = aiwf_core_api::gh_login_state(false);
+    // 仍是可选档：一个从不碰 GitHub 的用户不该因此看到「环境需要处理」
+    assert_eq!(没登录.0, EnvStatus::Optional);
+    assert!(没登录.1.contains("没登录"), "{:?}", 没登录.1);
+    assert_eq!(
+        没登录.2.as_deref(),
+        Some("gh auth login"),
+        "没给出照着做就能解决的那一行"
+    );
+}
+
+#[test]
+fn 版本号里没有多余的标点() {
+    // docker 报的是「Docker version 29.5.2, build 0f0dfd7」，
+    // 直接切第一个数字开头的词会带出那个逗号 ——
+    // 表格里显示成「29.5.2,」，看着像我们把字符串截断了
+    let report = env_health(false).unwrap();
+    for item in &report.items {
+        let Some(version) = &item.version else {
+            continue;
+        };
+        assert!(
+            version
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || c == '.' || c == '-' || c == '+'),
+            "{} 的版本号带了多余字符：{version}",
+            item.capability
+        );
+    }
+}

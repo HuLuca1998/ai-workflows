@@ -73,7 +73,11 @@ pub fn run_script(request: ScriptRequest) -> Result<ExecOutcome> {
 
     let started = Instant::now();
 
-    let mut command = Command::new(&request.interpreter);
+    // 解释器本身要找得到（`node` / `python3` 多半不在 launchd 那四条里），
+    // 脚本里调的 `git` / `gh` 也一样 —— 两件事都靠 tooling 那份 PATH。
+    // 下面 `.envs()` 覆盖的是节点声明的环境变量，PATH 不在其中；
+    // 真要覆盖的话是用户显式写的，那就该听他的
+    let mut command = crate::tooling::command(&request.interpreter);
     command
         .arg("-c")
         .arg(&request.script)

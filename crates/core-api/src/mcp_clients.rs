@@ -11,8 +11,6 @@
 //! `~/.codex/config.toml` 的格式是它们自己的事，手写一份解析器
 //! 意味着它们改一次格式我们就悄悄写坏一次用户的配置。
 
-use std::process::Command;
-
 /// 在两个客户端里都用这个名字。
 ///
 /// 不一致的话，用户在两边看到的工具前缀不同
@@ -52,13 +50,11 @@ impl Client {
         }
     }
 
-    /// 装没装。查的是 PATH。
+    /// 装没装。查的是 PATH —— 而打包版继承的那份里几乎什么都没有，
+    /// 所以走 tooling 那份（见 `aiwf_engine::tooling`）。
     #[must_use]
     pub fn installed(self) -> bool {
-        Command::new("which")
-            .arg(self.cli())
-            .output()
-            .is_ok_and(|out| out.status.success())
+        aiwf_engine::tooling::which(self.cli()).is_some()
     }
 }
 
@@ -168,9 +164,14 @@ pub fn connect(client: Client, port: u16, token: &str) -> ConnectOutcome {
 
     // 先删。删不掉多半是因为本来就没有，不算错
     let remove = uninstall_command(client);
-    let _ = Command::new(&remove.program).args(&remove.args).output();
+    let _ = aiwf_engine::tooling::command(&remove.program)
+        .args(&remove.args)
+        .output();
 
-    match Command::new(&install.program).args(&install.args).output() {
+    match aiwf_engine::tooling::command(&install.program)
+        .args(&install.args)
+        .output()
+    {
         Ok(out) if out.status.success() => ConnectOutcome {
             client,
             ok: true,
@@ -226,7 +227,7 @@ pub fn connected(client: Client) -> bool {
     if !client.installed() {
         return false;
     }
-    Command::new(client.cli())
+    aiwf_engine::tooling::command(client.cli())
         .args(["mcp", "list"])
         .output()
         .is_ok_and(|out| {
@@ -253,7 +254,10 @@ pub fn disconnect(client: Client) -> ConnectOutcome {
         };
     }
 
-    match Command::new(&remove.program).args(&remove.args).output() {
+    match aiwf_engine::tooling::command(&remove.program)
+        .args(&remove.args)
+        .output()
+    {
         Ok(out) if out.status.success() => ConnectOutcome {
             client,
             ok: true,

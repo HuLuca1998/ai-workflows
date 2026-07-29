@@ -166,7 +166,10 @@ impl AcpClient {
         env_remove: &[String],
         timeout: Duration,
     ) -> Result<Self> {
-        let mut builder = Command::new(command);
+        // 走 tooling：adapter 是 node 脚本，起它要找得到 node，
+        // 而打包版继承的 PATH 里没有。探测那边说「已就绪」、这边
+        // spawn 报 No such file or directory，是同一个根因的两种表现
+        let mut builder = crate::tooling::command(command);
         builder
             .args(args)
             .stdin(Stdio::piped())
@@ -651,7 +654,12 @@ pub fn known_runtimes() -> Vec<&'static str> {
     vec!["acp.claude", "acp.codex"]
 }
 
-/// adapter 装没装。查的是 PATH 与 node_modules/.bin。
+/// adapter 装没装。查的是 node_modules/.bin 与 PATH。
+///
+/// 那条 `services/…` 是**相对当前工作目录**的，只有从仓库根启动时才成立
+/// （`pnpm tauri dev` 就是这么起的）。打包版的 cwd 是 `/`，这一步必然落空，
+/// 它靠的是下面的 PATH —— 而 PATH 得走 [`crate::tooling`] 那份，
+/// 不然 launchd 给的四条系统目录里什么都找不到。
 pub fn adapter_installed(runtime: &str) -> Option<String> {
     let (command, _) = adapter_command(runtime)?;
 
@@ -661,12 +669,7 @@ pub fn adapter_installed(runtime: &str) -> Option<String> {
         return Some(local.display().to_string());
     }
 
-    let output = Command::new("which").arg(command).output().ok()?;
-    if !output.status.success() {
-        return None;
-    }
-    let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
-    (!path.is_empty()).then_some(path)
+    crate::tooling::which(command).map(|path| path.display().to_string())
 }
 
 /// 用于 `HashMap` 形式的能力查询，供 executor 判断是否具备结构化输出等。

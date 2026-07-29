@@ -1,5 +1,4 @@
 use std::path::{Path, PathBuf};
-use std::process::Command;
 
 /// Git worktree 节点。
 ///
@@ -150,7 +149,7 @@ fn ensure_repo(path: &Path) -> Result<()> {
             path: path.display().to_string(),
         });
     }
-    let output = Command::new("git")
+    let output = crate::tooling::command("git")
         .args(["rev-parse", "--git-dir"])
         .current_dir(path)
         .output()?;
@@ -163,7 +162,7 @@ fn ensure_repo(path: &Path) -> Result<()> {
 }
 
 fn branch_exists(repo: &Path, branch: &str) -> Result<bool> {
-    let output = Command::new("git")
+    let output = crate::tooling::command("git")
         .args([
             "rev-parse",
             "--verify",
@@ -181,7 +180,7 @@ fn branch_exists(repo: &Path, branch: &str) -> Result<bool> {
 /// 而那些往往是最贵的东西（构建缓存、本地配置、依赖目录）。
 /// 删掉它们不会丢代码，但会让用户重跑一次几十分钟的构建。
 fn is_dirty(worktree: &Path) -> Result<bool> {
-    let output = Command::new("git")
+    let output = crate::tooling::command("git")
         .args(["status", "--porcelain", "--ignored"])
         .current_dir(worktree)
         .output()?;
@@ -189,7 +188,10 @@ fn is_dirty(worktree: &Path) -> Result<bool> {
 }
 
 fn git(repo: &Path, args: &[&str]) -> Result<String> {
-    let output = Command::new("git").args(args).current_dir(repo).output()?;
+    let output = crate::tooling::command("git")
+        .args(args)
+        .current_dir(repo)
+        .output()?;
     if !output.status.success() {
         return Err(WorktreeError::Git {
             command: args.join(" "),

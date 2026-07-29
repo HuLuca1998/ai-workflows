@@ -22,6 +22,7 @@ pub mod runner;
 pub mod schema;
 pub mod status;
 pub mod supervisor;
+pub mod tooling;
 pub mod validate;
 pub mod worktree;
 

@@ -9,7 +9,6 @@
 
 use std::collections::BTreeSet;
 use std::path::Path;
-use std::process::Command;
 
 use serde::Serialize;
 
@@ -359,16 +358,17 @@ fn check_unimplemented(graph: &WorkflowGraph) -> Vec<Check> {
 }
 
 fn which(program: &str) -> Option<String> {
-    let output = Command::new("which").arg(program).output().ok()?;
-    if !output.status.success() {
-        return None;
-    }
-    let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
-    (!path.is_empty()).then_some(path)
+    // 与环境检查、与真正执行脚本的那一步同一份 PATH。三处不一致的话，
+    // 「运行前检查」会给出一个和实际运行不同的答案 —— 而这个检查
+    // 存在的全部意义就是提前说出运行会怎样
+    crate::tooling::which(program).map(|path| path.display().to_string())
 }
 
 fn git_version() -> Option<String> {
-    let output = Command::new("git").arg("--version").output().ok()?;
+    let output = crate::tooling::command("git")
+        .arg("--version")
+        .output()
+        .ok()?;
     output
         .status
         .success()

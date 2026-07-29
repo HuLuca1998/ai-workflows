@@ -7,8 +7,6 @@
 //!
 //! 这个模块只管**检测**那一半，而且只读 —— 它没有任何能写的入口。
 
-use std::process::Command;
-
 use serde::Serialize;
 
 use crate::ApiResult;
@@ -173,6 +171,27 @@ const PROBES: &[Probe] = &[
 pub fn env_health(_recheck: bool) -> ApiResult<EnvHealthReport> {
     let mut items: Vec<EnvHealthItem> = PROBES.iter().map(probe_tool).collect();
 
+    // gh 单独再问一句「登录没有」。只跑 `gh --version` 的话，
+    // 「装了但没登录」会报「已就绪」—— 而用户真正用到它时
+    // （列仓库、建 PR）才发现用不了，那时的报错来自 gh，跟这一屏对不上。
+    //
+    // 用 `gh auth token` 而不是 `gh auth status`：前者只读本地 keyring，
+    // 40ms；后者要一次网络往返（实测 770ms），而这一屏是打开设置就跑的，
+    // 网络一慢它就跟着卡住
+    if let Some(gh) = items
+        .iter_mut()
+        .find(|item| item.capability == "gh" && item.status == EnvStatus::Ready)
+    {
+        let (status, detail, install) = gh_login_state(gh_logged_in());
+        gh.status = status;
+        gh.detail = Some(detail);
+        gh.install_hint = install.map(|command| InstallHint {
+            command,
+            source: "GitHub CLI 的登录流程".to_string(),
+            url: Some("https://cli.github.com/manual/gh_auth_login".to_string()),
+        });
+    }
+
     // ACP adapter 单独探：它们不在 PATH 里，而是装在 sidecar 的 node_modules 下
     for (runtime, label) in [
         ("acp.claude", "Claude Code（ACP）"),
@@ -187,6 +206,33 @@ pub fn env_health(_recheck: bool) -> ApiResult<EnvHealthReport> {
         .all(|item| item.status == EnvStatus::Ready);
 
     Ok(EnvHealthReport { ready, items })
+}
+
+/// gh 登录了没 —— 读本地凭据，不联网。
+fn gh_logged_in() -> bool {
+    aiwf_engine::tooling::command("gh")
+        .args(["auth", "token"])
+        .output()
+        .is_ok_and(|out| out.status.success())
+}
+
+/// 由登录状态决定 gh 那一项怎么显示：`(状态, 说明, 安装命令)`。
+///
+/// 「没登录」**不算** NeedsAttention：那一档会让整体状态变成
+/// 「环境需要处理」，而一个从不碰 GitHub 的用户不该因此被拦一下。
+/// 它仍是可选档，只是把话说清楚。
+#[must_use]
+pub fn gh_login_state(logged_in: bool) -> (EnvStatus, String, Option<String>) {
+    if logged_in {
+        // 说出来，用户才知道我们真的验过 —— 而不只是看到一个绿点
+        (EnvStatus::Ready, "已登录".to_string(), None)
+    } else {
+        (
+            EnvStatus::Optional,
+            "已装好，但还没登录 —— 列仓库、建 PR 这些都会失败".to_string(),
+            Some("gh auth login".to_string()),
+        )
+    }
 }
 
 fn probe_tool(probe: &Probe) -> EnvHealthItem {
@@ -253,48 +299,81 @@ fn probe_adapter(runtime: &str, label: &str) -> EnvHealthItem {
             // AI 节点与主管 AI 都要它，但没有它其余功能照常 ——
             // 所以是可选而不是缺失
             status: EnvStatus::Optional,
-            detail: Some("AI 节点与主管 AI 需要它".to_string()),
+            detail: Some(adapter_missing_detail(which("node").as_deref())),
             install_hint: Some(InstallHint {
-                // adapter 装在应用自己的 sidecar 目录下，不进全局 PATH
+                // 给的是全局安装。原来这里写的是
+                // `pnpm --filter @aiwf/acp-sidecar add …` —— 那条命令要在
+                // 本仓库里才跑得通，而装了 App 的用户手上根本没有仓库，
+                // 照着复制只会得到一句「找不到 @aiwf/acp-sidecar」。
+                // 从源码跑的人不需要这条提示，他们那份已经装在 node_modules 下了
                 command: format!(
-                    "pnpm --filter @aiwf/acp-sidecar add {}",
+                    "npm install -g {}",
                     if runtime == "acp.claude" {
                         "@agentclientprotocol/claude-agent-acp"
                     } else {
                         "@agentclientprotocol/codex-acp"
                     }
                 ),
-                source: "Agent Client Protocol 官方 adapter".to_string(),
+                source: "Agent Client Protocol 官方 adapter（npm）".to_string(),
                 url: Some("https://agentclientprotocol.com".to_string()),
             }),
         },
     }
 }
 
-fn which(command: &str) -> Option<String> {
-    let output = Command::new("which").arg(command).output().ok()?;
-    if !output.status.success() {
-        return None;
+/// adapter 找不到时那句话。带上**当前用的 node 在哪**。
+///
+/// 「未安装」这三个字对一个刚跑完 `npm install -g` 的人是没有信息的。
+/// 真实发生过一次：用户跑安装命令的终端里 nvm 切在 v22 上，包装进了
+/// `~/.nvm/versions/node/v22.23.1/bin`，而应用读的是登录 shell 那份 PATH
+/// （node 是 v25.6.1）—— 两边都没错，只是不是同一个 node。
+/// npm 的全局包跟着 node 版本走，不把这件事说出来，用户只会
+/// 反复重装同一条命令。
+pub fn adapter_missing_detail(node: Option<&str>) -> String {
+    let mut 话 = "AI 节点与主管 AI 需要它。".to_string();
+    match node {
+        Some(path) => 话.push_str(&format!(
+            "它随 npm 全局安装，位置跟着 node 版本走 —— \
+             检测用的 node 是 {path}，请确认装到了同一个下面",
+        )),
+        // node 都没有的话，adapter 更不可能有；先解决 node 那一项
+        None => 话.push_str("它跑在 Node.js 上，而 Node.js 当前也没找到 —— 先装它"),
     }
-    let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
-    (!path.is_empty()).then_some(path)
+    话
+}
+
+fn which(command: &str) -> Option<String> {
+    // 走 tooling 而不是 fork 一个 `which`：后者查的是**本进程继承的 PATH**，
+    // 而打包版 App 由 launchd 拉起，那份 PATH 只有 /usr/bin:/bin:/usr/sbin:/sbin。
+    // 用户在终端里装齐了 node / gh / docker，这一屏却报「都没安装」，
+    // 根因就在这里
+    aiwf_engine::tooling::which(command).map(|path| path.display().to_string())
 }
 
 /// 读版本号。读不到不算失败 —— 工具在就是在，版本只是补充信息。
 fn read_version(command: &str, arg: &str) -> Option<String> {
-    let output = Command::new(command).arg(arg).output().ok()?;
+    // 与上面 which 同一份 PATH：找得到却跑不起来的话，
+    // 用户会看到一条「已就绪」但没有版本号的记录，而那说明不了任何事
+    let output = aiwf_engine::tooling::command(command)
+        .arg(arg)
+        .output()
+        .ok()?;
     let text = String::from_utf8_lossy(&output.stdout);
     let line = text.lines().next()?.trim();
     if line.is_empty() {
         return None;
     }
     // 「git version 2.45.1」→「2.45.1」：前缀对用户没用，
-    // 而表格里那一列窄得放不下整句
+    // 而表格里那一列窄得放不下整句。
+    //
+    // 结尾的逗号也要去：docker 报的是「Docker version 29.5.2, build …」，
+    // 不去掉的话表格里显示成「29.5.2,」，看着像我们把字符串截断了
     Some(
         line.split_whitespace()
             .find(|part| part.chars().next().is_some_and(|c| c.is_ascii_digit()))
             .unwrap_or(line)
             .trim_start_matches('v')
+            .trim_end_matches(',')
             .to_string(),
     )
 }
