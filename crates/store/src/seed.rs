@@ -18,13 +18,28 @@ use rusqlite::Connection;
 
 use crate::Result;
 
-/// (批次名, SQL)。**只增不改** —— 与迁移同一条规矩：
+/// 一个批次种什么。
+///
+/// 多数是一段 SQL。示例工作流是例外：它的图是**生成物**
+/// （见 `sample.rs`），塞进 `.sql` 就等于把生成物抄进源码。
+enum 内容 {
+    Sql(&'static str),
+    代码(fn(&Connection) -> Result<()>),
+}
+
+/// (批次名, 内容)。**只增不改** —— 与迁移同一条规矩：
 /// 改一个已经发出去的批次，只会让老库与新库分叉，而且不会有人发现。
-const BATCHES: &[(&str, &str)] = &[("builtins.v1", include_str!("sql/seed_builtins.sql"))];
+const BATCHES: &[(&str, 内容)] = &[
+    (
+        "builtins.v1",
+        内容::Sql(include_str!("sql/seed_builtins.sql")),
+    ),
+    ("sample.v1", 内容::代码(crate::sample::seed_sample)),
+];
 
 /// 把没种过的批次种上。
 pub(crate) fn seed(conn: &Connection) -> Result<()> {
-    for (name, sql) in BATCHES {
+    for (name, 这批) in BATCHES {
         let 种过: i64 = conn.query_row(
             "SELECT COUNT(*) FROM bootstrap WHERE name = ?1",
             rusqlite::params![name],
@@ -38,7 +53,10 @@ pub(crate) fn seed(conn: &Connection) -> Result<()> {
         // 而记账那一行也不会被写下 —— 下次启动会重来一遍
         conn.execute_batch("BEGIN")?;
         let 结果 = (|| -> Result<()> {
-            conn.execute_batch(sql)?;
+            match 这批 {
+                内容::Sql(sql) => conn.execute_batch(sql)?,
+                内容::代码(种) => 种(conn)?,
+            }
             conn.execute(
                 "INSERT INTO bootstrap(name, applied_at) VALUES (?1, ?2)",
                 rusqlite::params![name, crate::now_iso()],

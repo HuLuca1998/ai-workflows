@@ -16,6 +16,7 @@ use rusqlite::{Connection, OptionalExtension, params};
 use sha2::{Digest, Sha256};
 
 mod migrations;
+mod sample;
 mod seed;
 
 pub use migrations::EXPECTED_SCHEMA_VERSION;
@@ -497,6 +498,61 @@ impl Store {
         let store = Self::open(path)?;
         seed::seed(&store.conn)?;
         Ok(store)
+    }
+
+    /// 一键初始化：把库清空重来 —— 迁移重跑一遍，内置数据重新种上。
+    ///
+    /// **刻意不删数据库文件。** 同一个库上不止这一条连接：系统 MCP 有自己的，
+    /// 主管 AI 有自己的。删文件之后它们各自握着一个已经不存在的 inode，
+    /// 读写都还「成功」，只是写进了一个没人看得到的地方 —— 这种坏法
+    /// 要等到用户发现「MCP 那边改的东西界面上没有」才会暴露。
+    /// 在同一条连接上 DROP 再重建，其余连接下一次查询看到的就是新表。
+    ///
+    /// `bootstrap` 表跟着一起 DROP：它记的是「这批种过没有」，
+    /// 留着的话重种那一步会被跳过，重置出来是个没有内置数据的空库。
+    ///
+    /// 整件事在一个事务里。中途失败就回滚 —— 宁可什么都没变，
+    /// 也不能停在「表删了一半」上，那种库连启动都启动不了。
+    pub fn reset_workspace(&mut self) -> Result<()> {
+        // 外键**必须在事务外**关掉。表之间互相 REFERENCES，开着外键
+        // 按任何顺序 DROP 都会在 COMMIT 那一刻撞上「引用的表已经没了」。
+        // 而 `defer_foreign_keys` 解决不了 —— 它只是把同一个检查推到
+        // COMMIT，那时表全没了，照样报 no such table。
+        // `foreign_keys` 这个 PRAGMA 在事务里是 no-op（SQLite 明文规定），
+        // 所以只能在 BEGIN 之前。
+        self.conn.pragma_update(None, "foreign_keys", "OFF")?;
+        let 结果 = self.清空重建();
+        // 不管成没成都要开回来：漏掉的话一次失败的重置会让这条连接
+        // 之后再也不检查外键，而它看起来完全正常
+        self.conn.pragma_update(None, "foreign_keys", "ON")?;
+        结果
+    }
+
+    fn 清空重建(&mut self) -> Result<()> {
+        self.conn.execute_batch("BEGIN")?;
+        let 删完了 = (|| -> Result<()> {
+            for 表 in 用户表(&self.conn)? {
+                // 表名来自 sqlite_master，不是外部输入；用引号包住
+                // 是为了以后有人建出带保留字的表名时不至于突然报语法错
+                self.conn
+                    .execute_batch(&format!("DROP TABLE IF EXISTS \"{表}\""))?;
+            }
+            Ok(())
+        })();
+
+        match 删完了 {
+            Ok(()) => self.conn.execute_batch("COMMIT")?,
+            Err(error) => {
+                self.conn.execute_batch("ROLLBACK")?;
+                return Err(error);
+            }
+        }
+
+        // 建表与种数据各自带事务，放在上面那个事务外面 ——
+        // migrate 自己会 BEGIN，嵌套会报错
+        migrations::migrate(&self.conn)?;
+        seed::seed(&self.conn)?;
+        Ok(())
     }
 
     /// 内存库：测试与 Dry Run 用。
@@ -2542,6 +2598,23 @@ fn unix_millis() -> u128 {
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_millis())
         .unwrap_or(0)
+}
+
+/// 这个库里我们自己建的表。
+///
+/// 从 `sqlite_master` 现查而不是维护一张清单：清单会漏 —— 加了迁移
+/// 忘了往清单里补一行，重置之后那张表带着旧数据活下来，
+/// 而它看起来完全正常。
+///
+/// `sqlite_` 前缀的是 SQLite 自己的内部表（`sqlite_sequence` 这些），
+/// DROP 它们会报错。
+fn 用户表(conn: &Connection) -> Result<Vec<String>> {
+    let mut stmt = conn.prepare(
+        "SELECT name FROM sqlite_master
+         WHERE type = 'table' AND name NOT LIKE 'sqlite_%'",
+    )?;
+    let 表: rusqlite::Result<Vec<String>> = stmt.query_map([], |row| row.get(0))?.collect();
+    Ok(表?)
 }
 
 /// ISO-8601（UTC，毫秒精度）。为一个时间戳不值得引入 chrono。
