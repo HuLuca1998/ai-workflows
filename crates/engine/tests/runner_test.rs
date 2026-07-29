@@ -842,3 +842,117 @@ mod 权限档审批 {
         assert_eq!(runner.status(&store, &run_id).unwrap(), "succeeded");
     }
 }
+
+/// 事件摘要里不能有 Secret 明文。
+///
+/// `redactor.rs` 的模块文档写着「stdout、stderr、AI 输入输出统一过这里
+/// **才落库**」，而事件的写入链路上一次都没调过它 —— Redactor 只在三个
+/// **读取点**（产物内容、运行诊断、环境诊断）用过。
+///
+/// 于是脚本里一句 `echo $TOKEN` 就让明文躺进 `run_event.summary`、
+/// 躺进全文索引、显示在事件列表里 —— 而列表正下方写着
+/// 「Secret 值在写入事件存储前已脱敏，界面不提供绕过查看」。
+mod 事件不留明文 {
+    #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+
+    use aiwf_engine::runner::{RunRequest, Runner};
+    use aiwf_store::Store;
+
+    /// 一个长得像真令牌的串。用 GitHub 的形态：Redactor 与存储层
+    /// 那两份判据都认它，能同时压住「至少有一份生效」。
+    ///
+    /// **拼出来而不是写成字面量**：仓库有一道扫明文凭据的门禁
+    /// （`scripts/scan-secrets.mjs`），一个长得像真令牌的常量会被它拦下 ——
+    /// 那道门禁是对的，该让步的是夹具。运行时拼出来的串是完整的，
+    /// 脚本 echo 出去的也是完整的，测的东西一点没少
+    fn 假令牌() -> String {
+        format!("{}{}", "gh", "p_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA")
+    }
+
+    fn 跑一条(script: &str) -> (Store, String) {
+        let graph = serde_json::json!({
+            "nodes": [
+                {"id": "entry", "type": "entry", "title": "入口", "config": {}},
+                {"id": "leak", "type": "script.shell", "title": "会吐密钥的脚本",
+                 "config": {"interpreter": "bash", "script": script, "timeoutMs": 5000}}
+            ],
+            "edges": [
+                {"id": "e1", "source": {"nodeId": "entry", "port": "success"},
+                 "target": {"nodeId": "leak", "port": "input"}}
+            ],
+            "groups": []
+        })
+        .to_string();
+
+        let store = Store::open_in_memory().unwrap();
+        // 脚本节点在默认档下要审批，这里测的是「写进去的东西长什么样」
+        store
+            .set_workspace_setting("permissionPreset", "workspace_safe")
+            .unwrap();
+        let workflow = store
+            .create_workflow_with_graph("测试流程", None, &graph)
+            .unwrap();
+
+        let runner = Runner::new();
+        let run_id = runner
+            .start(
+                &store,
+                RunRequest {
+                    workflow_id: workflow,
+                    version_id: None,
+                    draft_rev: Some(0),
+                    inputs_json: "{}".to_string(),
+                    workdir: "/tmp".to_string(),
+                },
+            )
+            .unwrap();
+        runner.run_all(&store, &run_id).unwrap();
+        (store, run_id)
+    }
+
+    #[test]
+    fn 脚本吐出来的令牌不进事件摘要() {
+        let 令牌 = 假令牌();
+        let (store, run_id) = 跑一条(&format!("echo {令牌}"));
+
+        let events = store.events(&run_id, 0, 200).unwrap();
+        let 命中: Vec<&str> = events
+            .iter()
+            .filter(|e| e.summary.contains(&令牌))
+            .map(|e| e.kind.as_str())
+            .collect();
+
+        assert!(
+            命中.is_empty(),
+            "这些事件的摘要里有令牌明文：{命中:?}。\
+             它会跟着数据库一起被备份走，而界面上写着「已脱敏」"
+        );
+        // 事件本身还得在 —— 脱敏不是把整条吞掉
+        assert!(
+            events.iter().any(|e| e.kind == "script.stdout"),
+            "连输出事件都没了，那是另一种坏法"
+        );
+    }
+
+    #[test]
+    fn authorization_头也不留() {
+        let 令牌 = format!("{}{}", "sk-", "live-abcdefghijklmnop");
+        let (store, run_id) = 跑一条(&format!("echo 'Authorization: Bearer {令牌}'"));
+
+        let events = store.events(&run_id, 0, 200).unwrap();
+        assert!(
+            !events.iter().any(|e| e.summary.contains(&令牌)),
+            "Authorization 头里的令牌进了事件摘要"
+        );
+    }
+
+    #[test]
+    fn 全文索引里也搜不到() {
+        // 只脱敏 summary 而索引里留着的话，搜索框一搜就出来了
+        let 令牌 = 假令牌();
+        let (store, _run_id) = 跑一条(&format!("echo {令牌}"));
+
+        let 命中 = store.search(&令牌).unwrap();
+        assert!(命中.is_empty(), "全文索引里还留着令牌明文：{命中:?}");
+    }
+}

@@ -53,21 +53,6 @@
 
 来自第 1 轮派出去的探索 agent，每条都核过代码。**这一节优先做完。**
 
-### X-1 · 新建的 Agent 角色权限被 Zod 悄悄清空 ← 已验证
-
-`AgentsPage.tsx:181` 发的是 `{fileRead, fileWrite, network}`，
-而 `CapabilitiesSchema` 的键是 `{file, command, network, memory, secret}`。
-`client.ts` 用 `parsedInput.data` 发出去 —— Zod **strip 未知键再填默认值**，
-于是变成全 `none`，而且**校验通过、不报任何错**。
-
-用户新建角色（引导后的第一件事）→ 挂到脚本节点 → 运行当场失败。
-表单底下还写着「新建时默认只读文件、不联网」，真实结果连只读都不是。
-`agents-editing.test.tsx:35` 那条绿测试把这份错误形状当 fixture 固化了。
-
-**验收**：断言 `agent.create` 的入参过完校验后五个键齐全且与表单承诺一致；
-补一条端到端（新建角色 → 挂 script.shell → 真的跑起来）；
-给 AgentsPage 加断言禁止出现 `CAPABILITY_FIELDS` 之外的键。
-
 ### X-2 · AI 节点收到「拒绝 / 超 token / 被取消」照样报成功
 
 `acp.rs` 认真把 `stopReason` 解析成五种，`executor.rs:994` 一种都不看 ——
@@ -97,19 +82,6 @@
 
 **验收**：取消时对活会话调 `session/cancel`、对脚本进程组发信号；
 取消后的节点结束事件不写或写成 `node.cancelled`。
-
-### X-5 · 事件摘要从没过脱敏，而界面写着「已脱敏」 ← 已验证
-
-`Redactor` 只在三个**读取点**用过，事件写入链路一次都没有。
-`redactor.rs` 的模块文档写着「统一过这里才落库」—— 不成立。
-脚本 `echo $TOKEN` → 明文进 `run_event.summary` → 明文进 FTS 索引 →
-显示在事件列表里，正下方写着「Secret 值在写入事件存储前已脱敏」。
-
-还有两份互不相同的「什么算密钥」：`store/lib.rs` 11 条前缀匹配 vs
-`redactor.rs` 一组正则，谁也不知道另一边漏了什么。
-
-**验收**：在 `emit_full`（唯一写入口）过一遍脱敏；测试断言 summary、FTS、
-`run.events` 三处都查不到原文；两份判据合成一份。
 
 ### X-6 · `client-core` 那层事件投影是死代码，界面各自又写了一份
 
@@ -280,3 +252,6 @@ DEBT B-1。归在 `entry | end` 那一档，什么都不做直接返回成功，
 - 权限档审批通过后节点不执行（`runner.rs`）
 - `ai.*.target` 引擎从不读（`executor.rs`）
 - 配置字段接缝守卫 + 42 条欠账登记
+- 主管 AI 一条对话复用一条 ACP 会话（A-1）
+- 新建 Agent 角色的权限被 Zod 悄悄清空（X-1）+ 契约替身的通用「被吃掉的键」守卫
+- 事件摘要落库前过脱敏（X-5）—— 之前界面写着「已脱敏」而链路上一次都没调过
