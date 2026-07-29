@@ -4,7 +4,8 @@
 //! 假装成功会让用户以为工作流跑通了，然后在下游拿到空数据时才发现，
 //! 那时错误离原因已经很远。
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+use std::process::Command;
 use std::time::Duration;
 
 use crate::acp::{AcpClient, SessionUpdate, adapter_command, adapter_installed, env_to_remove};
@@ -994,6 +995,25 @@ impl NodeExecutor {
                     .first()
                     .map_or_else(|| "success".to_string(), |p| p.id.clone());
 
+                // 它到底动了什么。
+                //
+                // 「完成 · 走 success 分支」只说明 Agent 把话说完了。
+                // 真实 Issue 上跑出过一次「完成」而工作区一个字节没变 ——
+                // 那件事一直到三个节点之后 git push 才暴露，中间的审查、
+                // 分级、人工审批全在评审一份空改动。
+                //
+                // 所以把改动本身发成事件：不判成败（不改文件有时是对的），
+                // 只让「什么都没做」当场看得见。
+                let changes = workspace_changes(Path::new(&agent_cwd));
+                if let Some(changes) = &changes {
+                    sink(NodeEvent {
+                        kind: "node.output_emitted",
+                        node_id: node.id.clone(),
+                        summary: changes.summary.clone(),
+                        payload_ref: None,
+                    });
+                }
+
                 scope.set_node_output(
                     &node.id,
                     &port,
@@ -1004,6 +1024,11 @@ impl NodeExecutor {
                         "stopReason": format!("{stop:?}"),
                         "sessionId": session.id,
                         "mode": session.current_mode,
+                        // 下游能引用：`${fix.success.changedFiles}`
+                        "changedFiles": changes
+                            .as_ref()
+                            .map(|c| c.files.clone())
+                            .unwrap_or_default(),
                     }),
                 );
 
@@ -1025,6 +1050,95 @@ impl NodeExecutor {
                 field: field.to_string(),
             })
     }
+}
+
+/// AI 执行节点在工作区里留下的改动。
+#[derive(Debug, Clone)]
+pub struct WorkspaceChanges {
+    /// 动过的文件（含未跟踪的新文件），相对工作区根目录。
+    pub files: Vec<String>,
+    /// 一句话结论，直接进事件摘要。
+    pub summary: String,
+}
+
+impl WorkspaceChanges {
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.files.is_empty()
+    }
+}
+
+/// 这个目录里有哪些改动。不是 git 仓库就返回 `None`。
+///
+/// 为什么要有这个：`ai.execute` 报「完成」只说明 Agent 把话说完了，
+/// 不说明它动过任何东西。端到端跑真实 Issue 时就出现过一次
+/// 「完成 · 走 success 分支」而工作区一个字节没变 —— 那件事一直到
+/// 三个节点之后 `git push` 才暴露，中间的审查、分级、人工审批
+/// 全在评审一份空改动。
+///
+/// **不拿它判成败**：不改文件有时候是对的（分析型的执行、幂等的重跑）。
+/// 它的作用是让「什么都没做」当场看得见，而不是留到下游炸。
+///
+/// 不是 git 仓库时返回 `None` 而不是「0 个文件」：`workdirSource` 为
+/// inherit / declared 的节点可能跑在任意目录里，那时根本没有「改了什么」
+/// 可谈，编一个 0 出来是拿假证据冒充真证据。
+#[must_use]
+pub fn workspace_changes(dir: &Path) -> Option<WorkspaceChanges> {
+    // `--porcelain` 一行一个文件，格式稳定（专门给程序读的）；
+    // `-uall` 让新建目录里的文件逐个列出，而不是折成一个目录名
+    // `core.quotePath=false`：默认会把非 ASCII 路径转义成八进制
+    // （`新的.rs` → `\346\226\260…`），事件摘要里就成了一串乱码
+    let output = Command::new("git")
+        .args([
+            "-c",
+            "core.quotePath=false",
+            "status",
+            "--porcelain",
+            "-uall",
+        ])
+        .current_dir(dir)
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+
+    let text = String::from_utf8_lossy(&output.stdout);
+    let files: Vec<String> = text
+        .lines()
+        .filter_map(|line| line.get(3..))
+        .map(|path| {
+            // 重命名是 `旧 -> 新`，记新的那个：下游要看的是现在有什么
+            path.split_once(" -> ")
+                .map_or(path, |(_, new)| new)
+                .trim_matches('"')
+                .to_string()
+        })
+        .filter(|path| !path.is_empty())
+        .collect();
+
+    let summary = if files.is_empty() {
+        "没有改动任何文件".to_string()
+    } else {
+        const MAX: usize = 5;
+        let head = files
+            .iter()
+            .take(MAX)
+            .map(String::as_str)
+            .collect::<Vec<_>>()
+            .join("、");
+        if files.len() > MAX {
+            format!(
+                "改了 {} 个文件：{head}（另有 {} 个）",
+                files.len(),
+                files.len() - MAX
+            )
+        } else {
+            format!("改了 {} 个文件：{head}", files.len())
+        }
+    };
+
+    Some(WorkspaceChanges { files, summary })
 }
 
 /// 上游最近一个跑成功的 `git.worktree` 节点给出的路径。
