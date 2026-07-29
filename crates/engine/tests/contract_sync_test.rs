@@ -151,3 +151,162 @@ fn 接入方式枚举与契约一致() {
         aiwf_store::AGENT_RUNTIMES.len()
     );
 }
+
+// ── 引擎写出去的事件必须合契约（issue #1）─────────────────────────────────
+//
+// 界面报「run.events 的返回值不合契约」时，根因在引擎：
+// `node.output_emitted` 缺 attempt。而那条约束写在契约的 superRefine 里，
+// Rust 侧看不见 —— 只有真的跑一次、把返回值喂给 Zod 才会发现。
+//
+// 这条测试把契约里那几条**跨字段**约束抄到 Rust 侧：抄错了
+// 下面「名单与契约一致」那条会红。
+
+/// 契约 `RunEventSchema` 的 superRefine 里对 `node.*` 的要求。
+fn 检查一条(event: &serde_json::Value) -> Vec<String> {
+    let mut 问题 = Vec::new();
+    let kind = event["type"].as_str().unwrap_or_default();
+
+    if kind.starts_with("node.") {
+        if event.get("nodeId").and_then(|v| v.as_str()).is_none() {
+            问题.push(format!("{kind} 缺 nodeId"));
+        }
+        if event
+            .get("attempt")
+            .and_then(serde_json::Value::as_i64)
+            .is_none()
+        {
+            问题.push(format!("{kind} 缺 attempt"));
+        }
+    }
+    if event["summary"]
+        .as_str()
+        .unwrap_or_default()
+        .chars()
+        .count()
+        > 2000
+    {
+        问题.push(format!("{kind} 的摘要超过 2000 字符"));
+    }
+    问题
+}
+
+#[test]
+fn 契约里对_node_事件的跨字段约束没写歪() {
+    // 抄过来的规则要与契约源对得上。契约改了而这里没跟上的话，
+    // 下面那条真跑一遍的测试会变成一个永远绿的摆设
+    let source = std::fs::read_to_string(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|p| p.parent())
+            .expect("仓库根")
+            .join("packages/contracts/src/events.ts"),
+    )
+    .expect("读不到契约源");
+
+    assert!(
+        source.contains("node.* 事件必须携带 nodeId"),
+        "契约里那条 nodeId 约束改了措辞或没了，这边的抄本要跟着改"
+    );
+    assert!(
+        source.contains("node.* 事件必须携带 attempt"),
+        "契约里那条 attempt 约束改了措辞或没了"
+    );
+}
+
+#[test]
+fn 跑一条含各类节点的工作流_每条事件都合契约() {
+    use aiwf_engine::runner::{RunRequest, Runner};
+    use aiwf_store::Store;
+
+    let dir = tempfile::tempdir().unwrap();
+    let store = Store::open(&dir.path().join("aiwf.sqlite")).unwrap();
+    store
+        .set_workspace_setting("permissionPreset", "workspace_safe")
+        .unwrap();
+
+    // 脚本 + worktree：两类都会走那条「节点执行途中的事件通道」，
+    // 而 issue #1 正是那条通道漏了 attempt
+    let repo = dir.path().join("repo");
+    std::fs::create_dir_all(&repo).unwrap();
+    for args in [
+        vec!["init", "-q", "-b", "main"],
+        vec!["config", "user.email", "t@example.com"],
+        vec!["config", "user.name", "测试"],
+    ] {
+        std::process::Command::new("git")
+            .args(&args)
+            .current_dir(&repo)
+            .output()
+            .unwrap();
+    }
+    std::fs::write(repo.join("README.md"), "hi").unwrap();
+    for args in [vec!["add", "."], vec!["commit", "-qm", "初始"]] {
+        std::process::Command::new("git")
+            .args(&args)
+            .current_dir(&repo)
+            .output()
+            .unwrap();
+    }
+
+    let graph = serde_json::json!({
+        "nodes": [
+            {"id":"entry","type":"entry","title":"入口","position":{"x":0,"y":0},"config":{}},
+            {"id":"sh","type":"script.shell","title":"脚本","position":{"x":1,"y":0},
+             "config":{"interpreter":"zsh","script":"echo 出来了; echo 也有错 >&2"}},
+            {"id":"wt","type":"git.worktree","title":"隔离","position":{"x":2,"y":0},
+             "config":{"repoRoot":"repo","baseBranch":"main","branchTemplate":"fix/合契约"}},
+            {"id":"done","type":"end","title":"结束","position":{"x":3,"y":0},"config":{"outcome":"success"}}
+        ],
+        "edges": [
+            {"id":"e1","source":{"nodeId":"entry","port":"success"},"target":{"nodeId":"sh","port":"input"}},
+            {"id":"e2","source":{"nodeId":"sh","port":"success"},"target":{"nodeId":"wt","port":"input"}},
+            {"id":"e3","source":{"nodeId":"wt","port":"success"},"target":{"nodeId":"done","port":"input"}}
+        ],
+        "groups": []
+    });
+    let workflow = store
+        .create_workflow_with_graph("合契约", None, &graph.to_string())
+        .unwrap();
+
+    let runner = Runner::new();
+    let run_id = runner
+        .start(
+            &store,
+            RunRequest {
+                workflow_id: workflow,
+                version_id: None,
+                draft_rev: Some(0),
+                inputs_json: "{}".to_string(),
+                workdir: dir.path().display().to_string(),
+            },
+        )
+        .unwrap();
+    let _ = runner.run_all(&store, &run_id);
+
+    let events = store.events(&run_id, 0, 500).unwrap();
+    assert!(
+        events.len() > 6,
+        "没跑起来，这条测试什么都没验：{}",
+        events.len()
+    );
+
+    let mut 问题 = Vec::new();
+    for event in &events {
+        let value = serde_json::json!({
+            "type": event.kind,
+            "nodeId": event.node_id,
+            "attempt": event.attempt,
+            "summary": event.summary,
+        });
+        for 一条 in 检查一条(&value) {
+            问题.push(format!("seq {}：{一条}", event.seq));
+        }
+    }
+
+    assert!(
+        问题.is_empty(),
+        "{} 条事件不合契约：\n{}",
+        问题.len(),
+        问题.join("\n")
+    );
+}

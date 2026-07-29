@@ -168,25 +168,23 @@ impl Runner {
                 // 而「对话」这一屏的价值恰恰在于边跑边看。
                 let label = node.title.clone();
                 let emit = |event: crate::executor::NodeEvent| {
-                    let written = store.append_event(&NewRunEvent {
-                        run_id: run_id.to_string(),
-                        kind: event.kind.to_string(),
-                        node_id: Some(event.node_id),
-                        node_label: Some(label.clone()),
-                        attempt: None,
-                        actor: "agent".to_string(),
-                        status: None,
-                        summary: event.summary,
-                        payload_ref: event.payload_ref,
-                        artifact_refs: vec![],
-                        parent_event_id: None,
-                        sensitivity: "internal".to_string(),
-                        schema_ver: 1,
-                    });
+                    // 走 emit_full，不自己拼一份 NewRunEvent：
+                    // 自己拼的那版漏了 attempt，于是 node.output_emitted
+                    // 缺它，界面把整页事件流判为不合契约（issue #1）
+                    let written = self.emit_full(
+                        store,
+                        run_id,
+                        event.kind,
+                        Some(&event.node_id),
+                        Some(&label),
+                        "agent",
+                        &event.summary,
+                        event.payload_ref,
+                    );
                     // 写不进去只影响记录，不该让节点本身失败 ——
                     // 但要留痕：静默丢掉的话，对话流里会**少一条**而没人知道
                     if let Err(error) = written {
-                        eprintln!("[runner] 对话事件没写进去（{}）：{error}", event.kind);
+                        eprintln!("[runner] 节点事件没写进去（{}）：{error}", event.kind);
                     }
                 };
 
@@ -814,16 +812,43 @@ impl Runner {
         actor: &str,
         summary: &str,
     ) -> Result<()> {
+        self.emit_full(
+            store, run_id, kind, node_id, node_label, actor, summary, None,
+        )
+    }
+
+    /// **唯一**的事件写入口。
+    ///
+    /// issue #1：这里曾经有两条路径 —— 这一条填 `attempt: 1`，节点执行
+    /// 途中那条事件通道填 `None`，于是 `node.output_emitted` 缺 attempt，
+    /// 界面把整页事件流判为不合契约。两条路径就会有两套规则。
+    ///
+    /// 存储层现在也拦（`node.*` 缺 attempt 直接拒收），这里是第二道：
+    /// 让所有调用点只有一个地方决定这些公共字段。
+    #[allow(clippy::too_many_arguments)]
+    fn emit_full(
+        &self,
+        store: &Store,
+        run_id: &str,
+        kind: &str,
+        node_id: Option<&str>,
+        node_label: Option<&str>,
+        actor: &str,
+        summary: &str,
+        payload_ref: Option<String>,
+    ) -> Result<()> {
         store.append_event(&NewRunEvent {
             run_id: run_id.to_string(),
             kind: kind.to_string(),
             node_id: node_id.map(str::to_string),
             node_label: node_label.map(str::to_string),
+            // 重试还没实现，先都是第 1 轮。契约要求 node.* 必须有它 ——
+            // 缺了的话整页事件流不合契约
             attempt: node_id.map(|_| 1),
             actor: actor.to_string(),
             status: None,
             summary: summary.to_string(),
-            payload_ref: None,
+            payload_ref,
             artifact_refs: vec![],
             parent_event_id: None,
             sensitivity: "internal".to_string(),

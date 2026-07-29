@@ -142,12 +142,15 @@ fn 发布产生不可变版本快照() {
 // ── 事件流 ──────────────────────────────────────────────────────────────────
 
 fn event(run_id: &str, kind: &str, summary: &str) -> NewRunEvent {
+    // `node.*` 事件按契约必须带 nodeId 与 attempt，存储层会拒收缺项的。
+    // 助手里一并填上 —— 每个用例各写一遍的话，下一个人照旧会漏
+    let 是节点事件 = kind.starts_with("node.");
     NewRunEvent {
         run_id: run_id.to_string(),
         kind: kind.to_string(),
-        node_id: None,
+        node_id: 是节点事件.then(|| "n1".to_string()),
         node_label: None,
-        attempt: None,
+        attempt: 是节点事件.then_some(1),
         actor: "engine".to_string(),
         status: None,
         summary: summary.to_string(),
@@ -2923,5 +2926,101 @@ mod 模型搜索 {
         let (rows, _) = store.list_models_paged(true, Some("Opus"), 50, 0).unwrap();
         assert_eq!(rows.len(), 1, "停用的那条不该出现");
         assert_eq!(rows[0].name, "Opus 启用的");
+    }
+}
+
+// ── 契约约束在存储层兜底 ────────────────────────────────────────────────────
+//
+// issue #1：引擎有两条写事件的路径，对 attempt 的处理不一致，于是
+// `node.output_emitted` 缺 attempt，界面把整页事件流判为不合契约。
+//
+// 拦在这里而不是靠每条写入路径自觉：写入路径会一直加（这次就加了一条
+// 事件通道），而「node.* 必须带 attempt」是契约的规则，不是某一条路径的。
+
+#[test]
+fn node_事件缺_attempt_时拒收() {
+    let store = Store::open_in_memory().unwrap();
+    let workflow = store.create_workflow("流程", None).unwrap();
+    let run = store.create_run(&workflow, None, Some(0), "{}").unwrap();
+
+    let 结果 = store.append_event(&aiwf_store::NewRunEvent {
+        run_id: run.clone(),
+        kind: "node.output_emitted".to_string(),
+        node_id: Some("wt".to_string()),
+        node_label: Some("创建 Worktree".to_string()),
+        attempt: None,
+        actor: "agent".to_string(),
+        status: None,
+        summary: "分支 fix/1".to_string(),
+        payload_ref: None,
+        artifact_refs: vec![],
+        parent_event_id: None,
+        sensitivity: "internal".to_string(),
+        schema_ver: 1,
+    });
+
+    let error = 结果.expect_err("node.* 缺 attempt 该被拒收");
+    assert!(
+        error.to_string().contains("attempt"),
+        "要说清缺的是什么：{error}"
+    );
+}
+
+#[test]
+fn node_事件带了_attempt_就收() {
+    let store = Store::open_in_memory().unwrap();
+    let workflow = store.create_workflow("流程", None).unwrap();
+    let run = store.create_run(&workflow, None, Some(0), "{}").unwrap();
+
+    store
+        .append_event(&aiwf_store::NewRunEvent {
+            run_id: run,
+            kind: "node.output_emitted".to_string(),
+            node_id: Some("wt".to_string()),
+            node_label: None,
+            attempt: Some(1),
+            actor: "agent".to_string(),
+            status: None,
+            summary: "分支 fix/1".to_string(),
+            payload_ref: None,
+            artifact_refs: vec![],
+            parent_event_id: None,
+            sensitivity: "internal".to_string(),
+            schema_ver: 1,
+        })
+        .expect("带了 attempt 就该收");
+}
+
+#[test]
+fn 非_node_事件不受这条约束() {
+    // conversation.* / tool.* / script.* 没有 attempt 的概念，
+    // 一刀切要求的话它们全写不进去
+    let store = Store::open_in_memory().unwrap();
+    let workflow = store.create_workflow("流程", None).unwrap();
+    let run = store.create_run(&workflow, None, Some(0), "{}").unwrap();
+
+    for kind in [
+        "conversation.agent_message",
+        "tool.call_finished",
+        "script.stdout",
+        "reasoning.summary",
+    ] {
+        store
+            .append_event(&aiwf_store::NewRunEvent {
+                run_id: run.clone(),
+                kind: kind.to_string(),
+                node_id: Some("n".to_string()),
+                node_label: None,
+                attempt: None,
+                actor: "agent".to_string(),
+                status: None,
+                summary: "有内容".to_string(),
+                payload_ref: None,
+                artifact_refs: vec![],
+                parent_event_id: None,
+                sensitivity: "internal".to_string(),
+                schema_ver: 1,
+            })
+            .unwrap_or_else(|error| panic!("{kind} 不该被拦：{error}"));
     }
 }

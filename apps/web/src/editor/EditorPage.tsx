@@ -32,7 +32,10 @@ import { minimalConfigFor, titleFor } from './nodeDefaults.js';
 
 const NODE_TYPES: NodeTypes = { workflow: WorkflowNode };
 
-interface LiveReactFlowProps extends Omit<ReactFlowProps, 'nodes' | 'onNodesChange'> {
+interface LiveReactFlowProps extends Omit<
+  ReactFlowProps,
+  'nodes' | 'defaultNodes' | 'onNodesChange'
+> {
   nodes: NonNullable<ReactFlowProps['nodes']>;
   onNodesChange: (changes: NodeChange[]) => void;
 }
