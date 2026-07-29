@@ -15,6 +15,18 @@ body,
   height: 100%;
 }
 
+/* document 一层不许滚：滚动一律发生在外壳内部真正该滚的那一块。
+   不锁的话 macOS WKWebView 的橡皮筋会在滚到底后把整个 document 往上拖 ——
+   标题栏是唯一带 data-tauri-drag-region 的元素，被拖出视口窗口就拖不动了，
+   底部还会露出一条空白。
+   两条都要：overflow:hidden 挡普通溢出，WebKit 在它之下照样回弹，
+   得靠 overscroll-behavior:none 才拦得住。 */
+html,
+body {
+  overflow: hidden;
+  overscroll-behavior: none;
+}
+
 body {
   margin: 0;
   background: var(--color-bg);
