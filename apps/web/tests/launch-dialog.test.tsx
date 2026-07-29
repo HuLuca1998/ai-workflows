@@ -281,6 +281,33 @@ describe('参数按 Schema 的类型渲染与校验', () => {
     });
   });
 
+  it('点弹层外面不关闭 —— 填到一半的参数不该就这么没了', async () => {
+    // 用户报的：手一滑点到外面，填好的启动参数全没了，得从头再来。
+    // 这个文件里 onStart 的 catch 分支已经写着「留在表单里：关掉的话
+    // 用户填的参数就没了，还得重来一遍」—— 遮罩上那个 onClick 违反的
+    // 正是同一条。关闭有明确入口：右上角 × 与「取消」
+    const user = userEvent.setup();
+    render(<LaunchDialog {...props} />);
+
+    await user.type(screen.getByLabelText(/Issue 编号/u), '548');
+    await user.click(screen.getByTestId('launch-backdrop'));
+
+    expect(props.onClose).not.toHaveBeenCalled();
+    expect(screen.getByLabelText(/Issue 编号/u)).toHaveValue('548');
+  });
+
+  it('右上角的 × 与「取消」照常关闭', async () => {
+    // 别把出路一起堵死了
+    const user = userEvent.setup();
+    render(<LaunchDialog {...props} />);
+
+    await user.click(screen.getByRole('button', { name: '关闭' }));
+    expect(props.onClose).toHaveBeenCalledTimes(1);
+
+    await user.click(screen.getByRole('button', { name: '取消' }));
+    expect(props.onClose).toHaveBeenCalledTimes(2);
+  });
+
   it('必填为空时给出中文错误与 aria-invalid，而不是只有红框', async () => {
     // codex 复测报的：三个 input 只有内部 data-missing，
     // aria-invalid 数量为 0，页面上没有任何可见的错误文本 ——

@@ -72,6 +72,22 @@ describe('结构', () => {
     expect(container.firstChild).toBeNull();
   });
 
+  it('点抽屉外面不关闭 —— 写了一半的问题不该就这么没了', async () => {
+    // 与启动表单同一个坑：遮罩上挂 onClose，手一滑点到外面，
+    // 打了半天的那段话就没了。抽屉里有输入框就不该这么关。
+    // 出路仍在：右上角的关闭按钮，以及 Esc
+    const user = userEvent.setup();
+    const onClose = vi.fn();
+    render(<SupervisorDrawer open context={{}} onClose={onClose} />);
+
+    const 输入框 = screen.getByRole('textbox');
+    await user.type(输入框, '这条工作流为什么失败了');
+    await user.click(screen.getByTestId('supervisor-backdrop'));
+
+    expect(onClose).not.toHaveBeenCalled();
+    expect(输入框).toHaveValue('这条工作流为什么失败了');
+  });
+
   it('空对话时说明能问什么', () => {
     view();
     expect(screen.getByText(/问它任何关于这个应用的事/u)).toBeTruthy();

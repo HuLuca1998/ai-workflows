@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { describeError } from '../data/describeError.js';
 import type { WorkflowGraph } from '../editor/editorDeps.js';
 import { coreClient } from '../data/workspace.js';
+import { RepoField } from './RepoField.js';
 
 /**
  * 启动表单 —— 严格照图纸的 660px 对话框。
@@ -56,7 +57,7 @@ interface Field {
   key: string;
   label: string;
   required: boolean;
-  kind: 'text' | 'number' | 'boolean' | 'enum';
+  kind: 'text' | 'number' | 'boolean' | 'enum' | 'repo';
   defaultValue: string;
   /** enum 的可选值。 */
   options?: string[];
@@ -133,13 +134,16 @@ export function LaunchDialog({
   const blocked = report !== null && !report.ok;
 
   return (
-    <div className="launch__backdrop" onClick={onClose}>
-      <div
-        className="launch"
-        role="dialog"
-        aria-label={`运行 ${workflowName}`}
-        onClick={(event) => event.stopPropagation()}
-      >
+    // 遮罩**不**关闭对话框：这里面是用户一个个填出来的启动参数，
+    // 手一滑点到外面就全没了。下面 onStart 的 catch 分支已经为同一件事
+    // 留过一句注释（「关掉的话用户填的参数就没了」）——
+    // 那条原则对失败成立，对误触同样成立。
+    //
+    // 顺带堵掉一个更隐蔽的：在弹层里按下鼠标、拖到外面松开（选文本时常有），
+    // click 会落在两者的共同祖先也就是遮罩上，于是内层的 stopPropagation
+    // 拦不住。关闭的入口是明确的那两个：右上角 × 与「取消」
+    <div className="launch__backdrop" data-testid="launch-backdrop">
+      <div className="launch" role="dialog" aria-label={`运行 ${workflowName}`}>
         <header className="launch__head">
           <i className="ph ph-play-circle" aria-hidden="true" />
           <div>
@@ -183,35 +187,66 @@ export function LaunchDialog({
 
           {fields.length > 0 ? (
             <section className="launch__fields">
-              {fields.map((field) => (
-                <label key={field.key} className="launch__field">
-                  <span className="launch__label">
-                    {/* id 挂在只含文本的这层：aria-labelledby 会取整个元素的
-                        累积文本，星号一起进去的话字段的可读名就成了「数量 *」 */}
-                    <span id={`launch-${field.key}`}>{field.label}</span>
-                    {/* 星号是视觉标记，不进无障碍名 ——
-                        否则字段的可读名字会变成「数量 *」 */}
-                    {field.required ? (
-                      <span className="launch__req" aria-hidden="true">
-                        {' '}
-                        *
-                      </span>
+              {fields.map((field) =>
+                // 仓库字段里有两个控件（仓库、分支），各自要有自己的 label ——
+                // 一个 <label> 套两个表单控件，关联到哪个是未定义的
+                field.kind === 'repo' ? (
+                  <fieldset key={field.key} className="launch__field">
+                    <legend className="launch__label">
+                      {field.label}
+                      {field.required ? (
+                        <span className="launch__req" aria-hidden="true">
+                          {' '}
+                          *
+                        </span>
+                      ) : null}
+                    </legend>
+                    <RepoField
+                      name={values[field.key] ?? ''}
+                      branch={values[branchKey(field.key)] ?? ''}
+                      invalid={missing.includes(field.key)}
+                      onChange={(next) =>
+                        setValues((prev) => ({
+                          ...prev,
+                          [field.key]: next.name,
+                          [branchKey(field.key)]: next.branch,
+                        }))
+                      }
+                    />
+                    {missing.includes(field.key) ? (
+                      <span className="launch__error">必填项，请填写</span>
                     ) : null}
-                  </span>
-                  <FieldInput
-                    field={field}
-                    value={values[field.key] ?? ''}
-                    invalid={missing.includes(field.key)}
-                    onChange={(next) => setValues((prev) => ({ ...prev, [field.key]: next }))}
-                  />
-                  {/* 只有红框的话读屏用户完全不知道为什么点了没反应 */}
-                  {missing.includes(field.key) ? (
-                    // 不重复字段名：错误就在字段下面，位置本身说明了是哪个，
-                    // 重复一遍反而会和 label 撞成两个同名元素
-                    <span className="launch__error">必填项，请填写</span>
-                  ) : null}
-                </label>
-              ))}
+                  </fieldset>
+                ) : (
+                  <label key={field.key} className="launch__field">
+                    <span className="launch__label">
+                      {/* id 挂在只含文本的这层：aria-labelledby 会取整个元素的
+                        累积文本，星号一起进去的话字段的可读名就成了「数量 *」 */}
+                      <span id={`launch-${field.key}`}>{field.label}</span>
+                      {/* 星号是视觉标记，不进无障碍名 ——
+                        否则字段的可读名字会变成「数量 *」 */}
+                      {field.required ? (
+                        <span className="launch__req" aria-hidden="true">
+                          {' '}
+                          *
+                        </span>
+                      ) : null}
+                    </span>
+                    <FieldInput
+                      field={field}
+                      value={values[field.key] ?? ''}
+                      invalid={missing.includes(field.key)}
+                      onChange={(next) => setValues((prev) => ({ ...prev, [field.key]: next }))}
+                    />
+                    {/* 只有红框的话读屏用户完全不知道为什么点了没反应 */}
+                    {missing.includes(field.key) ? (
+                      // 不重复字段名：错误就在字段下面，位置本身说明了是哪个，
+                      // 重复一遍反而会和 label 撞成两个同名元素
+                      <span className="launch__error">必填项，请填写</span>
+                    ) : null}
+                  </label>
+                ),
+              )}
             </section>
           ) : (
             <p className="launch__note">这个工作流不需要启动参数。</p>
@@ -346,10 +381,23 @@ function FieldInput({
 interface PropertySpec {
   type?: string;
   title?: string;
+  /** JSON Schema 的扩展点。眼下只认 `repo`。 */
+  format?: string;
   default?: unknown;
   enum?: unknown[];
   minimum?: number;
   maximum?: number;
+}
+
+/**
+ * 仓库字段的分支存在哪个 key 下。
+ *
+ * 值发出去是一个对象，但表单内部拆成两格 —— 这样必填校验
+ * （「仓库选了没」）与其余字段共用同一条路径，不必为一种字段
+ * 再开一套状态。` ` 前缀不会与 schema 里的属性名撞上。
+ */
+function branchKey(key: string): string {
+  return `${key} branch`;
 }
 
 /**
@@ -384,6 +432,9 @@ function fieldsFromEntry(graph: WorkflowGraph): Field[] {
 
 /** 认不出的类型退回文本框 —— 不为了统一而瞎猜。 */
 function kindOf(spec: PropertySpec, options?: string[]): Field['kind'] {
+  // format 是 JSON Schema 给出的扩展点。仓库与分支一起选，
+  // 值是 {name, branch} —— 分支只有在某个仓库里才有意义
+  if (spec.format === 'repo') return 'repo';
   if (options && options.length > 0) return 'enum';
   if (spec.type === 'integer' || spec.type === 'number') return 'number';
   if (spec.type === 'boolean') return 'boolean';
@@ -402,6 +453,11 @@ function coerce(fields: readonly Field[], values: Record<string, string>): Recor
     const raw = values[field.key];
     if (raw === undefined || raw === '') continue;
     switch (field.kind) {
+      // 仓库与分支在表单里是两个 key，发出去是一个对象 ——
+      // 脚本里用 ${input.repo.name} / ${input.repo.branch}
+      case 'repo':
+        out[field.key] = { name: raw, branch: values[branchKey(field.key)] ?? '' };
+        break;
       case 'number': {
         const parsed = Number(raw);
         out[field.key] = Number.isNaN(parsed) ? raw : parsed;

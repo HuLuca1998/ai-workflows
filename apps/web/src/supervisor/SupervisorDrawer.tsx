@@ -333,11 +333,14 @@ export function SupervisorDrawer({
   };
 
   return (
-    <div className="supervisor__backdrop" onClick={onClose}>
+    // 遮罩不关抽屉：里面那个输入框可能正打着一段长问题，
+    // 点到外面就没了。同样堵掉「在抽屉里按下鼠标、拖到外面松开」——
+    // 那时 click 落在遮罩上，内层的 stopPropagation 拦不住。
+    // 关闭的出路是右上角那个按钮与 Esc
+    <div className="supervisor__backdrop" data-testid="supervisor-backdrop">
       <aside
         className="supervisor"
         aria-label="主管 AI"
-        onClick={(event) => event.stopPropagation()}
         onKeyDown={(event) => {
           if (event.key === 'Escape') onClose();
         }}
