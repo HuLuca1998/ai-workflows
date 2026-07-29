@@ -128,6 +128,8 @@
     "workspace.settings",
     "workspace.updateSettings",
     "workspace.stats",
+    "workspace.resetPreview",
+    "workspace.reset",
     "workflow.list",
     "workflow.get",
     "workflow.create",

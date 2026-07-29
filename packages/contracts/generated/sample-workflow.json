@@ -1,0 +1,383 @@
+{
+  "name": "GitHub Issue 修复",
+  "summary": "读 Issue → 分析 → 审批 → worktree → 修复 → 审查 → 决策 → PR",
+  "graph": {
+    "nodes": [
+      {
+        "id": "entry",
+        "type": "entry",
+        "title": "入口 · Issue 输入",
+        "position": {
+          "x": 40,
+          "y": 34
+        },
+        "config": {
+          "trigger": "manual",
+          "workdirSource": "prompt",
+          "inputSchema": {
+            "type": "object",
+            "required": [
+              "issue",
+              "repo"
+            ],
+            "properties": {
+              "issue": {
+                "type": "string",
+                "title": "Issue 编号"
+              },
+              "repo": {
+                "type": "string",
+                "title": "仓库"
+              },
+              "base": {
+                "type": "string",
+                "title": "基础分支",
+                "default": "main"
+              }
+            }
+          },
+          "injectedFields": [
+            "run.id",
+            "run.startedAt"
+          ]
+        }
+      },
+      {
+        "id": "read_issue",
+        "type": "script.shell",
+        "title": "读取 Issue",
+        "position": {
+          "x": 290,
+          "y": 34
+        },
+        "config": {
+          "interpreter": "zsh",
+          "script": "gh issue view \"$ISSUE\" --repo \"$REPO\" --json title,body,labels",
+          "env": {},
+          "secretEnv": {},
+          "outputParse": "json",
+          "successExitCodes": [
+            0
+          ],
+          "outputLimitBytes": 1048576,
+          "timeoutMs": 60000
+        }
+      },
+      {
+        "id": "analyze",
+        "type": "ai.analyze",
+        "title": "分析 · 根因与方案",
+        "position": {
+          "x": 540,
+          "y": 34
+        },
+        "config": {
+          "agentProfileId": "builtin:analyst",
+          "instruction": "定位根因，给出 2–3 个可选方案，写清每个方案的风险与验证方式。",
+          "turnLimit": 12,
+          "target": "${read_issue.success}"
+        }
+      },
+      {
+        "id": "approve_plan",
+        "type": "approval",
+        "title": "审批 · 选择方案",
+        "position": {
+          "x": 790,
+          "y": 34
+        },
+        "config": {
+          "title": "选择修复方案",
+          "bodyMarkdown": "分析给出了多个方案，选一个继续。",
+          "interaction": "single",
+          "options": [],
+          "waitStrategy": "forever"
+        }
+      },
+      {
+        "id": "worktree",
+        "type": "git.worktree",
+        "title": "创建 Git worktree",
+        "position": {
+          "x": 790,
+          "y": 184
+        },
+        "config": {
+          "repoRoot": "${input.repo}",
+          "baseBranch": "${input.base}",
+          "branchTemplate": "fix/${input.issue}-${run.id}",
+          "parentDir": "~/worktrees",
+          "fetch": true,
+          "conflictPolicy": "suffix",
+          "cleanupPolicy": "manual"
+        }
+      },
+      {
+        "id": "fix",
+        "type": "ai.execute",
+        "title": "执行 · Fix Agent",
+        "position": {
+          "x": 540,
+          "y": 184
+        },
+        "config": {
+          "agentProfileId": "builtin:builder",
+          "instruction": "按选定方案修改代码，小步提交，每步可验证。",
+          "turnLimit": 12,
+          "workdirSource": "worktree",
+          "verifyCommands": [
+            "pnpm test"
+          ]
+        }
+      },
+      {
+        "id": "review",
+        "type": "ai.review",
+        "title": "审查 · Diff 与风险",
+        "position": {
+          "x": 290,
+          "y": 184
+        },
+        "config": {
+          "agentProfileId": "builtin:reviewer",
+          "instruction": "只读检查 Diff、测试与风险，按严重度排序，最多 5 条。",
+          "turnLimit": 12,
+          "target": "${fix.success}",
+          "checklist": [
+            "并发",
+            "缓存失效",
+            "错误分支",
+            "日志脱敏"
+          ],
+          "severities": [
+            "blocker",
+            "major",
+            "minor"
+          ]
+        }
+      },
+      {
+        "id": "decide",
+        "type": "ai.decide",
+        "title": "决策 · L1–L3 分级",
+        "position": {
+          "x": 40,
+          "y": 184
+        },
+        "config": {
+          "agentProfileId": "builtin:operator",
+          "instruction": "按影响面给出 L1–L3 分级；push 与建 PR 属于 L3。",
+          "turnLimit": 12,
+          "rules": [],
+          "autoDecideUpTo": "L2",
+          "onTimeout": "escalate"
+        }
+      },
+      {
+        "id": "approve_diff",
+        "type": "approval",
+        "title": "审批 · 检查 Diff",
+        "position": {
+          "x": 40,
+          "y": 334
+        },
+        "config": {
+          "title": "检查 Diff 与风险",
+          "bodyMarkdown": "将要发生的外部写操作：commit → push → 创建 PR。不会修改当前分支。",
+          "interaction": "confirm",
+          "options": [],
+          "waitStrategy": "forever"
+        }
+      },
+      {
+        "id": "push_pr",
+        "type": "script.shell",
+        "title": "Commit / Push / PR",
+        "position": {
+          "x": 290,
+          "y": 334
+        },
+        "config": {
+          "interpreter": "zsh",
+          "script": "set -euo pipefail\nISSUE=${input.issue}\ncd ${worktree.success.path}\ngit add -A\ngit diff --cached --quiet && { echo '没有任何改动，不建 PR'; exit 1; }\ngit commit -qm \"fix: 关闭 #$ISSUE\"\ngit push -qu origin HEAD\ngh pr create --fill",
+          "env": {},
+          "secretEnv": {},
+          "outputParse": "none",
+          "successExitCodes": [
+            0
+          ],
+          "outputLimitBytes": 1048576,
+          "timeoutMs": 300000
+        }
+      },
+      {
+        "id": "notify",
+        "type": "notify",
+        "title": "系统通知",
+        "position": {
+          "x": 540,
+          "y": 334
+        },
+        "config": {
+          "title": "Issue 修复完成",
+          "body": "PR 已创建，点击查看。",
+          "on": [
+            "completed",
+            "failed",
+            "waiting_approval"
+          ],
+          "clickAction": "open_run",
+          "onFailure": "ignore"
+        }
+      },
+      {
+        "id": "done",
+        "type": "end",
+        "title": "结束",
+        "position": {
+          "x": 790,
+          "y": 334
+        },
+        "config": {
+          "outcome": "success",
+          "artifacts": []
+        }
+      }
+    ],
+    "edges": [
+      {
+        "id": "e_entry_read",
+        "source": {
+          "nodeId": "entry",
+          "port": "success"
+        },
+        "target": {
+          "nodeId": "read_issue",
+          "port": "input"
+        }
+      },
+      {
+        "id": "e_read_analyze",
+        "source": {
+          "nodeId": "read_issue",
+          "port": "success"
+        },
+        "target": {
+          "nodeId": "analyze",
+          "port": "input"
+        }
+      },
+      {
+        "id": "e_analyze_approve",
+        "source": {
+          "nodeId": "analyze",
+          "port": "success"
+        },
+        "target": {
+          "nodeId": "approve_plan",
+          "port": "input"
+        }
+      },
+      {
+        "id": "e_approve_worktree",
+        "source": {
+          "nodeId": "approve_plan",
+          "port": "approved"
+        },
+        "target": {
+          "nodeId": "worktree",
+          "port": "input"
+        }
+      },
+      {
+        "id": "e_worktree_fix",
+        "source": {
+          "nodeId": "worktree",
+          "port": "success"
+        },
+        "target": {
+          "nodeId": "fix",
+          "port": "input"
+        }
+      },
+      {
+        "id": "e_fix_review",
+        "source": {
+          "nodeId": "fix",
+          "port": "success"
+        },
+        "target": {
+          "nodeId": "review",
+          "port": "input"
+        }
+      },
+      {
+        "id": "e_review_decide",
+        "source": {
+          "nodeId": "review",
+          "port": "passed"
+        },
+        "target": {
+          "nodeId": "decide",
+          "port": "input"
+        }
+      },
+      {
+        "id": "e_decide_approve",
+        "source": {
+          "nodeId": "decide",
+          "port": "escalated"
+        },
+        "target": {
+          "nodeId": "approve_diff",
+          "port": "input"
+        }
+      },
+      {
+        "id": "e_approve_push",
+        "source": {
+          "nodeId": "approve_diff",
+          "port": "approved"
+        },
+        "target": {
+          "nodeId": "push_pr",
+          "port": "input"
+        }
+      },
+      {
+        "id": "e_push_notify",
+        "source": {
+          "nodeId": "push_pr",
+          "port": "success"
+        },
+        "target": {
+          "nodeId": "notify",
+          "port": "input"
+        }
+      },
+      {
+        "id": "e_notify_done",
+        "source": {
+          "nodeId": "notify",
+          "port": "success"
+        },
+        "target": {
+          "nodeId": "done",
+          "port": "input"
+        }
+      },
+      {
+        "id": "e_review_back",
+        "source": {
+          "nodeId": "review",
+          "port": "changes_requested"
+        },
+        "target": {
+          "nodeId": "approve_diff",
+          "port": "input"
+        }
+      }
+    ],
+    "groups": []
+  }
+}

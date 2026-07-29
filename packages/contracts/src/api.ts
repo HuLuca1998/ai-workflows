@@ -292,6 +292,73 @@ const SPECS = {
     scope: 'workflow:read',
     summary: '首页四张统计卡的同一时刻快照',
   },
+  'workspace.resetPreview': {
+    // 先看清楚再动手。这个应用一贯这么做 —— 图纸「06 首次安装与检测」
+    // 把「将写入的位置」逐条列出来才让你点确认，删东西没有理由更随意。
+    //
+    // 目录的路径是**算出来的真路径**，不是文案里编的样例：
+    // 产物落在用户自己授权的工作目录下（`<workdir>/.aiwf-artifacts`），
+    // 不在 App 数据目录里。用户不看到这一条，就不知道自己的代码仓库
+    // 里有东西要被删。
+    input: z.object({}),
+    output: z.object({
+      /** 库里现在有多少东西。确认框逐条念给用户听。 */
+      counts: z.object({
+        workflows: z.number().int().min(0),
+        runs: z.number().int().min(0),
+        memories: z.number().int().min(0),
+        agents: z.number().int().min(0),
+        prompts: z.number().int().min(0),
+        models: z.number().int().min(0),
+      }),
+      directories: z.array(
+        z.object({
+          path: z.string().min(1),
+          kind: z.enum(['runs', 'logs', 'artifacts']),
+          bytes: z.number().int().min(0),
+          /**
+           * 这个目录在不在用户授权的工作目录里。
+           *
+           * 必填而不是可选：界面要靠它把「删 App 自己的地盘」与
+           * 「删你代码仓库里的东西」分开警告，而缺席会被读成 false ——
+           * 恰好是那条更危险的路径被当成安全的。
+           */
+          insideWorkdir: z.boolean(),
+        }),
+      ),
+    }),
+    mutates: false,
+    audited: false,
+    // 与 workspace.reset 同档：预览会报出用户机器上的真实路径
+    scope: null,
+    summary: '预览一键初始化会清掉什么',
+  },
+  'workspace.reset': {
+    input: z.object({
+      /**
+       * 防误触。`scope: null` 已经把 MCP 与 HTTP 挡在外面了，
+       * 这一条挡的是本地脚本照着命令名一把梭 —— 手滑至少要多打一个字段。
+       */
+      confirm: z.literal(true),
+      /**
+       * 连 `<workdir>/.aiwf-artifacts` 一起删。
+       *
+       * 默认 false：那个目录在用户自己的代码仓库里，「没说」只能理解成
+       * 「别碰」。界面在确认框里把路径显示出来，由用户勾。
+       */
+      includeArtifacts: z.boolean().default(false),
+    }),
+    output: z.object({
+      ok: z.literal(true),
+      /** 真的删掉了哪些目录。界面照实回显，不照着请求参数猜。 */
+      removedDirectories: z.array(z.string()),
+    }),
+    mutates: true,
+    // 清库这件事本身要留痕 —— 事后追查「我的东西哪去了」只剩这一条线索
+    audited: true,
+    scope: null,
+    summary: '一键初始化：清空数据库、重种内置数据、清运行产物与日志',
+  },
   'workflow.list': {
     input: z.object({
       query: z.string().optional(),

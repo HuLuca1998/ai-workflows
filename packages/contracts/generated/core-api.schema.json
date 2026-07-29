@@ -413,6 +413,147 @@
       ]
     }
   },
+  "workspace.resetPreview": {
+    "summary": "预览一键初始化会清掉什么",
+    "scope": null,
+    "mutates": false,
+    "audited": false,
+    "input": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {}
+    },
+    "output": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "counts": {
+          "type": "object",
+          "properties": {
+            "workflows": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "runs": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "memories": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "agents": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "prompts": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "models": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            }
+          },
+          "required": [
+            "workflows",
+            "runs",
+            "memories",
+            "agents",
+            "prompts",
+            "models"
+          ]
+        },
+        "directories": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "path": {
+                "type": "string",
+                "minLength": 1
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "runs",
+                  "logs",
+                  "artifacts"
+                ]
+              },
+              "bytes": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "insideWorkdir": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "path",
+              "kind",
+              "bytes",
+              "insideWorkdir"
+            ]
+          }
+        }
+      },
+      "required": [
+        "counts",
+        "directories"
+      ]
+    }
+  },
+  "workspace.reset": {
+    "summary": "一键初始化：清空数据库、重种内置数据、清运行产物与日志",
+    "scope": null,
+    "mutates": true,
+    "audited": true,
+    "input": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "confirm": {
+          "type": "boolean",
+          "const": true
+        },
+        "includeArtifacts": {
+          "default": false,
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "confirm"
+      ]
+    },
+    "output": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "ok": {
+          "type": "boolean",
+          "const": true
+        },
+        "removedDirectories": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "ok",
+        "removedDirectories"
+      ]
+    }
+  },
   "workflow.list": {
     "summary": "列出工作流",
     "scope": "workflow:read",

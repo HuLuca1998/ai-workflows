@@ -24,6 +24,7 @@ import { NODE_TYPES, getNodeDefinition } from '../src/nodes/index.js';
 import { PATCH_OPS } from '../src/patch.js';
 import { CONTRACTS_VERSION } from '../src/index.js';
 import { RUN_STATUSES, NODE_STATUSES } from '../src/state-machine.js';
+import { templateById } from '../src/templates.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const outDir = join(here, '..', 'generated');
@@ -122,6 +123,32 @@ const files: Record<string, unknown> = {
       diff: diffGraphs(item.before, item.after),
     })),
   },
+  /**
+   * 一键初始化种下的那条示例工作流，已经是**应用完模板操作之后的图**。
+   *
+   * 为什么算在这里而不是在存储层：模板是 `templates.ts` 里的
+   * PatchOperation 数组，把它变成图要跑 applyPatch —— 而 Rust 那份
+   * 住在 engine 里，engine 依赖 store，store 不能反过来依赖 engine。
+   * 手抄一份图进种子 SQL 是另一条路，代价是它会与模板悄悄分叉：
+   * 模板改了节点，示例还是老样子，而没有任何东西会红。
+   *
+   * 走生成物就没这个问题 —— `pnpm contracts:check` 守着它与模板一致，
+   * 模板一改这份就得重新生成，否则 CI 打回。
+   */
+  'sample-workflow.json': (() => {
+    const template = templateById('github-issue-fix');
+    if (!template) throw new Error('内置模板 github-issue-fix 不见了 —— 示例工作流没法生成');
+    return {
+      name: template.name,
+      summary: template.summary,
+      // 与界面「从模板新建」走的是同一条路（workspace.ts 的 createWorkflow）：
+      // 空图 + rev 0 起步，模板因此被同一套校验守住
+      graph: applyPatch({ nodes: [], edges: [], groups: [] }, 0, {
+        baseRevision: 0,
+        operations: [...template.operations],
+      }).graph,
+    };
+  })(),
   'core-api.schema.json': Object.fromEntries(
     CORE_API_METHODS.map((method) => {
       const spec = getMethodSpec(method);

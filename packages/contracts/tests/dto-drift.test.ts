@@ -77,6 +77,10 @@ const 映射: {
     重组字段: ['id', 'name', 'folder', 'createdAt', 'updatedAt', 'graphJson'],
   },
   { dto: 'SupervisorAnswer', method: 'supervisor.ask' },
+  { dto: 'ResetPreviewDto', method: 'workspace.resetPreview' },
+  { dto: 'ResetCountsDto', method: 'workspace.resetPreview', 字段路径: 'counts' },
+  { dto: 'ResetDirectoryDto', method: 'workspace.resetPreview', 字段路径: 'directories' },
+  { dto: 'ResetResultDto', method: 'workspace.reset' },
   // sectionsJson / varsJson 在映射层解析成 sections / vars（引擎不理解它们的结构），
   // 字段名对不上是**有意**的，所以豁免而不是登记
 ];
@@ -123,14 +127,22 @@ function rust字段(结构体: string): string[] {
   return 键;
 }
 
-/** 从契约 output 里取出字段名。字段路径指向数组元素时钻进去。 */
+/**
+ * 从契约 output 里取出字段名。
+ *
+ * 字段路径指向数组时钻进元素，指向嵌套对象时就用它自己 ——
+ * 后者是 `workspace.resetPreview` 的 `counts` 那种形状。
+ * 只认数组的话，嵌套对象的 DTO 会在这里炸成一句
+ * 「Cannot use 'in' operator」，而真正的意思是「守卫不认这种形状」。
+ */
 function 契约字段(method: CoreApiMethod, 字段路径?: string): string[] {
   let schema: z.ZodTypeAny = getMethodSpec(method).output;
   if (字段路径) {
     const shape = (schema as z.ZodObject<z.ZodRawShape>).shape;
-    const 数组 = shape[字段路径];
-    if (!数组) throw new Error(`${method} 的 output 里没有 ${字段路径}`);
-    schema = (数组 as z.ZodArray<z.ZodTypeAny>).element;
+    const 字段 = shape[字段路径];
+    if (!字段) throw new Error(`${method} 的 output 里没有 ${字段路径}`);
+    const 元素 = (字段 as z.ZodArray<z.ZodTypeAny>).element;
+    schema = 元素 ?? 字段;
   }
   // optional / default 包一层，剥到对象为止
   while ('unwrap' in schema && typeof schema.unwrap === 'function') {
