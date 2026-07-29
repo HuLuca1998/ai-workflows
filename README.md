@@ -30,7 +30,7 @@ crates/
   store/              SQLite(WAL)+FTS5 访问层与迁移
 services/
   acp-sidecar/        Node：ACP Adapter（Claude Code / Codex）
-docs/                 项目管理文档、ADR、设计图纸与参考资料
+docs/                 项目文档、技术债台账、ADR、参考资料与归档
 ```
 
 分层依赖是单向的：`UI → Client Core → Core API → Engine → Store`。UI 只做 RunEvent 的只读投影与发命令，不直接碰文件与进程。
@@ -59,18 +59,20 @@ pnpm verify           # 提交前跑一遍完整门禁
 
 **功能以测试先行为基准。** 契约与安全基元尤其如此：先写下期望行为的测试，再写实现。详见 [docs/TESTING.md](docs/TESTING.md)。
 
-**以图纸施工。** 设计图纸在 [docs/design/client/](docs/design/client/)（可交互原型 + 功能文档与里程碑 + 技术选型 + Nocturne 设计系统）。实现与图纸不一致时，先改文档或记 ADR，不要静默偏离。
+**先还账，再添新功能。** 框架已经建完，现在是完善优化阶段。接活之前先看 [docs/DEBT.md](docs/DEBT.md)——那里记着「已经声称做完但没做实」的东西，在这样的地基上加功能只会让账变长。
 
 ## 文档
 
 | 文档                                         | 内容                           |
 | -------------------------------------------- | ------------------------------ |
 | [docs/README.md](docs/README.md)             | 文档索引                       |
+| [docs/DEBT.md](docs/DEBT.md)                 | **技术债台账**，接活前先看     |
 | [docs/PROJECT.md](docs/PROJECT.md)           | 产品定位、范围与非目标         |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | 分层架构与目录职责             |
-| [docs/ROADMAP.md](docs/ROADMAP.md)           | M0–M6 里程碑与出口标准         |
+| [docs/ROADMAP.md](docs/ROADMAP.md)           | 已建成什么、接下来做什么       |
 | [docs/TESTING.md](docs/TESTING.md)           | 测试先行规约与质量门禁         |
 | [docs/CONTRIBUTING.md](docs/CONTRIBUTING.md) | 分支、提交、评审与契约变更流程 |
+| [docs/MCP.md](docs/MCP.md)                   | 系统级 MCP：工具清单与接入     |
 | [docs/RELEASE.md](docs/RELEASE.md)           | 自动发布与应用内一键更新       |
 | [docs/adr/](docs/adr/)                       | 架构决策记录                   |
 

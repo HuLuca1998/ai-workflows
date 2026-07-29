@@ -55,7 +55,8 @@ beforeEach(() => {
   respond();
 });
 
-const view = () => render(
+const view = () =>
+  render(
     <MemoryRouter>
       <SettingsPage />
     </MemoryRouter>,

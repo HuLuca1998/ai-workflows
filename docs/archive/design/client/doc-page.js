@@ -333,15 +333,24 @@
 
   class DocPage extends HTMLElement {
     static get observedAttributes() {
-      return ['size', 'width', 'height', 'margin', 'orientation', 'content-width', 'content-height'];
+      return [
+        'size',
+        'width',
+        'height',
+        'margin',
+        'orientation',
+        'content-width',
+        'content-height',
+      ];
     }
 
     constructor() {
       super();
       this._root = this.attachShadow({ mode: 'open' });
-      this._mo = typeof MutationObserver === 'function'
-        ? new MutationObserver(() => this._scheduleMeasure())
-        : null;
+      this._mo =
+        typeof MutationObserver === 'function'
+          ? new MutationObserver(() => this._scheduleMeasure())
+          : null;
     }
 
     /** The named paper's [w, h], swapped when orientation="landscape".
@@ -359,7 +368,9 @@
     get pageHeight() {
       return safeLen(this.getAttribute('height'), this._paperSize()[1]);
     }
-    get pageMargin() { return safeLen(this.getAttribute('margin'), '0.75in'); }
+    get pageMargin() {
+      return safeLen(this.getAttribute('margin'), '0.75in');
+    }
 
     /** Scaled-fit mode's content box [w, h] as CSS lengths, or null when
      *  the mode is off (either attribute missing/invalid/zero — a partial
@@ -368,7 +379,8 @@
       const w = safeLen(this.getAttribute('content-width'), null);
       const h = safeLen(this.getAttribute('content-height'), null);
       if (!w || !h) return null;
-      const wPx = toPx(w), hPx = toPx(h);
+      const wPx = toPx(w),
+        hPx = toPx(h);
       return wPx > 0 && hPx > 0 ? [w, h, wPx, hPx] : null;
     }
 
@@ -380,9 +392,13 @@
       this._ensureOwnsPrintMeta();
       this._syncFixedSizeMeta();
       this._syncPrintSizingMeta();
-      if (this._mo) this._mo.observe(this, {
-        subtree: true, childList: true, characterData: true, attributes: true,
-      });
+      if (this._mo)
+        this._mo.observe(this, {
+          subtree: true,
+          childList: true,
+          characterData: true,
+          attributes: true,
+        });
       this._onResize = () => this._scheduleMeasure();
       window.addEventListener('resize', this._onResize);
       if (document.fonts && document.fonts.ready) {
@@ -394,13 +410,22 @@
     disconnectedCallback() {
       window.removeEventListener('resize', this._onResize);
       if (this._mo) this._mo.disconnect();
-      if (this._raf) { cancelAnimationFrame(this._raf); this._raf = null; }
+      if (this._raf) {
+        cancelAnimationFrame(this._raf);
+        this._raf = null;
+      }
       // Drop the head rules when the last doc-page leaves, so a deleted
       // document's @page geometry and text-wrap defaults can't apply to
       // whatever replaces it.
       const survivor = document.querySelector('doc-page');
       if (!survivor) {
-        ['doc-page-print', 'doc-page-text-wrap', 'doc-page-owns-print', 'doc-page-fixed-size', 'doc-page-print-sizing'].forEach((id) => {
+        [
+          'doc-page-print',
+          'doc-page-text-wrap',
+          'doc-page-owns-print',
+          'doc-page-fixed-size',
+          'doc-page-print-sizing',
+        ].forEach((id) => {
           const tag = document.getElementById(id);
           if (tag) tag.remove();
         });
@@ -464,9 +489,15 @@
         const scale = Math.min(availW / fit[2], availH / fit[3]);
         if (scale > 0 && Number.isFinite(scale)) {
           fitVars =
-            '--doc-fit-w:' + fit[0] + ';' +
-            '--doc-fit-h:' + fit[1] + ';' +
-            '--doc-fit-scale:' + scale.toFixed(4) + ';';
+            '--doc-fit-w:' +
+            fit[0] +
+            ';' +
+            '--doc-fit-h:' +
+            fit[1] +
+            ';' +
+            '--doc-fit-scale:' +
+            scale.toFixed(4) +
+            ';';
         }
       }
       this._sheet.classList.toggle('fit-mode', !!fitVars);
@@ -477,16 +508,33 @@
       const arW = toPx(this.pageWidth);
       const arH = toPx(this.pageHeight);
       const ar = arW > 0 && arH > 0 ? (arW / arH).toFixed(6) : '0.772727';
-      this._vars.textContent = ':host{' +
+      this._vars.textContent =
+        ':host{' +
         fitVars +
-        '--doc-page-ar:' + ar + ';' +
-        '--doc-page-w:' + this.pageWidth + ';' +
-        '--doc-page-h:' + this.pageHeight + ';' +
-        '--doc-page-margin:' + this.pageMargin + ';' +
-        '--doc-hdr-h:' + (hdrH || 0) + 'px;' +
-        '--doc-ftr-h:' + (ftrH || 0) + 'px;' +
-        '--doc-hdr-pad:' + (hdrH ? '0.35in' : '0px') + ';' +
-        '--doc-ftr-pad:' + (ftrH ? '0.35in' : '0px') + '}';
+        '--doc-page-ar:' +
+        ar +
+        ';' +
+        '--doc-page-w:' +
+        this.pageWidth +
+        ';' +
+        '--doc-page-h:' +
+        this.pageHeight +
+        ';' +
+        '--doc-page-margin:' +
+        this.pageMargin +
+        ';' +
+        '--doc-hdr-h:' +
+        (hdrH || 0) +
+        'px;' +
+        '--doc-ftr-h:' +
+        (ftrH || 0) +
+        'px;' +
+        '--doc-hdr-pad:' +
+        (hdrH ? '0.35in' : '0px') +
+        ';' +
+        '--doc-ftr-pad:' +
+        (ftrH ? '0.35in' : '0px') +
+        '}';
     }
 
     /** @page is a no-op inside shadow DOM, so the rule lives in <head>.
@@ -525,8 +573,7 @@
       //   descriptor is what carries orientation; without it a landscape
       //   document prints portrait whenever nothing injects a size.
       const landscape =
-        (this.getAttribute('orientation') || '').trim().toLowerCase() ===
-        'landscape';
+        (this.getAttribute('orientation') || '').trim().toLowerCase() === 'landscape';
       // Explicit pagination pins the page box to the SAME values that
       // size the cards (the named size by default, the export path's
       // chosen paper when its later rule overrides both) — card and
@@ -559,11 +606,8 @@
       // Safari guide teaches turning the setting off for flowing
       // documents. Explicitly paginated and fixed-size documents keep
       // margin: 0 everywhere: their pages ARE the sheet.
-      const wkFlowing =
-        WK_PRINT && !paginatedNow && !this._trueSizePx() && !this._contentFit();
-      const marginDescriptor = wkFlowing
-        ? 'margin: ' + this.pageMargin + ' 0; '
-        : 'margin: 0; ';
+      const wkFlowing = WK_PRINT && !paginatedNow && !this._trueSizePx() && !this._contentFit();
+      const marginDescriptor = wkFlowing ? 'margin: ' + this.pageMargin + ' 0; ' : 'margin: 0; ';
       // Shadow-internal marker (never serialized), kept in lockstep with
       // the @page decision above: the print CSS trims the first-page
       // spacers ONLY while @page actually carries the margins — a
@@ -572,7 +616,10 @@
       // flips move both together.
       if (this._sheet) this._sheet.classList.toggle('wk-print', wkFlowing);
       tag.textContent =
-        '@page { ' + sizeDescriptor + marginDescriptor + '} ' +
+        '@page { ' +
+        sizeDescriptor +
+        marginDescriptor +
+        '} ' +
         '@media print { html, body { margin: 0 !important; padding: 0 !important; background: none !important; height: auto !important; overflow: visible !important; } ' +
         'h1,h2,h3,h4,h5,h6 { break-after: avoid; } ' +
         'figure,pre,blockquote,img,svg,tr { break-inside: avoid; } ' +
@@ -620,10 +667,8 @@
     /** This page's valid true-size page box (explicit width AND height)
      *  as [w, h] px ints, or null when the mode is off. */
     _trueSizePx() {
-      if (
-        !safeLen(this.getAttribute('width'), null) ||
-        !safeLen(this.getAttribute('height'), null)
-      ) return null;
+      if (!safeLen(this.getAttribute('width'), null) || !safeLen(this.getAttribute('height'), null))
+        return null;
       const w = Math.round(toPx(this.pageWidth));
       const h = Math.round(toPx(this.pageHeight));
       return w > 0 && h > 0 ? [w, h] : null;
@@ -644,7 +689,7 @@
       const id = 'doc-page-fixed-size';
       const own = document.getElementById(id);
       const authored = document.querySelector(
-        'meta[name="omelette-fixed-size"]:not([data-omelette-injected])'
+        'meta[name="omelette-fixed-size"]:not([data-omelette-injected])',
       );
       // The page-wide owner, not this instance: an upgraded true-size page
       // anywhere in the document keeps the meta alive and sized.
@@ -671,8 +716,7 @@
     _printSizingMode() {
       if (this._trueSizePx()) return 'fixed';
       const landscape =
-        (this.getAttribute('orientation') || '').trim().toLowerCase() ===
-        'landscape';
+        (this.getAttribute('orientation') || '').trim().toLowerCase() === 'landscape';
       return landscape ? 'default-landscape' : 'default-portrait';
     }
 
@@ -689,7 +733,7 @@
       const id = 'doc-page-print-sizing';
       const own = document.getElementById(id);
       const authored = document.querySelector(
-        'meta[name="omelette-print-sizing"]:not([data-omelette-injected])'
+        'meta[name="omelette-print-sizing"]:not([data-omelette-injected])',
       );
       // A fixed page wins outright (mirroring the fixed-size loop above,
       // so the two metas can never contradict each other in a mixed
@@ -724,7 +768,10 @@
 
     _scheduleMeasure() {
       if (this._raf) return;
-      this._raf = requestAnimationFrame(() => { this._raf = null; this._measure(); });
+      this._raf = requestAnimationFrame(() => {
+        this._raf = null;
+        this._measure();
+      });
     }
 
     /** Slot heights feed the print spacers (--doc-hdr-h / --doc-ftr-h), so
@@ -737,10 +784,7 @@
       const hdr = this.querySelector(':scope > [slot="header"]');
       const ftr = this.querySelector(':scope > [slot="footer"]');
       const wasPaginated = this._sheet.classList.contains('paginated');
-      this._sheet.classList.toggle(
-        'paginated',
-        this.querySelector(':scope > .page') !== null
-      );
+      this._sheet.classList.toggle('paginated', this.querySelector(':scope > .page') !== null);
       // The WebKit @page margin is flowing-only, so a pagination flip
       // must re-emit the rule (content edits can add or remove .page
       // sections at any time).

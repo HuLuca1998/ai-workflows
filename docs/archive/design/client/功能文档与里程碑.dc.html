@@ -1,234 +1,752 @@
-<!DOCTYPE html>
+<!doctype html>
 <html>
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<script src="./support.js"></script>
-</head>
-<body>
-<x-dc>
-<helmet>
-<link rel="stylesheet" href="_ds/nocturne-eeb4fef9-0b23-4b92-9bdd-c65d2266beb0/styles.css">
-<script src="./doc-page.js"></script>
-<style>
-doc-page:not(:defined){visibility:hidden}
-body{font-family:Inter,-apple-system,"PingFang SC","Hiragino Sans GB",sans-serif}
-doc-page{color:#292b31}
-doc-page h1,doc-page h2,doc-page h3,doc-page h4{color:#292b31}
-doc-page a{color:#5d5294}
-doc-page table{width:100%;border-collapse:collapse;font-size:10pt;margin:6px 0 4px}
-doc-page th{text-align:left;font-weight:500;color:#595d6c;border-bottom:1px solid #cfd3e5;padding:6px 10px 6px 0;font-size:9pt;letter-spacing:.04em;text-transform:uppercase}
-doc-page td{padding:7px 10px 7px 0;border-bottom:1px solid #e4e7f5;vertical-align:top;line-height:1.55}
-doc-page code{font-family:ui-monospace,Menlo,monospace;font-size:9pt;background:#f3f5fe;padding:1px 4px;border-radius:3px}
-doc-page ul{margin:4px 0 10px;padding-left:18px}
-doc-page li{line-height:1.65;margin-bottom:2px}
-doc-page h3{font-size:13.5pt;margin:26px 0 8px}
-doc-page h4{font-size:11.5pt;margin:16px 0 5px}
-</style>
-</helmet>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <script src="./support.js"></script>
+  </head>
+  <body>
+    <x-dc>
+      <helmet>
+        <link
+          rel="stylesheet"
+          href="_ds/nocturne-eeb4fef9-0b23-4b92-9bdd-c65d2266beb0/styles.css"
+        />
+        <script src="./doc-page.js"></script>
+        <style>
+          doc-page:not(:defined) {
+            visibility: hidden;
+          }
+          body {
+            font-family:
+              Inter,
+              -apple-system,
+              'PingFang SC',
+              'Hiragino Sans GB',
+              sans-serif;
+          }
+          doc-page {
+            color: #292b31;
+          }
+          doc-page h1,
+          doc-page h2,
+          doc-page h3,
+          doc-page h4 {
+            color: #292b31;
+          }
+          doc-page a {
+            color: #5d5294;
+          }
+          doc-page table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 10pt;
+            margin: 6px 0 4px;
+          }
+          doc-page th {
+            text-align: left;
+            font-weight: 500;
+            color: #595d6c;
+            border-bottom: 1px solid #cfd3e5;
+            padding: 6px 10px 6px 0;
+            font-size: 9pt;
+            letter-spacing: 0.04em;
+            text-transform: uppercase;
+          }
+          doc-page td {
+            padding: 7px 10px 7px 0;
+            border-bottom: 1px solid #e4e7f5;
+            vertical-align: top;
+            line-height: 1.55;
+          }
+          doc-page code {
+            font-family: ui-monospace, Menlo, monospace;
+            font-size: 9pt;
+            background: #f3f5fe;
+            padding: 1px 4px;
+            border-radius: 3px;
+          }
+          doc-page ul {
+            margin: 4px 0 10px;
+            padding-left: 18px;
+          }
+          doc-page li {
+            line-height: 1.65;
+            margin-bottom: 2px;
+          }
+          doc-page h3 {
+            font-size: 13.5pt;
+            margin: 26px 0 8px;
+          }
+          doc-page h4 {
+            font-size: 11.5pt;
+            margin: 16px 0 5px;
+          }
+        </style>
+      </helmet>
 
-<doc-page margin="0.8in">
-  <div style="display:flex;align-items:baseline;gap:10px;border-bottom:2px solid #292b31;padding-bottom:8px;margin-bottom:20px">
-    <div style="font-size:19pt;font-weight:500;letter-spacing:-0.02em">AI Workflows · 客户端功能文档与里程碑</div>
-    <div style="flex:1"></div>
-    <div style="font-size:9pt;color:#75798c">v0.3 · macOS App + Web · 对应原型「AI Workflows 客户端」</div>
-  </div>
+      <doc-page margin="0.8in">
+        <div
+          style="
+            display: flex;
+            align-items: baseline;
+            gap: 10px;
+            border-bottom: 2px solid #292b31;
+            padding-bottom: 8px;
+            margin-bottom: 20px;
+          "
+        >
+          <div style="font-size: 19pt; font-weight: 500; letter-spacing: -0.02em">
+            AI Workflows · 客户端功能文档与里程碑
+          </div>
+          <div style="flex: 1"></div>
+          <div style="font-size: 9pt; color: #75798c">
+            v0.3 · macOS App + Web · 对应原型「AI Workflows 客户端」
+          </div>
+        </div>
 
-  <p style="font-size:11pt;line-height:1.7;color:#3f424d">本文覆盖客户端的全部菜单与功能细节，以及分阶段的开发里程碑。产品定位是<b style="font-weight:500">本地优先的 AI Workflow 应用</b>：把 AI 能力、脚本、人工审批、Git 隔离、通知与外部服务连成可复用的工作流，并让一个了解全软件能力的「主管 AI」协助设计、解释、优化与排障。</p>
+        <p style="font-size: 11pt; line-height: 1.7; color: #3f424d">
+          本文覆盖客户端的全部菜单与功能细节，以及分阶段的开发里程碑。产品定位是<b
+            style="font-weight: 500"
+            >本地优先的 AI Workflow 应用</b
+          >：把 AI 能力、脚本、人工审批、Git
+          隔离、通知与外部服务连成可复用的工作流，并让一个了解全软件能力的「主管
+          AI」协助设计、解释、优化与排障。
+        </p>
 
-  <h3>1. 产品原则</h3>
-  <ul>
-    <li><b style="font-weight:500">可解释优先</b>：任何时刻都能回答「现在跑到哪、为什么停、接下来做什么」。</li>
-    <li><b style="font-weight:500">显式权限</b>：读写文件、执行命令、访问网络、使用 Secret 都由策略控制，引擎强制，Prompt 无法越权。</li>
-    <li><b style="font-weight:500">草稿与执行分离</b>：编辑草稿不影响运行中的版本；运行记录永远引用不可变版本快照。</li>
-    <li><b style="font-weight:500">结构化数据优先</b>：节点之间按字段传递，文本拼接只是兼容方式。</li>
-    <li><b style="font-weight:500">AI 建议 ≠ 执行</b>：AI 的修改一律先出 Diff，用户确认后才写入。</li>
-    <li><b style="font-weight:500">本地优先与可恢复</b>：工作流、记录、记忆、凭据留在本机；审批等待、重启、断网不丢 Run。</li>
-    <li><b style="font-weight:500">拆分而非一次性</b>：一个工作流就是一份计划；需要更细粒度就用子工作流拆开，每个子 Run 独立会话与环境快照。</li>
-  </ul>
+        <h3>1. 产品原则</h3>
+        <ul>
+          <li>
+            <b style="font-weight: 500">可解释优先</b
+            >：任何时刻都能回答「现在跑到哪、为什么停、接下来做什么」。
+          </li>
+          <li>
+            <b style="font-weight: 500">显式权限</b>：读写文件、执行命令、访问网络、使用 Secret
+            都由策略控制，引擎强制，Prompt 无法越权。
+          </li>
+          <li>
+            <b style="font-weight: 500">草稿与执行分离</b
+            >：编辑草稿不影响运行中的版本；运行记录永远引用不可变版本快照。
+          </li>
+          <li>
+            <b style="font-weight: 500">结构化数据优先</b
+            >：节点之间按字段传递，文本拼接只是兼容方式。
+          </li>
+          <li>
+            <b style="font-weight: 500">AI 建议 ≠ 执行</b>：AI 的修改一律先出
+            Diff，用户确认后才写入。
+          </li>
+          <li>
+            <b style="font-weight: 500">本地优先与可恢复</b
+            >：工作流、记录、记忆、凭据留在本机；审批等待、重启、断网不丢 Run。
+          </li>
+          <li>
+            <b style="font-weight: 500">拆分而非一次性</b
+            >：一个工作流就是一份计划；需要更细粒度就用子工作流拆开，每个子 Run 独立会话与环境快照。
+          </li>
+        </ul>
 
-  <h3>2. 菜单总览</h3>
-  <table>
-    <thead><tr><th style="width:20%">菜单</th><th style="width:34%">解决什么</th><th>关键界面元素</th></tr></thead>
-    <tbody>
-      <tr><td>概览与工作流</td><td>找到、创建、了解全部工作流的当前状态</td><td>统计条（等待审批 / 今日运行 / Token / 活跃 worktree）、状态筛选、工作流列表（状态、最近运行、版本、触发方式）</td></tr>
-      <tr><td>工作流编辑器</td><td>设计与维护流程</td><td>节点库、无边界画布、审批横幅、版本抽屉、运行启动表单、节点配置弹层</td></tr>
-      <tr><td>执行记录</td><td>看清每一次运行发生了什么</td><td>运行列表（并行 / 历史）、节点进度列、节点详情、对话 / 事件 / 产物三视图、失败与恢复</td></tr>
-      <tr><td>记忆</td><td>管理长期上下文</td><td>五种作用域、AI 提议写入、编辑抽屉、版本保护</td></tr>
-      <tr><td>Agent 角色</td><td>复用 AI 人格与权限</td><td>角色列表、性格指令、Runtime / 模型、权限、工具白名单、输出契约</td></tr>
-      <tr><td>提示词库</td><td>系统调用 AI 的每一处提示词都可见可改</td><td>分组列表、框架分段、变量表、运行时预览、版本历史</td></tr>
-      <tr><td>模型</td><td>统一登记可用模型</td><td>按接入方式分组、推理档位、能力标签、连通性测试、策略映射</td></tr>
-      <tr><td>设置与环境</td><td>运行环境健康与权限策略</td><td>环境健康表、Repair、三档权限预设、八个设置分区</td></tr>
-      <tr><td>首次配置</td><td>装好即可用</td><td>四步引导、工具安装清单、ACP 探测、权限授权</td></tr>
-      <tr><td>技术架构</td><td>团队内对齐实现方案</td><td>分层说明、选型取舍、MCP / API 边界</td></tr>
-      <tr><td>主管 AI（⌘K 抽屉）</td><td>用自然语言操作整个软件</td><td>历史会话、多轮对话、工具调用轨迹、结构化 Patch、模型切换</td></tr>
-    </tbody>
-  </table>
+        <h3>2. 菜单总览</h3>
+        <table>
+          <thead>
+            <tr>
+              <th style="width: 20%">菜单</th>
+              <th style="width: 34%">解决什么</th>
+              <th>关键界面元素</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>概览与工作流</td>
+              <td>找到、创建、了解全部工作流的当前状态</td>
+              <td>
+                统计条（等待审批 / 今日运行 / Token / 活跃
+                worktree）、状态筛选、工作流列表（状态、最近运行、版本、触发方式）
+              </td>
+            </tr>
+            <tr>
+              <td>工作流编辑器</td>
+              <td>设计与维护流程</td>
+              <td>节点库、无边界画布、审批横幅、版本抽屉、运行启动表单、节点配置弹层</td>
+            </tr>
+            <tr>
+              <td>执行记录</td>
+              <td>看清每一次运行发生了什么</td>
+              <td>
+                运行列表（并行 / 历史）、节点进度列、节点详情、对话 / 事件 / 产物三视图、失败与恢复
+              </td>
+            </tr>
+            <tr>
+              <td>记忆</td>
+              <td>管理长期上下文</td>
+              <td>五种作用域、AI 提议写入、编辑抽屉、版本保护</td>
+            </tr>
+            <tr>
+              <td>Agent 角色</td>
+              <td>复用 AI 人格与权限</td>
+              <td>角色列表、性格指令、Runtime / 模型、权限、工具白名单、输出契约</td>
+            </tr>
+            <tr>
+              <td>提示词库</td>
+              <td>系统调用 AI 的每一处提示词都可见可改</td>
+              <td>分组列表、框架分段、变量表、运行时预览、版本历史</td>
+            </tr>
+            <tr>
+              <td>模型</td>
+              <td>统一登记可用模型</td>
+              <td>按接入方式分组、推理档位、能力标签、连通性测试、策略映射</td>
+            </tr>
+            <tr>
+              <td>设置与环境</td>
+              <td>运行环境健康与权限策略</td>
+              <td>环境健康表、Repair、三档权限预设、八个设置分区</td>
+            </tr>
+            <tr>
+              <td>首次配置</td>
+              <td>装好即可用</td>
+              <td>四步引导、工具安装清单、ACP 探测、权限授权</td>
+            </tr>
+            <tr>
+              <td>技术架构</td>
+              <td>团队内对齐实现方案</td>
+              <td>分层说明、选型取舍、MCP / API 边界</td>
+            </tr>
+            <tr>
+              <td>主管 AI（⌘K 抽屉）</td>
+              <td>用自然语言操作整个软件</td>
+              <td>历史会话、多轮对话、工具调用轨迹、结构化 Patch、模型切换</td>
+            </tr>
+          </tbody>
+        </table>
 
-  <h3>3. 工作流编辑器</h3>
+        <h3>3. 工作流编辑器</h3>
 
-  <h4>3.1 画布</h4>
-  <ul>
-    <li>无边界画布：拖空白处平移、滚轮平移、⌘/Ctrl + 滚轮以光标为中心缩放（35%–220%），右上角 +/−/适应视图/百分比复位，进入时自动 fit。</li>
-    <li>节点操作：拖动改布局（多选可整体移动）、双击打开配置、Delete 删除、右键菜单（编辑配置 / 复制 / 断开全部连线 / 建分组 / 删除）。</li>
-    <li>连线：从节点右侧或底部端口拖出，自动选择最近端口对并绘制贝塞尔平滑曲线；点击选中连线，Delete 删除，右键可删除、反转方向、在连线上插入节点。</li>
-    <li>选择：Shift 拖拽框选、⌘A 全选、Shift 点击加减选、Esc 取消；底部状态条实时显示选中数量与操作提示。</li>
-    <li>分组区域：选中节点后右键「用选中节点建分组」，生成带标题的虚线框；右键分组可重命名或解散。</li>
-    <li>执行语义由连线决定，不在节点里配置：1→N 并行分发、N→N 并行、N→1 阻塞汇聚，节点上以徽标显示（<code>⋔3</code> / <code>⋀3</code>）。</li>
-  </ul>
+        <h4>3.1 画布</h4>
+        <ul>
+          <li>
+            无边界画布：拖空白处平移、滚轮平移、⌘/Ctrl + 滚轮以光标为中心缩放（35%–220%），右上角
+            +/−/适应视图/百分比复位，进入时自动 fit。
+          </li>
+          <li>
+            节点操作：拖动改布局（多选可整体移动）、双击打开配置、Delete 删除、右键菜单（编辑配置 /
+            复制 / 断开全部连线 / 建分组 / 删除）。
+          </li>
+          <li>
+            连线：从节点右侧或底部端口拖出，自动选择最近端口对并绘制贝塞尔平滑曲线；点击选中连线，Delete
+            删除，右键可删除、反转方向、在连线上插入节点。
+          </li>
+          <li>
+            选择：Shift 拖拽框选、⌘A 全选、Shift 点击加减选、Esc
+            取消；底部状态条实时显示选中数量与操作提示。
+          </li>
+          <li>
+            分组区域：选中节点后右键「用选中节点建分组」，生成带标题的虚线框；右键分组可重命名或解散。
+          </li>
+          <li>
+            执行语义由连线决定，不在节点里配置：1→N 并行分发、N→N 并行、N→1
+            阻塞汇聚，节点上以徽标显示（<code>⋔3</code> / <code>⋀3</code>）。
+          </li>
+        </ul>
 
-  <h4>3.2 节点库（15 种）</h4>
-  <table>
-    <thead><tr><th style="width:22%">分组 / 节点</th><th>核心配置</th></tr></thead>
-    <tbody>
-      <tr><td><b style="font-weight:500">AI · 分析</b></td><td>Agent 角色、分析对象、指令、产出多篇 Markdown + 结构化摘要、输出端口 success / insufficient_context</td></tr>
-      <tr><td><b style="font-weight:500">AI · 审查</b></td><td>审查对象、清单、严重度分级（blocker/major/minor）、产出多篇 Markdown、端口 passed / changes_requested</td></tr>
-      <tr><td><b style="font-weight:500">AI · 决策</b></td><td>L1–L3 分级规则、可自动决策层级（默认 L1–L2 自动，L3 通知用户转人工）、决策输出 JSON、超时未决升级</td></tr>
-      <tr><td><b style="font-weight:500">AI · 执行</b></td><td>Agent 角色、模型覆盖、工作目录（引擎强制）、执行指令、验证命令、产出、端口 success / failed / needs_decision</td></tr>
-      <tr><td>入口设置</td><td>触发方式、工作目录来源、输入参数 JSON Schema（自动生成启动表单）、系统注入字段</td></tr>
-      <tr><td>调用子工作流</td><td>目标工作流与版本、同步 / 并行多实例、输入输出映射、并发上限、失败策略、审批继承</td></tr>
-      <tr><td>条件分支 / 数据转换 / 结束</td><td>按结构化字段分流；JSONPath 映射与输出 Schema；标记成功失败与产物</td></tr>
-      <tr><td>人工审批</td><td>标题、Markdown 内容、交互类型（单选 / 多选 / 确认 / 补充）、选项、等待策略、提醒</td></tr>
-      <tr><td>系统通知</td><td>标题副标题正文、触发条件、点击动作、失败处理</td></tr>
-      <tr><td>Shell / Python 脚本</td><td>解释器、脚本、工作目录、环境映射（Secret 引用）、输出解析、退出码规则、输出上限</td></tr>
-      <tr><td>Git worktree</td><td>仓库根、基础分支、分支命名模板、父目录、fetch、冲突策略、清理策略</td></tr>
-      <tr><td>环境变量</td><td>读写删、作用域与优先级、键值、导出 .env</td></tr>
-      <tr><td>MCP 工具</td><td>Server、工具白名单、参数、权限 Scope</td></tr>
-    </tbody>
-  </table>
+        <h4>3.2 节点库（15 种）</h4>
+        <table>
+          <thead>
+            <tr>
+              <th style="width: 22%">分组 / 节点</th>
+              <th>核心配置</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><b style="font-weight: 500">AI · 分析</b></td>
+              <td>
+                Agent 角色、分析对象、指令、产出多篇 Markdown + 结构化摘要、输出端口 success /
+                insufficient_context
+              </td>
+            </tr>
+            <tr>
+              <td><b style="font-weight: 500">AI · 审查</b></td>
+              <td>
+                审查对象、清单、严重度分级（blocker/major/minor）、产出多篇 Markdown、端口 passed /
+                changes_requested
+              </td>
+            </tr>
+            <tr>
+              <td><b style="font-weight: 500">AI · 决策</b></td>
+              <td>
+                L1–L3 分级规则、可自动决策层级（默认 L1–L2 自动，L3 通知用户转人工）、决策输出
+                JSON、超时未决升级
+              </td>
+            </tr>
+            <tr>
+              <td><b style="font-weight: 500">AI · 执行</b></td>
+              <td>
+                Agent 角色、模型覆盖、工作目录（引擎强制）、执行指令、验证命令、产出、端口 success /
+                failed / needs_decision
+              </td>
+            </tr>
+            <tr>
+              <td>入口设置</td>
+              <td>
+                触发方式、工作目录来源、输入参数 JSON Schema（自动生成启动表单）、系统注入字段
+              </td>
+            </tr>
+            <tr>
+              <td>调用子工作流</td>
+              <td>
+                目标工作流与版本、同步 / 并行多实例、输入输出映射、并发上限、失败策略、审批继承
+              </td>
+            </tr>
+            <tr>
+              <td>条件分支 / 数据转换 / 结束</td>
+              <td>按结构化字段分流；JSONPath 映射与输出 Schema；标记成功失败与产物</td>
+            </tr>
+            <tr>
+              <td>人工审批</td>
+              <td>
+                标题、Markdown 内容、交互类型（单选 / 多选 / 确认 / 补充）、选项、等待策略、提醒
+              </td>
+            </tr>
+            <tr>
+              <td>系统通知</td>
+              <td>标题副标题正文、触发条件、点击动作、失败处理</td>
+            </tr>
+            <tr>
+              <td>Shell / Python 脚本</td>
+              <td>
+                解释器、脚本、工作目录、环境映射（Secret 引用）、输出解析、退出码规则、输出上限
+              </td>
+            </tr>
+            <tr>
+              <td>Git worktree</td>
+              <td>仓库根、基础分支、分支命名模板、父目录、fetch、冲突策略、清理策略</td>
+            </tr>
+            <tr>
+              <td>环境变量</td>
+              <td>读写删、作用域与优先级、键值、导出 .env</td>
+            </tr>
+            <tr>
+              <td>MCP 工具</td>
+              <td>Server、工具白名单、参数、权限 Scope</td>
+            </tr>
+          </tbody>
+        </table>
 
-  <h4>3.3 节点配置弹层</h4>
-  <p style="font-size:10.5pt;line-height:1.7">双击节点打开，四个标签页：<b style="font-weight:500">配置</b>（按节点类型渲染的表单，来自节点定义的 Schema）、<b style="font-weight:500">输入 / 输出</b>（端口与数据形状，顶部只读显示由连线推导的形态与入出边数）、<b style="font-weight:500">权限与能力</b>（能力声明、审批策略、脱敏规则）、<b style="font-weight:500">重试与超时</b>（超时、重试次数、降级、幂等与取消行为）。多入边节点额外出现汇聚策略：等待全部 / 任一先到 / Quorum / 按顺序、输入合并方式、部分失败处理、汇聚超时。</p>
+        <h4>3.3 节点配置弹层</h4>
+        <p style="font-size: 10.5pt; line-height: 1.7">
+          双击节点打开，四个标签页：<b style="font-weight: 500">配置</b
+          >（按节点类型渲染的表单，来自节点定义的 Schema）、<b style="font-weight: 500"
+            >输入 / 输出</b
+          >（端口与数据形状，顶部只读显示由连线推导的形态与入出边数）、<b style="font-weight: 500"
+            >权限与能力</b
+          >（能力声明、审批策略、脱敏规则）、<b style="font-weight: 500">重试与超时</b
+          >（超时、重试次数、降级、幂等与取消行为）。多入边节点额外出现汇聚策略：等待全部 / 任一先到
+          / Quorum / 按顺序、输入合并方式、部分失败处理、汇聚超时。
+        </p>
 
-  <h4>3.4 运行、版本与审批</h4>
-  <ul>
-    <li><b style="font-weight:500">启动表单</b>：选运行版本（已发布 vN / 当前草稿）、入口 Schema 自动生成的参数、工作目录与权限档、Dry Run 依赖检查、通知开关；草稿运行不产生版本快照。</li>
-    <li><b style="font-weight:500">版本抽屉</b>：草稿在顶部，历史版本带发布状态、变更摘要、被多少次运行引用；选中版本与草稿对比结构化 Diff；可导出、回滚为草稿、发布为新版本。</li>
-    <li><b style="font-weight:500">审批呈现</b>：画布节点脉冲高亮 + 顶部横幅（等待时长、变更摘要、快捷处理），完整决策表单在主管 AI 抽屉与执行记录中。</li>
-  </ul>
+        <h4>3.4 运行、版本与审批</h4>
+        <ul>
+          <li>
+            <b style="font-weight: 500">启动表单</b>：选运行版本（已发布 vN / 当前草稿）、入口
+            Schema 自动生成的参数、工作目录与权限档、Dry Run
+            依赖检查、通知开关；草稿运行不产生版本快照。
+          </li>
+          <li>
+            <b style="font-weight: 500">版本抽屉</b
+            >：草稿在顶部，历史版本带发布状态、变更摘要、被多少次运行引用；选中版本与草稿对比结构化
+            Diff；可导出、回滚为草稿、发布为新版本。
+          </li>
+          <li>
+            <b style="font-weight: 500">审批呈现</b>：画布节点脉冲高亮 +
+            顶部横幅（等待时长、变更摘要、快捷处理），完整决策表单在主管 AI 抽屉与执行记录中。
+          </li>
+        </ul>
 
-  <h3>4. 主管 AI</h3>
-  <ul>
-    <li>右侧抽屉，⌘K 呼出；左侧可折叠历史会话列表（按关联的工作流 / 运行 / 记忆 / 模型标注）。</li>
-    <li>多轮对话：用户与 AI 消息、折叠的工具调用轨迹（<code>workflow.get</code> / <code>search_nodes</code> / <code>patch</code> / <code>validate</code>）、上下文 chips（草稿版本、选中节点、当前运行、生效记忆，可增删）、底部输入框显示轮次与上下文用量。</li>
-    <li>全软件范围能力：解释流程、生成结构化 Patch、拆分子工作流、管理记忆、优化提示词并存版本、调整 Agent 与模型、检索运行事件找失败共因。</li>
-    <li>安全边界：修改草稿必须先展示 Diff 并确认；发布、运行、删除、扩权需单独授权；抽屉底部常驻本次会话授予的 Scope。</li>
-    <li>模型可随时切换，只列出「模型」页中已启用条目。</li>
-  </ul>
+        <h3>4. 主管 AI</h3>
+        <ul>
+          <li>
+            右侧抽屉，⌘K 呼出；左侧可折叠历史会话列表（按关联的工作流 / 运行 / 记忆 / 模型标注）。
+          </li>
+          <li>
+            多轮对话：用户与 AI 消息、折叠的工具调用轨迹（<code>workflow.get</code> /
+            <code>search_nodes</code> / <code>patch</code> / <code>validate</code>）、上下文
+            chips（草稿版本、选中节点、当前运行、生效记忆，可增删）、底部输入框显示轮次与上下文用量。
+          </li>
+          <li>
+            全软件范围能力：解释流程、生成结构化
+            Patch、拆分子工作流、管理记忆、优化提示词并存版本、调整 Agent
+            与模型、检索运行事件找失败共因。
+          </li>
+          <li>
+            安全边界：修改草稿必须先展示 Diff
+            并确认；发布、运行、删除、扩权需单独授权；抽屉底部常驻本次会话授予的 Scope。
+          </li>
+          <li>模型可随时切换，只列出「模型」页中已启用条目。</li>
+        </ul>
 
-  <h3>5. 执行记录</h3>
-  <ul>
-    <li><b style="font-weight:500">三级结构</b>：运行列表 → 节点列表 → 节点详情。</li>
-    <li><b style="font-weight:500">运行列表</b>：同一工作流可用不同参数并行运行，多个工作流亦可同时运行；分「并行进行中」与「历史」，带状态筛选与可恢复提示。</li>
-    <li><b style="font-weight:500">节点列表</b>：按连线拓扑排序显示执行顺序，扇出处插入「并行组」标题并缩进成员，汇聚节点标注等待策略；顶部为进度条、当前节点与剩余数量。</li>
-    <li><b style="font-weight:500">节点详情按类型呈现</b>：入口给启动快照与注入字段；脚本给命令、stdout / stderr、exitCode 与输出映射；分析 / 审查给产出文档表与结构化摘要；决策给分级判定与证据；执行给文件变更与验证输出；审批给请求内容、选项与决定 JSON；worktree 给 git 命令与写入的环境键。每个详情都可「在画布中定位 / 从此节点重试 / 复制脱敏记录」。</li>
-    <li><b style="font-weight:500">运行概览</b>：对话（面向理解的时间线 + 固定 composer 与遥测栏）、事件（九类分类事件流，右下角筛选器可按类别勾选并切换摘要 / 详细）、产物（Diff、报告、日志，可预览导出）。</li>
-    <li><b style="font-weight:500">失败与恢复</b>：失败横幅给出失败节点、错误分类、exitCode 与 stderr 摘要，并提供从失败节点重试、回到最近审批点改选择、用相同参数重跑、导出诊断包；未结束 Run 在列表顶部提示可恢复，并说明哪些上下文已变化。</li>
-  </ul>
+        <h3>5. 执行记录</h3>
+        <ul>
+          <li><b style="font-weight: 500">三级结构</b>：运行列表 → 节点列表 → 节点详情。</li>
+          <li>
+            <b style="font-weight: 500">运行列表</b
+            >：同一工作流可用不同参数并行运行，多个工作流亦可同时运行；分「并行进行中」与「历史」，带状态筛选与可恢复提示。
+          </li>
+          <li>
+            <b style="font-weight: 500">节点列表</b
+            >：按连线拓扑排序显示执行顺序，扇出处插入「并行组」标题并缩进成员，汇聚节点标注等待策略；顶部为进度条、当前节点与剩余数量。
+          </li>
+          <li>
+            <b style="font-weight: 500">节点详情按类型呈现</b
+            >：入口给启动快照与注入字段；脚本给命令、stdout / stderr、exitCode 与输出映射；分析 /
+            审查给产出文档表与结构化摘要；决策给分级判定与证据；执行给文件变更与验证输出；审批给请求内容、选项与决定
+            JSON；worktree 给 git 命令与写入的环境键。每个详情都可「在画布中定位 / 从此节点重试 /
+            复制脱敏记录」。
+          </li>
+          <li>
+            <b style="font-weight: 500">运行概览</b>：对话（面向理解的时间线 + 固定 composer
+            与遥测栏）、事件（九类分类事件流，右下角筛选器可按类别勾选并切换摘要 /
+            详细）、产物（Diff、报告、日志，可预览导出）。
+          </li>
+          <li>
+            <b style="font-weight: 500">失败与恢复</b>：失败横幅给出失败节点、错误分类、exitCode 与
+            stderr
+            摘要，并提供从失败节点重试、回到最近审批点改选择、用相同参数重跑、导出诊断包；未结束 Run
+            在列表顶部提示可恢复，并说明哪些上下文已变化。
+          </li>
+        </ul>
 
-  <h3>6. 记忆、角色、提示词、模型</h3>
-  <table>
-    <thead><tr><th style="width:16%">模块</th><th>功能</th></tr></thead>
-    <tbody>
-      <tr><td>记忆</td><td>五种作用域（全局 / 工作区 / 工作流 / Agent / 会话）的增删改查；AI 提议写入区，确认后才保存；编辑抽屉含作用域、过期策略、标签、敏感级别与版本保护；Token 与密钥禁止写入；删除后不再注入。</td></tr>
-      <tr><td>Agent 角色</td><td>内置 Analyst / Builder / Reviewer / Operator / Workflow Designer，可复制修改；字段含角色、目标、<b style="font-weight:500">性格与指令</b>、Runtime（ACP Claude / ACP Codex / Provider API）、模型与降级、模型策略、工具与 MCP 白名单、文件 / 命令 / 网络 / 记忆 / 审批权限、输出契约、Turn 与超时上限、版本与引用计数。</td></tr>
-      <tr><td>提示词库</td><td>系统调用 AI 的每一处提示词集中管理：节点提示词与系统内建（流程解释、结构化 Patch、记忆提议、通知文案、失败归因）。框架分段可见可改（Role / Task / Context / Constraints / Output contract），变量表列出运行时来源与缺失处理，运行时预览用真实运行替换变量并可试跑，版本历史保证历史结果可解释；内置项可「恢复默认」。</td></tr>
-      <tr><td>模型</td><td>所有可用模型必须先登记，其它下拉只列已启用条目。按接入方式分组（ACP · Codex / ACP · Claude Code / HTTPS 兼容端点 / 自建网关），字段含模型 ID、推理档位（同一模型不同档位为不同条目）、上下文窗口、能力标签、凭据引用、延迟、计费、限流。ACP 握手不返回模型列表，因此提供从 CLI 导入与手动登记，并提醒 adapter 与 CLI 版本成对锁定。底部维护快速 / 均衡 / 高质量的策略映射。</td></tr>
-    </tbody>
-  </table>
+        <h3>6. 记忆、角色、提示词、模型</h3>
+        <table>
+          <thead>
+            <tr>
+              <th style="width: 16%">模块</th>
+              <th>功能</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>记忆</td>
+              <td>
+                五种作用域（全局 / 工作区 / 工作流 / Agent / 会话）的增删改查；AI
+                提议写入区，确认后才保存；编辑抽屉含作用域、过期策略、标签、敏感级别与版本保护；Token
+                与密钥禁止写入；删除后不再注入。
+              </td>
+            </tr>
+            <tr>
+              <td>Agent 角色</td>
+              <td>
+                内置 Analyst / Builder / Reviewer / Operator / Workflow
+                Designer，可复制修改；字段含角色、目标、<b style="font-weight: 500">性格与指令</b
+                >、Runtime（ACP Claude / ACP Codex / Provider API）、模型与降级、模型策略、工具与
+                MCP 白名单、文件 / 命令 / 网络 / 记忆 / 审批权限、输出契约、Turn
+                与超时上限、版本与引用计数。
+              </td>
+            </tr>
+            <tr>
+              <td>提示词库</td>
+              <td>
+                系统调用 AI 的每一处提示词集中管理：节点提示词与系统内建（流程解释、结构化
+                Patch、记忆提议、通知文案、失败归因）。框架分段可见可改（Role / Task / Context /
+                Constraints / Output
+                contract），变量表列出运行时来源与缺失处理，运行时预览用真实运行替换变量并可试跑，版本历史保证历史结果可解释；内置项可「恢复默认」。
+              </td>
+            </tr>
+            <tr>
+              <td>模型</td>
+              <td>
+                所有可用模型必须先登记，其它下拉只列已启用条目。按接入方式分组（ACP · Codex / ACP ·
+                Claude Code / HTTPS 兼容端点 / 自建网关），字段含模型
+                ID、推理档位（同一模型不同档位为不同条目）、上下文窗口、能力标签、凭据引用、延迟、计费、限流。ACP
+                握手不返回模型列表，因此提供从 CLI 导入与手动登记，并提醒 adapter 与 CLI
+                版本成对锁定。底部维护快速 / 均衡 / 高质量的策略映射。
+              </td>
+            </tr>
+          </tbody>
+        </table>
 
-  <h3>7. 环境、安装与安全</h3>
-  <ul>
-    <li><b style="font-weight:500">首次配置四步</b>：设备与磁盘 → 工具与运行时 → ACP 探测 → 目录授权与运行示例。工具清单列出来源、版本、大小、安装位置与将执行的命令（不使用 sudo、不改 shell profile、不写全局 PATH）；ACP 探测依赖上一步完成，装完自动握手，只创建空 session。</li>
-    <li><b style="font-weight:500">环境健康中心</b>：Ready / Needs Attention 总览，每项能力的版本、路径、来源与状态，支持重新检查、Repair、导出脱敏报告。</li>
-    <li><b style="font-weight:500">权限三档</b>：Review Every Change / Workspace Safe / Trusted Workflow；权限扩大或版本重要变化时自动失效并重新确认。</li>
-    <li><b style="font-weight:500">凭据</b>：明文只进 macOS Keychain，数据库仅存引用；注入子进程后立即释放；stdout / stderr / AI 输入输出统一过脱敏器后才落库。</li>
-  </ul>
+        <h3>7. 环境、安装与安全</h3>
+        <ul>
+          <li>
+            <b style="font-weight: 500">首次配置四步</b>：设备与磁盘 → 工具与运行时 → ACP 探测 →
+            目录授权与运行示例。工具清单列出来源、版本、大小、安装位置与将执行的命令（不使用
+            sudo、不改 shell profile、不写全局 PATH）；ACP
+            探测依赖上一步完成，装完自动握手，只创建空 session。
+          </li>
+          <li>
+            <b style="font-weight: 500">环境健康中心</b>：Ready / Needs Attention
+            总览，每项能力的版本、路径、来源与状态，支持重新检查、Repair、导出脱敏报告。
+          </li>
+          <li>
+            <b style="font-weight: 500">权限三档</b>：Review Every Change / Workspace Safe / Trusted
+            Workflow；权限扩大或版本重要变化时自动失效并重新确认。
+          </li>
+          <li>
+            <b style="font-weight: 500">凭据</b>：明文只进 macOS
+            Keychain，数据库仅存引用；注入子进程后立即释放；stdout / stderr / AI
+            输入输出统一过脱敏器后才落库。
+          </li>
+        </ul>
 
-  <h3>8. 开发里程碑</h3>
-  <table>
-    <thead><tr><th style="width:13%">阶段</th><th style="width:34%">范围</th><th>出口标准</th></tr></thead>
-    <tbody>
-      <tr><td><b style="font-weight:500">M0 · 2 周</b><br>地基</td><td>设计系统落地、应用外壳与导航、Workflow / Run / Event 数据模型与本地存储（SQLite + FTS5）、Core API 契约冻结</td><td>能创建空工作流并持久化；契约文档与类型定义可供前后端并行开发</td></tr>
-      <tr><td><b style="font-weight:500">M1 · 4 周</b><br>设计态</td><td>节点库 15 种与类型化配置表单、无边界画布（拖拽 / 连线 / 删除 / 框选 / 分组 / 缩放）、校验、草稿与版本发布、导入导出</td><td>GitHub Issue 修复模板可完整搭出、校验通过并发布为 v1；画布 200 节点仍保持 60 fps</td></tr>
-      <tr><td><b style="font-weight:500">M2 · 4 周</b><br>执行态</td><td>Rust 引擎、脚本与 worktree 节点、RunEvent 事件流、启动表单与 Dry Run、并行 / 汇聚调度、审批与检查点、执行记录三级视图</td><td>杀掉 App 后重启能回到同一审批点；同一工作流不同参数并行运行互不影响；事件流可完整回放</td></tr>
-      <tr><td><b style="font-weight:500">M3 · 3 周</b><br>AI 能力</td><td>ACP Adapter（Claude Code / Codex）、分析 / 审查 / 决策 / 执行四类节点、Agent 角色、提示词库、模型登记与策略映射</td><td>端到端跑通 Issue → 分析 → 审批 → worktree → 执行 → 审查 → 决策 → PR；提示词与模型在运行记录中可追溯到具体版本</td></tr>
-      <tr><td><b style="font-weight:500">M4 · 3 周</b><br>主管 AI 与记忆</td><td>MCP Server（只读 + create / patch / validate + 记忆 CRUD）、主管 AI 抽屉与历史会话、结构化 Patch 与可视化 Diff、记忆五作用域与提议写入</td><td>用自然语言完成一次「插入节点并改接连线」，Diff 确认后写入草稿且 baseRevision 守卫生效；记忆注入可在事件中溯源</td></tr>
-      <tr><td><b style="font-weight:500">M5 · 3 周</b><br>可交付</td><td>首次配置引导与工具安装、环境健康中心、通知与恢复、子工作流编排、失败重试与诊断包导出、签名公证与更新通道</td><td>全新设备一键安装后 10 分钟内跑完内置示例；失败可从失败节点重试；诊断包不含 Secret</td></tr>
-      <tr><td><b style="font-weight:500">M6 · 3 周</b><br>Web 形态</td><td>同一引擎的远程界面：tRPC + SSE 传输、Web Push、服务端凭据存储、只读与审批场景优先</td><td>浏览器端可观测运行、处理审批；不承诺纯浏览器执行本地命令</td></tr>
-    </tbody>
-  </table>
+        <h3>8. 开发里程碑</h3>
+        <table>
+          <thead>
+            <tr>
+              <th style="width: 13%">阶段</th>
+              <th style="width: 34%">范围</th>
+              <th>出口标准</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><b style="font-weight: 500">M0 · 2 周</b><br />地基</td>
+              <td>
+                设计系统落地、应用外壳与导航、Workflow / Run / Event 数据模型与本地存储（SQLite +
+                FTS5）、Core API 契约冻结
+              </td>
+              <td>能创建空工作流并持久化；契约文档与类型定义可供前后端并行开发</td>
+            </tr>
+            <tr>
+              <td><b style="font-weight: 500">M1 · 4 周</b><br />设计态</td>
+              <td>
+                节点库 15 种与类型化配置表单、无边界画布（拖拽 / 连线 / 删除 / 框选 / 分组 /
+                缩放）、校验、草稿与版本发布、导入导出
+              </td>
+              <td>
+                GitHub Issue 修复模板可完整搭出、校验通过并发布为 v1；画布 200 节点仍保持 60 fps
+              </td>
+            </tr>
+            <tr>
+              <td><b style="font-weight: 500">M2 · 4 周</b><br />执行态</td>
+              <td>
+                Rust 引擎、脚本与 worktree 节点、RunEvent 事件流、启动表单与 Dry Run、并行 /
+                汇聚调度、审批与检查点、执行记录三级视图
+              </td>
+              <td>
+                杀掉 App
+                后重启能回到同一审批点；同一工作流不同参数并行运行互不影响；事件流可完整回放
+              </td>
+            </tr>
+            <tr>
+              <td><b style="font-weight: 500">M3 · 3 周</b><br />AI 能力</td>
+              <td>
+                ACP Adapter（Claude Code / Codex）、分析 / 审查 / 决策 / 执行四类节点、Agent
+                角色、提示词库、模型登记与策略映射
+              </td>
+              <td>
+                端到端跑通 Issue → 分析 → 审批 → worktree → 执行 → 审查 → 决策 →
+                PR；提示词与模型在运行记录中可追溯到具体版本
+              </td>
+            </tr>
+            <tr>
+              <td><b style="font-weight: 500">M4 · 3 周</b><br />主管 AI 与记忆</td>
+              <td>
+                MCP Server（只读 + create / patch / validate + 记忆 CRUD）、主管 AI
+                抽屉与历史会话、结构化 Patch 与可视化 Diff、记忆五作用域与提议写入
+              </td>
+              <td>
+                用自然语言完成一次「插入节点并改接连线」，Diff 确认后写入草稿且 baseRevision
+                守卫生效；记忆注入可在事件中溯源
+              </td>
+            </tr>
+            <tr>
+              <td><b style="font-weight: 500">M5 · 3 周</b><br />可交付</td>
+              <td>
+                首次配置引导与工具安装、环境健康中心、通知与恢复、子工作流编排、失败重试与诊断包导出、签名公证与更新通道
+              </td>
+              <td>
+                全新设备一键安装后 10 分钟内跑完内置示例；失败可从失败节点重试；诊断包不含 Secret
+              </td>
+            </tr>
+            <tr>
+              <td><b style="font-weight: 500">M6 · 3 周</b><br />Web 形态</td>
+              <td>
+                同一引擎的远程界面：tRPC + SSE 传输、Web Push、服务端凭据存储、只读与审批场景优先
+              </td>
+              <td>浏览器端可观测运行、处理审批；不承诺纯浏览器执行本地命令</td>
+            </tr>
+          </tbody>
+        </table>
 
-  <h3>9. 验收标准（跨阶段）</h3>
-  <ul>
-    <li>任何运行都能回答：用了哪个版本、哪些提示词版本、哪个模型、注入了哪些记忆、谁在什么时候批准了什么。</li>
-    <li>所有外部写操作（push / PR / 发布 / 删除）都由审批或决策结果授权，重试前核对外部状态。</li>
-    <li>Secret 从不出现在事件、日志、预览与导出中；界面不提供绕过脱敏的入口。</li>
-    <li>断电、退出、网络中断后重新打开，未结束的 Run 显示真实状态并可恢复。</li>
-    <li>深色界面在 Increase Contrast 与 Reduce Motion 下仍可用；重要状态不只用颜色表达；1280×800 窗口下三栏可收起。</li>
-  </ul>
+        <h3>9. 验收标准（跨阶段）</h3>
+        <ul>
+          <li>
+            任何运行都能回答：用了哪个版本、哪些提示词版本、哪个模型、注入了哪些记忆、谁在什么时候批准了什么。
+          </li>
+          <li>
+            所有外部写操作（push / PR / 发布 / 删除）都由审批或决策结果授权，重试前核对外部状态。
+          </li>
+          <li>Secret 从不出现在事件、日志、预览与导出中；界面不提供绕过脱敏的入口。</li>
+          <li>断电、退出、网络中断后重新打开，未结束的 Run 显示真实状态并可恢复。</li>
+          <li>
+            深色界面在 Increase Contrast 与 Reduce Motion 下仍可用；重要状态不只用颜色表达；1280×800
+            窗口下三栏可收起。
+          </li>
+        </ul>
 
-  <h3>10. 首版非目标</h3>
-  <ul>
-    <li>不兼容 Alfred Workflow 文件格式；不做团队云协作与多人实时编辑。</li>
-    <li>不提供 Telegram / Discord 等全部外部通知渠道，首版只做 macOS 系统通知。</li>
-    <li>不展示模型私有原始思维链，只展示面向用户的推理摘要、工具证据与结果。</li>
-    <li>不承诺任意第三方命令自动静默安装；系统级依赖必须告知并授权。</li>
-  </ul>
-  <h3>11. 屏幕清单与布局规格</h3>
-  <p style="font-size:10.5pt;line-height:1.7">基准窗口 1440×900（最小 1280×800）。窗口自绘标题栏 44px（交通灯 + 路径面包屑 + 询问 AI ⌘K + 运行中指示）。左侧主导航固定 216px，可在 &lt;1360px 时收成图标栏。</p>
-  <table>
-    <thead><tr><th style="width:22%">屏幕</th><th style="width:30%">分栏</th><th>空态 / 异常态</th></tr></thead>
-    <tbody>
-      <tr><td>概览与工作流</td><td>单栏，统计条 4 列 + 列表</td><td>无工作流时显示模板库入口（6 个预设流程）；筛选无结果显示清除筛选</td></tr>
-      <tr><td>工作流编辑器</td><td>节点库 186 + 画布自适应</td><td>空画布提示「从左侧拖入入口节点」；校验失败时工具栏转为问题计数并可定位</td></tr>
-      <tr><td>执行记录</td><td>运行列表 308 + 节点列 232 + 详情自适应</td><td>无运行时提示「先在编辑器点运行」；运行被取消 / 中断显示对应横幅</td></tr>
-      <tr><td>记忆</td><td>单栏 + 右侧 420 编辑抽屉</td><td>该作用域为空时说明会注入什么；无 AI 提议时隐藏提议区</td></tr>
-      <tr><td>Agent 角色 / 提示词库 / 模型</td><td>左列表 250–266 + 右详情</td><td>自定义项为空时只显示内置；模型全部停用时提示「至少启用一个模型」</td></tr>
-      <tr><td>设置与环境</td><td>设置分区 184 + 内容</td><td>健康检查失败项置顶并提供 Repair</td></tr>
-      <tr><td>首次配置</td><td>单栏 860 居中</td><td>依赖缺失、未登录、权限未授权各有对应操作按钮</td></tr>
-      <tr><td>主管 AI</td><td>右抽屉 468（+ 历史 236）</td><td>新会话显示能力清单与快捷动作</td></tr>
-    </tbody>
-  </table>
+        <h3>10. 首版非目标</h3>
+        <ul>
+          <li>不兼容 Alfred Workflow 文件格式；不做团队云协作与多人实时编辑。</li>
+          <li>不提供 Telegram / Discord 等全部外部通知渠道，首版只做 macOS 系统通知。</li>
+          <li>不展示模型私有原始思维链，只展示面向用户的推理摘要、工具证据与结果。</li>
+          <li>不承诺任意第三方命令自动静默安装；系统级依赖必须告知并授权。</li>
+        </ul>
+        <h3>11. 屏幕清单与布局规格</h3>
+        <p style="font-size: 10.5pt; line-height: 1.7">
+          基准窗口 1440×900（最小 1280×800）。窗口自绘标题栏 44px（交通灯 + 路径面包屑 + 询问 AI ⌘K
+          + 运行中指示）。左侧主导航固定 216px，可在 &lt;1360px 时收成图标栏。
+        </p>
+        <table>
+          <thead>
+            <tr>
+              <th style="width: 22%">屏幕</th>
+              <th style="width: 30%">分栏</th>
+              <th>空态 / 异常态</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>概览与工作流</td>
+              <td>单栏，统计条 4 列 + 列表</td>
+              <td>无工作流时显示模板库入口（6 个预设流程）；筛选无结果显示清除筛选</td>
+            </tr>
+            <tr>
+              <td>工作流编辑器</td>
+              <td>节点库 186 + 画布自适应</td>
+              <td>空画布提示「从左侧拖入入口节点」；校验失败时工具栏转为问题计数并可定位</td>
+            </tr>
+            <tr>
+              <td>执行记录</td>
+              <td>运行列表 308 + 节点列 232 + 详情自适应</td>
+              <td>无运行时提示「先在编辑器点运行」；运行被取消 / 中断显示对应横幅</td>
+            </tr>
+            <tr>
+              <td>记忆</td>
+              <td>单栏 + 右侧 420 编辑抽屉</td>
+              <td>该作用域为空时说明会注入什么；无 AI 提议时隐藏提议区</td>
+            </tr>
+            <tr>
+              <td>Agent 角色 / 提示词库 / 模型</td>
+              <td>左列表 250–266 + 右详情</td>
+              <td>自定义项为空时只显示内置；模型全部停用时提示「至少启用一个模型」</td>
+            </tr>
+            <tr>
+              <td>设置与环境</td>
+              <td>设置分区 184 + 内容</td>
+              <td>健康检查失败项置顶并提供 Repair</td>
+            </tr>
+            <tr>
+              <td>首次配置</td>
+              <td>单栏 860 居中</td>
+              <td>依赖缺失、未登录、权限未授权各有对应操作按钮</td>
+            </tr>
+            <tr>
+              <td>主管 AI</td>
+              <td>右抽屉 468（+ 历史 236）</td>
+              <td>新会话显示能力清单与快捷动作</td>
+            </tr>
+          </tbody>
+        </table>
 
-  <h3>12. 快捷键</h3>
-  <table>
-    <thead><tr><th style="width:22%">快捷键</th><th>行为</th></tr></thead>
-    <tbody>
-      <tr><td><code>⌘K</code></td><td>呼出 / 收起主管 AI 抽屉</td></tr>
-      <tr><td><code>Esc</code></td><td>关闭弹层、抽屉、菜单，取消选择</td></tr>
-      <tr><td><code>Delete / Backspace</code></td><td>删除选中节点或选中连线</td></tr>
-      <tr><td><code>⌘A</code></td><td>画布内全选节点</td></tr>
-      <tr><td><code>Shift + 拖拽</code> / <code>Shift + 点击</code></td><td>框选 / 加减选</td></tr>
-      <tr><td><code>⌘/Ctrl + 滚轮</code>、<code>滚轮</code></td><td>以光标为中心缩放 / 平移画布</td></tr>
-      <tr><td><code>双击节点</code>、<code>右键</code></td><td>打开配置 / 上下文菜单（节点、连线、分组、空白）</td></tr>
-      <tr><td><code>⌘Z / ⇧⌘Z</code>（待实现）</td><td>撤销 / 重做画布编辑</td></tr>
-    </tbody>
-  </table>
+        <h3>12. 快捷键</h3>
+        <table>
+          <thead>
+            <tr>
+              <th style="width: 22%">快捷键</th>
+              <th>行为</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>⌘K</code></td>
+              <td>呼出 / 收起主管 AI 抽屉</td>
+            </tr>
+            <tr>
+              <td><code>Esc</code></td>
+              <td>关闭弹层、抽屉、菜单，取消选择</td>
+            </tr>
+            <tr>
+              <td><code>Delete / Backspace</code></td>
+              <td>删除选中节点或选中连线</td>
+            </tr>
+            <tr>
+              <td><code>⌘A</code></td>
+              <td>画布内全选节点</td>
+            </tr>
+            <tr>
+              <td><code>Shift + 拖拽</code> / <code>Shift + 点击</code></td>
+              <td>框选 / 加减选</td>
+            </tr>
+            <tr>
+              <td><code>⌘/Ctrl + 滚轮</code>、<code>滚轮</code></td>
+              <td>以光标为中心缩放 / 平移画布</td>
+            </tr>
+            <tr>
+              <td><code>双击节点</code>、<code>右键</code></td>
+              <td>打开配置 / 上下文菜单（节点、连线、分组、空白）</td>
+            </tr>
+            <tr>
+              <td><code>⌘Z / ⇧⌘Z</code>（待实现）</td>
+              <td>撤销 / 重做画布编辑</td>
+            </tr>
+          </tbody>
+        </table>
 
-  <h3>13. 术语表</h3>
-  <table>
-    <thead><tr><th style="width:22%">术语</th><th>含义</th></tr></thead>
-    <tbody>
-      <tr><td>Workflow / Revision / Version</td><td>流程定义 / 可变草稿修订号 / 已发布的不可变快照</td></tr>
-      <tr><td>Run / RunEvent / Checkpoint</td><td>一次执行 / 唯一事实来源的事件 / 可恢复的执行断点</td></tr>
-      <tr><td>AgentProfile</td><td>可复用 AI 角色：性格、模型、权限、记忆范围、输出契约</td></tr>
-      <tr><td>迭代 / 子工作流</td><td>不设独立「计划」能力：一个工作流即一份计划，拆分靠子工作流，每个子 Run 独立会话与环境快照</td></tr>
-      <tr><td>汇聚策略</td><td>N→1 连线上的等待规则：全部 / 任一 / Quorum / 顺序</td></tr>
-      <tr><td>迭代域</td><td>（已移除）改由子工作流表达</td></tr>
-      <tr><td>Scope</td><td>MCP / API 的能力范围：workflow:read、write-draft、publish、run、memory:read/write</td></tr>
-    </tbody>
-  </table>
+        <h3>13. 术语表</h3>
+        <table>
+          <thead>
+            <tr>
+              <th style="width: 22%">术语</th>
+              <th>含义</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Workflow / Revision / Version</td>
+              <td>流程定义 / 可变草稿修订号 / 已发布的不可变快照</td>
+            </tr>
+            <tr>
+              <td>Run / RunEvent / Checkpoint</td>
+              <td>一次执行 / 唯一事实来源的事件 / 可恢复的执行断点</td>
+            </tr>
+            <tr>
+              <td>AgentProfile</td>
+              <td>可复用 AI 角色：性格、模型、权限、记忆范围、输出契约</td>
+            </tr>
+            <tr>
+              <td>迭代 / 子工作流</td>
+              <td>
+                不设独立「计划」能力：一个工作流即一份计划，拆分靠子工作流，每个子 Run
+                独立会话与环境快照
+              </td>
+            </tr>
+            <tr>
+              <td>汇聚策略</td>
+              <td>N→1 连线上的等待规则：全部 / 任一 / Quorum / 顺序</td>
+            </tr>
+            <tr>
+              <td>迭代域</td>
+              <td>（已移除）改由子工作流表达</td>
+            </tr>
+            <tr>
+              <td>Scope</td>
+              <td>
+                MCP / API 的能力范围：workflow:read、write-draft、publish、run、memory:read/write
+              </td>
+            </tr>
+          </tbody>
+        </table>
 
-  <h3>14. 给实现方的交付顺序建议</h3>
-  <ul>
-    <li>先冻结三件事：Core API 契约、RunEvent 类型清单、节点定义 Schema。UI 与引擎据此并行。</li>
-    <li>节点配置表单必须由 Schema 驱动渲染，新增节点类型不改 UI 代码。</li>
-    <li>执行记录的三种视图（对话 / 事件 / 产物）都从同一事件流投影，禁止各自查库。</li>
-    <li>主管 AI 的所有写操作只能经 Core API 的结构化 Patch，禁止直接改图 JSON 或数据库。</li>
-    <li>提示词、模型、Agent 三者都带版本，运行记录引用具体版本号，保证历史结果可解释。</li>
-  </ul>
-</doc-page>
-</x-dc>
-</body>
+        <h3>14. 给实现方的交付顺序建议</h3>
+        <ul>
+          <li>
+            先冻结三件事：Core API 契约、RunEvent 类型清单、节点定义 Schema。UI 与引擎据此并行。
+          </li>
+          <li>节点配置表单必须由 Schema 驱动渲染，新增节点类型不改 UI 代码。</li>
+          <li>执行记录的三种视图（对话 / 事件 / 产物）都从同一事件流投影，禁止各自查库。</li>
+          <li>主管 AI 的所有写操作只能经 Core API 的结构化 Patch，禁止直接改图 JSON 或数据库。</li>
+          <li>提示词、模型、Agent 三者都带版本，运行记录引用具体版本号，保证历史结果可解释。</li>
+        </ul>
+      </doc-page>
+    </x-dc>
+  </body>
 </html>

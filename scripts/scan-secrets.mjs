@@ -52,9 +52,8 @@ export const SKIP = [
   'crates/store/tests/store_test.rs',
   // 审查剧本与证据：手工审查时要照着这些形态去界面上找，
   // 报告里会原样引用命中的那一行
-  'docs/testing/',
+  'docs/archive/',
   'docs/reference/acp/',
-  'docs/design/',
   'pnpm-lock.yaml',
 ];
 

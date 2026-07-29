@@ -1,7 +1,7 @@
 /*
  * Nocturne 设计令牌。
  *
- * 来源：docs/design/client/_ds/ 下各 Nocturne 主题的 styles.css（设计系统给定值）。
+ * 来源：docs/archive/design/client/_ds/ 下各 Nocturne 主题的 styles.css。
  * 规则：业务代码只用 var(--…)，永远不写死十六进制、字号或 px 间距。
  * 改外观改这里，不要在组件里覆盖。
  */

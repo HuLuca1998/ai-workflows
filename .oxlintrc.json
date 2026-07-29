@@ -10,7 +10,7 @@
     "dist/**",
     "target/**",
     "coverage/**",
-    "docs/design/**",
+    "docs/archive/**",
     "docs/reference/acp/**",
     "packages/contracts/generated/**"
   ],

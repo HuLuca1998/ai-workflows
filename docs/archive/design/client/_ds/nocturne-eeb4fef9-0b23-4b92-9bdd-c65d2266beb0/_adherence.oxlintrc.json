@@ -1,8 +1,5 @@
 {
-  "plugins": [
-    "react",
-    "import"
-  ],
+  "plugins": ["react", "import"],
   "rules": {
     "react/forbid-elements": [
       "warn",
@@ -34,9 +31,7 @@
   },
   "overrides": [
     {
-      "files": [
-        "**/index.js"
-      ],
+      "files": ["**/index.js"],
       "rules": {
         "no-restricted-imports": "off"
       }
@@ -150,8 +145,6 @@
       "--shadow-md": "shadow",
       "--shadow-lg": "shadow"
     },
-    "fontFamilies": [
-      "Inter"
-    ]
+    "fontFamilies": ["Inter"]
   }
 }

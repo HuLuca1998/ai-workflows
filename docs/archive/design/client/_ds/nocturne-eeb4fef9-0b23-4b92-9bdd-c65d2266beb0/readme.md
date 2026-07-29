@@ -31,17 +31,17 @@ Interactive states are themed, never browser defaults: give every interactive el
 
 ## Components
 
-| Class | What it is | Shown in |
-| --- | --- | --- |
-| `.btn` with `.btn-primary`, `.btn-secondary`, `.btn-ghost`, `.btn-icon`, `.btn-block` | Actions — the primary is an accent outline, never a fill | components/buttons.html |
-| `.tag` with `.tag-accent`, `.tag-accent-2`, `.tag-neutral`, `.tag-outline` | Small labels tinted from the ramps (mono palette: accent-2 reads the same as accent) | components/buttons.html |
-| `.field` + `label`, `.input`, `.radio` + `.dot`, `.seg` + `.seg-opt` | Form fields and choices on native elements — no script | components/forms.html |
-| `.card` with `.card-kicker`, `.card-title`, `.card-body`, `.card-meta`; `.elev-sm/md/lg` | Surface-filled content cards; elevation utilities | components/cards.html |
-| `.nav` + `.nav-brand` | The header bar | components/navigation.html |
-| `.table` | Data tables with themed header and row rules | components/table.html |
-| `.dialog-backdrop` + `.dialog` (+ `.dialog-title/-body/-actions`) | A modal at the top elevation | components/dialog.html |
-| `.hr` | A horizontal rule — present, but this system prefers whitespace; avoid it | — |
-| `.lighten` | The image wrapper — every content photograph goes through it | foundations/image.html |
+| Class                                                                                    | What it is                                                                           | Shown in                   |
+| ---------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------ | -------------------------- |
+| `.btn` with `.btn-primary`, `.btn-secondary`, `.btn-ghost`, `.btn-icon`, `.btn-block`    | Actions — the primary is an accent outline, never a fill                             | components/buttons.html    |
+| `.tag` with `.tag-accent`, `.tag-accent-2`, `.tag-neutral`, `.tag-outline`               | Small labels tinted from the ramps (mono palette: accent-2 reads the same as accent) | components/buttons.html    |
+| `.field` + `label`, `.input`, `.radio` + `.dot`, `.seg` + `.seg-opt`                     | Form fields and choices on native elements — no script                               | components/forms.html      |
+| `.card` with `.card-kicker`, `.card-title`, `.card-body`, `.card-meta`; `.elev-sm/md/lg` | Surface-filled content cards; elevation utilities                                    | components/cards.html      |
+| `.nav` + `.nav-brand`                                                                    | The header bar                                                                       | components/navigation.html |
+| `.table`                                                                                 | Data tables with themed header and row rules                                         | components/table.html      |
+| `.dialog-backdrop` + `.dialog` (+ `.dialog-title/-body/-actions`)                        | A modal at the top elevation                                                         | components/dialog.html     |
+| `.hr`                                                                                    | A horizontal rule — present, but this system prefers whitespace; avoid it            | —                          |
+| `.lighten`                                                                               | The image wrapper — every content photograph goes through it                         | foundations/image.html     |
 
 States are built in: hovers and pressed states come from the accent ramp, keyboard focus is the 2px accent `:focus-visible` ring, `::selection` is an accent tint, and disabled controls drop to 45% opacity. Don't restyle them per page. The accent-to-ground pair is tuned to at least 3:1 — enough for icons, large text and interface chrome, not for body copy — so for paragraph-size text in the accent use a deep ramp step (`--color-accent-300` on this ground) rather than the accent itself.
 

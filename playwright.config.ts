@@ -17,7 +17,7 @@ export default defineConfig({
   fullyParallel: false,
   timeout: 30_000,
   expect: { timeout: 10_000 },
-  reporter: [['list'], ['html', { outputFolder: 'docs/testing/playwright-report', open: 'never' }]],
+  reporter: [['list'], ['html', { outputFolder: '.playwright-report', open: 'never' }]],
   use: {
     baseURL: 'http://localhost:5173',
     trace: 'retain-on-failure',

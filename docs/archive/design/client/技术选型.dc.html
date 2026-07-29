@@ -1,205 +1,591 @@
-<!DOCTYPE html>
+<!doctype html>
 <html>
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<script src="./support.js"></script>
-</head>
-<body>
-<x-dc>
-<helmet>
-<link rel="stylesheet" href="_ds/nocturne-eeb4fef9-0b23-4b92-9bdd-c65d2266beb0/styles.css">
-<script src="./doc-page.js"></script>
-<style>
-doc-page:not(:defined){visibility:hidden}
-body{font-family:Inter,-apple-system,"PingFang SC","Hiragino Sans GB",sans-serif}
-doc-page{color:#292b31}
-doc-page h1,doc-page h2,doc-page h3{color:#292b31}
-doc-page a{color:#5d5294}
-doc-page table{width:100%;border-collapse:collapse;font-size:10.5pt}
-doc-page th{text-align:left;font-weight:500;color:#595d6c;border-bottom:1px solid #cfd3e5;padding:6px 8px 6px 0;font-size:9.5pt;letter-spacing:.04em;text-transform:uppercase}
-doc-page td{padding:7px 8px 7px 0;border-bottom:1px solid #e4e7f5;vertical-align:top;line-height:1.55}
-doc-page code{font-family:ui-monospace,Menlo,monospace;font-size:9.5pt;background:#f3f5fe;padding:1px 4px;border-radius:3px}
-</style>
-</helmet>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <script src="./support.js"></script>
+  </head>
+  <body>
+    <x-dc>
+      <helmet>
+        <link
+          rel="stylesheet"
+          href="_ds/nocturne-eeb4fef9-0b23-4b92-9bdd-c65d2266beb0/styles.css"
+        />
+        <script src="./doc-page.js"></script>
+        <style>
+          doc-page:not(:defined) {
+            visibility: hidden;
+          }
+          body {
+            font-family:
+              Inter,
+              -apple-system,
+              'PingFang SC',
+              'Hiragino Sans GB',
+              sans-serif;
+          }
+          doc-page {
+            color: #292b31;
+          }
+          doc-page h1,
+          doc-page h2,
+          doc-page h3 {
+            color: #292b31;
+          }
+          doc-page a {
+            color: #5d5294;
+          }
+          doc-page table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 10.5pt;
+          }
+          doc-page th {
+            text-align: left;
+            font-weight: 500;
+            color: #595d6c;
+            border-bottom: 1px solid #cfd3e5;
+            padding: 6px 8px 6px 0;
+            font-size: 9.5pt;
+            letter-spacing: 0.04em;
+            text-transform: uppercase;
+          }
+          doc-page td {
+            padding: 7px 8px 7px 0;
+            border-bottom: 1px solid #e4e7f5;
+            vertical-align: top;
+            line-height: 1.55;
+          }
+          doc-page code {
+            font-family: ui-monospace, Menlo, monospace;
+            font-size: 9.5pt;
+            background: #f3f5fe;
+            padding: 1px 4px;
+            border-radius: 3px;
+          }
+        </style>
+      </helmet>
 
-<doc-page margin="0.8in">
-  <div style="display:flex;align-items:baseline;gap:10px;border-bottom:2px solid #292b31;padding-bottom:8px;margin-bottom:22px">
-    <div style="font-size:19pt;font-weight:500;letter-spacing:-0.02em">AI Workflows · 客户端技术选型</div>
-    <div style="flex:1"></div>
-    <div style="font-size:9pt;color:#75798c">v0.1 草案 · macOS App + Web</div>
-  </div>
+      <doc-page margin="0.8in">
+        <div
+          style="
+            display: flex;
+            align-items: baseline;
+            gap: 10px;
+            border-bottom: 2px solid #292b31;
+            padding-bottom: 8px;
+            margin-bottom: 22px;
+          "
+        >
+          <div style="font-size: 19pt; font-weight: 500; letter-spacing: -0.02em">
+            AI Workflows · 客户端技术选型
+          </div>
+          <div style="flex: 1"></div>
+          <div style="font-size: 9pt; color: #75798c">v0.1 草案 · macOS App + Web</div>
+        </div>
 
-  <p style="font-size:11.5pt;line-height:1.7;color:#3f424d">本文给出客户端（界面层到本地引擎）的技术方案。约束来自产品文档：本地优先、显式权限、草稿与执行分离、事件流是唯一事实来源、可恢复；并按你的要求同时支持 macOS App 与 Web 两种形态。</p>
+        <p style="font-size: 11.5pt; line-height: 1.7; color: #3f424d">
+          本文给出客户端（界面层到本地引擎）的技术方案。约束来自产品文档：本地优先、显式权限、草稿与执行分离、事件流是唯一事实来源、可恢复；并按你的要求同时支持
+          macOS App 与 Web 两种形态。
+        </p>
 
-  <h3 style="font-size:13pt;margin:26px 0 10px">1. 结论摘要</h3>
-  <table>
-    <thead><tr><th style="width:22%">层</th><th style="width:33%">选型</th><th>理由与取舍</th></tr></thead>
-    <tbody>
-      <tr><td>界面</td><td>React 18 + TypeScript + Vite</td><td>一套业务界面同时服务桌面与 Web；生态成熟，画布与虚拟化库齐全。</td></tr>
-      <tr><td>桌面壳</td><td>Tauri 2（Rust + WKWebView）</td><td>包体约 15 MB、常驻内存约为 Electron 的 1/3；路径守卫、子进程隔离、Keychain 直接用 Rust 实现。代价：WKWebView 兼容性需自测，Node 生态以 sidecar 引入。</td></tr>
-      <tr><td>画布</td><td>XYFlow（React Flow 12）+ 自定义节点</td><td>端口、连线、选区、minimap 与虚拟化开箱即用；节点外观完全自绘，避免“像 n8n”。百节点以上再加视口裁剪。</td></tr>
-      <tr><td>状态</td><td>Zustand（本地 UI）+ TanStack Query（服务端态）</td><td>画布高频拖拽用不可变 store 会抖动；Zustand 局部订阅更稳。</td></tr>
-      <tr><td>样式</td><td>Tailwind + CSS 变量主题令牌</td><td>令牌与设计系统同源，支持深浅色与 Increase Contrast。</td></tr>
-      <tr><td>编排引擎</td><td>Rust（Tokio）</td><td>调度、检查点、重试、路径 canonicalize 与沙箱在同一进程内完成，不经过 JS。</td></tr>
-      <tr><td>Agent 适配</td><td>Node sidecar 跑 ACP Adapter</td><td>Claude Code / Codex 的官方生态在 Node；以子进程 + JSON-RPC 隔离，崩溃不影响主应用。</td></tr>
-      <tr><td>存储</td><td>SQLite（WAL）+ FTS5 + Artifact 目录</td><td>事件、Run、Workflow 版本入库；大日志与二进制落盘，事件只存引用。</td></tr>
-      <tr><td>凭据</td><td>macOS Keychain（Web：OS keyring / KMS）</td><td>数据库只存 <code>credentialRef</code>，导出默认为占位符。</td></tr>
-      <tr><td>传输</td><td>桌面 Tauri IPC + event channel；Web tRPC + SSE</td><td>两端都是“订阅 RunEvent 流”，界面代码不感知差异。</td></tr>
-    </tbody>
-  </table>
+        <h3 style="font-size: 13pt; margin: 26px 0 10px">1. 结论摘要</h3>
+        <table>
+          <thead>
+            <tr>
+              <th style="width: 22%">层</th>
+              <th style="width: 33%">选型</th>
+              <th>理由与取舍</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>界面</td>
+              <td>React 18 + TypeScript + Vite</td>
+              <td>一套业务界面同时服务桌面与 Web；生态成熟，画布与虚拟化库齐全。</td>
+            </tr>
+            <tr>
+              <td>桌面壳</td>
+              <td>Tauri 2（Rust + WKWebView）</td>
+              <td>
+                包体约 15 MB、常驻内存约为 Electron 的 1/3；路径守卫、子进程隔离、Keychain 直接用
+                Rust 实现。代价：WKWebView 兼容性需自测，Node 生态以 sidecar 引入。
+              </td>
+            </tr>
+            <tr>
+              <td>画布</td>
+              <td>XYFlow（React Flow 12）+ 自定义节点</td>
+              <td>
+                端口、连线、选区、minimap 与虚拟化开箱即用；节点外观完全自绘，避免“像
+                n8n”。百节点以上再加视口裁剪。
+              </td>
+            </tr>
+            <tr>
+              <td>状态</td>
+              <td>Zustand（本地 UI）+ TanStack Query（服务端态）</td>
+              <td>画布高频拖拽用不可变 store 会抖动；Zustand 局部订阅更稳。</td>
+            </tr>
+            <tr>
+              <td>样式</td>
+              <td>Tailwind + CSS 变量主题令牌</td>
+              <td>令牌与设计系统同源，支持深浅色与 Increase Contrast。</td>
+            </tr>
+            <tr>
+              <td>编排引擎</td>
+              <td>Rust（Tokio）</td>
+              <td>调度、检查点、重试、路径 canonicalize 与沙箱在同一进程内完成，不经过 JS。</td>
+            </tr>
+            <tr>
+              <td>Agent 适配</td>
+              <td>Node sidecar 跑 ACP Adapter</td>
+              <td>
+                Claude Code / Codex 的官方生态在 Node；以子进程 + JSON-RPC 隔离，崩溃不影响主应用。
+              </td>
+            </tr>
+            <tr>
+              <td>存储</td>
+              <td>SQLite（WAL）+ FTS5 + Artifact 目录</td>
+              <td>事件、Run、Workflow 版本入库；大日志与二进制落盘，事件只存引用。</td>
+            </tr>
+            <tr>
+              <td>凭据</td>
+              <td>macOS Keychain（Web：OS keyring / KMS）</td>
+              <td>数据库只存 <code>credentialRef</code>，导出默认为占位符。</td>
+            </tr>
+            <tr>
+              <td>传输</td>
+              <td>桌面 Tauri IPC + event channel；Web tRPC + SSE</td>
+              <td>两端都是“订阅 RunEvent 流”，界面代码不感知差异。</td>
+            </tr>
+          </tbody>
+        </table>
 
-  <h3 style="font-size:13pt;margin:26px 0 10px">2. 分层架构</h3>
-  <div style="border:1px solid #cfd3e5;border-radius:8px;padding:14px 16px;font-family:ui-monospace,Menlo,monospace;font-size:9.5pt;line-height:1.9;color:#3f424d;background:#f8f9fe">
-    <div>UI（React）　Studio · Canvas · Inspector · Conversation · Run Detail · Settings</div>
-    <div>　　│ 只读 RunEvent 投影 / 发命令，不直接碰文件与进程</div>
-    <div>Client Core（TS）　EventStore 订阅 · 乐观草稿 · Schema 校验 · 权限提示</div>
-    <div>　　│ Tauri IPC ┆ tRPC over HTTP + SSE</div>
-    <div>Engine（Rust）　Scheduler · Checkpoint · Env 快照 · PathGuard · Redactor</div>
-    <div>　　├ Script Runner（zsh / python，非交互，超时与输出上限）</div>
-    <div>　　├ Git Service（worktree 创建、登记、清理策略）</div>
-    <div>　　└ ACP Sidecar（Node）→ Claude Code / Codex</div>
-    <div>Storage　SQLite(WAL)+FTS5 · Artifacts · Keychain 引用</div>
-  </div>
+        <h3 style="font-size: 13pt; margin: 26px 0 10px">2. 分层架构</h3>
+        <div
+          style="
+            border: 1px solid #cfd3e5;
+            border-radius: 8px;
+            padding: 14px 16px;
+            font-family: ui-monospace, Menlo, monospace;
+            font-size: 9.5pt;
+            line-height: 1.9;
+            color: #3f424d;
+            background: #f8f9fe;
+          "
+        >
+          <div>UI（React）　Studio · Canvas · Inspector · Conversation · Run Detail · Settings</div>
+          <div>　　│ 只读 RunEvent 投影 / 发命令，不直接碰文件与进程</div>
+          <div>Client Core（TS）　EventStore 订阅 · 乐观草稿 · Schema 校验 · 权限提示</div>
+          <div>　　│ Tauri IPC ┆ tRPC over HTTP + SSE</div>
+          <div>Engine（Rust）　Scheduler · Checkpoint · Env 快照 · PathGuard · Redactor</div>
+          <div>　　├ Script Runner（zsh / python，非交互，超时与输出上限）</div>
+          <div>　　├ Git Service（worktree 创建、登记、清理策略）</div>
+          <div>　　└ ACP Sidecar（Node）→ Claude Code / Codex</div>
+          <div>Storage　SQLite(WAL)+FTS5 · Artifacts · Keychain 引用</div>
+        </div>
 
-  <h3 style="font-size:13pt;margin:26px 0 10px">3. 界面层关键决策</h3>
-  <p style="font-size:10.5pt;line-height:1.7"><b style="font-weight:500">事件投影而非多套数据。</b>Conversation、Run Console、Run Detail 共用一个 <code>RunEvent</code> 流，按 <code>sequence</code> 归并，前端只做过滤与折叠；不允许从消息文本里拼接状态字段。</p>
-  <p style="font-size:10.5pt;line-height:1.7"><b style="font-weight:500">草稿与已发布分离。</b>画布编辑落在 draft store，发布时生成不可变 <code>WorkflowVersion</code>；运行记录始终引用版本号与配置哈希。</p>
-  <p style="font-size:10.5pt;line-height:1.7"><b style="font-weight:500">节点配置走居中弹层。</b>画布保持完整可视，弹层承载 Prompt、权限、重试等长表单；配置 Schema 驱动渲染（JSON Schema → 表单），新节点类型不需要改 UI 代码。</p>
-  <p style="font-size:10.5pt;line-height:1.7"><b style="font-weight:500">AI 以浮层召唤。</b><code>⌘K</code> 唤起，携带当前 run / 节点上下文；AI 的工作流修改一律先出 Diff 再落草稿。</p>
-  <p style="font-size:10.5pt;line-height:1.7"><b style="font-weight:500">审批双通道。</b>画布节点高亮 + 顶部横幅提示位置，浮层与 Run Detail 承载完整决策表单，保证“醒目但不打断上下文”。</p>
+        <h3 style="font-size: 13pt; margin: 26px 0 10px">3. 界面层关键决策</h3>
+        <p style="font-size: 10.5pt; line-height: 1.7">
+          <b style="font-weight: 500">事件投影而非多套数据。</b>Conversation、Run Console、Run
+          Detail 共用一个 <code>RunEvent</code> 流，按
+          <code>sequence</code> 归并，前端只做过滤与折叠；不允许从消息文本里拼接状态字段。
+        </p>
+        <p style="font-size: 10.5pt; line-height: 1.7">
+          <b style="font-weight: 500">草稿与已发布分离。</b>画布编辑落在 draft
+          store，发布时生成不可变 <code>WorkflowVersion</code>；运行记录始终引用版本号与配置哈希。
+        </p>
+        <p style="font-size: 10.5pt; line-height: 1.7">
+          <b style="font-weight: 500">节点配置走居中弹层。</b>画布保持完整可视，弹层承载
+          Prompt、权限、重试等长表单；配置 Schema 驱动渲染（JSON Schema → 表单），新节点类型不需要改
+          UI 代码。
+        </p>
+        <p style="font-size: 10.5pt; line-height: 1.7">
+          <b style="font-weight: 500">AI 以浮层召唤。</b><code>⌘K</code> 唤起，携带当前 run /
+          节点上下文；AI 的工作流修改一律先出 Diff 再落草稿。
+        </p>
+        <p style="font-size: 10.5pt; line-height: 1.7">
+          <b style="font-weight: 500">审批双通道。</b>画布节点高亮 + 顶部横幅提示位置，浮层与 Run
+          Detail 承载完整决策表单，保证“醒目但不打断上下文”。
+        </p>
 
-  <h3 style="font-size:13pt;margin:26px 0 10px">4. 性能预算</h3>
-  <table>
-    <thead><tr><th style="width:38%">场景</th><th style="width:22%">目标</th><th>手段</th></tr></thead>
-    <tbody>
-      <tr><td>冷启动到可交互</td><td>&lt; 1.2s</td><td>Tauri 壳 + 路由级代码分割，首屏只加载工作流列表</td></tr>
-      <tr><td>200 节点画布拖拽</td><td>60 fps</td><td>视口裁剪、连线 path 缓存、拖拽期间跳过 Inspector 重渲染</td></tr>
-      <tr><td>10 万条事件的 Run Detail</td><td>滚动无卡顿</td><td>TanStack Virtual + 游标分页 + 折叠工具组</td></tr>
-      <tr><td>流式 AI 输出</td><td>&lt; 16ms/帧</td><td>增量 delta 批量合并（rAF 节流），不逐 token setState</td></tr>
-    </tbody>
-  </table>
+        <h3 style="font-size: 13pt; margin: 26px 0 10px">4. 性能预算</h3>
+        <table>
+          <thead>
+            <tr>
+              <th style="width: 38%">场景</th>
+              <th style="width: 22%">目标</th>
+              <th>手段</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>冷启动到可交互</td>
+              <td>&lt; 1.2s</td>
+              <td>Tauri 壳 + 路由级代码分割，首屏只加载工作流列表</td>
+            </tr>
+            <tr>
+              <td>200 节点画布拖拽</td>
+              <td>60 fps</td>
+              <td>视口裁剪、连线 path 缓存、拖拽期间跳过 Inspector 重渲染</td>
+            </tr>
+            <tr>
+              <td>10 万条事件的 Run Detail</td>
+              <td>滚动无卡顿</td>
+              <td>TanStack Virtual + 游标分页 + 折叠工具组</td>
+            </tr>
+            <tr>
+              <td>流式 AI 输出</td>
+              <td>&lt; 16ms/帧</td>
+              <td>增量 delta 批量合并（rAF 节流），不逐 token setState</td>
+            </tr>
+          </tbody>
+        </table>
 
-  <h3 style="font-size:13pt;margin:26px 0 10px">5. 安全实现要点</h3>
-  <ul style="font-size:10.5pt;line-height:1.8;padding-left:18px;margin:0">
-    <li>路径先 canonicalize 再判断是否位于授权根目录；拒绝根目录、Home、未解析变量与宽泛 glob；单独防护符号链接逃逸。</li>
-    <li>Agent 的 <code>cwd</code> 由引擎决定，Prompt 不能改变安全边界；能力声明（文件 / 命令 / 网络 / Secret）在引擎侧强制。</li>
-    <li>Secret 只在执行目标节点时注入子进程，不写入持久化环境快照；stdout、stderr、AI 输入输出统一过 Redactor 后才落库。</li>
-    <li>Commit / Push / PR / 删除等外部写操作必须由审批结果授权，重试前先核对外部实际状态。</li>
-  </ul>
+        <h3 style="font-size: 13pt; margin: 26px 0 10px">5. 安全实现要点</h3>
+        <ul style="font-size: 10.5pt; line-height: 1.8; padding-left: 18px; margin: 0">
+          <li>
+            路径先 canonicalize 再判断是否位于授权根目录；拒绝根目录、Home、未解析变量与宽泛
+            glob；单独防护符号链接逃逸。
+          </li>
+          <li>
+            Agent 的 <code>cwd</code> 由引擎决定，Prompt 不能改变安全边界；能力声明（文件 / 命令 /
+            网络 / Secret）在引擎侧强制。
+          </li>
+          <li>
+            Secret 只在执行目标节点时注入子进程，不写入持久化环境快照；stdout、stderr、AI
+            输入输出统一过 Redactor 后才落库。
+          </li>
+          <li>
+            Commit / Push / PR / 删除等外部写操作必须由审批结果授权，重试前先核对外部实际状态。
+          </li>
+        </ul>
 
-  <h3 style="font-size:13pt;margin:26px 0 10px">6. MCP 还是 API：两层，不是二选一</h3>
-  <p style="font-size:10.5pt;line-height:1.7">AI 的深度读写能力必须落在<b style="font-weight:500">一套内部 Workflow Core API</b> 上：它是唯一执行写操作的入口，负责 <code>baseRevision</code> 版本守卫、结构化 Patch（addNode / connect / setConfig，而不是回写整份 JSON）、能力 Scope 校验、Diff 生成与审计事件。UI、MCP、HTTP 都只是它的调用方。上层再决定对外暴露成什么。</p>
-  <table>
-    <thead><tr><th style="width:20%">出口</th><th style="width:26%">给谁用</th><th>为什么</th></tr></thead>
-    <tbody>
-      <tr><td>MCP Server（首选，首版做）</td><td>Claude Code / Codex / Claude Desktop 等 Agent</td><td>工具可自动发现、可逐工具授权、可撤销；Agent 生态原生支持，不用为每个客户端写胶水。Scope 与 Keychain 绑定：<code>workflow:read</code>、<code>workflow:write-draft</code>、<code>workflow:publish</code>、<code>workflow:run</code>、<code>memory:read/write</code>。</td></tr>
-      <tr><td>本地 HTTP / tRPC API</td><td>脚本、CI、快捷指令、Web 形态、第三方集成</td><td>MCP 不适合非 Agent 调用方；同一 Core 暴露 OpenAPI，带 token 与同样的 Scope 校验。</td></tr>
-      <tr><td>直连数据库 / 文件</td><td>不开放</td><td>绕过版本守卫与审计，AI 一旦写坏无法解释和回滚。</td></tr>
-    </tbody>
-  </table>
-  <p style="font-size:10.5pt;line-height:1.7;color:#595d6c">落地顺序：Core API → MCP（只读 + <code>create</code> + <code>patch</code> + <code>validate</code> + 记忆 CRUD）→ 稳定后再开 <code>publish</code> / <code>run</code> → Web 形态时顺带暴露 HTTP。无论走哪条路，修改现有草稿一律先出可视化 Diff 由用户确认；删除、发布、扩权、新增外部写操作必须单独确认。</p>
+        <h3 style="font-size: 13pt; margin: 26px 0 10px">6. MCP 还是 API：两层，不是二选一</h3>
+        <p style="font-size: 10.5pt; line-height: 1.7">
+          AI 的深度读写能力必须落在<b style="font-weight: 500">一套内部 Workflow Core API</b>
+          上：它是唯一执行写操作的入口，负责 <code>baseRevision</code> 版本守卫、结构化
+          Patch（addNode / connect / setConfig，而不是回写整份 JSON）、能力 Scope 校验、Diff
+          生成与审计事件。UI、MCP、HTTP 都只是它的调用方。上层再决定对外暴露成什么。
+        </p>
+        <table>
+          <thead>
+            <tr>
+              <th style="width: 20%">出口</th>
+              <th style="width: 26%">给谁用</th>
+              <th>为什么</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>MCP Server（首选，首版做）</td>
+              <td>Claude Code / Codex / Claude Desktop 等 Agent</td>
+              <td>
+                工具可自动发现、可逐工具授权、可撤销；Agent
+                生态原生支持，不用为每个客户端写胶水。Scope 与 Keychain
+                绑定：<code>workflow:read</code>、<code>workflow:write-draft</code>、<code>workflow:publish</code>、<code>workflow:run</code>、<code>memory:read/write</code>。
+              </td>
+            </tr>
+            <tr>
+              <td>本地 HTTP / tRPC API</td>
+              <td>脚本、CI、快捷指令、Web 形态、第三方集成</td>
+              <td>
+                MCP 不适合非 Agent 调用方；同一 Core 暴露 OpenAPI，带 token 与同样的 Scope 校验。
+              </td>
+            </tr>
+            <tr>
+              <td>直连数据库 / 文件</td>
+              <td>不开放</td>
+              <td>绕过版本守卫与审计，AI 一旦写坏无法解释和回滚。</td>
+            </tr>
+          </tbody>
+        </table>
+        <p style="font-size: 10.5pt; line-height: 1.7; color: #595d6c">
+          落地顺序：Core API → MCP（只读 + <code>create</code> + <code>patch</code> +
+          <code>validate</code> + 记忆 CRUD）→ 稳定后再开 <code>publish</code> / <code>run</code> →
+          Web 形态时顺带暴露 HTTP。无论走哪条路，修改现有草稿一律先出可视化 Diff
+          由用户确认；删除、发布、扩权、新增外部写操作必须单独确认。
+        </p>
 
-  <h3 style="font-size:13pt;margin:26px 0 10px">7. Web 形态的差异</h3>
-  <table>
-    <thead><tr><th style="width:26%">能力</th><th style="width:30%">macOS App</th><th>Web</th></tr></thead>
-    <tbody>
-      <tr><td>本地文件与 worktree</td><td>原生，授权目录</td><td>需自托管 Agent（用户机器上跑引擎），浏览器只当界面</td></tr>
-      <tr><td>通知</td><td>User Notifications</td><td>Web Push，降级为站内提醒</td></tr>
-      <tr><td>凭据</td><td>Keychain</td><td>服务端 keyring / KMS，浏览器不持有明文</td></tr>
-      <tr><td>快捷入口</td><td>快捷指令 / URL Scheme / 菜单栏</td><td>URL 参数与快捷键</td></tr>
-    </tbody>
-  </table>
-  <p style="font-size:10.5pt;line-height:1.7;color:#595d6c">建议：Web 首版定位为“同一引擎的远程界面”，不承诺纯浏览器执行本地命令，避免安全模型分裂。</p>
+        <h3 style="font-size: 13pt; margin: 26px 0 10px">7. Web 形态的差异</h3>
+        <table>
+          <thead>
+            <tr>
+              <th style="width: 26%">能力</th>
+              <th style="width: 30%">macOS App</th>
+              <th>Web</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>本地文件与 worktree</td>
+              <td>原生，授权目录</td>
+              <td>需自托管 Agent（用户机器上跑引擎），浏览器只当界面</td>
+            </tr>
+            <tr>
+              <td>通知</td>
+              <td>User Notifications</td>
+              <td>Web Push，降级为站内提醒</td>
+            </tr>
+            <tr>
+              <td>凭据</td>
+              <td>Keychain</td>
+              <td>服务端 keyring / KMS，浏览器不持有明文</td>
+            </tr>
+            <tr>
+              <td>快捷入口</td>
+              <td>快捷指令 / URL Scheme / 菜单栏</td>
+              <td>URL 参数与快捷键</td>
+            </tr>
+          </tbody>
+        </table>
+        <p style="font-size: 10.5pt; line-height: 1.7; color: #595d6c">
+          建议：Web 首版定位为“同一引擎的远程界面”，不承诺纯浏览器执行本地命令，避免安全模型分裂。
+        </p>
 
-  <h3 style="font-size:13pt;margin:26px 0 10px">8. 交付节奏</h3>
-  <table>
-    <thead><tr><th style="width:18%">阶段</th><th style="width:32%">范围</th><th>出口标准</th></tr></thead>
-    <tbody>
-      <tr><td>M1 · 4 周</td><td>Studio 列表、画布、9 种预设节点、草稿/发布</td><td>Issue 修复模板可完整搭出并通过校验</td></tr>
-      <tr><td>M2 · 4 周</td><td>引擎、事件流、Run Console、审批与恢复</td><td>杀掉 App 后重启能回到同一审批点</td></tr>
-      <tr><td>M3 · 3 周</td><td>ACP 集成、Run Detail、通知、健康中心</td><td>端到端跑通 Issue → PR，记录可导出</td></tr>
-      <tr><td>M4 · 3 周</td><td>Web 形态、MCP、记忆、权限预设</td><td>同一引擎在浏览器界面下可观测与审批</td></tr>
-    </tbody>
-  </table>
+        <h3 style="font-size: 13pt; margin: 26px 0 10px">8. 交付节奏</h3>
+        <table>
+          <thead>
+            <tr>
+              <th style="width: 18%">阶段</th>
+              <th style="width: 32%">范围</th>
+              <th>出口标准</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>M1 · 4 周</td>
+              <td>Studio 列表、画布、9 种预设节点、草稿/发布</td>
+              <td>Issue 修复模板可完整搭出并通过校验</td>
+            </tr>
+            <tr>
+              <td>M2 · 4 周</td>
+              <td>引擎、事件流、Run Console、审批与恢复</td>
+              <td>杀掉 App 后重启能回到同一审批点</td>
+            </tr>
+            <tr>
+              <td>M3 · 3 周</td>
+              <td>ACP 集成、Run Detail、通知、健康中心</td>
+              <td>端到端跑通 Issue → PR，记录可导出</td>
+            </tr>
+            <tr>
+              <td>M4 · 3 周</td>
+              <td>Web 形态、MCP、记忆、权限预设</td>
+              <td>同一引擎在浏览器界面下可观测与审批</td>
+            </tr>
+          </tbody>
+        </table>
 
-  <h3 style="font-size:13pt;margin:26px 0 10px">9. 主要风险</h3>
-  <table>
-    <thead><tr><th style="width:34%">风险</th><th>缓解</th></tr></thead>
-    <tbody>
-      <tr><td>ACP Adapter 版本漂移导致 Session 失效</td><td>启动时跑兼容性探针；Session 不可恢复时明确告知“已用结构化状态重建”，不伪装连续</td></tr>
-      <tr><td>WKWebView 与 Chromium 行为差异</td><td>画布与虚拟化在两端各跑一次基准；CI 加 Safari Tech Preview 冒烟</td></tr>
-      <tr><td>大 Run 事件量膨胀</td><td>事件只存摘要与引用，日志分块 + 上限截断，保留策略可配置</td></tr>
-      <tr><td>Rust 团队人手</td><td>M1 引擎可先用 Node 原型跑通契约，M2 再迁移；IPC 契约先冻结</td></tr>
-    </tbody>
-  </table>
-  <h3 style="font-size:13pt;margin:26px 0 10px">10. 数据模型（SQLite）</h3>
-  <div style="border:1px solid #cfd3e5;border-radius:8px;padding:12px 14px;font-family:ui-monospace,Menlo,monospace;font-size:9pt;line-height:1.85;color:#3f424d;background:#f8f9fe">
-    <div>workflow(id, name, folder, created_at, updated_at, archived)</div>
-    <div>workflow_revision(id, workflow_id, rev, graph_json, updated_at)            -- 草稿，rev 单调递增</div>
-    <div>workflow_version(id, workflow_id, version, graph_json, config_hash,</div>
-    <div>&nbsp;&nbsp;dependency_manifest_json, published_at, published_by)             -- 不可变快照</div>
-    <div>node_definition(type, version, schema_json, ports_json, caps_json)</div>
-    <div>agent_profile(id, name, persona, model_ref, tools_json, policy_json, ver)</div>
-    <div>prompt(id, group, name, sections_json, vars_json, ver, builtin, updated_at)</div>
-    <div>model(id, name, runtime, model_id, effort, ctx, caps_json, cred_ref, enabled)</div>
-    <div>run(id, workflow_id, version_id, status, inputs_json, env_snapshot_json,</div>
-    <div>&nbsp;&nbsp;current_node, started_at, ended_at, parent_run_id)                 -- 子工作流用 parent_run_id</div>
-    <div>run_event(id, run_id, seq, ts, type, node_id, attempt, actor, status,</div>
-    <div>&nbsp;&nbsp;summary, payload_ref, artifact_refs, parent_event_id, sensitivity, schema_ver)</div>
-    <div>run_checkpoint(run_id, seq, env_json, pending_approval_json, session_refs_json)</div>
-    <div>artifact(id, run_id, kind, path, bytes, sha256, created_at)</div>
-    <div>approval(id, run_id, node_id, request_json, decision_json, decided_at, actor)</div>
-    <div>memory(id, scope, scope_id, key, value, summary, source, created_by,</div>
-    <div>&nbsp;&nbsp;created_at, updated_at, expires_at, sensitivity, ver, tags_json, enabled)</div>
-    <div>credential_ref(id, type, label, keychain_account, created_at, last_tested_at)</div>
-    <div>fts_index(...)  -- FTS5：run_event.summary、artifact 文件名、workflow 名称</div>
-  </div>
-  <p style="font-size:10.5pt;line-height:1.7;margin-top:8px">索引：<code>run_event(run_id, seq)</code> 唯一；<code>run(status, started_at)</code>；<code>memory(scope, scope_id, key)</code> 唯一。大 payload 与日志落 <code>artifacts/</code>，事件只存 <code>payload_ref</code>。WAL 模式，写入串行化到单个 writer 任务。</p>
+        <h3 style="font-size: 13pt; margin: 26px 0 10px">9. 主要风险</h3>
+        <table>
+          <thead>
+            <tr>
+              <th style="width: 34%">风险</th>
+              <th>缓解</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>ACP Adapter 版本漂移导致 Session 失效</td>
+              <td>
+                启动时跑兼容性探针；Session 不可恢复时明确告知“已用结构化状态重建”，不伪装连续
+              </td>
+            </tr>
+            <tr>
+              <td>WKWebView 与 Chromium 行为差异</td>
+              <td>画布与虚拟化在两端各跑一次基准；CI 加 Safari Tech Preview 冒烟</td>
+            </tr>
+            <tr>
+              <td>大 Run 事件量膨胀</td>
+              <td>事件只存摘要与引用，日志分块 + 上限截断，保留策略可配置</td>
+            </tr>
+            <tr>
+              <td>Rust 团队人手</td>
+              <td>M1 引擎可先用 Node 原型跑通契约，M2 再迁移；IPC 契约先冻结</td>
+            </tr>
+          </tbody>
+        </table>
+        <h3 style="font-size: 13pt; margin: 26px 0 10px">10. 数据模型（SQLite）</h3>
+        <div
+          style="
+            border: 1px solid #cfd3e5;
+            border-radius: 8px;
+            padding: 12px 14px;
+            font-family: ui-monospace, Menlo, monospace;
+            font-size: 9pt;
+            line-height: 1.85;
+            color: #3f424d;
+            background: #f8f9fe;
+          "
+        >
+          <div>workflow(id, name, folder, created_at, updated_at, archived)</div>
+          <div>
+            workflow_revision(id, workflow_id, rev, graph_json, updated_at) -- 草稿，rev 单调递增
+          </div>
+          <div>workflow_version(id, workflow_id, version, graph_json, config_hash,</div>
+          <div>&nbsp;&nbsp;dependency_manifest_json, published_at, published_by) -- 不可变快照</div>
+          <div>node_definition(type, version, schema_json, ports_json, caps_json)</div>
+          <div>agent_profile(id, name, persona, model_ref, tools_json, policy_json, ver)</div>
+          <div>prompt(id, group, name, sections_json, vars_json, ver, builtin, updated_at)</div>
+          <div>model(id, name, runtime, model_id, effort, ctx, caps_json, cred_ref, enabled)</div>
+          <div>run(id, workflow_id, version_id, status, inputs_json, env_snapshot_json,</div>
+          <div>
+            &nbsp;&nbsp;current_node, started_at, ended_at, parent_run_id) -- 子工作流用
+            parent_run_id
+          </div>
+          <div>run_event(id, run_id, seq, ts, type, node_id, attempt, actor, status,</div>
+          <div>
+            &nbsp;&nbsp;summary, payload_ref, artifact_refs, parent_event_id, sensitivity,
+            schema_ver)
+          </div>
+          <div>run_checkpoint(run_id, seq, env_json, pending_approval_json, session_refs_json)</div>
+          <div>artifact(id, run_id, kind, path, bytes, sha256, created_at)</div>
+          <div>approval(id, run_id, node_id, request_json, decision_json, decided_at, actor)</div>
+          <div>memory(id, scope, scope_id, key, value, summary, source, created_by,</div>
+          <div>
+            &nbsp;&nbsp;created_at, updated_at, expires_at, sensitivity, ver, tags_json, enabled)
+          </div>
+          <div>credential_ref(id, type, label, keychain_account, created_at, last_tested_at)</div>
+          <div>fts_index(...) -- FTS5：run_event.summary、artifact 文件名、workflow 名称</div>
+        </div>
+        <p style="font-size: 10.5pt; line-height: 1.7; margin-top: 8px">
+          索引：<code>run_event(run_id, seq)</code> 唯一；<code>run(status, started_at)</code
+          >；<code>memory(scope, scope_id, key)</code> 唯一。大 payload 与日志落
+          <code>artifacts/</code>，事件只存 <code>payload_ref</code>。WAL 模式，写入串行化到单个
+          writer 任务。
+        </p>
 
-  <h3 style="font-size:13pt;margin:26px 0 10px">11. Core API 契约（IPC / tRPC 共用）</h3>
-  <table>
-    <thead><tr><th style="width:34%">方法</th><th>入参 → 出参</th></tr></thead>
-    <tbody>
-      <tr><td><code>workflow.list / get</code></td><td><code>{query?}</code> → 列表；<code>{id, rev?}</code> → <code>{graph, rev, versions[]}</code></td></tr>
-      <tr><td><code>workflow.patch</code></td><td><code>{id, baseRevision, operations[]}</code> → <code>{rev, diff, validation}</code>；rev 不匹配返回 <code>REVISION_CONFLICT</code></td></tr>
-      <tr><td><code>workflow.validate</code></td><td><code>{id, rev}</code> → <code>{ok, issues[]{level,nodeId,code,message}}</code></td></tr>
-      <tr><td><code>workflow.publish</code></td><td><code>{id, rev}</code> → <code>{versionId, version, configHash}</code></td></tr>
-      <tr><td><code>run.start</code></td><td><code>{workflowId, versionId|draftRev, inputs, workdir}</code> → <code>{runId}</code>（先做 preflight）</td></tr>
-      <tr><td><code>run.events</code></td><td><code>{runId, fromSeq, types?[], limit}</code> → 事件页；订阅版为 SSE / channel 推送</td></tr>
-      <tr><td><code>run.resume / cancel / retryNode</code></td><td><code>{runId, nodeId?}</code> → <code>{runId, newAttempt}</code></td></tr>
-      <tr><td><code>approval.decide</code></td><td><code>{runId, nodeId, decision, selected[], supplement}</code> → <code>{accepted}</code></td></tr>
-      <tr><td><code>memory.* / prompt.* / model.* / agent.*</code></td><td>标准 CRUD，写操作携带 <code>ver</code> 做乐观锁</td></tr>
-      <tr><td><code>env.health / env.install</code></td><td>→ 健康报告；<code>{tools[]}</code> → 安装进度事件流</td></tr>
-    </tbody>
-  </table>
-  <p style="font-size:10.5pt;line-height:1.7">统一错误对象：<code>{code, message, retriable, hint}</code>；错误码分类 <code>VALIDATION / PERMISSION / REVISION_CONFLICT / RUNTIME / TIMEOUT / EXTERNAL / INTERNAL</code>。所有写方法记审计事件。</p>
+        <h3 style="font-size: 13pt; margin: 26px 0 10px">11. Core API 契约（IPC / tRPC 共用）</h3>
+        <table>
+          <thead>
+            <tr>
+              <th style="width: 34%">方法</th>
+              <th>入参 → 出参</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>workflow.list / get</code></td>
+              <td>
+                <code>{query?}</code> → 列表；<code>{id, rev?}</code> →
+                <code>{graph, rev, versions[]}</code>
+              </td>
+            </tr>
+            <tr>
+              <td><code>workflow.patch</code></td>
+              <td>
+                <code>{id, baseRevision, operations[]}</code> →
+                <code>{rev, diff, validation}</code>；rev 不匹配返回 <code>REVISION_CONFLICT</code>
+              </td>
+            </tr>
+            <tr>
+              <td><code>workflow.validate</code></td>
+              <td>
+                <code>{id, rev}</code> → <code>{ok, issues[]{level,nodeId,code,message}}</code>
+              </td>
+            </tr>
+            <tr>
+              <td><code>workflow.publish</code></td>
+              <td><code>{id, rev}</code> → <code>{versionId, version, configHash}</code></td>
+            </tr>
+            <tr>
+              <td><code>run.start</code></td>
+              <td>
+                <code>{workflowId, versionId|draftRev, inputs, workdir}</code> →
+                <code>{runId}</code>（先做 preflight）
+              </td>
+            </tr>
+            <tr>
+              <td><code>run.events</code></td>
+              <td>
+                <code>{runId, fromSeq, types?[], limit}</code> → 事件页；订阅版为 SSE / channel 推送
+              </td>
+            </tr>
+            <tr>
+              <td><code>run.resume / cancel / retryNode</code></td>
+              <td><code>{runId, nodeId?}</code> → <code>{runId, newAttempt}</code></td>
+            </tr>
+            <tr>
+              <td><code>approval.decide</code></td>
+              <td>
+                <code>{runId, nodeId, decision, selected[], supplement}</code> →
+                <code>{accepted}</code>
+              </td>
+            </tr>
+            <tr>
+              <td><code>memory.* / prompt.* / model.* / agent.*</code></td>
+              <td>标准 CRUD，写操作携带 <code>ver</code> 做乐观锁</td>
+            </tr>
+            <tr>
+              <td><code>env.health / env.install</code></td>
+              <td>→ 健康报告；<code>{tools[]}</code> → 安装进度事件流</td>
+            </tr>
+          </tbody>
+        </table>
+        <p style="font-size: 10.5pt; line-height: 1.7">
+          统一错误对象：<code>{code, message, retriable, hint}</code>；错误码分类
+          <code
+            >VALIDATION / PERMISSION / REVISION_CONFLICT / RUNTIME / TIMEOUT / EXTERNAL /
+            INTERNAL</code
+          >。所有写方法记审计事件。
+        </p>
 
-  <h3 style="font-size:13pt;margin:26px 0 10px">12. 仓库结构</h3>
-  <div style="border:1px solid #cfd3e5;border-radius:8px;padding:12px 14px;font-family:ui-monospace,Menlo,monospace;font-size:9pt;line-height:1.85;color:#3f424d;background:#f8f9fe">
-    <div>apps/desktop/        Tauri 壳（Rust）+ 打包、签名、更新</div>
-    <div>apps/web/            Web 形态入口（同一 UI 包）</div>
-    <div>packages/ui/         React 组件与设计令牌（Nocturne）</div>
-    <div>packages/client-core/ 事件订阅、草稿 store、Schema 表单渲染、类型定义</div>
-    <div>crates/engine/       调度、检查点、env、PathGuard、Redactor</div>
-    <div>crates/store/        SQLite 访问层与迁移</div>
-    <div>services/acp-sidecar/ Node：ACP Adapter（Claude Code / Codex）</div>
-    <div>services/mcp-server/  Node：对外 MCP 工具，调用 Core API</div>
-    <div>docs/                本文件与功能文档</div>
-  </div>
+        <h3 style="font-size: 13pt; margin: 26px 0 10px">12. 仓库结构</h3>
+        <div
+          style="
+            border: 1px solid #cfd3e5;
+            border-radius: 8px;
+            padding: 12px 14px;
+            font-family: ui-monospace, Menlo, monospace;
+            font-size: 9pt;
+            line-height: 1.85;
+            color: #3f424d;
+            background: #f8f9fe;
+          "
+        >
+          <div>apps/desktop/ Tauri 壳（Rust）+ 打包、签名、更新</div>
+          <div>apps/web/ Web 形态入口（同一 UI 包）</div>
+          <div>packages/ui/ React 组件与设计令牌（Nocturne）</div>
+          <div>packages/client-core/ 事件订阅、草稿 store、Schema 表单渲染、类型定义</div>
+          <div>crates/engine/ 调度、检查点、env、PathGuard、Redactor</div>
+          <div>crates/store/ SQLite 访问层与迁移</div>
+          <div>services/acp-sidecar/ Node：ACP Adapter（Claude Code / Codex）</div>
+          <div>services/mcp-server/ Node：对外 MCP 工具，调用 Core API</div>
+          <div>docs/ 本文件与功能文档</div>
+        </div>
 
-  <h3 style="font-size:13pt;margin:26px 0 10px">13. 状态机与并发</h3>
-  <p style="font-size:10.5pt;line-height:1.7">Run：<code>Created → Preflight → Queued → Running →（Waiting Approval | Paused | Interrupted → Resuming）→ Succeeded / Failed / Cancelled</code>。Node：<code>idle → queued → running → waiting → succeeded / failed / cancelled / skipped</code>，每次重试产生新 <code>attempt</code>。调度器按连线拓扑推进：1→N 并行分发（受全局 Agent 进程上限与节点级并发上限约束）、N→1 依据汇聚策略（全部 / 任一 / Quorum / 顺序）阻塞、N→N 全部就绪后再分发。子工作流以独立 Run + <code>parent_run_id</code> 表达，审批冒泡到父运行。</p>
+        <h3 style="font-size: 13pt; margin: 26px 0 10px">13. 状态机与并发</h3>
+        <p style="font-size: 10.5pt; line-height: 1.7">
+          Run：<code
+            >Created → Preflight → Queued → Running →（Waiting Approval | Paused | Interrupted →
+            Resuming）→ Succeeded / Failed / Cancelled</code
+          >。Node：<code
+            >idle → queued → running → waiting → succeeded / failed / cancelled / skipped</code
+          >，每次重试产生新 <code>attempt</code>。调度器按连线拓扑推进：1→N 并行分发（受全局 Agent
+          进程上限与节点级并发上限约束）、N→1 依据汇聚策略（全部 / 任一 / Quorum / 顺序）阻塞、N→N
+          全部就绪后再分发。子工作流以独立 Run + <code>parent_run_id</code> 表达，审批冒泡到父运行。
+        </p>
 
-  <h3 style="font-size:13pt;margin:26px 0 10px">14. 质量门禁</h3>
-  <ul style="font-size:10.5pt;line-height:1.8;padding-left:18px;margin:0">
-    <li>单元：PathGuard（逃逸用例）、Redactor（Token / Header / 正则）、结构化 Patch 应用与 revision 守卫、汇聚策略。</li>
-    <li>集成：引擎跑通内置示例（脚本 + 审批 + worktree + ACP mock），断电模拟后可恢复到同一检查点。</li>
-    <li>契约：Core API 类型由单一 schema 生成，UI 与 MCP 共用；CI 校验 MCP 工具不得绕过 Core。</li>
-    <li>性能基准：200 节点画布拖拽、10 万事件滚动、流式输出帧率，WKWebView 与 Chromium 各跑一次。</li>
-    <li>安全回归：导出物、事件、预览中不得出现 Secret（正则扫描 + 人工抽检）。</li>
-  </ul>
-</doc-page>
-</x-dc>
-</body>
+        <h3 style="font-size: 13pt; margin: 26px 0 10px">14. 质量门禁</h3>
+        <ul style="font-size: 10.5pt; line-height: 1.8; padding-left: 18px; margin: 0">
+          <li>
+            单元：PathGuard（逃逸用例）、Redactor（Token / Header / 正则）、结构化 Patch 应用与
+            revision 守卫、汇聚策略。
+          </li>
+          <li>
+            集成：引擎跑通内置示例（脚本 + 审批 + worktree + ACP
+            mock），断电模拟后可恢复到同一检查点。
+          </li>
+          <li>
+            契约：Core API 类型由单一 schema 生成，UI 与 MCP 共用；CI 校验 MCP 工具不得绕过 Core。
+          </li>
+          <li>
+            性能基准：200 节点画布拖拽、10 万事件滚动、流式输出帧率，WKWebView 与 Chromium
+            各跑一次。
+          </li>
+          <li>安全回归：导出物、事件、预览中不得出现 Secret（正则扫描 + 人工抽检）。</li>
+        </ul>
+      </doc-page>
+    </x-dc>
+  </body>
 </html>

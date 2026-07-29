@@ -33,7 +33,7 @@ MCP Server 不允许绕过 Core API。这两条在 CI 里有门禁。
 
 ## 三件冻结物
 
-交付顺序建议（功能文档 §14）要求先冻结三件事，之后 UI 与引擎才能并行开发：
+有三件事必须先冻结，之后 UI 与引擎才能并行开发：
 
 1. **Core API 契约** —— `packages/contracts/src/api.ts`，含方法表、Scope 映射、统一错误码
 2. **RunEvent 类型清单** —— `packages/contracts/src/events.ts`，九类事件与流不变量
