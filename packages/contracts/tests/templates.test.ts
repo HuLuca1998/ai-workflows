@@ -134,3 +134,66 @@ describe('模板清单', () => {
     expect(templateById('不存在')).toBeUndefined();
   });
 });
+
+/**
+ * 端到端跑真实 GitHub 仓库时暴露的：节点叫「Commit / Push / PR」，
+ * 脚本却只有 push 与 gh pr create —— 没有 commit。
+ *
+ * 于是推上去的是一个与 base 完全相同的空分支，`gh pr create` 以
+ * 「No commits between main and …」失败。分支已经推出去了，PR 没有，
+ * 而通知照样说「PR 已创建」。
+ *
+ * 模板是发给用户的出厂内容，照着跑一次就该成功。
+ */
+describe('Issue 修复模板 · 提交那一步', () => {
+  const scriptOf = (nodeId: string): string => {
+    const template = templateById('github-issue-fix');
+    const node = template?.operations.find((op) => op.op === 'addNode' && op.nodeId === nodeId);
+    return String((node as { config: { script?: unknown } }).config.script ?? '');
+  };
+
+  it('推之前先 commit —— 否则推上去的是空分支', () => {
+    const script = scriptOf('push_pr');
+    expect(script).toMatch(/git\s+add/);
+    expect(script).toMatch(/git\s+commit/);
+    expect(script.indexOf('git commit')).toBeLessThan(script.indexOf('git push'));
+  });
+
+  it('没有改动时明确失败，而不是推个空分支再让 gh 报错', () => {
+    expect(scriptOf('push_pr')).toMatch(/exit\s+1/);
+  });
+
+  it('在 worktree 里跑 —— 隔离工作区才是改动所在', () => {
+    expect(scriptOf('push_pr')).toContain('${worktree.success.path}');
+  });
+
+  /**
+   * `cmd 2>&1 | tail -2` 这类写法会把退出码换成管道最后一节的，
+   * 于是 `gh pr create` 失败也报「退出码 0」，节点显示成功。
+   * 实跑那次就是这么把「PR 没建成」变成「完成通知」的。
+   */
+  it('不把退出码交给管道最后一节', () => {
+    const script = scriptOf('push_pr');
+    if (script.includes('|')) {
+      expect(script).toMatch(/pipefail/);
+    }
+  });
+
+  /**
+   * `${…}` 展开时已经带上单引号（engine 的 `shell_quote`）。
+   * 脚本里再套一层就成了 `'…'1'…'`，靠相邻字符串拼接才碰巧对 ——
+   * 值里有空格或引号时就散架。模板是给人抄的，不能示范这种写法。
+   */
+  it('不在 ${…} 外面再套引号 —— 展开时已经带了', () => {
+    for (const template of WORKFLOW_TEMPLATES) {
+      for (const op of template.operations) {
+        if (op.op !== 'addNode') continue;
+        const script = (op.config as { script?: unknown }).script;
+        if (typeof script !== 'string') continue;
+        expect(script, `${template.id}/${op.nodeId} 把 \${…} 套进了引号`).not.toMatch(
+          /['"]\$\{[^}]+\}|\$\{[^}]+\}['"]/,
+        );
+      }
+    }
+  });
+});

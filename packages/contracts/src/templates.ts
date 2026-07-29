@@ -165,7 +165,28 @@ const ISSUE_FIX: WorkflowTemplate = {
       position: { x: 290, y: 334 },
       config: {
         interpreter: 'zsh',
-        script: 'git push -u origin HEAD && gh pr create --fill',
+        // 三件事的顺序不能反：先 commit 才有东西可推，推完才建得了 PR。
+        //
+        // 「push 完再 gh pr create」漏掉 commit 的话，推上去的是一个与
+        // base 完全相同的空分支，gh 以「No commits between …」失败 ——
+        // 而那时分支已经在远端了。所以没改动就在本地停住，不往外推。
+        //
+        // pipefail：这一步会有人加 `| tail`、`| grep` 之类裁输出，
+        // 管道的退出码默认是最后一节的，gh 失败会变成「退出码 0」，
+        // 节点显示成功、通知照发「PR 已创建」。
+        //
+        // `${…}` 展开时已经带上单引号，所以先接进变量，别在外面再套一层 ——
+        // 套了会变成 `#'1'`，靠相邻字符串拼接才碰巧对。
+        script: [
+          'set -euo pipefail',
+          'ISSUE=${input.issue}',
+          'cd ${worktree.success.path}',
+          'git add -A',
+          "git diff --cached --quiet && { echo '没有任何改动，不建 PR'; exit 1; }",
+          'git commit -qm "fix: 关闭 #$ISSUE"',
+          'git push -qu origin HEAD',
+          'gh pr create --fill',
+        ].join('\n'),
         timeoutMs: 300_000,
       },
     },

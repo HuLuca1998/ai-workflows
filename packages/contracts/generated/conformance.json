@@ -3456,7 +3456,7 @@
             },
             "config": {
               "interpreter": "zsh",
-              "script": "git push -u origin HEAD && gh pr create --fill",
+              "script": "set -euo pipefail\nISSUE=${input.issue}\ncd ${worktree.success.path}\ngit add -A\ngit diff --cached --quiet && { echo '没有任何改动，不建 PR'; exit 1; }\ngit commit -qm \"fix: 关闭 #$ISSUE\"\ngit push -qu origin HEAD\ngh pr create --fill",
               "timeoutMs": 300000
             }
           },
@@ -3836,7 +3836,7 @@
               },
               "config": {
                 "interpreter": "zsh",
-                "script": "git push -u origin HEAD && gh pr create --fill",
+                "script": "set -euo pipefail\nISSUE=${input.issue}\ncd ${worktree.success.path}\ngit add -A\ngit diff --cached --quiet && { echo '没有任何改动，不建 PR'; exit 1; }\ngit commit -qm \"fix: 关闭 #$ISSUE\"\ngit push -qu origin HEAD\ngh pr create --fill",
                 "env": {},
                 "secretEnv": {},
                 "outputParse": "none",
@@ -4175,7 +4175,7 @@
               "label": "node script.shell「Commit / Push / PR」",
               "after": {
                 "interpreter": "zsh",
-                "script": "git push -u origin HEAD && gh pr create --fill",
+                "script": "set -euo pipefail\nISSUE=${input.issue}\ncd ${worktree.success.path}\ngit add -A\ngit diff --cached --quiet && { echo '没有任何改动，不建 PR'; exit 1; }\ngit commit -qm \"fix: 关闭 #$ISSUE\"\ngit push -qu origin HEAD\ngh pr create --fill",
                 "env": {},
                 "secretEnv": {},
                 "outputParse": "none",
