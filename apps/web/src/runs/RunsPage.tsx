@@ -344,7 +344,9 @@ export function RunsPage() {
                     disabled={rerunning.running && rerunning.target === selected.id}
                     onClick={() => rerunning.run(() => runs.rerun(selected.id), selected.id)}
                   >
-                    {rerunning.running && rerunning.target === selected.id ? '启动中…' : '用相同参数重跑'}
+                    {rerunning.running && rerunning.target === selected.id
+                      ? '启动中…'
+                      : '用相同参数重跑'}
                   </button>
                 ) : null}
                 <button
@@ -448,7 +450,9 @@ export function RunsPage() {
                     type="button"
                     className="runs__action"
                     disabled={rewinding.running && rewinding.target === selected.id}
-                    onClick={() => rewinding.run(() => runs.rewindToApproval(selected.id), selected.id)}
+                    onClick={() =>
+                      rewinding.run(() => runs.rewindToApproval(selected.id), selected.id)
+                    }
                   >
                     回到最近审批点改选择
                   </button>

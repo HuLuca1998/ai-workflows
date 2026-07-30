@@ -379,11 +379,7 @@ export function AgentsPage() {
 
         <div className="agents__list-body">
           {items !== null && items.length === 0 ? (
-            <ListEmpty
-              query={search.value}
-              noun="角色"
-              onClear={() => search.onChange('')}
-            >
+            <ListEmpty query={search.value} noun="角色" onClear={() => search.onChange('')}>
               还没有 Agent 角色。角色把「人格 + 权限 + 模型」打包成一个可引用的整体，
               节点引用它而不是各自复制一份 Prompt。
             </ListEmpty>

@@ -177,8 +177,6 @@ export function SupervisorDrawer({
     );
   }, [context.workflowId]);
 
-
-
   const [messages, setMessages] = useState<Message[]>([]);
   const [draft, setDraft] = useState('');
   const [busy, setBusy] = useState(false);
@@ -638,11 +636,11 @@ export function SupervisorDrawer({
             </button>
           ))}
           {/*
-            * 这里原来还有一个「记忆 N 条」的 chip。删掉了：契约的
-            * supervisor.ask.context 里根本没有记忆这一项，前端也无从知道
-            * 后端会注入哪些 —— 它承诺的「这次对话它能看到什么」说不了真话。
-            * 要它回来的话，得先让后端把实际注入的记忆回给前端。
-            */}
+           * 这里原来还有一个「记忆 N 条」的 chip。删掉了：契约的
+           * supervisor.ask.context 里根本没有记忆这一项，前端也无从知道
+           * 后端会注入哪些 —— 它承诺的「这次对话它能看到什么」说不了真话。
+           * 要它回来的话，得先让后端把实际注入的记忆回给前端。
+           */}
         </div>
 
         <div className="supervisor__body" ref={bodyRef}>
@@ -704,11 +702,11 @@ export function SupervisorDrawer({
                   不用了
                 </button>
                 {/*
-                  * 两个条件都要：没有 onApply 是没有草稿可落，
-                  * 没有 diff 是用户没看过这组操作会变成什么样 ——
-                  * 「AI 的改动一律先出 Diff，用户确认才落草稿」是架构原则，
-                  * 不能因为调用方碰巧传了 onApply 就绕过它。
-                  */}
+                 * 两个条件都要：没有 onApply 是没有草稿可落，
+                 * 没有 diff 是用户没看过这组操作会变成什么样 ——
+                 * 「AI 的改动一律先出 Diff，用户确认才落草稿」是架构原则，
+                 * 不能因为调用方碰巧传了 onApply 就绕过它。
+                 */}
                 {onApply && liveProposal.diff ? (
                   <button
                     type="button"

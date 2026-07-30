@@ -47,9 +47,6 @@ describe('连通性测试结果', () => {
     await screen.findByText(/连不上/u);
 
     await user.click(screen.getByText('模型乙'));
-    expect(
-      screen.queryByText(/连不上/u),
-      '模型甲的失败结果挂在了模型乙的详情下',
-    ).toBeNull();
+    expect(screen.queryByText(/连不上/u), '模型甲的失败结果挂在了模型乙的详情下').toBeNull();
   });
 });

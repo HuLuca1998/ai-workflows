@@ -66,7 +66,7 @@ describe('未保存的改动', () => {
     render(<AgentsPage />);
 
     await user.click(await screen.findByText('角色甲'));
-    const name = await screen.findByLabelText("角色名称");
+    const name = await screen.findByLabelText('角色名称');
     await user.clear(name);
     await user.type(name, '改过的名字');
 
@@ -76,12 +76,12 @@ describe('未保存的改动', () => {
     await waitFor(() => {
       expect(screen.getByText(/未保存/u)).toBeTruthy();
     });
-    expect(screen.getByLabelText("角色名称")).toHaveValue('改过的名字');
+    expect(screen.getByLabelText('角色名称')).toHaveValue('改过的名字');
 
     // 明确选择放弃之后才真的切走
     await user.click(screen.getByRole('button', { name: /放弃改动/u }));
     await waitFor(() => {
-      expect(screen.getByLabelText("角色名称")).toHaveValue('角色乙');
+      expect(screen.getByLabelText('角色名称')).toHaveValue('角色乙');
     });
   });
 
@@ -90,11 +90,11 @@ describe('未保存的改动', () => {
     render(<AgentsPage />);
 
     await user.click(await screen.findByText('角色甲'));
-    await screen.findByLabelText("角色名称");
+    await screen.findByLabelText('角色名称');
     await user.click(screen.getByText('角色乙'));
 
     await waitFor(() => {
-      expect(screen.getByLabelText("角色名称")).toHaveValue('角色乙');
+      expect(screen.getByLabelText('角色名称')).toHaveValue('角色乙');
     });
     expect(screen.queryByText(/未保存/u)).toBeNull();
   });

@@ -55,12 +55,12 @@ export function SideNav({ counts, permission, environment }: SideNavProps) {
 
       <div className="side-nav__foot">
         {/*
-          * 收起的是**标签**，不是**信息**。
-          *
-          * 这两块此前在窄窗口下一个整块不渲染、一个只剩图标：用户不知道
-          * 自己开的是哪一档权限（那一档决定了 AI 能不能改他的文件），
-          * 也不知道那个红色感叹号在说什么 —— 悬停没有 title，读屏念不出。
-          */}
+         * 收起的是**标签**，不是**信息**。
+         *
+         * 这两块此前在窄窗口下一个整块不渲染、一个只剩图标：用户不知道
+         * 自己开的是哪一档权限（那一档决定了 AI 能不能改他的文件），
+         * 也不知道那个红色感叹号在说什么 —— 悬停没有 title，读屏念不出。
+         */}
         <div
           className="side-nav__permission"
           aria-label={`权限档：${permissionPreset}`}
@@ -70,9 +70,7 @@ export function SideNav({ counts, permission, environment }: SideNavProps) {
             <i className="ph ph-shield-check" aria-hidden="true" />
             {collapsed ? null : permissionPreset}
           </p>
-          {collapsed ? null : (
-            <p className="side-nav__permission-detail">{permissionDetail}</p>
-          )}
+          {collapsed ? null : <p className="side-nav__permission-detail">{permissionDetail}</p>}
         </div>
 
         <p

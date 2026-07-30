@@ -270,10 +270,10 @@ export function MemoryPage() {
                   <p className="memory__proposal-by">来源 {item.createdBy}</p>
                 </div>
                 {/*
-                  * 原来这个按钮叫「忽略」，发的却是 memory.delete —— 永久删除。
-                  * 后端没有「已忽略」这个状态（提议就是 ai_proposed && !enabled，
-                  * 留着它就还在提议区），所以只能把话说实，不能编一个状态出来。
-                  */}
+                 * 原来这个按钮叫「忽略」，发的却是 memory.delete —— 永久删除。
+                 * 后端没有「已忽略」这个状态（提议就是 ai_proposed && !enabled，
+                 * 留着它就还在提议区），所以只能把话说实，不能编一个状态出来。
+                 */}
                 {confirmDismiss === item.id ? (
                   <>
                     <button
@@ -492,8 +492,8 @@ function MemoryEditor({
         <textarea value={value} onChange={(event) => setValue(event.target.value)} />
       </label>
       <p className="models__note">
-        这条内容会注入后续每一次 AI 调用。Secret 不要写在这里 —— 它只进 Keychain，
-        在这里只以 keychain:// 引用出现。
+        这条内容会注入后续每一次 AI 调用。Secret 不要写在这里 —— 它只进 Keychain， 在这里只以
+        keychain:// 引用出现。
       </p>
       <div className="models__form-actions">
         <button type="button" className="runs__action" onClick={onCancel}>
