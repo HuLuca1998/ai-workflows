@@ -3307,18 +3307,23 @@
   flex: none;
 }
 
-.models__item-state[data-enabled='true'],
 /*
  * §2.3 点名失败色用于「不可用模型」。停用 = 全系统的模型下拉都不列它，
  * 那是需要注意的一行，不该是全列表最不显眼的。
+ *
+ * 这两条原来串在一起：`.models__item-state[data-enabled='true']` 与
+ * `.models__badge[data-enabled='false']` 共用了失败色那条规则 ——
+ * 于是列表里**已启用**的芯片是红的，正好反过来。
  */
+.models__item-state[data-enabled='false'],
 .models__badge[data-enabled='false'] {
   background: var(--color-status-failed-bg);
   color: var(--color-status-failed);
 }
 
+.models__item-state[data-enabled='true'],
 .models__badge[data-enabled='true'] {
-  background: rgba(127, 184, 148, 0.14);
+  background: color-mix(in srgb, var(--color-status-success) 14%, transparent);
   color: var(--color-status-success);
 }
 

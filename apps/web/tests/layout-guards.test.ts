@@ -30,3 +30,25 @@ describe('权限块的行布局', () => {
     expect(rule!.body).toMatch(/display:\s*flex/u);
   });
 });
+
+describe('模型的启用状态色', () => {
+  const rules = parseRules(CSS).filter((entry) => entry.selector.includes('models__item-state'));
+
+  it('「已启用」不能落在失败色那条规则里', () => {
+    const wrong = rules.find(
+      (entry) =>
+        entry.selector.includes("[data-enabled='true']") &&
+        /--color-status-failed/u.test(entry.body),
+    );
+    expect(
+      wrong?.selector,
+      '列表里「已启用」的芯片是红的 —— 选择器串到失败色那条规则上了',
+    ).toBeUndefined();
+  });
+
+  it('列表项与详情徽章的停用色一致 —— 同一个状态不能两种表达', () => {
+    const disabled = rules.find((entry) => entry.selector.includes("[data-enabled='false']"));
+    expect(disabled, '列表项的「已停用」没有任何状态色').toBeTruthy();
+    expect(disabled!.body).toMatch(/--color-status-failed/u);
+  });
+});
