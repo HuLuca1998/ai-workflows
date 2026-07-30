@@ -86,7 +86,11 @@ export function UpdateCard({ versionInfo, backend, autoCheck = true }: UpdateCar
       <section className="update-card" data-status="error">
         <header className="update-card__head">
           <h2>版本</h2>
-          <Tag tone="danger">未知</Tag>
+          {/*
+           * 读不到版本 ≠ 更新失败。§2.3 的失败红给的是「出问题了」，
+           * 而这里是「查不出来，得你去看一眼」—— 那是注意，不是失败。
+           */}
+          <Tag tone="warning">未知</Tag>
         </header>
         <p className="update-card__error">{versionError ?? '无法读取应用版本'}</p>
         <p className="update-card__meta">版本未知时不会检查更新，避免拿错版本号做比较。</p>

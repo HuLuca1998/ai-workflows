@@ -35,13 +35,27 @@ export function TitleBar({ onAskAi, activeRuns = 0, workdir }: TitleBarProps) {
         </>
       ) : null}
 
+      {/*
+       * 四个子元素都要标 —— **只有被标记的元素本身能拖，子元素不冒泡**
+       * （CLAUDE.md 记着这个坑）。只标在 <nav> 上的话，鼠标落在路径文字上
+       * 就拖不动窗口，而那一片正是标题栏里最大的一块。
+       */}
       <nav aria-label="当前位置" className="title-bar__breadcrumb" data-tauri-drag-region>
-        <i className="ph ph-folder-open" aria-hidden="true" />
-        <span className="title-bar__workdir">{workdir ?? '尚未授权工作目录'}</span>
-        <span className="title-bar__slash" aria-hidden="true">
+        <i className="ph ph-folder-open" aria-hidden="true" data-tauri-drag-region />
+        <span
+          className="title-bar__workdir"
+          data-tauri-drag-region
+          // 截断的是前面那截，完整路径挂在 title 上
+          title={workdir ?? '尚未授权工作目录'}
+        >
+          {workdir ?? '尚未授权工作目录'}
+        </span>
+        <span className="title-bar__slash" aria-hidden="true" data-tauri-drag-region>
           /
         </span>
-        <span className="title-bar__current">{current?.label ?? '未知位置'}</span>
+        <span className="title-bar__current" data-tauri-drag-region>
+          {current?.label ?? '未知位置'}
+        </span>
       </nav>
 
       <span className="title-bar__spacer" data-tauri-drag-region />

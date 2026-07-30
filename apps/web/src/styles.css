@@ -172,6 +172,13 @@
   overflow: hidden;
   text-overflow: ellipsis;
   max-width: 280px;
+  /*
+   * 从**前面**截。`~/work/ai-workflows` 尾部截断后是「~/work/ai-work…」——
+   * 把最有辨识度的那一段（目录名）藏掉了，而前缀几乎每条路径都一样。
+   * rtl 只改截断方向，不改文字顺序（路径里没有 RTL 字符）。
+   */
+  direction: rtl;
+  text-align: left;
 }
 
 .title-bar__slash {
@@ -348,7 +355,12 @@
 
 .side-nav[data-collapsed='true'] {
   width: var(--layout-nav-collapsed-w);
-  justify-items: center;
+  /*
+   * 原来这里写的是 `justify-items: center` —— 它只对 grid 生效，
+   * 而 .side-nav 是 flex column，那一行从来没起过作用。
+   * flex 里让子项横向居中要用 align-items。
+   */
+  align-items: center;
 }
 
 .side-nav__item {
@@ -769,6 +781,8 @@
 
 .editor-approval__text b {
   font-weight: 500;
+  /* 全屏唯一要人立刻动手的地方，标题不能和正文一个颜色 */
+  color: var(--color-accent-200);
 }
 
 .editor-approval__text span {
@@ -4574,6 +4588,15 @@ fieldset.launch__field {
   opacity: 0.55;
 }
 
+/*
+ * 停用的是**记忆**，不是这一行的操作。
+ * 整行压暗会把「启用」「编辑」「删除」一起压暗 —— 而用户来这一行
+ * 多半正是为了把它重新启用，那个按钮看着像点不动。
+ */
+.memory__row[data-enabled='false'] .memory__actions {
+  opacity: 1;
+}
+
 .memory__key {
   font-family: var(--font-mono);
   font-size: 12px;
@@ -4907,7 +4930,11 @@ fieldset.launch__field {
 
 .supervisor__scopes em {
   font-style: normal;
-  color: var(--color-status-failed);
+  /*
+   * 这句说的是「这一档下写操作不再逐项确认」——一句**陈述**，不是错误。
+   * §2.3 的失败红只给「出问题了」；需要人留个心的事用注意黄。
+   */
+  color: var(--color-status-waiting);
 }
 
 .supervisor__foot {
@@ -5197,7 +5224,8 @@ fieldset.launch__field {
 }
 
 .settings-nav__item {
-  height: 30px;
+  /* §7 的下限是 34px —— 30px 的行在鼠标下太容易点偏 */
+  min-height: 34px;
   display: flex;
   align-items: center;
   padding: 0 10px;
