@@ -294,20 +294,6 @@ MCP 侧拼「接下来：」，前端 `describeError` 渲染成 `${message}（${
 公布的 required 造入参调 dispatch，断言不出现「缺少参数 X 而 X 不在 schema 里」；
 可选字段要么有读取点要么进白名单。
 
-### V-4 · 非 JSON 的草稿能落库，还能发布成不可变版本
-
-契约对 `workflow.create.graphJson` 只有 `z.string().min(1)`，
-`create_workflow_with_graph` 零校验，`workflow_publish` 全文三行、从不调 validate。
-
-实测：`graphJson="这不是 JSON"` → create Ok → `workflow_patch` 从此报
-「草稿不是合法 JSON」（这条草稿再也改不动）→ **publish 照样成功**，
-拿到一个 `config_hash` 算在垃圾上的不可变版本，而运行记录永远引用它。
-
-`workflow_patch` 那套「结构化写入是唯一形态」的防线被 create 从侧门绕过。
-
-**验收**：入口按 `WorkflowGraphSchema` 校验；publish 先跑 validate，
-有 error 级 issue 就拒绝（界面同步置灰并说明原因）。
-
 ### V-5 · `declared` 与 `any` 仍然等价，network / memory / secret 仍未接上
 
 枚举外的值已经按最严处理了，界面也直说了那两项引擎不读。**剩下两半**：
@@ -346,6 +332,76 @@ MCP 侧拼「接下来：」，前端 `describeError` 渲染成 `${message}（${
 
 **验收**：`boolean()` 拆成必填版与带默认值版（默认值从契约抄并注明出处）；
 守卫：契约里带 default 或列在 required 的标量字段，dispatch 对应分支必须用对应语义的取值函数。
+
+---
+
+## 〇之六、第 6 轮：复核 + 数据随时间演化
+
+这一轮一半用来复核前几轮的修复。**复核抓出三条**（都已修，见「已经做完的」）：
+密钥判据用无边界子串匹配把 `task-manager` 当成密钥吞掉、
+读取点用的是空 literals 的新脱敏器实例、会话池整池一把锁导致退出卡住。
+
+以下是新发现，按严重度排。
+
+### N-1 · 删一条工作流独占写锁 50 秒，其余连接在第 5 秒全部 SQLITE_BUSY
+
+`fts_index` 的 `kind`/`ref_id` 都是 `UNINDEXED`，而删除触发器是
+`WHERE kind='run_event' AND ref_id=old.id` —— **每删一条事件全扫一遍整个 FTS 表**。
+
+在按一年日用量造的库上（1825 次运行 / 73,000 条事件 / 46 MB）实测删一条
+含 3,640 条事件的工作流：**带触发器 50.48s，DROP 掉触发器 0.10s —— 500 倍**。
+
+SQLite 单写者、`busy_timeout` 只有 5000ms：这条语句占着写锁 50 秒，
+期间 MCP 的 8 条连接、桌面主连接、主管 AI 那条、正在执行的运行的
+`append_event` 全部在第 5 秒失败。`workflow_delete` 界面上没有调用点，
+但它不在 `DELIBERATELY_HIDDEN` 里 —— 主管 AI 想「清理一下」就能把应用冻住，
+同时把正在跑的运行的事件写丢。三年量级约 150 秒。
+
+**验收**：73k FTS 行的库上删含 3,600 条事件的工作流 < 1s，且 FTS 行一条不剩。
+
+### N-2 · 老二进制打开新库静默通过；十个迁移从没在有数据的库上跑过
+
+`EXPECTED_SCHEMA_VERSION` **运行时零处比较**，`migrate()` 只往上看不往下看。
+因为迁移只增不改且 SELECT 都是显式列名，新库对老二进制是个超集，
+第一条查询不会报错 —— 失败是**无声的数据分叉**。实测降级窗口里建的角色
+`created_at` 是空串，而 007 那条回填迁移早已记账、再也不会跑，
+于是它们被 `ORDER BY updated_at DESC` 永久钉在最后一页。
+
+另一半：全仓没有一条「从旧 schema 向前迁」的测试。002..011 在 CI 里
+**从未在有行的表上执行过** —— 下一个迁移只要写成 `ADD COLUMN x TEXT NOT NULL`
+（漏 DEFAULT），CI 全绿，而每台在用的机器下次启动都会 ROLLBACK、应用打不开。
+
+**验收**：(a) `migrate()` 判 `current > EXPECTED` 时报明确错误；
+(b) 参数化跑 v=1..10：只执行前 v 个 .sql、每张表塞一行、再 migrate、断言行还在。
+各配一条元测试。
+
+### N-3 · 版本快照只冻结了图，agent / model 是活引用
+
+`workflow_version` 的快照里只有 `graph_json`，而图里存的是
+`agentProfileId: "builtin:analyst"` 这样的**引用**。执行时现查
+`agent_profile`，把 persona / capabilities / runtime 全取当下的值。
+`run.env_snapshot_json` 这一列**零写入方**。
+
+三个月后打开一条旧运行问「它当时用的什么人设、什么权限」，答案是**今天**的。
+用同一个 `config_hash` 重跑，行为可能完全不同，而没有任何东西记下这件事 ——
+与「RunEvent 是唯一事实来源」「可解释性证据」直接冲突。
+
+`delete_model` 还是一条裸 DELETE：不查引用、不查 builtin。删掉 `model:codex`
+之后四个内置角色的 `model_ref` 全部悬空，且种子批次记账保证它不会被种回来。
+
+**验收**：`create_run` 把解析后的 agent/model 快照写进 `env_snapshot_json`；
+改掉 agent 的 persona 后，旧运行的证据仍显示改之前的值。`delete_model` 补引用检查。
+
+### N-4 · 三条量级较小但确认过的
+
+- **`run.started_at` 其实是「创建时刻」**，永不更新。于是耗时算的是
+  `ended_at − created_at` —— 一条挂在 waiting_approval 三小时后才批准、
+  几分钟跑完的运行，首页显示「3h」。`runs_today` 数的也是「今天创建的」
+- **注入 AI 的记忆排序没有 tiebreaker**，而四条内置记忆时间戳逐字相同 ——
+  注入顺序跨运行不稳定，而「注入了哪些记忆」是可解释性证据
+- **没有任何保留策略**：12 张表零 DELETE、零 VACUUM；`artifact` 表
+  **零写入方**（连同索引与触发器是死 schema）；产物只以文件存在，
+  删工作流只动库不动盘。5 年 ≈ 200 MB 且删过不还空间
 
 ---
 
@@ -509,5 +565,10 @@ DEBT B-1。归在 `entry | end` 那一档，什么都不做直接返回成功，
 - 认不出的能力值按最严 + 界面直说哪两项不读（V-5 的一半）
 - 改边界的工具任何档位都要确认（V-3）—— 之前 workspace_safe 下
   一次免确认调用就能把权限档自己改成 trusted_workflow
+- 发布前先校验（V-4）—— 之前一坨非 JSON 能被冻成不可变版本
+- 密钥判据不再误伤（R-1）：`task-manager` 曾在写入时被当成密钥吞掉，
+  而 create_run 的脱敏在 INSERT 之前，明文永不落库
+- 读取点也走共享脱敏器（R-2）：诊断包自称「所有文本已过脱敏器」而实际漏
+- 会话池按会话上锁（R-3）：正在对话时按 ⌘Q 曾卡在退出上
 - 主管 AI 单开一条数据库连接（W-2）—— 之前它握着主锁做完整轮 ACP 对话，
   桌面壳另外 58 条命令全堵在后面，用户看到的是「应用卡住了」
