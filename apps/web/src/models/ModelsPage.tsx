@@ -6,6 +6,8 @@ import { SplitPane } from '../layout/SplitPane.js';
 import { Pager } from '../layout/Pager.js';
 import { coreClient } from '../data/workspace.js';
 import { ListEmpty } from '../layout/ListEmpty.js';
+import { useFocusOnce } from '../hooks/useFocusOnce.js';
+import { useAsyncAction } from '../data/useAsyncAction.js';
 
 /**
  * 模型 —— 严格照图纸「07 模型」：262px 左栏（按接入方式分组）+ 详情。
@@ -45,6 +47,8 @@ export function ModelsPage() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  /** 进入确认态时把焦点接过来 —— 原来的按钮已经被移除，焦点会掉回 body */
+  const focusConfirm = useFocusOnce();
   const [error, setError] = useState<string | null>(null);
   /**
    * 连通性测试：**正在测哪一个**，以及最近一次结果。
@@ -53,10 +57,14 @@ export function ModelsPage() {
    * 「测试中…」并且点不动，而那个请求根本不是对它发的。
    */
   /*
-   * 存的是**集合**而不是单个 id：允许同时测多个模型，那时单槽会互相覆盖 ——
-   * A 先结束会把槽清成 null，于是 B 还在请求中按钮却恢复可点，能再发一次。
+   * 连通性测试的防连点。
+   *
+   * 用 useAsyncAction 而不是自己数一个数组：它的锁是 ref（同步的），
+   * 而 state 里的数组在同一批事件里读到的还是旧值 —— 极快连点两次时
+   * `includes` 判不出来，两条请求都会发出去。这正是那个 hook
+   * 头一句注释在说的事，没必要在这里再写一份差一点的。
    */
-  const [testingIds, setTestingIds] = useState<readonly string[]>([]);
+  const testing = useAsyncAction();
   /*
    * 结果里带着**是哪个模型**的 id。此前是一个页面级的匿名结果，
    * 在 A 上测出「连不上」再切到 B，那句红字就挂在 B 的详情里了。
@@ -106,8 +114,6 @@ export function ModelsPage() {
    */
   const runTest = async () => {
     if (!selectedId) return;
-    if (testingIds.includes(selectedId)) return;
-    setTestingIds((current) => [...current, selectedId]);
     setTestResult(null);
     setTestError(null);
     try {
@@ -121,8 +127,6 @@ export function ModelsPage() {
     } catch (err) {
       // 错误也绑 id：不绑的话 A 的「连不上」会显示在 B 的详情下
       setTestError({ id: selectedId, message: err instanceof Error ? err.message : String(err) });
-    } finally {
-      setTestingIds((current) => current.filter((id) => id !== selectedId));
     }
   };
 
@@ -288,10 +292,10 @@ export function ModelsPage() {
               <button
                 type="button"
                 className="runs__action"
-                disabled={testingIds.includes(selected.id)}
-                onClick={() => void runTest()}
+                disabled={testing.isRunning(selected.id)}
+                onClick={() => testing.run(() => runTest(), selected.id)}
               >
-                {testingIds.includes(selected.id) ? '测试中…' : '测试连通性'}
+                {testing.isRunning(selected.id) ? '测试中…' : '测试连通性'}
               </button>
               <button type="button" className="runs__action" onClick={() => void onToggle()}>
                 {selected.enabled ? '停用' : '启用'}
@@ -309,9 +313,10 @@ export function ModelsPage() {
                     /*
                      * 「删除」这个 DOM 节点被换掉时焦点会掉回 body ——
                      * 键盘用户按 Enter 触发确认态之后，下一次 Tab 从整页
-                     * 开头重新走。把焦点接过来。
+                     * 开头重新走。把焦点接过来，且只接一次
+                     * （内联的 `(el) => el?.focus()` 会在每次重渲染时重新抢）。
                      */
-                    ref={(el) => el?.focus()}
+                    ref={focusConfirm}
                     onClick={() => setConfirmDelete(false)}
                   >
                     取消

@@ -7,6 +7,7 @@ import { SplitPane } from '../layout/SplitPane.js';
 import { Pager } from '../layout/Pager.js';
 import { coreClient } from '../data/workspace.js';
 import { ListEmpty } from '../layout/ListEmpty.js';
+import { useFocusOnce } from '../hooks/useFocusOnce.js';
 
 /**
  * Agent 角色 —— 严格照图纸「05 Agent 角色」：250px 左栏 + 详情区四块。
@@ -134,6 +135,8 @@ export function AgentsPage() {
   const [models, setModels] = useState<ModelOption[] | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  /** 进入确认态时把焦点接过来 —— 原来的按钮已经被移除，焦点会掉回 body */
+  const focusConfirm = useFocusOnce();
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
   /** 正在输入的工具名；null 表示没在添加。 */
@@ -525,9 +528,10 @@ export function AgentsPage() {
                     /*
                      * 「删除」这个 DOM 节点被换掉时焦点会掉回 body ——
                      * 键盘用户按 Enter 触发确认态之后，下一次 Tab 从整页
-                     * 开头重新走。把焦点接过来。
+                     * 开头重新走。把焦点接过来，且只接一次
+                     * （内联的 `(el) => el?.focus()` 会在每次重渲染时重新抢）。
                      */
-                    ref={(el) => el?.focus()}
+                    ref={focusConfirm}
                     onClick={() => setConfirmDelete(false)}
                   >
                     取消

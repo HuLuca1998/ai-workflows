@@ -6,6 +6,7 @@ import { SplitPane } from '../layout/SplitPane.js';
 import { Pager } from '../layout/Pager.js';
 import { coreClient } from '../data/workspace.js';
 import { ListEmpty } from '../layout/ListEmpty.js';
+import { useFocusOnce } from '../hooks/useFocusOnce.js';
 
 /**
  * 提示词库 —— 严格照图纸「06 提示词库」：266px 左栏 + 详情四个 tab。
@@ -73,6 +74,8 @@ export function PromptsPage() {
   const [tab, setTab] = useState<Tab>('template');
   /** 搜索词由 useDebouncedSearch 持有 —— 见下面的 search。 */
   const [confirmDelete, setConfirmDelete] = useState(false);
+  /** 进入确认态时把焦点接过来 —— 原来的按钮已经被移除，焦点会掉回 body */
+  const focusConfirm = useFocusOnce();
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
   /** 满足条件的总条数与当前页起点。后端早就分页了，缺的是界面这一层。 */
@@ -312,9 +315,10 @@ export function PromptsPage() {
                     /*
                      * 「删除」这个 DOM 节点被换掉时焦点会掉回 body ——
                      * 键盘用户按 Enter 触发确认态之后，下一次 Tab 从整页
-                     * 开头重新走。把焦点接过来。
+                     * 开头重新走。把焦点接过来，且只接一次
+                     * （内联的 `(el) => el?.focus()` 会在每次重渲染时重新抢）。
                      */
-                    ref={(el) => el?.focus()}
+                    ref={focusConfirm}
                     onClick={() => setConfirmDelete(false)}
                   >
                     取消

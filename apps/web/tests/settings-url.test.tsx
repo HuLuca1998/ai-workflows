@@ -73,4 +73,39 @@ describe('设置页的档位与 URL', () => {
       );
     });
   });
+
+  /*
+   * 方向键与点击是两件事：方向键是「翻着看」，点击是「我要去这一档」。
+   * 两者都 push 的话，连按十次下箭头就往后退栈里堆十条，
+   * 用户要按十次后退才出得去。
+   */
+  it('方向键连按不堆历史，点击才落一条', async () => {
+    const user = userEvent.setup();
+    view('/settings?tab=env');
+
+    const first = screen.getByRole('tab', { name: '通用' });
+    await user.click(first);
+    await waitFor(() => {
+      expect(screen.getByTestId('url').textContent).toContain('tab=general');
+    });
+
+    // 从「通用」往下连按三次
+    screen.getByRole('tab', { name: '通用' }).focus();
+    await user.keyboard('{ArrowDown}{ArrowDown}{ArrowDown}');
+    await waitFor(() => {
+      expect(screen.getByTestId('url').textContent).not.toContain('tab=general');
+    });
+
+    /*
+     * 一次后退就退出这一整串浏览，回到进来时那一档。
+     *
+     * 方向键用 replace 覆盖当前记录，所以那三下不会各自入栈 ——
+     * 代价是它也覆盖掉了「点击通用」落下的那条。两者取其一：
+     * 连按十次要按十次后退才出得去，比这个糟。
+     */
+    await user.click(screen.getByRole('button', { name: '后退' }));
+    await waitFor(() => {
+      expect(screen.getByTestId('url').textContent, '方向键把历史栈堆满了').toContain('tab=env');
+    });
+  });
 });

@@ -116,6 +116,24 @@ describe('确认删除的焦点', () => {
       expect(document.activeElement).toBe(screen.getByRole('button', { name: '取消' }));
     });
   });
+
+  it('之后的重渲染不能把焦点从用户手上抢回来', async () => {
+    respond([agent('a1', '角色甲')]);
+    const user = userEvent.setup();
+    render(<AgentsPage />);
+    await user.click(await screen.findByText('角色甲'));
+    await user.click(screen.getByRole('button', { name: '删除' }));
+    await screen.findByRole('button', { name: '取消' });
+
+    // 用户改主意去改名字 —— 每敲一个字都是一次重渲染
+    const name = screen.getByLabelText('角色名称');
+    await user.click(name);
+    await user.type(name, '改');
+
+    expect(document.activeElement, '重渲染把焦点抢回了「取消」按钮 —— 用户正在输入框里打字').toBe(
+      name,
+    );
+  });
 });
 
 describe('有未保存改动时复制', () => {

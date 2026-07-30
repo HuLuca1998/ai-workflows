@@ -60,16 +60,17 @@ export function SettingsPage() {
    */
   const tab = requested && TAB_KEYS.includes(requested) ? requested : 'env';
   const navigate = useNavigate();
-  const setTab = (next: string) => {
-    /*
-     * push 而不是 replace。
-     *
-     * replace 会覆盖当前这条历史记录：从 `?tab=version` 切到 env 之后按后退，
-     * 直接离开整个设置页 —— 而用户按后退想要的是「回到刚才那一档」。
-     * 代价是切十次档要按十次后退才出去，这是标准 tab 行为的取舍，
-     * 比「后退键把人弹出去」好。
-     */
-    navigate(`/settings?tab=${next}`);
+  /**
+   * 换一档。
+   *
+   * `browsing` 区分两种换法：
+   * - **点击**是「我要去这一档」，push 一条 —— 否则 replace 会覆盖当前记录，
+   *   从 `?tab=version` 切到 env 再按后退会直接跳出整个设置页
+   * - **方向键**是「翻着看」，replace —— ARIA 的 tab 条按方向键就切换选中，
+   *   连按十次下箭头会往后退栈里堆十条，用户要按十次后退才出得去
+   */
+  const setTab = (next: string, browsing = false) => {
+    navigate(`/settings?tab=${next}`, browsing ? { replace: true } : {});
   };
 
   return (
@@ -110,7 +111,7 @@ export function SettingsPage() {
               // roving tabindex 下焦点与选中经常不在同一项
               const next = TAB_KEYS[(index + delta + TAB_KEYS.length) % TAB_KEYS.length];
               if (next) {
-                setTab(next);
+                setTab(next, true);
                 document.getElementById(`settings-tab-${next}`)?.focus();
               }
             }}
