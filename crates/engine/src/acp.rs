@@ -490,25 +490,33 @@ impl AcpClient {
     }
 }
 
+/// 杀掉一整个进程组。adapter 可能起了子进程，只杀它自己会留下孙子。
+///
+/// 抽出来是因为 `SessionPool::shutdown` 也要用：**它不能依赖 Drop**——
+/// 唯一的调用点是 App 退出，那之后进程立刻结束，
+/// 正被别的线程持有的那条 `Live` 的 Drop 永远不会跑。
+pub(crate) fn kill_process_group(pid: u32) {
+    if pid == 0 {
+        return;
+    }
+    let group = format!("-{pid}");
+    let posix = Command::new("kill")
+        .args(["-s", "KILL", "--", &group])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status();
+    if !posix.is_ok_and(|status| status.success()) {
+        let _ = Command::new("kill")
+            .args(["-KILL", &group])
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status();
+    }
+}
+
 impl Drop for AcpClient {
     fn drop(&mut self) {
-        // adapter 可能起了子进程，杀整个进程组而不只是它自己
-        let pid = self.child.id();
-        if pid > 0 {
-            let group = format!("-{pid}");
-            let posix = Command::new("kill")
-                .args(["-s", "KILL", "--", &group])
-                .stdout(Stdio::null())
-                .stderr(Stdio::null())
-                .status();
-            if !posix.is_ok_and(|status| status.success()) {
-                let _ = Command::new("kill")
-                    .args(["-KILL", &group])
-                    .stdout(Stdio::null())
-                    .stderr(Stdio::null())
-                    .status();
-            }
-        }
+        kill_process_group(self.child.id());
         let _ = self.child.kill();
         let _ = self.child.wait();
     }
@@ -717,6 +725,14 @@ pub struct SessionPool {
     /// 按槽位上锁之后，外层那把锁只在「取槽位」的一瞬间持有。
     /// 顺带两条不同的对话也能并发了。
     live: std::sync::Mutex<HashMap<String, Slot>>,
+    /// 这个池起过的每一个 adapter 进程。
+    ///
+    /// `shutdown()` 按它直接杀，**不依赖 Drop**：唯一的调用点是
+    /// App 退出，那之后进程立刻结束 —— 正被别的线程持有的那条 `Live`
+    /// 的 Drop 永远不会跑。只 `live.clear()` 的话，等于把
+    /// 「看得见的卡死」换成了「看不见的孤儿 node 进程」，
+    /// 而 adapter 是 `process_group(0)` 起的，收不到 App 的退出信号。
+    spawned: std::sync::Mutex<Vec<u32>>,
     idle: Duration,
 }
 
@@ -741,6 +757,7 @@ impl SessionPool {
     pub fn new(idle: Duration) -> Self {
         Self {
             live: std::sync::Mutex::new(HashMap::new()),
+            spawned: std::sync::Mutex::new(Vec::new()),
             idle,
         }
     }
@@ -784,6 +801,7 @@ impl SessionPool {
 
         if held.is_none() {
             let (client, session_id) = 建()?;
+            self.remember(client.pid());
             *held = Some(Live {
                 client,
                 session_id,
@@ -806,6 +824,7 @@ impl SessionPool {
             Err(_) => {
                 *held = None;
                 let (mut client, session_id) = 建()?;
+                self.remember(client.pid());
                 let outcome = client.prompt(&session_id, text, &mut on_update);
                 // 新会话照样放回池里：这一轮可能还是失败（adapter 真的坏了），
                 // 但下一轮不该再为此多起一个进程
@@ -829,7 +848,12 @@ impl SessionPool {
             Ok(held) => held
                 .as_ref()
                 .is_none_or(|session| session.last_used.elapsed() < idle),
-            Err(_) => true,
+            // 有人正在对话 —— 那条按定义不是空闲的，留着
+            Err(std::sync::TryLockError::WouldBlock) => true,
+            // 锁中毒说明持锁的线程 panic 过。留着的话它永远回收不掉、
+            // 也永远重建不了（`prompt` 会在 lock 处直接 Disconnected），
+            // 而 live_count 还看不见它。丢掉，下次访问重建一条
+            Err(std::sync::TryLockError::Poisoned(_)) => false,
         });
     }
 
@@ -875,12 +899,29 @@ impl SessionPool {
     /// 全部关掉。App 退出时走这条，不然会留下一堆孤儿 adapter 进程。
     ///
     /// **立刻返回**，不等正在进行的那轮对话讲完 —— 用户按 ⌘Q 时
-    /// 不该被一个还在说话的 agent 拖住。清表只是丢掉这些 Arc；
-    /// 正在用的那条由持有者的 Arc 保活，那一轮结束、guard 落地之后
-    /// 引用计数归零，`AcpClient::drop` 照样把整个进程组 kill 掉。
+    /// 不该被一个还在说话的 agent 拖住。
+    ///
+    /// 按记下来的 pid 主动杀，**不依赖 Drop**：唯一的调用点是 App 退出，
+    /// 那之后进程立刻结束，正被别的线程持有的那条 `Live` 的 Drop
+    /// 永远不会跑。只清表的话，等于把「看得见的卡死」换成了
+    /// 「看不见的孤儿 node 进程」—— adapter 是 `process_group(0)` 起的，
+    /// 收不到 App 的退出信号。
     pub fn shutdown(&self) {
+        // 先杀进程：拿不到 live 锁（有人正在对话）时这一步照样要做
+        if let Ok(mut spawned) = self.spawned.lock() {
+            for pid in spawned.drain(..) {
+                kill_process_group(pid);
+            }
+        }
         if let Ok(mut live) = self.live.lock() {
             live.clear();
+        }
+    }
+
+    /// 记下一个刚起的 adapter 进程，供 `shutdown` 收尾。
+    fn remember(&self, pid: u32) {
+        if let Ok(mut spawned) = self.spawned.lock() {
+            spawned.push(pid);
         }
     }
 
@@ -902,5 +943,16 @@ impl SessionPool {
         let slot = self.live.lock().ok()?.get(key)?.clone();
         let held = slot.lock().ok()?;
         held.as_ref().map(|session| session.client.pid())
+    }
+
+    /// 这个池起过的所有 adapter 进程。
+    ///
+    /// 与 [`Self::pid_for_test`] 的区别是它**不碰槽位锁** ——
+    /// 正在对话的那条槽位是锁着的，而「正在对话时 shutdown
+    /// 有没有把进程收走」恰恰是最要紧的那个场景。
+    #[doc(hidden)]
+    #[must_use]
+    pub fn spawned_pids_for_test(&self) -> Vec<u32> {
+        self.spawned.lock().map(|p| p.clone()).unwrap_or_default()
     }
 }

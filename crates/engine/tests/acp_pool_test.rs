@@ -53,6 +53,29 @@ fn 问(pool: &SessionPool, key: &str, scenario: &'static str, text: &str) -> Str
     回答
 }
 
+/// 这个进程还活着吗。**僵尸不算活着** —— 它已经被 kill 了，
+/// 只是父进程还没收尸；而 `kill -0` 对僵尸照样返回成功。
+fn 还活着(pid: u32) -> bool {
+    let out = std::process::Command::new("ps")
+        .args(["-o", "stat=", "-p", &pid.to_string()])
+        .output()
+        .expect("ps");
+    let stat = String::from_utf8_lossy(&out.stdout).trim().to_string();
+    !stat.is_empty() && !stat.starts_with('Z')
+}
+
+/// 轮询等一个条件成立。kill 是异步的，立刻断言会偶发红。
+fn 等到(mut 成立: impl FnMut() -> bool) -> bool {
+    let 截止 = std::time::Instant::now() + Duration::from_secs(5);
+    while std::time::Instant::now() < 截止 {
+        if 成立() {
+            return true;
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    false
+}
+
 #[test]
 fn 同一条会话的两轮用同一个_acp_session() {
     let pool = SessionPool::new(Duration::from_secs(300));
@@ -139,14 +162,36 @@ fn 回收不会误伤刚用过的会话() {
 
 #[test]
 fn 全部关掉时进程一起收走() {
-    // App 退出时要能一次清干净，不然会留下一堆孤儿 adapter 进程
+    // App 退出时要能一次清干净，不然会留下一堆孤儿 adapter 进程。
+    //
+    // **断言的是进程死了，不是 live_count 归零** —— 后者只是
+    // `live.clear()` 的同义反复，而 adapter 是 `process_group(0)` 起的，
+    // 收不到 App 的退出信号：表清空了进程照样在跑。
+    //
+    // 这一条覆盖的是**没人持有**那条路径：clear 让引用计数归零，
+    // `AcpClient::drop` 里的 kill 生效。所以把 shutdown 退回
+    // 「只 clear」它照样绿 —— 有人正在对话的那条路径由下面那个用例守
     let pool = SessionPool::new(Duration::from_secs(300));
     问(&pool, "sup_x", "count-sessions", "问题");
     问(&pool, "sup_y", "count-sessions", "问题");
     assert_eq!(pool.live_count(), 2);
 
+    let 进程 = pool.spawned_pids_for_test();
+    assert_eq!(进程.len(), 2, "池没记下起过的进程，后面的断言就白测了");
+    assert!(
+        进程.iter().all(|&pid| 还活着(pid)),
+        "adapter 进程根本没起来 —— 这条测试什么都没验"
+    );
+
     pool.shutdown();
     assert_eq!(pool.live_count(), 0);
+
+    for pid in 进程 {
+        assert!(
+            等到(|| !还活着(pid)),
+            "shutdown 之后 adapter 进程 {pid} 还活着 —— 留下了孤儿"
+        );
+    }
 }
 
 #[test]
@@ -180,28 +225,43 @@ fn 改挂一个不存在的_key_不出事() {
 }
 
 #[test]
-fn 正在对话时也关得掉_不会卡在退出上() {
-    // `prompt` 原本整轮握着整张表的锁，而 `shutdown()` 要抢同一把 ——
-    // 用户在主管 AI 说话时按 ⌘Q，退出回调阻塞在锁上，窗口关了而进程不退。
-    // 他会强杀，于是 adapter 子进程一个都没被 kill：
-    // **正是 shutdown 要防的那件事，在最可能发生的时刻失效**。
+fn 正在对话时也关得掉_并且那条的进程也被收走() {
+    // 用户在主管 AI 说话时按 ⌘Q。两件事都要成立：
+    //
+    // 一、`shutdown()` 不能卡住 —— `prompt` 原本整轮握着整张表的锁，
+    //     退出回调会阻塞在上面，窗口关了而进程不退。
+    // 二、**正在用的那条，进程也得死**。只 `live.clear()` 的话，
+    //     持有者线程还攥着一份 Arc，`Live` 不会 drop，Drop 里的 kill
+    //     永远不跑；而 App 紧接着就退出了，那条 adapter 变成孤儿。
+    //     把「看得见的卡死」换成「看不见的孤儿进程」不算修好。
+    //
+    // 用 `hang-prompt` 而不是 `hang`：后者连 initialize 都不回，
+    // connect 会超时失败，槽位里根本没有会话 ——「正在对话」造不出来。
     use std::sync::Arc;
 
     let pool = Arc::new(SessionPool::new(Duration::from_secs(300)));
-    问(&pool, "sup_busy", "count-sessions", "第一句");
 
-    // 占住那条会话的槽位，模拟「正在对话」
     let 占住 = Arc::clone(&pool);
     let (发, 收) = std::sync::mpsc::channel::<()>();
     let 对话中 = std::thread::spawn(move || {
-        占住.prompt("sup_busy", 建会话("hang"), "这一轮会挂住", |_| {
-            let _ = 发.send(());
-        })
+        占住.prompt(
+            "sup_busy",
+            建会话("hang-prompt"),
+            "这一轮不会收尾",
+            |_| {
+                let _ = 发.send(());
+            },
+        )
     });
 
-    // 等它真的进到那一轮里；hang 场景不会回应答，所以靠超时兜底
-    let _ = 收.recv_timeout(Duration::from_secs(2));
-    std::thread::sleep(Duration::from_millis(200));
+    // mock 吐出第一句才说明 prompt 真的发出去了、槽位真的被锁着
+    收.recv_timeout(Duration::from_secs(20))
+        .expect("mock 没进到那一轮 —— 这条测试什么都没验");
+
+    let 进程 = pool.spawned_pids_for_test();
+    assert_eq!(进程.len(), 1, "池没记下正在对话的那条的进程");
+    let pid = 进程[0];
+    assert!(还活着(pid), "adapter 进程没起来");
 
     let 开始 = std::time::Instant::now();
     pool.shutdown();
@@ -211,7 +271,12 @@ fn 正在对话时也关得掉_不会卡在退出上() {
         开始.elapsed()
     );
 
-    // 那一轮自己会以超时收场；它持有的 Arc 落地后进程才被回收
+    assert!(
+        等到(|| !还活着(pid)),
+        "正在对话的那条 adapter 进程 {pid} 活过了 shutdown —— 孤儿"
+    );
+
+    // 进程没了，那一轮会以 EOF/超时收场
     let _ = 对话中.join();
 }
 

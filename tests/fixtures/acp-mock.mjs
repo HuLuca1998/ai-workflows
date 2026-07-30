@@ -126,6 +126,22 @@ function handle(message) {
   }
 
   if (method === 'session/prompt') {
+    // hang-prompt：握手与建会话都正常，只有这一轮永远不收尾。
+    // 与 `hang` 的区别很关键 —— `hang` 连 initialize 都不回，
+    // 于是 connect 在超时后失败，槽位里根本没有会话，
+    // 「正在对话」这个状态造不出来。这里先吐一句让测试知道
+    // 已经进到那一轮里，然后就不说话了
+    if (scenario === 'hang-prompt') {
+      notify('session/update', {
+        sessionId: params.sessionId,
+        update: {
+          sessionUpdate: 'agent_message_chunk',
+          content: { type: 'text', text: '开始想了' },
+        },
+      });
+      return;
+    }
+
     // 真实的 Claude Agent 在执行时会**反向请求**客户端：要权限、要读文件。
     // 客户端不应答的话它就一直等 —— 症状是「主管 AI 转圈到超时」，
     // 而两边都以为是对方该说话。
