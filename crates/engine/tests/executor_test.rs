@@ -940,9 +940,14 @@ mod 权限档改变行为 {
 /// 能力声明由引擎强制 —— 图纸「05 Agent 角色」的原话是
 /// 「权限（引擎强制，Prompt 无法越权）」。
 ///
-/// 契约的说法：节点声明自己需要什么，Agent 角色声明自己允许什么，
-/// 运行时取两者交集。不在引擎里拦的话，那两句话都是空的：
-/// 界面上摆着一排权限，而 Agent 想干什么还是干什么。
+/// **作用范围是挂得上角色的那四个 AI 节点**。能力从
+/// `profile_for(node)` 取，而它只认 config 里的 `agentProfileId` ——
+/// 脚本与 worktree 节点的 configSchema 里没有这个字段，
+/// 给它们写的能力分支一次都走不到（`capability_reach_test` 守着）。
+///
+/// 这一组原本全用 `with_capabilities` + `script.shell` 写，
+/// 而 `with_capabilities` 在生产里零调用：五条绿灯证明的是
+/// 一条运行时走不到的路径。改成挂角色的 AI 节点 —— 生产走的那条。
 mod 能力声明是硬的 {
     use super::*;
 
@@ -952,6 +957,34 @@ mod 能力声明是硬的 {
             "script.shell",
             serde_json::json!({ "interpreter": "zsh", "script": script }),
         )
+    }
+
+    /// 一个带指定能力的角色，和一个挂着它的 `ai.execute` 节点。
+    fn 挂角色的执行节点(
+        caps: serde_json::Value,
+    ) -> (Vec<aiwf_engine::executor::AgentProfile>, GraphNode) {
+        let profile = aiwf_engine::executor::AgentProfile {
+            id: "ap_cap".to_string(),
+            name: "执行者".to_string(),
+            role: "执行".to_string(),
+            goal: String::new(),
+            persona: String::new(),
+            runtime: "acp.codex".to_string(),
+            model_ref: "model:codex".to_string(),
+            output_contract: String::new(),
+            capabilities_json: caps.to_string(),
+            timeout_ms: 900_000,
+        };
+        let node = node(
+            "fix",
+            "ai.execute",
+            serde_json::json!({
+                "agentProfileId": "ap_cap",
+                "instruction": "改一下",
+                "workdirSource": "inherit"
+            }),
+        );
+        (vec![profile], node)
     }
 
     /// 只允许 file 读、不允许执行命令的一份能力。
@@ -976,38 +1009,76 @@ mod 能力声明是硬的 {
     }
 
     #[test]
-    fn command_为_none_时脚本节点被拒() {
-        let dir = tempfile::tempdir().unwrap();
-        let executor = NodeExecutor::new(dir.path().to_path_buf())
+    fn 角色不给写文件时_ai_execute_被拒() {
+        let (profiles, node) = 挂角色的执行节点(只读能力());
+        let executor = NodeExecutor::new(workdir())
             .with_permission_preset("workspace_safe")
-            .with_capabilities(&只读能力());
-        let mut scope = Scope::new("run_cap");
+            .with_agent_profiles(&profiles);
 
-        let outcome = executor.execute(&shell("echo hi"), &mut scope).unwrap();
-
-        match outcome {
-            NodeOutcome::Failed { message } => {
-                assert!(
-                    message.contains("命令") || message.contains("command"),
-                    "错误信息要说清是哪一项能力不够：{message}"
-                );
+        match executor.precheck(&node) {
+            Some(NodeOutcome::Failed { message }) => {
+                assert!(message.contains("文件"), "没说清缺的是哪一项：{message}");
             }
-            other => panic!("command=none 却让脚本跑了：{other:?}"),
+            other => panic!("只读角色跑起了会写文件的节点：{other:?}"),
         }
     }
 
     #[test]
-    fn command_为_declared_时放行() {
-        let dir = tempfile::tempdir().unwrap();
-        let executor = NodeExecutor::new(dir.path().to_path_buf())
+    fn 角色不给跑命令时_ai_execute_被拒() {
+        let mut caps = 可执行能力();
+        caps["command"] = serde_json::json!("none");
+        let (profiles, node) = 挂角色的执行节点(caps);
+        let executor = NodeExecutor::new(workdir())
             .with_permission_preset("workspace_safe")
-            .with_capabilities(&可执行能力());
-        let mut scope = Scope::new("run_cap2");
+            .with_agent_profiles(&profiles);
 
-        let outcome = executor.execute(&shell("echo hi"), &mut scope).unwrap();
+        match executor.precheck(&node) {
+            Some(NodeOutcome::Failed { message }) => {
+                assert!(message.contains("命令"), "没说清缺的是哪一项：{message}");
+            }
+            other => panic!("command=none 却放行了会跑命令的节点：{other:?}"),
+        }
+    }
+
+    #[test]
+    fn 能力够时放行() {
+        let (profiles, node) = 挂角色的执行节点(可执行能力());
+        let executor = NodeExecutor::new(workdir())
+            .with_permission_preset("workspace_safe")
+            .with_agent_profiles(&profiles);
+
+        assert!(executor.precheck(&node).is_none(), "能力够却被拦下");
+    }
+
+    #[test]
+    fn 脚本节点不看角色能力_它由权限档管() {
+        // **记录当前真实语义，别让人再误以为这里有一道角色级的防线。**
+        //
+        // 脚本是用户自己写在节点里的命令，不是 agent 自主决定要跑的东西，
+        // 所以它不受「Agent 角色」的能力声明约束 —— 何况脚本节点
+        // 根本挂不上角色（configSchema 里没有 agentProfileId）。
+        //
+        // 它真正的关卡是权限档：`review_every_change` 下先挂起等审批。
+        // 下半段断言的就是那一条 —— 少了它，这个测试就成了
+        // 「脚本节点没人管」的背书
+        let dir = tempfile::tempdir().unwrap();
+        let 放行 =
+            NodeExecutor::new(dir.path().to_path_buf()).with_permission_preset("workspace_safe");
+        let mut scope = Scope::new("run_cap1");
+        let outcome = 放行.execute(&shell("echo hi"), &mut scope).unwrap();
         assert!(
             matches!(outcome, NodeOutcome::Succeeded { .. }),
             "{outcome:?}"
+        );
+
+        let 要审批 = NodeExecutor::new(dir.path().to_path_buf())
+            .with_permission_preset("review_every_change");
+        assert!(
+            matches!(
+                要审批.precheck(&shell("echo hi")),
+                Some(NodeOutcome::NeedsApproval)
+            ),
+            "最严档下脚本节点没有挂起等审批 —— 那它就真的没人管了"
         );
     }
 
@@ -1029,18 +1100,22 @@ mod 能力声明是硬的 {
 
     #[test]
     fn 拒绝发生在执行之前_不留副作用() {
-        // 「拦」必须在起进程之前，否则脚本已经写了文件才报错
+        // 「拦」必须在起进程之前，否则脚本已经写了文件才报错。
+        // 用最严档来拦 —— 那是脚本节点身上真实存在的那道关
         let dir = tempfile::tempdir().unwrap();
         let marker = dir.path().join("不该出现.txt");
         let executor = NodeExecutor::new(dir.path().to_path_buf())
-            .with_permission_preset("workspace_safe")
-            .with_capabilities(&只读能力());
+            .with_permission_preset("review_every_change");
         let mut scope = Scope::new("run_cap4");
 
-        let _ = executor
+        let outcome = executor
             .execute(&shell(&format!("touch '{}'", marker.display())), &mut scope)
             .unwrap();
 
+        assert!(
+            matches!(outcome, NodeOutcome::NeedsApproval),
+            "没拦住：{outcome:?}"
+        );
         assert!(!marker.exists(), "脚本已经跑了才拦，副作用已经发生");
     }
 }
@@ -1143,33 +1218,42 @@ fn 角色不存在时当场失败_而不是悄悄按没有角色跑() {
 }
 
 #[test]
-fn 角色声明的能力被引擎强制_提示词改不了它() {
-    // 「权限（引擎强制，Prompt 无法越权）」——审查者是 command: none，
-    // 那么挂着它的节点就不该能执行命令，哪怕节点自己说要
+fn 角色声明的能力被引擎强制_提示词改不了它_也不看权限档() {
+    // 「权限（引擎强制，Prompt 无法越权）」——审查者是 file: read，
+    // 那么挂着它的 `ai.execute` 就不该能改文件。
+    //
+    // 两个要点，与上面那组 `precheck` 用例不重：
+    // 一、走完整的 `execute`，验证拦在**起 adapter 之前**（mock 一次都不该被调起）；
+    // 二、权限档是最松的 `trusted_workflow` —— 能力校验不因为
+    //     「这条工作流我信得过」而放宽，那是两件事。
+    //
+    // 原来这条把 `agentProfileId` 塞进 `script.shell` 的 config 里。
+    // 契约里脚本节点没有这个字段，Zod 的 strip 语义会把它丢掉 ——
+    // 界面上根本存不出这样一张图，测的是一个不存在的形状
     let (command, args) = mock_acp();
     let executor = NodeExecutor::new(workdir())
         .with_acp_command(&command, &args)
         .with_permission_preset("trusted_workflow")
         .with_agent_profiles(&[角色("builtin:reviewer")]);
 
-    let 脚本 = node(
-        "sh",
-        "script.shell",
+    let 执行节点 = node(
+        "fix",
+        "ai.execute",
         serde_json::json!({
-            "interpreter": "zsh",
-            "script": "echo hi",
-            "agentProfileId": "builtin:reviewer"
+            "agentProfileId": "builtin:reviewer",
+            "instruction": "把这个 bug 改了",
+            "workdirSource": "inherit"
         }),
     );
 
     let outcome = executor
-        .execute(&脚本, &mut Scope::new("run_caps"))
+        .execute(&执行节点, &mut Scope::new("run_caps"))
         .unwrap();
     match outcome {
         NodeOutcome::Failed { message } => {
-            assert!(message.contains("命令"), "要说清是哪一项权限：{message}");
+            assert!(message.contains("文件"), "要说清是哪一项权限：{message}");
         }
-        other => panic!("审查者不该能执行命令，实得 {other:?}"),
+        other => panic!("审查者不该能改文件，实得 {other:?}"),
     }
 }
 
@@ -2082,16 +2166,29 @@ mod 权限档说的话要算数 {
 
     #[test]
     fn 角色没有写文件权限时_ai_execute_跑不了() {
-        // 角色页写着「权限（引擎强制，Prompt 无法越权）」
-        let 只读角色 = serde_json::json!({
-            "file": "read", "command": "none", "network": "none",
-            "memory": "read", "secret": []
-        });
+        // 角色页写着「权限（引擎强制，Prompt 无法越权）」。
+        // 挂在节点上，不走 `with_capabilities` —— 后者生产里没人调
+        let 只读角色 = aiwf_engine::executor::AgentProfile {
+            id: "ap_ro".to_string(),
+            name: "审查者".to_string(),
+            role: "审查".to_string(),
+            goal: String::new(),
+            persona: String::new(),
+            runtime: "acp.codex".to_string(),
+            model_ref: "model:codex".to_string(),
+            output_contract: String::new(),
+            capabilities_json:
+                r#"{"file":"read","command":"none","network":"none","memory":"read","secret":[]}"#
+                    .to_string(),
+            timeout_ms: 900_000,
+        };
+        let mut 节点 = ai_execute();
+        节点.config["agentProfileId"] = serde_json::json!("ap_ro");
         let executor = NodeExecutor::new(workdir())
             .with_permission_preset("workspace_safe")
-            .with_capabilities(&只读角色);
+            .with_agent_profiles(&[只读角色]);
 
-        let outcome = executor.precheck(&ai_execute());
+        let outcome = executor.precheck(&节点);
         match outcome {
             Some(NodeOutcome::Failed { message }) => {
                 assert!(message.contains("文件"), "没说清缺的是哪项权限：{message}");
@@ -2229,21 +2326,39 @@ mod 能力枚举外的值按最严 {
     #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
     use super::{node, workdir};
-    use aiwf_engine::executor::NodeExecutor;
+    use aiwf_engine::executor::{AgentProfile, NodeExecutor};
     use aiwf_engine::runner::NodeOutcome;
 
+    /// 走生产那条路：节点挂角色，能力从角色的 `capabilities_json` 读。
+    /// 用 `with_capabilities` 的话测的是一条运行时走不到的旁路
     fn 跑一下(command: &str) -> Option<NodeOutcome> {
         let caps = serde_json::json!({
             "file": "read-write", "command": command,
             "network": "none", "memory": "read", "secret": []
         });
+        let profile = AgentProfile {
+            id: "ap_enum".to_string(),
+            name: "执行者".to_string(),
+            role: "执行".to_string(),
+            goal: String::new(),
+            persona: String::new(),
+            runtime: "acp.codex".to_string(),
+            model_ref: "model:codex".to_string(),
+            output_contract: String::new(),
+            capabilities_json: caps.to_string(),
+            timeout_ms: 900_000,
+        };
         NodeExecutor::new(workdir())
             .with_permission_preset("workspace_safe")
-            .with_capabilities(&caps)
+            .with_agent_profiles(&[profile])
             .precheck(&node(
-                "s1",
-                "script.shell",
-                serde_json::json!({ "interpreter": "zsh", "script": "echo hi" }),
+                "fix",
+                "ai.execute",
+                serde_json::json!({
+                    "agentProfileId": "ap_enum",
+                    "instruction": "改一下",
+                    "workdirSource": "inherit"
+                }),
             ))
     }
 

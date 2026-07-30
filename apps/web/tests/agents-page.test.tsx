@@ -7,7 +7,9 @@ import userEvent from '@testing-library/user-event';
  *
  * 这一屏要压住的产品规则：
  * 1.「节点引用角色而不是复制 Prompt；角色升级后引用它的节点一并生效」
- * 2.「权限（引擎强制，Prompt 无法越权）」—— 权限展示要说明它由引擎兜底
+ * 2.「权限（引擎强制，Prompt 无法越权）」—— 权限展示要说明它由引擎兜底。
+ *    **作用范围要一起说**：引擎只在挂得上角色的 AI 节点上校验，
+ *    脚本与 worktree 挂不上（契约里没有 agentProfileId），它们由权限档管
  * 3.「下拉只列出模型页里已启用的条目」
  */
 
@@ -107,11 +109,11 @@ describe('角色详情', () => {
     expect(detail.textContent).toContain('结构化 JSON');
   });
 
-  it('权限那块说明它由引擎强制，Prompt 无法越权', async () => {
+  it('权限那块说明它由引擎强制，并说清管到哪儿', async () => {
     const user = userEvent.setup();
     view();
     await user.click(await screen.findByRole('button', { name: /分析 Agent/u }));
-    expect(screen.getByText('权限（引擎强制，Prompt 无法越权）')).toBeTruthy();
+    expect(screen.getByText('权限（AI 节点执行前校验，Prompt 无法越权）')).toBeTruthy();
   });
 
   it('底部说明节点能覆盖什么、不能覆盖什么', async () => {
@@ -262,9 +264,15 @@ describe('权限、工具白名单、输出契约可配', () => {
     });
   });
 
-  it('那句「引擎强制，Prompt 无法越权」照图纸在位', async () => {
+  it('不出现无条件的那句「引擎强制」—— 它对脚本节点是假的', async () => {
+    // 图纸原话是「权限（引擎强制，Prompt 无法越权）」，而引擎的
+    // `check_capability` 只在挂得上角色的 AI 节点上取能力。
+    // 无条件写的话，用户把「命令」调成「不允许」会以为脚本节点也被管住了。
+    //
+    // 这条守的是「别改回去」：图纸已归档，界面以实现为准
     await 打开();
-    expect(await screen.findByText(/引擎强制，Prompt 无法越权/u)).toBeTruthy();
+    expect(screen.queryByText('权限（引擎强制，Prompt 无法越权）')).toBeNull();
+    expect(await screen.findByText(/Prompt 无法越权/u)).toBeTruthy();
   });
 
   it('工具白名单能加能删 —— 图纸有「+ 添加」', async () => {

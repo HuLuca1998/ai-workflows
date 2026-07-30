@@ -324,3 +324,44 @@ describe('新建角色的权限', () => {
     expect(发出去的键.filter((key) => !契约的键.includes(key))).toEqual([]);
   });
 });
+
+/**
+ * 权限块说的话，作用范围要准。
+ *
+ * 「引擎强制，Prompt 无法越权」这句原来是无条件写的，而引擎的
+ * `check_capability` 只在**挂得上角色**的四个 AI 节点上取能力
+ * （靠 config 里的 `agentProfileId`）。脚本与 worktree 节点的
+ * configSchema 里没有这个字段 —— 用户把「命令」调成「不允许」，
+ * 脚本节点照跑。
+ *
+ * 承诺一道不存在的防线，比不承诺糟得多：用户会据此决定要不要跑。
+ */
+describe('权限块的作用范围要说准', () => {
+  const 打开详情 = async () => {
+    await open();
+  };
+
+  it('文件与命令标明只在 AI 节点上校验', async () => {
+    await 打开详情();
+
+    for (const 项 of ['文件', '命令']) {
+      const 说明 = screen.getByTestId(`cap-note-${项 === '文件' ? 'file' : 'command'}`);
+      expect(说明.textContent).toMatch(/AI/);
+    }
+  });
+
+  it('脚本与 worktree 由权限档管这件事写在界面上', async () => {
+    await 打开详情();
+
+    const 卡片 = screen.getByRole('group', { name: /权限/ }).parentElement;
+    expect(卡片?.textContent).toMatch(/脚本/);
+    expect(卡片?.textContent).toMatch(/权限档|审批/);
+  });
+
+  it('网络与记忆仍旧标着引擎不读', async () => {
+    await 打开详情();
+
+    expect(screen.getByTestId('cap-note-network').textContent).toMatch(/不读/);
+    expect(screen.getByTestId('cap-note-memory').textContent).toMatch(/不读/);
+  });
+});

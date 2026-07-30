@@ -304,6 +304,10 @@ impl NodeExecutor {
     }
 
     /// Agent 角色声明的能力。不传表示这次运行没挂角色。
+    ///
+    /// **目前只有测试传**。留着是因为它是「运行级兜底」那条路的入口，
+    /// 但在接上生产调用点之前，别再往 `check_capability` 里加
+    /// 只有它才够得着的分支 —— `capability_reach_test` 守着这件事。
     #[must_use]
     pub fn with_capabilities(mut self, capabilities: &serde_json::Value) -> Self {
         self.capabilities = Some(capabilities.clone());
@@ -311,6 +315,20 @@ impl NodeExecutor {
     }
 
     /// 这个节点要的能力，角色给了没有。
+    ///
+    /// **只管挂得上角色的节点**，也就是四个 AI 节点 —— 能力是从
+    /// `profile_for(node)` 取的，而它只认 config 里的 `agentProfileId`。
+    ///
+    /// 这里曾经还有 `script.shell` / `script.python` / `git.worktree`
+    /// 三支，它们的 configSchema 里没有 `agentProfileId`，于是
+    /// `profile_for` 永远 None、那三支一次都没走到过。而「Agent 角色」页
+    /// 照着它们向用户承诺「引擎强制，Prompt 无法越权」：
+    /// 用户把「命令」调成「不允许」，脚本节点照跑。
+    /// 一道看得见摸不着的防线比没有更糟 —— 删掉，
+    /// 并把角色页那句话的作用范围写清楚。
+    ///
+    /// 脚本与 worktree 不是没人管：它们在 `SIDE_EFFECT_NODES` 里，
+    /// `review_every_change` 档会挂起等用户逐项审批。那条是真的。
     ///
     /// 返回 Err 里带的是**面向用户的**说明：「命令执行未授权」比
     /// 「capability denied」有用得多 —— 用户要知道去哪儿改。
@@ -349,11 +367,6 @@ impl NodeExecutor {
 
         // 用 match guard 而不是嵌 if：每一支就是「哪种节点 + 缺哪项能力」
         match node.node_type.as_str() {
-            "script.shell" | "script.python" if level("command") == "none" => {
-                Err("这个角色的「命令」权限是「不允许」，跑不了脚本节点。\
-                 在「Agent 角色」里改它的权限声明"
-                    .to_string())
-            }
             // ai.execute 两样都要：agent 会改文件，也会跑命令。
             // 这两支曾经不存在 —— 角色页写着「权限（引擎强制，Prompt 无法越权）」，
             // 而这个节点把一个自主 agent 放进工作目录时一项都不查
@@ -364,11 +377,6 @@ impl NodeExecutor {
             ),
             "ai.execute" if level("command") == "none" => {
                 Err("这个角色的「命令」权限是「不允许」，agent 跑不了验证命令。\
-                 在「Agent 角色」里改它的权限声明"
-                    .to_string())
-            }
-            "git.worktree" if level("file") != "read-write" => {
-                Err("这个角色的「文件」权限不是「可读写」，动不了工作目录。\
                  在「Agent 角色」里改它的权限声明"
                     .to_string())
             }

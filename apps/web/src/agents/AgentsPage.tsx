@@ -59,25 +59,40 @@ const RUNTIME_LABELS: Record<(typeof AGENT_RUNTIMES)[number], string> = {
  * 这句就没有下文：引擎确实会拦，而用户无处声明允许什么。
  */
 /**
- * `enforced: false` 的那几项**引擎目前不读**。
+ * 每一项**到底管到哪儿**，界面上直说。
  *
- * 上面那句「权限（引擎强制，Prompt 无法越权）」对 file 与 command 是真的
- * （`executor.rs` 的 `check_capability` 会拦），对 network 与 memory 不是 ——
- * 引擎源码里搜 `"network"` / `"memory"` 一个命中都没有。
+ * 引擎的 `check_capability` 从 `profile_for(node)` 取能力，
+ * 而它只认 config 里的 `agentProfileId` —— 只有四个 AI 节点有这个字段。
+ * 里面真正写了分支的又只有 `ai.execute`（file 与 command 各一条）。
  *
- * 照 `NodeConfigDialog.tsx:269` 那个写法在界面上直说，而不是让用户
- * 以为自己配了一道并不存在的防线。接上一项就把这里改成 true。
+ * 所以「引擎强制，Prompt 无法越权」这句无条件写就是假的：
+ * 脚本与 worktree 节点挂不上角色，用户把「命令」调成「不允许」，
+ * 它们照跑（它们真正的关卡是权限档 —— 最严档下逐项审批）。
+ * network 与 memory 则是引擎压根不读。
+ *
+ * 照 `NodeConfigDialog.tsx:269` 那个写法：说清楚，而不是让用户
+ * 以为自己配了一道并不存在的防线。接上一项就改这里的 note。
  */
 const CAPABILITY_FIELDS: {
   key: string;
   label: string;
   options: string[];
-  enforced: boolean;
+  note: string;
 }[] = [
-  { key: 'file', label: '文件', options: ['none', 'read', 'read-write'], enforced: true },
-  { key: 'command', label: '命令', options: ['none', 'declared', 'any'], enforced: true },
-  { key: 'network', label: '网络', options: ['none', 'allowlist', 'any'], enforced: false },
-  { key: 'memory', label: '记忆', options: ['none', 'read', 'read-write'], enforced: false },
+  {
+    key: 'file',
+    label: '文件',
+    options: ['none', 'read', 'read-write'],
+    note: '只在「AI 执行」节点上校验',
+  },
+  {
+    key: 'command',
+    label: '命令',
+    options: ['none', 'declared', 'any'],
+    note: '只在「AI 执行」节点上校验',
+  },
+  { key: 'network', label: '网络', options: ['none', 'allowlist', 'any'], note: '引擎暂不读它' },
+  { key: 'memory', label: '记忆', options: ['none', 'read', 'read-write'], note: '引擎暂不读它' },
 ];
 
 /** 取值的中文说法。存的是契约里那些英文 id。 */
@@ -513,9 +528,9 @@ export function AgentsPage() {
               <div className="models__card">
                 <p className="models__card-title">
                   <i className="ph ph-shield-check" aria-hidden="true" />
-                  权限（引擎强制，Prompt 无法越权）
+                  权限（AI 节点执行前校验，Prompt 无法越权）
                 </p>
-                <div className="agents__caps" role="group" aria-label="权限（引擎强制）">
+                <div className="agents__caps" role="group" aria-label="权限">
                   {CAPABILITY_FIELDS.map((field) => {
                     const current =
                       (draft.capabilities ?? selected.capabilities)[field.key] ?? 'none';
@@ -527,11 +542,13 @@ export function AgentsPage() {
                             用 aria-describedby 挂到控件上 —— 这句有信息量，
                             不该对读屏用户藏起来 */}
                         <label htmlFor={`cap-${field.key}`}>{field.label}</label>
-                        {field.enforced ? null : (
-                          <span id={`cap-${field.key}-note`} className="agents__cap-note">
-                            引擎暂不读它
-                          </span>
-                        )}
+                        <span
+                          id={`cap-${field.key}-note`}
+                          data-testid={`cap-note-${field.key}`}
+                          className="agents__cap-note"
+                        >
+                          {field.note}
+                        </span>
                         {selected.builtin ? (
                           // 内置角色只读：改它等于改掉系统某处调用的行为，
                           // 而那处调用别人也在用。复制一份是有意的一步
@@ -539,9 +556,7 @@ export function AgentsPage() {
                         ) : (
                           <select
                             id={`cap-${field.key}`}
-                            {...(field.enforced
-                              ? {}
-                              : { 'aria-describedby': `cap-${field.key}-note` })}
+                            aria-describedby={`cap-${field.key}-note`}
                             value={String(current)}
                             onChange={(event) =>
                               setDraft((prev) => ({
@@ -564,6 +579,13 @@ export function AgentsPage() {
                     );
                   })}
                 </div>
+                {/* 不写这句的话，用户会以为把「命令」调成「不允许」
+                    就管住了所有节点。脚本与 worktree 挂不上角色
+                    （契约里没有 agentProfileId 字段），它们照跑 */}
+                <p className="models__note">
+                  脚本与 worktree 节点挂不上角色，不看这里；它们由运行时的权限档管 ——
+                  最严那档会在执行前逐项等你审批。
+                </p>
               </div>
 
               <div className="models__card">
