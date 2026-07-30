@@ -5915,3 +5915,15 @@ fieldset.launch__field {
   line-height: 1.7;
   color: var(--color-neutral-500);
 }
+
+/* 「引擎暂不读它」——那句「权限（引擎强制）」对 network / memory 还不成立。
+   做得轻，但要看得见：用户配之前就该知道这一项现在不生效 */
+.agents__cap-note {
+  margin-left: 6px;
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--color-text) 8%, transparent);
+  color: var(--color-neutral-500);
+  font-size: 10.5px;
+  white-space: nowrap;
+}

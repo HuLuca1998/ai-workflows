@@ -2212,3 +2212,62 @@ mod 这一轮怎么结束的要算数 {
         );
     }
 }
+
+/// 「引擎强制，Prompt 无法越权」这句话得算数。
+///
+/// 角色页与节点配置页两处都写着它，并让用户逐项配 文件 / 命令 /
+/// 网络 / 记忆 / 凭据 五项。而引擎只读前两项，判据还是
+/// `== "none"` / `!= "read-write"` —— 于是：
+///
+/// - `command` 填 `declared`（「只能执行节点配置里显式列出的命令」）
+///   与填 `any` **行为完全一样**
+/// - 数据库里一个**拼错的值**等于放行，与「认不出的按最严处理」正相反
+///
+/// 后一条尤其要紧：能力声明是安全边界，而认不出的输入在安全判断里
+/// 只能往严了算。
+mod 能力枚举外的值按最严 {
+    #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+
+    use super::{node, workdir};
+    use aiwf_engine::executor::NodeExecutor;
+    use aiwf_engine::runner::NodeOutcome;
+
+    fn 跑一下(command: &str) -> Option<NodeOutcome> {
+        let caps = serde_json::json!({
+            "file": "read-write", "command": command,
+            "network": "none", "memory": "read", "secret": []
+        });
+        NodeExecutor::new(workdir())
+            .with_permission_preset("workspace_safe")
+            .with_capabilities(&caps)
+            .precheck(&node(
+                "s1",
+                "script.shell",
+                serde_json::json!({ "interpreter": "zsh", "script": "echo hi" }),
+            ))
+    }
+
+    #[test]
+    fn 拼错的能力值当成不允许() {
+        for 坏值 in ["随便写的", "", "ANY", "Declared"] {
+            let outcome = 跑一下(坏值);
+            assert!(
+                matches!(outcome, Some(NodeOutcome::Failed { .. })),
+                "command = {坏值:?} 被放行了 —— 一个拼错的值不该等于「任意命令」"
+            );
+        }
+    }
+
+    #[test]
+    fn 枚举里的值照常放行() {
+        assert!(跑一下("any").is_none(), "any 应当放行");
+        assert!(
+            跑一下("declared").is_none(),
+            "declared 也放行（比对清单是另一条账）"
+        );
+        assert!(
+            matches!(跑一下("none"), Some(NodeOutcome::Failed { .. })),
+            "none 应当拦下"
+        );
+    }
+}

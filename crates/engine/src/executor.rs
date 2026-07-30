@@ -326,9 +326,23 @@ impl NodeExecutor {
             (None, None) => return Ok(()),
         };
         let caps = &caps;
+        // 认不出的值一律当「不允许」。
+        //
+        // 能力声明是安全边界，而安全判断里认不出的输入只能往严了算 ——
+        // 原来是 `.unwrap_or("none")` 只兜住「字段缺席」，一个**拼错的值**
+        // （`"随便写的"`、大小写不对的 `"ANY"`）会原样穿过后面每一条
+        // `== "none"` 的比较，等于放行。CLAUDE.md 那句「认不出的档位
+        // 按最严处理」说的正是这件事
         let level = |key: &str| {
+            let 合法值: &[&str] = match key {
+                "file" | "memory" => &["none", "read", "read-write"],
+                "command" => &["none", "declared", "any"],
+                "network" => &["none", "allowlist", "any"],
+                _ => &[],
+            };
             caps.get(key)
                 .and_then(serde_json::Value::as_str)
+                .filter(|value| 合法值.contains(value))
                 .unwrap_or("none")
                 .to_string()
         };

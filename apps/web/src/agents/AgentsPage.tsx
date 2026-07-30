@@ -58,11 +58,26 @@ const RUNTIME_LABELS: Record<(typeof AGENT_RUNTIMES)[number], string> = {
  *「配好之后长什么样」。不给入口的话，「引擎强制，Prompt 无法越权」
  * 这句就没有下文：引擎确实会拦，而用户无处声明允许什么。
  */
-const CAPABILITY_FIELDS: { key: string; label: string; options: string[] }[] = [
-  { key: 'file', label: '文件', options: ['none', 'read', 'read-write'] },
-  { key: 'command', label: '命令', options: ['none', 'declared', 'any'] },
-  { key: 'network', label: '网络', options: ['none', 'allowlist', 'any'] },
-  { key: 'memory', label: '记忆', options: ['none', 'read', 'read-write'] },
+/**
+ * `enforced: false` 的那几项**引擎目前不读**。
+ *
+ * 上面那句「权限（引擎强制，Prompt 无法越权）」对 file 与 command 是真的
+ * （`executor.rs` 的 `check_capability` 会拦），对 network 与 memory 不是 ——
+ * 引擎源码里搜 `"network"` / `"memory"` 一个命中都没有。
+ *
+ * 照 `NodeConfigDialog.tsx:269` 那个写法在界面上直说，而不是让用户
+ * 以为自己配了一道并不存在的防线。接上一项就把这里改成 true。
+ */
+const CAPABILITY_FIELDS: {
+  key: string;
+  label: string;
+  options: string[];
+  enforced: boolean;
+}[] = [
+  { key: 'file', label: '文件', options: ['none', 'read', 'read-write'], enforced: true },
+  { key: 'command', label: '命令', options: ['none', 'declared', 'any'], enforced: true },
+  { key: 'network', label: '网络', options: ['none', 'allowlist', 'any'], enforced: false },
+  { key: 'memory', label: '记忆', options: ['none', 'read', 'read-write'], enforced: false },
 ];
 
 /** 取值的中文说法。存的是契约里那些英文 id。 */
@@ -506,7 +521,17 @@ export function AgentsPage() {
                       (draft.capabilities ?? selected.capabilities)[field.key] ?? 'none';
                     return (
                       <div key={field.key} className="agents__kv-row">
+                        {/* 提示放在 label **外面**：进去的话字段的可访问名
+                            会变成「网络引擎暂不读它」，读屏用户听到的是一句
+                            粘在一起的话（`launch__req` 那个星号踩过同一个坑）。
+                            用 aria-describedby 挂到控件上 —— 这句有信息量，
+                            不该对读屏用户藏起来 */}
                         <label htmlFor={`cap-${field.key}`}>{field.label}</label>
+                        {field.enforced ? null : (
+                          <span id={`cap-${field.key}-note`} className="agents__cap-note">
+                            引擎暂不读它
+                          </span>
+                        )}
                         {selected.builtin ? (
                           // 内置角色只读：改它等于改掉系统某处调用的行为，
                           // 而那处调用别人也在用。复制一份是有意的一步
@@ -514,6 +539,9 @@ export function AgentsPage() {
                         ) : (
                           <select
                             id={`cap-${field.key}`}
+                            {...(field.enforced
+                              ? {}
+                              : { 'aria-describedby': `cap-${field.key}-note` })}
                             value={String(current)}
                             onChange={(event) =>
                               setDraft((prev) => ({
