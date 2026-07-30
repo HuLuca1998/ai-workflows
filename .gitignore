@@ -37,6 +37,7 @@ artifacts/
 # 本地临时
 tmp/
 scratch/
+.worktrees/
 
 # Tauri 生成物（权限 schema 由 build script 产出）
 apps/desktop/src-tauri/gen/
