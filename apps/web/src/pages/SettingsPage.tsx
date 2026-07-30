@@ -1,5 +1,4 @@
-import { useState } from 'react';
-import { useLocation } from 'react-router';
+import { useLocation, useNavigate } from 'react-router';
 import { EnvHealth } from '../settings/EnvHealth.js';
 import { McpIntegration } from '../settings/McpIntegration.js';
 import { PermissionPolicy } from '../settings/PermissionPolicy.js';
@@ -52,9 +51,19 @@ export function SettingsPage() {
    * 认不出的值忽略：URL 是用户能手改的，不该让一个错字打出空白页。
    */
   const requested = new URLSearchParams(location.search).get('tab');
-  const [tab, setTab] = useState<string>(() =>
-    requested && TAB_KEYS.includes(requested) ? requested : 'env',
-  );
+  /*
+   * 档位就存在 URL 里，不另存一份 state。
+   *
+   * 此前是「进得来出不去」：深链能落到某一档，而用户在页面里切档时
+   * URL 一动不动 —— 刷新回到默认档、把地址发给别人打开的是另一屏、
+   * 浏览器后退键直接跳出整个设置页。
+   */
+  const tab = requested && TAB_KEYS.includes(requested) ? requested : 'env';
+  const navigate = useNavigate();
+  const setTab = (next: string) => {
+    // replace：切档不该在后退栈里堆十条记录，但**要**能被后退键撤销到进来时那一档
+    navigate(`/settings?tab=${next}`, { replace: true });
+  };
 
   return (
     <div className="settings-shell">
