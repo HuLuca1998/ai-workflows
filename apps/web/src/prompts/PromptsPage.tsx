@@ -64,7 +64,9 @@ const ON_MISSING_LABELS: Record<string, string> = {
 export function PromptsPage() {
   // 输入即搜（300ms 防抖），回车立刻搜 —— 与其余五个列表页同一套交互。
   // 搜索发给后端：前端过滤只能过滤已加载的那些
-  const search = useDebouncedSearch((next) => void load(next));
+  // 搜索必须回第一页：停在第 3 页时搜索，结果不足 100 条就是一片空白，
+  // 用户会以为「没有这条提示词」。另两页都显式写了 load(0, query)。
+  const search = useDebouncedSearch((next) => void load(0, next));
   const [items, setItems] = useState<Prompt[] | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [tab, setTab] = useState<Tab>('template');
@@ -84,11 +86,15 @@ export function PromptsPage() {
    */
   const [sections, setSections] = useState<Section[] | null>(null);
 
-  const load = async (search?: string, nextOffset = offset) => {
+  /**
+   * 参数顺序与另两页统一成 (offset, query)，query 默认取当前搜索框。
+   * 之前这一页是 (search, offset) —— 顺序相反，读代码时极易记反。
+   */
+  const load = async (nextOffset = offset, query: string | undefined = search.value) => {
     setOffset(nextOffset);
     try {
       const result = (await coreClient.call('prompt.list', {
-        ...(search ? { query: search } : {}),
+        ...(query ? { query } : {}),
         limit: LIST_PAGE_SIZE,
         offset: nextOffset,
       })) as { items: Prompt[]; total: number };
@@ -123,7 +129,7 @@ export function PromptsPage() {
       await coreClient.call('prompt.update', { id: selected.id, ver: selected.ver, sections });
       setSections(null);
       setError(null);
-      await load(search.value);
+      await load();
     } catch (err) {
       setError(describeError(err));
     }
@@ -147,7 +153,7 @@ export function PromptsPage() {
       setCreating(false);
       setSelectedId(result.id);
       setTab('template');
-      await load(search.value);
+      await load();
     } catch (err) {
       setError(describeError(err));
     }
@@ -160,7 +166,7 @@ export function PromptsPage() {
         id: selected.id,
         name: `${selected.name} 副本`,
       });
-      await load(search.value);
+      await load();
     } catch (err) {
       setError(describeError(err));
     }
@@ -172,7 +178,7 @@ export function PromptsPage() {
       await coreClient.call('prompt.delete', { id: selected.id });
       setSelectedId(null);
       setConfirmDelete(false);
-      await load(search.value);
+      await load();
     } catch (err) {
       setError(describeError(err));
     }
@@ -256,11 +262,12 @@ export function PromptsPage() {
           total={total}
           pageSize={LIST_PAGE_SIZE}
           offset={offset}
-          onChange={(next) => void load(search.value || undefined, next)}
+          onChange={(next) => void load(next)}
         />
 
         <p className="models__foot">
-          系统调用 AI 的每一处都在这里：节点、⌘K 协作、记忆提议、通知与失败归因。
+          这里收着系统调用 AI 的各处提示词：节点、⌘K 协作、记忆提议、通知与失败归因。
+          执行路径尚未接上 —— 运行时用的仍是引擎内建的那一份。
         </p>
       </aside>
 
@@ -292,7 +299,12 @@ export function PromptsPage() {
                 复制
               </button>
               {selected.builtin ? null : confirmDelete ? (
-                <button type="button" className="runs__action" onClick={() => void onDelete()}>
+                <button
+                  type="button"
+                  className="runs__action"
+                  data-danger="true"
+                  onClick={() => void onDelete()}
+                >
                   确认删除
                 </button>
               ) : (
@@ -325,18 +337,43 @@ export function PromptsPage() {
                   key={entry.key}
                   type="button"
                   role="tab"
+                  id={`prompts-tab-${entry.key}`}
                   aria-selected={tab === entry.key}
+                  aria-controls="prompts-panel"
+                  // roving tabindex：未选中的退出 Tab 序列，键盘用左右键切换
+                  tabIndex={tab === entry.key ? 0 : -1}
                   className="prompts__tab"
                   onClick={() => setTab(entry.key)}
+                  onKeyDown={(event) => {
+                    const delta =
+                      event.key === 'ArrowRight' ? 1 : event.key === 'ArrowLeft' ? -1 : 0;
+                    if (delta === 0) return;
+                    event.preventDefault();
+                    const keys = TABS.map((t) => t.key);
+                    const index = keys.indexOf(entry.key); // 从焦点所在的按钮出发，不是从当前选中项 ——
+                    // roving tabindex 下焦点与选中经常不在同一项
+                    const next = keys[(index + delta + keys.length) % keys.length];
+                    if (next) {
+                      setTab(next);
+                      document.getElementById(`prompts-tab-${next}`)?.focus();
+                    }
+                  }}
                 >
                   {entry.label}
                 </button>
               ))}
               <span className="runs__grow" />
-              <span className="prompts__hint">框架分段可见可改 · 保存后新运行生效</span>
+              <span className="prompts__hint">
+                框架分段可见可改 · 引擎目前不读提示词库，改了不会影响运行
+              </span>
             </div>
 
-            <div className="prompts__body" role="tabpanel">
+            <div
+              className="prompts__body"
+              id="prompts-panel"
+              role="tabpanel"
+              aria-labelledby={`prompts-tab-${tab}`}
+            >
               {tab === 'template' ? (
                 <TemplateTab
                   sections={sections ?? selected.sections}

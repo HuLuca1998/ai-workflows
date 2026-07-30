@@ -207,13 +207,17 @@ export function OverviewPage() {
       <section className="list" role="region" aria-label="全部工作流">
         <header className="list__head">
           <h2>全部工作流</h2>
-          <div className="chips" role="tablist" aria-label="状态筛选">
+          {/*
+            这一组切的是**后端查询条件**，不是视图 —— 底下是一张表，没有
+            对应的 tabpanel 可指。用 role=tab 的话读屏用户被告知「4 个标签页」，
+            按方向键期望切换面板，实际什么都不发生。toggle 组才是它的真语义。
+          */}
+          <div className="chips" role="group" aria-label="状态筛选">
             {FILTERS.map((f) => (
               <button
                 key={f}
                 type="button"
-                role="tab"
-                aria-selected={filter === f}
+                aria-pressed={filter === f}
                 className="chip"
                 onClick={() => {
                   setFilter(f);

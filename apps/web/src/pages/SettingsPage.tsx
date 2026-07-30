@@ -58,23 +58,59 @@ export function SettingsPage() {
 
   return (
     <div className="settings-shell">
-      <nav className="settings-nav" role="tablist" aria-label="设置分组">
+      <nav
+        className="settings-nav"
+        role="tablist"
+        aria-label="设置分组"
+        /*
+         * 必须声明纵向。ARIA 默认 horizontal —— 不声明的话读屏提示用左右键，
+         * 而这里只认上下键，按了没反应；未选中项又已被 roving tabindex 移出
+         * Tab 序列，再按 Tab 会直接离开整个 tablist，其余九项完全不可达。
+         */
+        aria-orientation="vertical"
+      >
         <p className="settings-nav__title">设置</p>
         {TABS.map((item) => (
           <button
             key={item.key}
             type="button"
             role="tab"
+            id={`settings-tab-${item.key}`}
             aria-selected={tab === item.key}
+            aria-controls="settings-panel"
+            /*
+             * roving tabindex：未选中的 tab 退出 Tab 序列。
+             * 不这么做的话键盘用户要按十次 Tab 才能穿过这条左栏到内容区，
+             * 而 ARIA 的约定是「一次 Tab 进入 tab 条，然后用方向键切换」。
+             */
+            tabIndex={tab === item.key ? 0 : -1}
             className="settings-nav__item"
             onClick={() => setTab(item.key)}
+            onKeyDown={(event) => {
+              const delta = event.key === 'ArrowDown' ? 1 : event.key === 'ArrowUp' ? -1 : 0;
+              if (delta === 0) return;
+              event.preventDefault();
+              const index = TAB_KEYS.indexOf(item.key); // 从焦点所在的按钮出发，不是从当前选中项 ——
+              // roving tabindex 下焦点与选中经常不在同一项
+              const next = TAB_KEYS[(index + delta + TAB_KEYS.length) % TAB_KEYS.length];
+              if (next) {
+                setTab(next);
+                document.getElementById(`settings-tab-${next}`)?.focus();
+              }
+            }}
           >
             {item.label}
           </button>
         ))}
       </nav>
 
-      <div className="settings" data-tab={tab}>
+      <div
+        className="settings"
+        data-tab={tab}
+        id="settings-panel"
+        role="tabpanel"
+        aria-labelledby={`settings-tab-${tab}`}
+      >
         {tab === 'setup' ? (
           <OnboardingPage />
         ) : tab === 'env' ? (

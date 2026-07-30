@@ -163,7 +163,8 @@ describe('列表与筛选', () => {
 
     // 加一个条件：这时的空列表是「筛选后没有」，不是「一条都没有」——
     // 两者混在一起的话，用户筛完看到「还没有工作流」会以为数据丢了
-    fireEvent.click(screen.getByRole('tab', { name: '运行中' }));
+    // 状态筛选是 toggle 组不是 tablist —— 它切的是后端查询条件，底下是一张表
+    fireEvent.click(screen.getByRole('button', { name: '运行中' }));
 
     expect(screen.getByText(/当前筛选下没有工作流/u)).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: '清除筛选' }));

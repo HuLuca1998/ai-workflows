@@ -130,6 +130,19 @@ export function SupervisorDrawer({
   onApply,
   onClose,
 }: SupervisorDrawerProps) {
+  const drawerRef = useRef<HTMLElement>(null);
+
+  /*
+   * 打开时把焦点接管进输入框。
+   *
+   * 不接管的话焦点仍留在身后的页面上：Tab 会一路穿过被遮罩挡住、
+   * 根本点不到的画布控件，键盘用户等于被困在一个看不见的图层里。
+   */
+  useEffect(() => {
+    if (!open) return;
+    drawerRef.current?.querySelector<HTMLTextAreaElement>('textarea')?.focus();
+  }, [open]);
+
   const [messages, setMessages] = useState<Message[]>([]);
   const [draft, setDraft] = useState('');
   const [busy, setBusy] = useState(false);
@@ -280,6 +293,15 @@ export function SupervisorDrawer({
         proposal?: { summary: string; operations: PatchOperation[] };
       };
 
+      /*
+       * 号码对不上就丢掉 —— 这句注释本来就写在上面，但守卫只写在了 catch 分支里。
+       *
+       * 成功分支没有它的后果：用户按了取消、界面已显示「已取消」，
+       * 几十秒后突然冒出一块「AI 提议的改动」和一个「应用到草稿」按钮 ——
+       * 那是他已经放弃的那一问的产物。
+       */
+      if (seq !== askSeq.current) return;
+
       if (result.sessionId) setSessionId(result.sessionId);
 
       setMessages((prev) => {
@@ -340,9 +362,46 @@ export function SupervisorDrawer({
     <div className="supervisor__backdrop" data-testid="supervisor-backdrop">
       <aside
         className="supervisor"
+        /*
+         * 是模态对话框，就要说出来：读屏用户需要听到「进入了一个对话框」，
+         * 否则他不知道自己已经离开了身后那一屏。
+         */
+        role="dialog"
+        aria-modal="true"
         aria-label="主管 AI"
+        ref={drawerRef}
         onKeyDown={(event) => {
-          if (event.key === 'Escape') onClose();
+          if (event.key === 'Escape') {
+            onClose();
+            return;
+          }
+          if (event.key !== 'Tab') return;
+
+          /*
+           * 焦点陷阱。
+           *
+           * 光声明 aria-modal="true" 是不够的 —— 实测抽屉打开时身后仍有
+           * 18 个元素能 Tab 到，而它们在视觉上被遮罩挡着、根本点不到。
+           * 「说是模态、行为不是」对键盘用户比没有模态更糟：他会以为自己
+           * 还在抽屉里，其实已经在操作身后那一屏了。
+           */
+          const focusable = drawerRef.current?.querySelectorAll<HTMLElement>(
+            'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])',
+          );
+          if (!focusable || focusable.length === 0) return;
+
+          const first = focusable[0];
+          const last = focusable[focusable.length - 1];
+          if (!first || !last) return;
+
+          // 到头了就绕回另一端，而不是走出对话框
+          if (event.shiftKey && document.activeElement === first) {
+            event.preventDefault();
+            last.focus();
+          } else if (!event.shiftKey && document.activeElement === last) {
+            event.preventDefault();
+            first.focus();
+          }
         }}
       >
         <header className="supervisor__head">

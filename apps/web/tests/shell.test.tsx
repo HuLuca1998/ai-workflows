@@ -89,29 +89,29 @@ describe('标题栏', () => {
 describe('主管 AI 抽屉', () => {
   it('默认关闭', () => {
     renderShell();
-    expect(screen.queryByRole('complementary', { name: '主管 AI' })).toBeNull();
+    expect(screen.queryByRole('dialog', { name: '主管 AI' })).toBeNull();
   });
 
   it('⌘K 打开，再按一次收起', () => {
     renderShell();
     fireEvent.keyDown(window, { key: 'k', metaKey: true });
-    expect(screen.getByRole('complementary', { name: '主管 AI' })).toBeInTheDocument();
+    expect(screen.getByRole('dialog', { name: '主管 AI' })).toBeInTheDocument();
 
     fireEvent.keyDown(window, { key: 'k', metaKey: true });
-    expect(screen.queryByRole('complementary', { name: '主管 AI' })).toBeNull();
+    expect(screen.queryByRole('dialog', { name: '主管 AI' })).toBeNull();
   });
 
   it('Esc 关闭抽屉', () => {
     renderShell();
     fireEvent.keyDown(window, { key: 'k', metaKey: true });
     fireEvent.keyDown(window, { key: 'Escape' });
-    expect(screen.queryByRole('complementary', { name: '主管 AI' })).toBeNull();
+    expect(screen.queryByRole('dialog', { name: '主管 AI' })).toBeNull();
   });
 
   it('抽屉底部常驻本次会话授予的 Scope——用户随时看得到 AI 能做什么', () => {
     renderShell();
     fireEvent.keyDown(window, { key: 'k', metaKey: true });
-    const drawer = screen.getByRole('complementary', { name: '主管 AI' });
+    const drawer = screen.getByRole('dialog', { name: '主管 AI' });
     expect(within(drawer).getByText(/workflow:read/u)).toBeInTheDocument();
     // 末尾那句说的是当下的实情，不是一句写死的话。
     // 读不到权限档时按最严的一档说 —— 与引擎那边一致

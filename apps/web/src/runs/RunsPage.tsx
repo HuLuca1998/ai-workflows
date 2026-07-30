@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react';
-import { LIST_PAGE_SIZE } from '@aiwf/contracts';
+import { type CSSProperties, useEffect, useState } from 'react';
+import { LIST_PAGE_SIZE, isRunResumable, isRunTerminal, type RunStatus } from '@aiwf/contracts';
 import { formatBytes } from '../data/format.js';
 import { useDebouncedSearch } from '../hooks/useDebouncedSearch.js';
 import { useSearchParams } from 'react-router';
@@ -51,6 +51,9 @@ export function RunsPage() {
   const resuming = useAsyncAction();
   const rewinding = useAsyncAction();
   const rerunning = useAsyncAction();
+  /* 取消运行不可撤销，且后端不幂等（连点两次就是两条命令）—— 要中间态 + 确认 */
+  const cancelling = useAsyncAction();
+  const [confirmCancel, setConfirmCancel] = useState(false);
   // tab 从 URL 读一次初值：审批横幅的「查看 Diff」带着 &tab=artifacts 过来，
   // 而在此之前这里是个纯 useState —— 那个参数一路没人读，
   // 用户点「查看 Diff」落到的是事件流
@@ -84,6 +87,9 @@ export function RunsPage() {
   const { active, past } = runs.grouped();
   const selected = runs.selected();
   const progress = runs.progress();
+  // 进度的分母用版本图里真实的节点数。之前写死「10 段刻度」，
+  // 于是 3 个节点跑完只填 30%、20 个节点跑到第 10 个就满格 —— 报的是错的完成度。
+  const nodeTotal = Object.keys(runs.nodeTypes).length;
 
   // 从编辑器点「运行」过来时带着 ?run=，直接展开那一次运行
   const requested = params.get('run');
@@ -211,11 +217,29 @@ export function RunsPage() {
           <span className="runs__label">节点进度</span>
           {selected ? (
             <>
-              <div className="runs__bar">
-                <div className="runs__bar-fill" style={{ width: barWidth(progress.done) }} />
-              </div>
+              {nodeTotal > 0 ? (
+                <div
+                  className="runs__bar"
+                  role="progressbar"
+                  aria-valuemin={0}
+                  aria-valuemax={nodeTotal}
+                  aria-valuenow={progress.done}
+                  aria-label="节点完成进度"
+                >
+                  <div
+                    className="runs__bar-fill"
+                    style={
+                      { '--progress': progressRatio(progress.done, nodeTotal) } as CSSProperties
+                    }
+                  />
+                </div>
+              ) : null}
               <p className="runs__nodes-meta">
-                <span>{progress.done} 个节点已完成</span>
+                <span>
+                  {nodeTotal > 0
+                    ? `${progress.done} / ${nodeTotal} 个节点已完成`
+                    : `${progress.done} 个节点已完成`}
+                </span>
               </p>
               {progress.current ? (
                 <p className="runs__nodes-cur">{nodeLabelOf(runs.events, progress.current)}</p>
@@ -263,13 +287,61 @@ export function RunsPage() {
                 <h4>{selected.workflowName}</h4>
                 <StatusBadge status={runStatus(selected.status)} />
                 <span className="runs__grow" />
+                {/*
+                 * 可恢复的运行（interrupted / paused）此前一个可点的按钮都没有：
+                 * 「取消运行」只对活跃态显示、「从失败节点重试」只长在失败横幅上，
+                 * 而契约导出的 isRunResumable 在整个前端零引用 ——
+                 * 用户杀掉 App 之后只能重新填一遍参数跑。
+                 */}
+                {isRunResumable(selected.status as RunStatus) ? (
+                  <button
+                    type="button"
+                    className="runs__action runs__action--primary"
+                    disabled={resuming.running}
+                    onClick={() => resuming.run(() => runs.resume(selected.id))}
+                  >
+                    {resuming.running ? '恢复中…' : '恢复运行'}
+                  </button>
+                ) : null}
+                {/*
+                 * 重跑与导出诊断包此前只长在失败横幅里 —— 一次「成功但结果不对」
+                 * 的运行想换参数再跑或把证据发给别人，界面上没有任何入口。
+                 */}
+                {isRunTerminal(selected.status as RunStatus) ? (
+                  <button
+                    type="button"
+                    className="runs__action"
+                    disabled={rerunning.running}
+                    onClick={() => rerunning.run(() => runs.rerun(selected.id))}
+                  >
+                    {rerunning.running ? '启动中…' : '用相同参数重跑'}
+                  </button>
+                ) : null}
+                <button
+                  type="button"
+                  className="runs__action"
+                  onClick={() => void exportDiagnostics(selected.id)}
+                >
+                  导出诊断包
+                </button>
                 {isActive(selected.status) ? (
                   <button
                     type="button"
                     className="runs__action"
-                    onClick={() => void runs.cancel(selected.id)}
+                    disabled={cancelling.running}
+                    onClick={() => {
+                      // 取消会杀掉一条正在跑的运行 —— 不可撤销，要确认。
+                      // 而且后端不幂等，连点两次就是两条命令。
+                      if (!confirmCancel) {
+                        setConfirmCancel(true);
+                        return;
+                      }
+                      setConfirmCancel(false);
+                      cancelling.run(() => runs.cancel(selected.id));
+                    }}
+                    data-danger={confirmCancel ? 'true' : undefined}
                   >
-                    取消运行
+                    {cancelling.running ? '取消中…' : confirmCancel ? '确认取消运行' : '取消运行'}
                   </button>
                 ) : null}
               </div>
@@ -339,23 +411,12 @@ export function RunsPage() {
                   >
                     回到最近审批点改选择
                   </button>
-                  {/* 重跑是一次**全新的运行**：原来那条留在记录里，
-                      两次的事件流可以对照着看，这正是可解释性要的 */}
-                  <button
-                    type="button"
-                    className="runs__action"
-                    disabled={rerunning.running}
-                    onClick={() => rerunning.run(() => runs.rerun(selected.id))}
-                  >
-                    用相同参数重跑
-                  </button>
-                  <button
-                    type="button"
-                    className="runs__action"
-                    onClick={() => void exportDiagnostics(selected.id)}
-                  >
-                    导出诊断包
-                  </button>
+                  {/*
+                   * 「用相同参数重跑」与「导出诊断包」已经提到详情头那一行 ——
+                   * 它们对任何一次运行都有意义（成功但结果不对同样想重跑、
+                   * 想把证据发给别人），不该只在失败时才出现。
+                   * 横幅里只留失败专属的两个：从失败节点重试、回到审批点。
+                   */}
                 </div>
                 {exportError ? (
                   <p className="runs__error" role="alert">
@@ -391,9 +452,27 @@ export function RunsPage() {
                   key={entry.key}
                   type="button"
                   role="tab"
+                  id={`runs-tab-${entry.key}`}
                   aria-selected={tab === entry.key}
+                  aria-controls="runs-panel"
+                  // roving tabindex：未选中的退出 Tab 序列，键盘用左右键切换
+                  tabIndex={tab === entry.key ? 0 : -1}
                   className="runs__tab"
                   onClick={() => setTab(entry.key)}
+                  onKeyDown={(event) => {
+                    const delta =
+                      event.key === 'ArrowRight' ? 1 : event.key === 'ArrowLeft' ? -1 : 0;
+                    if (delta === 0) return;
+                    event.preventDefault();
+                    const keys = TABS.map((t) => t.key);
+                    const index = keys.indexOf(entry.key); // 从焦点所在的按钮出发，不是从当前选中项 ——
+                    // roving tabindex 下焦点与选中经常不在同一项
+                    const next = keys[(index + delta + keys.length) % keys.length];
+                    if (next) {
+                      setTab(next);
+                      document.getElementById(`runs-tab-${next}`)?.focus();
+                    }
+                  }}
                 >
                   {entry.label}
                 </button>
@@ -402,7 +481,12 @@ export function RunsPage() {
               <span className="runs__evcount">{runs.events.length} 条事件</span>
             </div>
 
-            <div className="runs__detail-body">
+            <div
+              className="runs__detail-body"
+              id="runs-panel"
+              role="tabpanel"
+              aria-labelledby={`runs-tab-${tab}`}
+            >
               {tab === 'events' ? (
                 selectedNode ? (
                   // 选中一个节点时给它的**专属视图**：脚本看命令与退出码、
@@ -420,7 +504,11 @@ export function RunsPage() {
                     }}
                   />
                 ) : (
-                  <EventList events={runs.events} />
+                  <EventList
+                    events={runs.events}
+                    loading={runs.loading}
+                    truncated={runs.truncated}
+                  />
                 )
               ) : null}
               {tab === 'artifacts' ? (
@@ -484,10 +572,27 @@ function RunItem({
   );
 }
 
-function EventList({ events }: { events: readonly RunEvent[] }) {
+function EventList({
+  events,
+  loading,
+  truncated,
+}: {
+  events: readonly RunEvent[];
+  loading: boolean;
+  truncated: boolean;
+}) {
   return (
     <>
-      {events.length === 0 ? <p className="runs__empty">这次运行还没有事件。</p> : null}
+      {/*
+       * 「未加载」与「真的没有」必须分开说。
+       *
+       * select() 是先把 events 清成 [] 再去拉的，所以每点一条运行，
+       * 右栏都会先闪一句「这次运行还没有事件」——一个错误的结论；
+       * 后端慢一点这句话就停在屏幕上，用户会以为这条运行什么都没记。
+       */}
+      {events.length === 0 ? (
+        <p className="runs__empty">{loading ? '正在读取事件…' : '这次运行还没有事件。'}</p>
+      ) : null}
       <ul className="runs__events">
         {events.map((event) => (
           <li key={event.id} className="runs__event" data-kind={category(event.type)}>
@@ -505,6 +610,17 @@ function EventList({ events }: { events: readonly RunEvent[] }) {
           </li>
         ))}
       </ul>
+      {/*
+       * store 里 truncated 存了、也测了，但界面从来没读过它 ——
+       * 而 store 自己的注释写着「静默截断会让用户以为那就是全部」。
+       * 超过上限的运行，用户看到的是被截断的一半，缺的恰好是「它最后怎么结束的」。
+       */}
+      {truncated ? (
+        <p className="runs__error" role="status">
+          <i className="ph ph-warning" aria-hidden="true" />
+          事件太多，只显示了最近的一部分。完整记录请用「导出诊断包」。
+        </p>
+      ) : null}
       <p className="runs__redact">
         <i className="ph ph-shield-check" aria-hidden="true" />
         Secret 值在写入事件存储前已脱敏，界面不提供绕过查看
@@ -824,14 +940,15 @@ function failureDetail(events: readonly RunEvent[], nodeId: string): string {
   return failure?.summary ?? '';
 }
 
-const ACTIVE = new Set(['created', 'queued', 'running', 'waiting_approval']);
+/** 活跃 = 非终态，从契约派生（见 runsStore 里同名注释）。 */
 function isActive(status: string): boolean {
-  return ACTIVE.has(status);
+  return !isRunTerminal(status as RunStatus);
 }
 
-/** 图纸里进度条按完成节点数填充；总数要等图加载后才知道，先按 10 段刻度。 */
-function barWidth(done: number): string {
-  return `${Math.min(100, done * 10)}%`;
+/** 0–1 的比例，喂给 CSS 的 scaleX；分母取不到时调用方不渲染进度条。 */
+function progressRatio(done: number, total: number): number {
+  if (total <= 0) return 0;
+  return Math.min(1, done / total);
 }
 
 function nodeIcon(state: NodeState): string {

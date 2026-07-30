@@ -268,7 +268,8 @@ describe('筛选与搜索交给后端', () => {
     view();
     await row('GitHub Issue 修复');
 
-    await user.click(screen.getByRole('tab', { name: '失败' }));
+    // 同上：状态筛选是 toggle 组，用 aria-pressed 表达选中
+    await user.click(screen.getByRole('button', { name: '失败' }));
     expect(setFilter).toHaveBeenCalledWith('failed', '');
   });
 

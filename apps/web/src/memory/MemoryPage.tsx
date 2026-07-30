@@ -164,6 +164,9 @@ export function MemoryPage() {
             key={entry.label}
             type="button"
             className="runs__chip"
+            // 选中态不能只靠颜色（§7）：读屏用户听到六个平级按钮时，
+            // 无从得知当前筛的是哪个作用域
+            aria-pressed={scope === entry.key}
             data-active={scope === entry.key ? 'true' : undefined}
             onClick={() => {
               setScope(entry.key);
@@ -244,8 +247,16 @@ export function MemoryPage() {
                   <span className="memory__scope-tag">
                     {SCOPE_LABELS[item.scope] ?? item.scope}
                   </span>
+                  {/*
+                   * §2.3 点名成功色的出现位置里就有「记忆已启用」。
+                   * 之前「正在生效」是靠**什么都不渲染**表达的，而「已停用」
+                   * 反被红色高亮 —— 注意力被引向了不生效的那些。
+                   */}
+                  {item.enabled && !isExpired(item) ? (
+                    <span className="memory__on">已启用</span>
+                  ) : null}
                   {item.enabled ? null : <span className="memory__off">已停用</span>}
-                  {isExpired(item) ? <span className="memory__off">已过期</span> : null}
+                  {isExpired(item) ? <span className="memory__expired">已过期</span> : null}
                 </p>
               </div>
               <div>
