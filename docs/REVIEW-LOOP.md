@@ -105,6 +105,99 @@
 
 ---
 
+## 〇之二、第 2 轮探索新发现
+
+两个 agent 分头查了「死代码」与「重复逻辑 / 重复存储」，每条都跑命令核过。
+
+### Y-1 · 脱敏器只认默认正则，具体密钥从来没注册过 ← 安全，且削弱刚做的修复
+
+`Redactor::add_secret_value` / `add_pattern` / `contains_secret` 生产零调用点：
+每个构造点都是 `with_defaults()` 然后直接 `.redact()`。
+模块文档写的是两条路子并用 —— 「形态规则」加「已知明文（运行时注入过哪些
+Secret 就把那些字面量也挡掉，**密码没有固定形态**）」，而第二条一次都没接。
+
+后果：模型 `credential_ref`、MCP 的 token、env 里的密钥值，凡是不长成
+`ghp_` / `sk-` / `Bearer` 那几种样子的，照样进事件摘要与诊断包。
+刚补的「落库前脱敏」挡的只是有固定形态的那一半。
+
+**验收**：运行开始时把这次会用到的 Secret 字面量注册进脱敏器；
+一条测试用自定义形态的密钥（比如一串纯随机字母）验证它被挡住。
+
+### Y-2 · 全文索引是创建时的冻结副本，还留孤儿
+
+`index_text` 是 **INSERT-only**，没有 upsert 也没有先删后插：
+
+- `rename_workflow` 改完名字再 `index_text` 一次 → 同一个 `ref_id` **两行**，
+  旧名字永远搜得到
+- `update_memory` / `update_prompt` 改了正文**从不重建索引** —— 索引永远是创建时的文本
+- 删除触发器只覆盖 `workflow` / `run_event` / `artifact`，
+  而 `memory` 与 `prompt` 也进索引却没有触发器 → 删掉之后留孤儿行。
+  DDL 注释写着「删除交给触发器，保证级联删除不留孤儿索引行」，对这两类是假的
+
+眼下影响有限（`Store::search` 没有对外出口），但 `runner_test` 拿它当
+「密钥没进索引」的断言 —— 一个悄悄停止跟踪更新的索引会让那条断言变弱。
+
+**验收**：改名/改正文后重建索引，删除后清掉；一条测试改完再搜，搜不到旧值。
+
+### Y-3 · 节点的副作用与能力声明，契约里有一份、executor 里又硬编码一份
+
+`node-catalog.json` 声明了每种节点的 `externalWrite` 与 `defaultCapabilities`，
+`catalog.rs` 也解析进了结构体 —— **两个字段全仓零读取**。
+executor 自己维护 `SIDE_EFFECT_NODES` 与 `check_capability` 的 match。
+
+X-7 已经把那份硬编码修对了，但**成因还在**：两份东西没有任何守卫连着，
+下次加节点类型照样会漂。注意两者语义不同（`externalWrite` 是「对外部世界写」，
+而「要不要审批」更宽，本地写文件也算），所以不是简单替换。
+
+**验收**：`check_capability` 由 `defaultCapabilities` 驱动；
+挂起名单与契约之间加一条守卫（不只是子集检查，要能发现「契约说有副作用而名单里没有」）。
+
+### Y-4 · 状态机转移表有三份，守卫只比状态名不比边
+
+Rust `status.rs` 一份、TS `state-machine.ts` 一份，**两份都没有生产调用点**；
+真正在运行时生效的是第三份 —— 写死在 SQL 里的
+`WHERE status NOT IN ('succeeded','failed','cancelled')`（`store/lib.rs:2229`）
+以及 `runner.rs` 里两处 `matches!`。
+
+`contract_sync_test` 只比对状态名集合，边一条都没比。
+而且终态判断两边算法不同：Rust 硬编码集合，TS 由「出边为空」推导 ——
+在 TS 加一条出边就会让两边对「终态」的理解分叉，而守卫仍然绿。
+
+**验收**：把转移边导出进 `contracts.meta.json` 并加进 `contract_sync_test`；
+运行时那三处改成调用同一份判断。
+
+### Y-5 · 权限档 → 授权 scope 的决策，界面与 MCP 门各写一份且已经漂了
+
+`SupervisorDrawer.tsx` 的注释自己点名了双胞胎：「与 `catalog.rs` 的 `gate_for`
+是同一套规则 —— 那边是真的拦截，这边只是把它说出来」。
+而 Rust 那边多一个 `!tool.destructive` 条件，界面完全没建模：
+`workspace_safe` 下抽屉显示 `workflow:write-draft` 已授权，
+而一个 destructive 的写草稿工具仍然会被拦成 NeedsConfirm。
+
+抽屉承诺了一个引擎会拒绝的权限 —— 它自己的注释把这种情况叫「比不显示更糟」。
+
+**验收**：授权说明由同一份规则派生；一条测试断言两边对同一档位给出同一组 scope。
+
+### Y-6 · 一批确认过的死代码
+
+零生产调用点、只有测试在用（每条都跑过 `rg` 确认）：
+
+- `store` 的六个非分页 `list_*`（约 98 行，与 `_paged` 版本重复，会各自漂移）
+- `Store::search` + `SearchHit` + 整套 FTS5 —— 没有任何 IPC / MCP / 契约出口，
+  而 `fts_index` 的触发器在每次写入时都在维护（成本最高的一条）
+- `upsert_memory`（37 行）—— **agent 记忆写回「同 key 原地更新」的语义生产里不存在**
+- `artifacts::preview` + `Preview`（34 行，与 `ArtifactStore::read` 重复）
+- `@aiwf/ui` 的 `Card` / `Dialog` / `Table`（组件 150 行 + stories 164 行），
+  零应用消费者 —— `NodeConfigDialog` 自己手写了一个弹层，`ModelsPage` 自己定义了 `Field`
+- `capability_flags` / `known_runtimes` / `Client::from_runtime` / `ApiError::with_hint` /
+  `with_artifact_root` —— 连测试都不引用
+- `run.env_snapshot_json` 字段从不写也从不读；真的快照在 `run_checkpoint.env_json`，
+  而 `ipc-mapping.ts` 硬编码 `envSnapshot: {}` 去满足契约。**一个概念三种表示，两种永远是空的**
+
+**验收**：删（连同它们的测试），或者接上。删之前确认不是「马上要用」的。
+
+---
+
 ## 一、ACP 与 Agent 架构
 
 ### A-1 · 主管 AI 每问一句就新建一个 ACP 会话
