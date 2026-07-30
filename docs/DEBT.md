@@ -466,9 +466,15 @@ rg -c 'tools/call' crates/mcp/tests/http_test.rs   # 6
 「两个窗口」「MCP 与界面同时发」——那些同样是真实路径。真正的解法在后端：
 写操作收一个幂等键，重复的直接返回上一次的结果。
 
-**还清的判据**：`run.start` / `run.cancel` / `approval.decide` /
-`run.diagnostics` 收 `idempotencyKey`，重复请求返回同一结果；
-配一条「同一个键发两次只产生一条运行」的测试。
+**还清的判据**（光让接口收一个 key 不算数 —— 两个窗口各自生成不同的 key，
+后端照样执行两次）：
+
+1. `run.start` / `run.cancel` / `approval.decide` / `run.diagnostics`
+   都收 `idempotencyKey`
+2. **定义同一个「逻辑意图」如何复用同一个 key**：比如「取消运行 R」的 key
+   由 `(操作, runId, 用户所见的运行状态版本)` 派生，而不是每次调用现生成一个
+3. 定义 key 相同但 payload 不同时的行为（拒绝，而不是静默返回上一次的结果）
+4. 每个操作各配一条并发测试，不只是 `run.start`
 
 ---
 

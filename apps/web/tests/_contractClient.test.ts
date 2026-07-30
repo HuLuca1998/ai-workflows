@@ -113,6 +113,27 @@ describe('契约替身', () => {
       VIOLATIONS.length = before;
     });
 
+    it('返回的是解析后的值：夹具多写的键会被剥掉', async () => {
+      // 组件拿到的必须与真实 CoreApiClient 给的一模一样 ——
+      // 夹具多写一个键的话，照着它写的界面判断在真实数据上不成立
+      const 多写了 = createContractCall({
+        'agent.create': () => ({ id: 'agent_new', 后端不会给这个: true }),
+      });
+      await expect(多写了('agent.create', 合法入参)).resolves.toEqual({ id: 'agent_new' });
+    });
+
+    it('返回的是解析后的值：契约的默认值会被补齐', async () => {
+      // 反方向：夹具漏写带默认值的字段时，组件要拿到真实 client 会填的那个默认值
+      const 漏写了 = createContractCall({
+        'supervisor.ask': () => ({ text: '好的' }),
+      });
+      await expect(漏写了('supervisor.ask', { question: '问一句' })).resolves.toMatchObject({
+        text: '好的',
+        toolCalls: 0,
+        historySaved: true,
+      });
+    });
+
     it('合法的出参照常放行', async () => {
       const before = VIOLATIONS.length;
       await expect(建一个()('agent.create', 合法入参)).resolves.toEqual({ id: 'agent_new' });

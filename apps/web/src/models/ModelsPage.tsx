@@ -52,7 +52,11 @@ export function ModelsPage() {
    * 只存一个布尔时它会跟着跑：测 A 的过程中切到 B，B 的按钮显示
    * 「测试中…」并且点不动，而那个请求根本不是对它发的。
    */
-  const [testingId, setTestingId] = useState<string | null>(null);
+  /*
+   * 存的是**集合**而不是单个 id：允许同时测多个模型，那时单槽会互相覆盖 ——
+   * A 先结束会把槽清成 null，于是 B 还在请求中按钮却恢复可点，能再发一次。
+   */
+  const [testingIds, setTestingIds] = useState<readonly string[]>([]);
   /*
    * 结果里带着**是哪个模型**的 id。此前是一个页面级的匿名结果，
    * 在 A 上测出「连不上」再切到 B，那句红字就挂在 B 的详情里了。
@@ -102,7 +106,8 @@ export function ModelsPage() {
    */
   const runTest = async () => {
     if (!selectedId) return;
-    setTestingId(selectedId);
+    if (testingIds.includes(selectedId)) return;
+    setTestingIds((current) => [...current, selectedId]);
     setTestResult(null);
     setTestError(null);
     try {
@@ -117,7 +122,7 @@ export function ModelsPage() {
       // 错误也绑 id：不绑的话 A 的「连不上」会显示在 B 的详情下
       setTestError({ id: selectedId, message: err instanceof Error ? err.message : String(err) });
     } finally {
-      setTestingId(null);
+      setTestingIds((current) => current.filter((id) => id !== selectedId));
     }
   };
 
@@ -283,10 +288,10 @@ export function ModelsPage() {
               <button
                 type="button"
                 className="runs__action"
-                disabled={testingId === selected.id}
+                disabled={testingIds.includes(selected.id)}
                 onClick={() => void runTest()}
               >
-                {testingId === selected.id ? '测试中…' : '测试连通性'}
+                {testingIds.includes(selected.id) ? '测试中…' : '测试连通性'}
               </button>
               <button type="button" className="runs__action" onClick={() => void onToggle()}>
                 {selected.enabled ? '停用' : '启用'}
@@ -301,6 +306,12 @@ export function ModelsPage() {
                   <button
                     type="button"
                     className="runs__action"
+                    /*
+                     * 「删除」这个 DOM 节点被换掉时焦点会掉回 body ——
+                     * 键盘用户按 Enter 触发确认态之后，下一次 Tab 从整页
+                     * 开头重新走。把焦点接过来。
+                     */
+                    ref={(el) => el?.focus()}
                     onClick={() => setConfirmDelete(false)}
                   >
                     取消

@@ -32,7 +32,7 @@ const context = { workflowId: 'wf_1', draftRev: 19, runId: 'run_abcdef123' };
 
 function askedContext() {
   const ask = call.mock.calls.find(([m]) => m === 'supervisor.ask');
-  return (ask?.[1] as { context: Record<string, unknown> }).context;
+  return (ask?.[1] as { context: Record<string, unknown> } | undefined)?.context;
 }
 
 async function send(user: ReturnType<typeof userEvent.setup>) {

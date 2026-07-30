@@ -106,7 +106,14 @@ describe('确认删除的焦点', () => {
 
     await user.click(screen.getByRole('button', { name: '删除' }));
     await waitFor(() => {
-      expect(document.activeElement?.textContent).toContain('取消');
+      /*
+       * 必须比对元素本身。
+       *
+       * 原来这里断言的是 `document.activeElement?.textContent` 含「取消」——
+       * 焦点掉回 body 时 body 的全文同样含「取消」，于是这条测试
+       * 无论修没修都是绿的。（codex 复核指出的假阳性。）
+       */
+      expect(document.activeElement).toBe(screen.getByRole('button', { name: '取消' }));
     });
   });
 });

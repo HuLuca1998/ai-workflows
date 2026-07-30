@@ -309,6 +309,12 @@ export function PromptsPage() {
                   <button
                     type="button"
                     className="runs__action"
+                    /*
+                     * 「删除」这个 DOM 节点被换掉时焦点会掉回 body ——
+                     * 键盘用户按 Enter 触发确认态之后，下一次 Tab 从整页
+                     * 开头重新走。把焦点接过来。
+                     */
+                    ref={(el) => el?.focus()}
                     onClick={() => setConfirmDelete(false)}
                   >
                     取消

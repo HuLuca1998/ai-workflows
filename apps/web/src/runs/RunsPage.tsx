@@ -327,10 +327,10 @@ export function RunsPage() {
                   <button
                     type="button"
                     className="runs__action runs__action--primary"
-                    disabled={resuming.running && resuming.target === selected.id}
+                    disabled={resuming.isRunning(selected.id)}
                     onClick={() => resuming.run(() => runs.resume(selected.id), selected.id)}
                   >
-                    {resuming.running && resuming.target === selected.id ? '恢复中…' : '恢复运行'}
+                    {resuming.isRunning(selected.id) ? '恢复中…' : '恢复运行'}
                   </button>
                 ) : null}
                 {/*
@@ -341,27 +341,25 @@ export function RunsPage() {
                   <button
                     type="button"
                     className="runs__action"
-                    disabled={rerunning.running && rerunning.target === selected.id}
+                    disabled={rerunning.isRunning(selected.id)}
                     onClick={() => rerunning.run(() => runs.rerun(selected.id), selected.id)}
                   >
-                    {rerunning.running && rerunning.target === selected.id
-                      ? '启动中…'
-                      : '用相同参数重跑'}
+                    {rerunning.isRunning(selected.id) ? '启动中…' : '用相同参数重跑'}
                   </button>
                 ) : null}
                 <button
                   type="button"
                   className="runs__action"
-                  disabled={exporting.running && exporting.target === selected.id}
+                  disabled={exporting.isRunning(selected.id)}
                   onClick={() => exporting.run(() => exportDiagnostics(selected.id), selected.id)}
                 >
-                  {exporting.running && exporting.target === selected.id ? '导出中…' : '导出诊断包'}
+                  {exporting.isRunning(selected.id) ? '导出中…' : '导出诊断包'}
                 </button>
                 {isActive(selected.status) ? (
                   <button
                     type="button"
                     className="runs__action"
-                    disabled={cancelling.running && cancelling.target === selected.id}
+                    disabled={cancelling.isRunning(selected.id)}
                     onClick={() => {
                       // 取消会杀掉一条正在跑的运行 —— 不可撤销，要确认。
                       // 而且后端不幂等，连点两次就是两条命令。
@@ -374,7 +372,7 @@ export function RunsPage() {
                     }}
                     data-danger={confirmCancel === selected.id ? 'true' : undefined}
                   >
-                    {cancelling.running && cancelling.target === selected.id
+                    {cancelling.isRunning(selected.id)
                       ? '取消中…'
                       : confirmCancel === selected.id
                         ? '确认取消运行'
@@ -438,7 +436,7 @@ export function RunsPage() {
                   <button
                     type="button"
                     className="runs__action runs__action--primary"
-                    disabled={resuming.running && resuming.target === selected.id}
+                    disabled={resuming.isRunning(selected.id)}
                     onClick={() => resuming.run(() => runs.resume(selected.id), selected.id)}
                   >
                     <i className="ph ph-arrow-counter-clockwise" aria-hidden="true" />
@@ -449,7 +447,7 @@ export function RunsPage() {
                   <button
                     type="button"
                     className="runs__action"
-                    disabled={rewinding.running && rewinding.target === selected.id}
+                    disabled={rewinding.isRunning(selected.id)}
                     onClick={() =>
                       rewinding.run(() => runs.rewindToApproval(selected.id), selected.id)
                     }

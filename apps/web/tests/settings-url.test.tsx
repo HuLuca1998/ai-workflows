@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { MemoryRouter, Route, Routes, useLocation } from 'react-router';
+import { MemoryRouter, Route, Routes, useLocation, useNavigate } from 'react-router';
 import { SettingsPage } from '../src/pages/SettingsPage.js';
 
 vi.mock('../src/data/workspace.js', () => ({
@@ -16,7 +16,16 @@ vi.mock('../src/data/workspace.js', () => ({
 
 function Probe() {
   const location = useLocation();
-  return <span data-testid="url">{location.search}</span>;
+  const navigate = useNavigate();
+  return (
+    <>
+      <span data-testid="url">{location.search}</span>
+      {/* MemoryRouter 有自己的内存历史，不响应 window.history.back() */}
+      <button type="button" onClick={() => navigate(-1)}>
+        后退
+      </button>
+    </>
+  );
 }
 
 function view(initial = '/settings') {
@@ -45,14 +54,22 @@ describe('设置页的档位与 URL', () => {
     expect(screen.getByRole('tab', { name: '系统版本' })).toHaveAttribute('aria-selected', 'true');
   });
 
-  it('URL 里的档位变了，界面跟着变 —— 后退键要有用', async () => {
+  /*
+   * 这条原来只是又点了一次 tab 然后断言它被选中 —— 根本没按后退，
+   * 无论 replace 还是 push 都会绿。（codex 复核指出的假阳性。）
+   */
+  it('后退回到上一档，而不是跳出整个设置页', async () => {
     const user = userEvent.setup();
-    view();
-    await user.click(screen.getByRole('tab', { name: '系统版本' }));
+    view('/settings?tab=version');
+    await user.click(screen.getByRole('tab', { name: '通用' }));
     await waitFor(() => {
-      expect(screen.getByRole('tab', { name: '系统版本' })).toHaveAttribute(
-        'aria-selected',
-        'true',
+      expect(screen.getByTestId('url').textContent).toContain('tab=general');
+    });
+
+    await user.click(screen.getByRole('button', { name: '后退' }));
+    await waitFor(() => {
+      expect(screen.getByTestId('url').textContent, '后退直接离开了设置页').toContain(
+        'tab=version',
       );
     });
   });

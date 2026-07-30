@@ -76,10 +76,12 @@ export function McpConfirmCard() {
    * 读屏用户完全不知道它出现了 —— 一个不打断的 alertdialog 是在说假话。
    * 焦点给「拒绝」而不是「批准」：默认动作应该是不批准。
    */
+  const pendingId = pending?.id ?? null;
   useEffect(() => {
-    if (!pending) return;
+    if (!pendingId) return;
     cardRef.current?.querySelector<HTMLButtonElement>('button')?.focus();
-  }, [pending?.id]);
+    // 只跟 id 走：同一条待确认重渲染时不该把焦点从用户手上抢回来
+  }, [pendingId]);
 
   if (!pending) return null;
 

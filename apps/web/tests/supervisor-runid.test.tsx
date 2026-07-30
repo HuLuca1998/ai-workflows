@@ -55,7 +55,9 @@ describe('主管 AI 的运行上下文', () => {
 
     await waitFor(() => {
       const ask = call.mock.calls.find(([m]) => m === 'supervisor.ask');
-      expect((ask?.[1] as { context: { runId?: string } }).context.runId).toBe('run_abcdef123');
+      expect((ask?.[1] as { context: { runId?: string } } | undefined)?.context.runId).toBe(
+        'run_abcdef123',
+      );
     });
   });
 });

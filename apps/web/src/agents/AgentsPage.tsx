@@ -126,6 +126,9 @@ const NEW_AGENT_CAPABILITIES = {
   secret: [],
 } as const;
 
+/** 「离开当前这一条」要去哪。用判别联合，不用字符串哨兵。 */
+type GoTarget = { kind: 'new' } | { kind: 'agent'; id: string };
+
 export function AgentsPage() {
   const [items, setItems] = useState<Agent[] | null>(null);
   const [models, setModels] = useState<ModelOption[] | null>(null);
@@ -155,7 +158,13 @@ export function AgentsPage() {
    * 两份各写各的迟早会不一致 —— 那时按钮说「没有改动可保存」而守卫
    * 还在拦人，用户被卡在中间。
    */
-  const [pendingSelect, setPendingSelect] = useState<string | 'new' | null>(null);
+  /*
+   * 判别联合而不是 `string | 'new'` —— 后者在 TypeScript 里就是 string，
+   * 而契约允许任意非空 Agent id：真有一条 id 叫 `new` 的角色时，
+   * 点它会跳进新建表单。当前 Rust 存储生成 `agent_*`，撞不上，
+   * 但这种「靠数据碰巧不冲突」的约定迟早会被另一个后端打破。
+   */
+  const [pendingSelect, setPendingSelect] = useState<GoTarget | null>(null);
 
   /**
    * query 默认取当前搜索框的内容。
@@ -227,19 +236,19 @@ export function AgentsPage() {
    * 「新建」也要走这道守卫 —— 它同样会把详情区换掉。第一版只拦了列表里的
    * 切换，于是改了名字没保存、点右上角的「+」，改动照样没了。
    */
-  const goTo = (target: string | 'new') => {
-    if (hasUnsaved && target !== selectedId) {
+  const goTo = (target: GoTarget) => {
+    if (hasUnsaved && (target.kind === 'new' || target.id !== selectedId)) {
       setPendingSelect(target);
       return;
     }
     setConfirmDelete(false);
     setDraft({});
-    if (target === 'new') {
+    if (target.kind === 'new') {
       setCreating(true);
       setSelectedId(null);
       return;
     }
-    setSelectedId(target);
+    setSelectedId(target.id);
     setCreating(false);
   };
 
@@ -356,7 +365,7 @@ export function AgentsPage() {
             type="button"
             className="models__add"
             aria-label="新建角色"
-            onClick={() => goTo('new')}
+            onClick={() => goTo({ kind: 'new' })}
           >
             <i className="ph ph-plus" aria-hidden="true" />
           </button>
@@ -391,7 +400,7 @@ export function AgentsPage() {
               type="button"
               className="agents__item"
               data-selected={agent.id === selectedId ? 'true' : undefined}
-              onClick={() => goTo(agent.id)}
+              onClick={() => goTo({ kind: 'agent', id: agent.id })}
             >
               <i className="ph ph-robot" aria-hidden="true" />
               <span className="agents__item-main">
@@ -451,13 +460,13 @@ export function AgentsPage() {
                     setPendingSelect(null);
                     setDraft({});
                     setConfirmDelete(false);
-                    if (target === 'new') {
+                    if (!target || target.kind === 'new') {
                       setCreating(true);
                       setSelectedId(null);
                       return;
                     }
                     setCreating(false);
-                    setSelectedId(target);
+                    setSelectedId(target.id);
                   }}
                 >
                   放弃改动并切换
@@ -513,6 +522,12 @@ export function AgentsPage() {
                   <button
                     type="button"
                     className="runs__action"
+                    /*
+                     * 「删除」这个 DOM 节点被换掉时焦点会掉回 body ——
+                     * 键盘用户按 Enter 触发确认态之后，下一次 Tab 从整页
+                     * 开头重新走。把焦点接过来。
+                     */
+                    ref={(el) => el?.focus()}
                     onClick={() => setConfirmDelete(false)}
                   >
                     取消

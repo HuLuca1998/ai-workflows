@@ -128,6 +128,23 @@ describe('取消运行的中间态', () => {
       const button = screen.getByRole('button', { name: /取消运行/u });
       expect(button, 'run_1 的「取消中…」显示在了 run_2 的按钮上').toBeEnabled();
     });
+
+    /*
+     * 光「看着能点」不够 —— 点下去必须真的发出去。
+     *
+     * 只把显示按 target 解耦、锁还是一个布尔的话，B 的按钮是亮的，
+     * 而 run() 会因为 A 的请求还在飞而静默丢弃这一次点击：
+     * 用户点了、按钮闪了一下、什么都没发生，这比按钮灰着更糟。
+     */
+    await user.click(screen.getByRole('button', { name: '取消运行' }));
+    await user.click(screen.getByRole('button', { name: /确认取消运行/u }));
+    await waitFor(() => {
+      const cancels = call.mock.calls.filter(([m]) => m === 'run.cancel');
+      expect(cancels.map(([, input]) => (input as { runId: string }).runId)).toEqual([
+        'run_1',
+        'run_2',
+      ]);
+    });
     (release as (() => void) | null)?.();
   });
 });

@@ -61,8 +61,15 @@ export function SettingsPage() {
   const tab = requested && TAB_KEYS.includes(requested) ? requested : 'env';
   const navigate = useNavigate();
   const setTab = (next: string) => {
-    // replace：切档不该在后退栈里堆十条记录，但**要**能被后退键撤销到进来时那一档
-    navigate(`/settings?tab=${next}`, { replace: true });
+    /*
+     * push 而不是 replace。
+     *
+     * replace 会覆盖当前这条历史记录：从 `?tab=version` 切到 env 之后按后退，
+     * 直接离开整个设置页 —— 而用户按后退想要的是「回到刚才那一档」。
+     * 代价是切十次档要按十次后退才出去，这是标准 tab 行为的取舍，
+     * 比「后退键把人弹出去」好。
+     */
+    navigate(`/settings?tab=${next}`);
   };
 
   return (
