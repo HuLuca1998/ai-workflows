@@ -3998,8 +3998,17 @@ fieldset.launch__field {
   font-size: 12.5px;
 }
 
+/*
+ * 一个字段一行：label + 说明 + 下拉横排。
+ *
+ * 原来是 `display: contents` —— 它把这一层从盒模型里抹掉，三个子元素
+ * 直接成为 `.agents__caps`（column flex）的布局子项，于是 4 个字段
+ * 摊成 12 个竖排的行，而同一段代码的注释说的是「每行一个下拉」。
+ */
 .agents__kv-row {
-  display: contents;
+  display: flex;
+  align-items: center;
+  gap: 10px;
 }
 
 .agents__inline {
@@ -6243,6 +6252,9 @@ fieldset.launch__field {
 /* 「引擎暂不读它」——那句「权限（引擎强制）」对 network / memory 还不成立。
    做得轻，但要看得见：用户配之前就该知道这一项现在不生效 */
 .agents__cap-note {
+  /* 行布局里它占中间的弹性空间，把下拉推到右端对齐 */
+  flex: 1;
+  min-width: 0;
   margin-left: 6px;
   padding: 1px 5px;
   border-radius: 4px;
