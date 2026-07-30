@@ -287,3 +287,84 @@ mod 错误要说下一步二 {
         assert!(!api.message.contains("None"), "{}", api.message);
     }
 }
+
+/// 发布是**不可变**的，所以进去之前得先看一眼。
+///
+/// `workflow_publish` 全文三行，从不调 `validate`；界面侧也只拦
+/// 「有未保存改动」。于是：
+///
+/// - `graphJson` 塞一个非 JSON 的串 → create 成功 → 这条草稿从此
+///   `workflow_patch` 改不动（报「草稿不是合法 JSON」）→ **publish 照样成功**
+/// - 空图 `{}` → validate 报 ENTRY_MISSING → publish 照样成功
+///
+/// 拿到的是一个 `config_hash` 算在垃圾上的不可变版本，而运行记录
+/// 会永远引用它。`workflow_patch` 那套「结构化写入是唯一形态」的防线，
+/// 被 create 从侧门绕过了。
+mod 发布前先校验 {
+    #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+
+    use aiwf_store::Store;
+
+    fn 建一条(graph: &str) -> (Store, String) {
+        let store = Store::open_in_memory().unwrap();
+        let id = store
+            .create_workflow_with_graph("测试", None, graph)
+            .unwrap();
+        (store, id)
+    }
+
+    #[test]
+    fn 空图发布不了_而且说清缺什么() {
+        let (store, id) = 建一条("{}");
+        let rev = store.draft_revision(&id).unwrap().unwrap();
+
+        let 错 = match aiwf_core_api::workflow_publish(&store, id, rev) {
+            Err(error) => error,
+            Ok(_) => panic!("一张没有入口节点的图被发布成了不可变版本"),
+        };
+
+        assert!(
+            错.message.contains("入口") || 错.message.contains("ENTRY"),
+            "没说清缺什么：{}",
+            错.message
+        );
+        assert!(错.hint.is_some(), "没说接下来该干什么");
+    }
+
+    #[test]
+    fn 合法的图照常发布() {
+        let graph = serde_json::json!({
+            "nodes": [
+                {"id": "entry", "type": "entry", "title": "入口", "position": {"x":0,"y":0},
+                 "config": {"trigger": "manual", "inputSchema": {"type": "object"}}},
+                {"id": "done", "type": "end", "title": "结束", "position": {"x":1,"y":0},
+                 "config": {"outcome": "success"}}
+            ],
+            "edges": [
+                {"id": "e1", "source": {"nodeId": "entry", "port": "success"},
+                 "target": {"nodeId": "done", "port": "input"}}
+            ],
+            "groups": []
+        })
+        .to_string();
+        let (store, id) = 建一条(&graph);
+        let rev = store.draft_revision(&id).unwrap().unwrap();
+
+        // 字段是私有的，能发布出来就够了 —— 这条要的是「合法图不被误拦」
+        if let Err(错) = aiwf_core_api::workflow_publish(&store, id, rev) {
+            panic!("一张合法的图被拦下了：{}", 错.message);
+        }
+    }
+
+    #[test]
+    fn 非_json_的草稿发布不了() {
+        let (store, id) = 建一条("这不是 JSON");
+        let rev = store.draft_revision(&id).unwrap().unwrap();
+
+        let 错 = match aiwf_core_api::workflow_publish(&store, id, rev) {
+            Err(error) => error,
+            Ok(_) => panic!("一坨非 JSON 被发布成了不可变版本"),
+        };
+        assert!(错.message.contains("JSON"), "{}", 错.message);
+    }
+}

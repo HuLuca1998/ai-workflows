@@ -896,10 +896,14 @@ pub fn run_artifact_content(
     //
     // 磁盘上的文件不动：那是脚本的真实输出，要调试就去 workdir 看，
     // 路径在运行详情页显示着。这里管的是界面这一层。
-    let redactor = aiwf_engine::redactor::Redactor::with_defaults();
-
     Ok(ArtifactContentDto {
-        text: content.text.map(|t| redactor.redact(&t)),
+        // 走共享的那个，不是新建一个 —— `with_defaults()` 的 literals 是空的，
+        // `register_secret` 登记过的东西它一个都不知道。
+        // 没有固定形态的密钥（密码、MCP 令牌、自建服务的 key）会在事件里
+        // 被挡住，却从这里原样送出去
+        text: content
+            .text
+            .map(|t| aiwf_engine::redactor::redact_shared(&t)),
         binary: content.binary,
         truncated: content.truncated,
         bytes: content.bytes,
@@ -1541,6 +1545,27 @@ pub fn workflow_diff(
 }
 
 pub fn workflow_publish(store: &Store, id: String, rev: i64) -> ApiResult<PublishedDto> {
+    // 发布**不可变**，所以进去之前先看一眼。
+    //
+    // 原来这个函数全文三行、从不校验，于是一坨非 JSON 或者一张没有入口的
+    // 空图都能被发布成不可变版本 —— 拿到的是一个 config_hash 算在垃圾上的
+    // 版本，而运行记录会永远引用它。`workflow_patch` 那套「结构化写入是
+    // 唯一形态」的防线，被 create 从侧门绕过之后就落在这里
+    let 校验 = workflow_validate(store, id.clone(), Some(rev))?;
+    if !校验.ok {
+        let 问题 = 校验
+            .issues
+            .iter()
+            .map(|issue| format!("{}（{}）", issue.message, issue.code))
+            .collect::<Vec<_>>()
+            .join("；");
+        return Err(
+            ApiError::validation(format!("这张图还不能发布：{问题}")).with_hint(
+                "发布出去的版本改不了，运行记录会一直引用它。回编辑器按上面列出的问题改完再发",
+            ),
+        );
+    }
+
     // 发布者暂时固定为本机用户；M4 接入身份后改为真实 actor
     let published = store.publish(&id, rev, "本地用户")?;
     Ok(PublishedDto {
@@ -2296,8 +2321,6 @@ pub fn run_diagnostics(
         ApiError::validation(format!("找不到运行 {run_id}"))
     })?;
 
-    let redactor = aiwf_engine::redactor::Redactor::with_defaults();
-
     // 事件流整段拉出来 —— 诊断包的价值就在于完整，分页在这里没有意义
     let mut events = Vec::new();
     let mut from_seq = 0_i64;
@@ -2315,7 +2338,7 @@ pub fn run_diagnostics(
                 "nodeId": event.node_id,
                 "nodeLabel": event.node_label,
                 "actor": event.actor,
-                "summary": redactor.redact(&event.summary),
+                "summary": aiwf_engine::redactor::redact_shared(&event.summary),
             }));
         }
     }
@@ -2362,7 +2385,7 @@ pub fn run_diagnostics(
             "endedAt": run.ended_at,
             "currentNode": run.current_node,
             // inputs 是用户填的，里面可能就有 token
-            "inputs": redactor.redact(&run.inputs_json),
+            "inputs": aiwf_engine::redactor::redact_shared(&run.inputs_json),
         },
         "events": events,
         "artifacts": artifacts,
@@ -2374,7 +2397,7 @@ pub fn run_diagnostics(
 
     // 最后一道：整段再扫一遍。上面逐字段脱敏可能漏掉某个我没想到的字段，
     // 而这个包是要发出去的
-    let text = redactor.redact(&text);
+    let text = aiwf_engine::redactor::redact_shared(&text);
 
     std::fs::create_dir_all(out_dir)
         .map_err(|error| ApiError::validation(format!("建不了输出目录：{error}")))?;
@@ -2395,7 +2418,6 @@ pub fn run_diagnostics(
 /// 而手工整理必然会漏掉某处的 token —— 路径里的用户名、
 /// CLI 登录态里的账号，都是这么漏出去的。
 pub fn env_diagnostics(out_dir: &Path) -> ApiResult<DiagnosticsResult> {
-    let redactor = aiwf_engine::redactor::Redactor::with_defaults();
     let environment = env::env_health(false)?;
 
     let bundle = serde_json::json!({
@@ -2412,7 +2434,7 @@ pub fn env_diagnostics(out_dir: &Path) -> ApiResult<DiagnosticsResult> {
     let text = serde_json::to_string_pretty(&bundle)
         .map_err(|error| ApiError::validation(format!("诊断包序列化失败：{error}")))?;
     // 与 run_diagnostics 同一道最后防线：整段再扫一遍
-    let text = redactor.redact(&text);
+    let text = aiwf_engine::redactor::redact_shared(&text);
 
     std::fs::create_dir_all(out_dir)
         .map_err(|error| ApiError::validation(format!("建不了输出目录：{error}")))?;

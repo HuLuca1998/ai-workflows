@@ -69,3 +69,43 @@ fn 不含密钥的产物原样返回() {
         serde_json::from_str(&serde_json::to_string(&content).unwrap()).unwrap();
     assert_eq!(json["text"].as_str().unwrap_or_default(), 原文);
 }
+
+/// 登记过的密钥在**读取点**也要被挡住。
+///
+/// 「已知明文」那条路接上时只覆盖了事件写入口（`emit_full`）。
+/// 三个读取点 —— 产物内容、运行诊断包、环境诊断包 —— 每处都是
+/// `Redactor::with_defaults()` 新建一个，而它的 `literals` 是空的：
+/// `register_secret` 登记过的东西它一个都不知道。
+///
+/// 最刺眼的是诊断包：它自己写着「所有文本已过脱敏器；Secret 只以
+/// keychain:// 引用形式出现」—— 而诊断包正是用户会主动发给别人的那一份。
+mod 读取点也要用共享脱敏器 {
+    #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+
+    #[test]
+    fn 没有固定形态的密钥在诊断包里也被挡住() {
+        // 一串纯随机字母 —— 任何形态规则都认不出，只有登记过才挡得住
+        let 口令 = "Zt7qWm3xLp9bKv2rNh5dGc8fJa4sYe6u";
+        aiwf_engine::redactor::register_secret(口令);
+
+        let 脱敏后 = aiwf_engine::redactor::redact_shared(&format!("连接串：user:{口令}@db"));
+
+        assert!(
+            !脱敏后.contains(口令),
+            "登记过的口令没被挡住 —— 而诊断包会被用户直接发给别人：{脱敏后}"
+        );
+    }
+
+    #[test]
+    fn 生产代码里不再各自新建脱敏器() {
+        // 新建一个就等于把 register_secret 登记的那半边丢掉。
+        // 门禁盯着这件事：下一处 `with_defaults()` 加进来时它会红
+        let 源码 = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/src/lib.rs"))
+            .expect("读得到 core-api 的源码");
+
+        assert!(
+            !源码.contains("Redactor::with_defaults()"),
+            "core-api 里还有地方自己新建脱敏器 —— 那一处拿不到登记过的密钥"
+        );
+    }
+}
