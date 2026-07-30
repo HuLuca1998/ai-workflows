@@ -45,7 +45,13 @@ export function RunsPage() {
     void runs.load();
   });
   const [params] = useSearchParams();
-  const [tab, setTab] = useState<DetailTab>('events');
+  // tab 从 URL 读一次初值：审批横幅的「查看 Diff」带着 &tab=artifacts 过来，
+  // 而在此之前这里是个纯 useState —— 那个参数一路没人读，
+  // 用户点「查看 Diff」落到的是事件流
+  const [tab, setTab] = useState<DetailTab>(() => {
+    const wanted = params.get('tab');
+    return TABS.some((entry) => entry.key === wanted) ? (wanted as DetailTab) : 'events';
+  });
   /**
    * 从对话里点「全文」要跳到产物 tab 并展开那一条。
    *

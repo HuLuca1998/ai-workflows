@@ -200,17 +200,6 @@ Rust `status.rs` 一份、TS `state-machine.ts` 一份，**两份都没有生产
 
 **验收**：按 `done / 总数` 算；取不到图时不画这条，不用编出来的刻度。
 
-### Z-4 · 首页「重试」跳到一个 RunsPage 不认的 URL
-
-首页用**路径**参数 `navigate('/runs/' + id)`，而 RunsPage 只读**查询**参数
-`params.get('run')`。路由是 `/runs/*` 所以不会 404 —— 页面照常渲染，
-只是什么都没选中。仓库其余三处跳转用的都是 `?run=`。
-
-同类第二处：`ApprovalBanner.tsx:99` 的「查看 Diff」带了 `&tab=artifacts`，
-而 RunsPage 的 `tab` 是纯 `useState`，从不读 URL。
-
-**验收**：统一成 `?run=`；RunsPage 读 `tab` 参数。
-
 ### Z-5 · 记忆页只能删不能加，而空态承诺「AI 会提议」
 
 全页没有任何新建入口（模型/Agent/提示词三页都有右上角 `+`）。
@@ -389,3 +378,4 @@ DEBT B-1。归在 `entry | end` 那一档，什么都不做直接返回成功，
   键盘用户根本无法往画布添加任何节点
 - 侧栏那行「环境正常」由真实健康结果决定（Z-2），
   「重新检查」也会更新时间戳 —— 之前它只看时间戳存不存在然后硬编码 ok: true
+- 跳转 URL 与读取对上了（Z-4）：首页「重试」改用 ?run=，RunsPage 读 tab 参数

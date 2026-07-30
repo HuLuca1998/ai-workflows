@@ -511,3 +511,41 @@ describe('状态穷尽性 —— 已经这么栽过一次', () => {
     }
   });
 });
+
+/**
+ * 从别处跳进这一屏时，URL 里带的东西要真的被读。
+ *
+ * 首页失败行的「重试」用的是**路径**参数 `/runs/<id>`，而这里只读
+ * **查询**参数 `?run=`。路由注册的是 `/runs/*` 所以不会 404 ——
+ * 页面照常渲染，只是什么都没选中：用户看到的是
+ * 「选一次运行，这里会显示它的完整记录。」，他刚点的那次既没被选中
+ * 也没被重试，得自己回列表里重新找。
+ *
+ * 同类第二处：审批横幅的「查看 Diff」带了 `&tab=artifacts`，
+ * 而 tab 是纯 useState，从不读 URL。
+ */
+describe('从 URL 进来', () => {
+  const 从 = (entry: string) => {
+    reset({ items: [RUN] as never, selectedId: 'run_1' });
+    return render(
+      <MemoryRouter initialEntries={[entry]}>
+        <RunsPage />
+      </MemoryRouter>,
+    );
+  };
+
+  it('带 tab 参数进来时打开的是那个 tab', () => {
+    从('/runs?run=run_1&tab=artifacts');
+    expect(screen.getByRole('tab', { name: '产物' }).getAttribute('aria-selected')).toBe('true');
+  });
+
+  it('没带 tab 时默认事件流', () => {
+    从('/runs?run=run_1');
+    expect(screen.getByRole('tab', { name: '事件流' }).getAttribute('aria-selected')).toBe('true');
+  });
+
+  it('认不出的 tab 值退回事件流，而不是三个都不选', () => {
+    从('/runs?run=run_1&tab=瞎写的');
+    expect(screen.getByRole('tab', { name: '事件流' }).getAttribute('aria-selected')).toBe('true');
+  });
+});

@@ -333,7 +333,7 @@ export function OverviewPage() {
                         aria-label={`重试 ${w.name}`}
                         onClick={(event) => {
                           event.stopPropagation();
-                          navigate(`/runs/${w.lastRun?.id ?? ''}`);
+                          navigate(`/runs?run=${w.lastRun?.id ?? ''}`);
                         }}
                       >
                         <i className="ph ph-arrow-counter-clockwise" aria-hidden="true" />
