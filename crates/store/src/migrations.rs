@@ -71,6 +71,14 @@ const MIGRATIONS: &[(i64, &str, &str)] = &[
 ];
 
 pub(crate) fn migrate(conn: &Connection) -> Result<()> {
+    migrate_up_to(conn, EXPECTED_SCHEMA_VERSION)
+}
+
+/// 迁到指定版本为止。生产只用 [`migrate`]（迁到最新）；
+/// 停在中间版本这条路是给测试用的 —— 「从旧 schema 向前迁」
+/// 必须在**有数据**的库上验过，而从空库直上最新版那条路径
+/// 永远碰不到「已有行遇上新列」这件事。
+pub(crate) fn migrate_up_to(conn: &Connection, target: i64) -> Result<()> {
     conn.execute_batch(
         "CREATE TABLE IF NOT EXISTS schema_migration (
            version    INTEGER PRIMARY KEY,
@@ -80,7 +88,25 @@ pub(crate) fn migrate(conn: &Connection) -> Result<()> {
     )?;
 
     let current = current_version(conn)?;
+
+    // 库比这个二进制还新 —— **明确报错，不要静默跳过**。
+    //
+    // 原来只有 `if version <= current { continue }`，只往上看不往下看：
+    // 老二进制打开新库时全部跳过、返回 Ok。而迁移只增不改、SELECT 又都是
+    // 显式列名，新库对老二进制是个超集，第一条查询不会报错 ——
+    // 失败是无声的数据分叉。实测症状：降级期间建的角色 created_at 是空串，
+    // 而回填那条迁移早已记账、再也不会跑，于是它们被
+    // `ORDER BY updated_at DESC` 永久钉在最后一页。
+    if current > EXPECTED_SCHEMA_VERSION {
+        return Err(crate::StoreError::Invalid(format!(
+            "这个工作区是更新版本的应用建的（schema v{current}，本版只认到              v{EXPECTED_SCHEMA_VERSION}）。请升级应用后再打开 ——              用旧版继续写会让两边的数据对不上，而且不会有任何报错"
+        )));
+    }
+
     for (version, note, sql) in MIGRATIONS {
+        if *version > target {
+            break;
+        }
         if *version <= current {
             continue;
         }

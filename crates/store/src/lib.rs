@@ -21,6 +21,17 @@ mod seed;
 
 pub use migrations::EXPECTED_SCHEMA_VERSION;
 
+/// 测试脚手架：把一个库只迁到指定版本为止。
+///
+/// 「从旧 schema 向前迁」必须在**有数据**的库上验过 ——
+/// 而从空库直上最新版那条路径永远碰不到「已有行遇上新列」。
+#[doc(hidden)]
+pub fn migrate_to_for_test(path: &std::path::Path, target: i64) -> Result<()> {
+    let conn = Connection::open(path)?;
+    migrations::migrate_up_to(&conn, target)?;
+    Ok(())
+}
+
 /// 事件摘要上限，与 `@aiwf/contracts` 的 `EVENT_SUMMARY_MAX` 保持一致。
 pub const EVENT_SUMMARY_MAX: usize = 2000;
 
