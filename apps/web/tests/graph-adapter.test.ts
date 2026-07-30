@@ -124,15 +124,19 @@ describe('副文本', () => {
 });
 
 describe('连线转换', () => {
-  it('边带上逻辑端口，标签显示源端口', () => {
+  it('边带上逻辑端口；源节点只有一个输出时不标 label —— 那是纯噪声', () => {
     const edges = toFlowEdges(graph());
     expect(edges[0]).toMatchObject({
       id: 'e1',
       source: 'entry',
       target: 'lint',
-      label: 'success',
     });
-    expect(edges[0]?.data).toEqual({ sourcePort: 'success', targetPort: 'input' });
+    // entry 只有 success 一个输出端口。一条 5 节点的线性流程会因此摆 4 个
+    // 「success」标签，而它们不传递任何信息 —— 每个标签还是一块底色方块。
+    // 只在真有分叉（resolveNodeOutputs 返回 >1 个端口）时才标。
+    expect(edges[0]).not.toHaveProperty('label');
+    // 端口语义仍然留在 data 里，右键菜单据此切换
+    expect(edges[0]?.data).toMatchObject({ sourcePort: 'success', targetPort: 'input' });
   });
 
   it('新建连线默认取第一个输出端口', () => {
@@ -156,14 +160,19 @@ describe('连线转换', () => {
 });
 
 describe('自定义类型必须是注册过的', () => {
-  it('边不带 type —— 未注册的类型会静默退化并刷控制台', () => {
+  it('边的 type 必须是 EditorPage 注册过的 —— 未注册的会静默退化并刷控制台', () => {
     // React Flow 对未注册的 type 不报错，只是退回默认样式，
-    // 同时每渲染一次刷一条 `Edge type "workflow" not found`。
-    // 一次编辑累计几十条，把真正的错误淹掉了
+    // 同时每渲染一次刷一条 `Edge type "xxx" not found`。
+    // 一次编辑累计几十条，把真正的错误淹掉了。
+    //
+    // 边现在走 floating：端点按两端节点的矩形实时选（4×4 取最近的一对），
+    // 不绑 Handle —— 绑了的话把节点拖到另一侧，线还从原来那条边出去。
+    const registered = new Set(['floating']);
     const edges = toFlowEdges(graph());
     expect(edges.length).toBeGreaterThan(0);
     for (const edge of edges) {
-      expect(edge.type, `边 ${edge.id} 带了 type，但边没有注册自定义组件`).toBeUndefined();
+      expect(edge.type, `边 ${edge.id} 的 type 没有对应的自定义组件`).toBe('floating');
+      expect(registered.has(edge.type as string)).toBe(true);
     }
   });
 

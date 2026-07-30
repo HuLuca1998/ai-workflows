@@ -6,10 +6,25 @@ import { TONE_VISUALS, iconFor, isAiNode, type NodeTone } from './nodeVisuals.js
 /**
  * 画布上的节点，严格照图纸「02 画布编辑器」。
  *
- * 四个连接点也来自图纸：左 / 上是输入（neutral-800），右 / 下是输出
- * （neutral-600，cursor:crosshair）。它们是物理连接点，逻辑端口
- * （success / failed / approved…）由连线自己记录。
+ * 四个连接点：左 / 上是输入，右 / 下是输出（照图纸）。
+ *
+ * 它们是**物理**连接点，只管交互；逻辑端口（success / failed / approved…）
+ * 由连线自己记录，在有分叉时显示成线上的标签。
  */
+
+/**
+ * 四个连接点，与设计图一致：左 / 上是输入，右 / 下是输出。
+ *
+ * 端口的**方向**是固定的（这是交互约定），但连线的**端点**不固定 ——
+ * 路径由 FloatingEdge 在两端各四条边中点里取最近的一对（见 edgeGeometry）。
+ * 两件事分开：Handle 管「从哪能拖出、能落在哪」，几何管「线怎么画」。
+ */
+const SIDES = [
+  { side: 'left', position: Position.Left, type: 'target' },
+  { side: 'top', position: Position.Top, type: 'target' },
+  { side: 'right', position: Position.Right, type: 'source' },
+  { side: 'bottom', position: Position.Bottom, type: 'source' },
+] as const;
 
 export interface WorkflowNodeData extends Record<string, unknown> {
   type: NodeType;
@@ -48,22 +63,15 @@ export const WorkflowNode = memo(function WorkflowNode({ data, selected }: NodeP
       </div>
       <div className="wf-node__sub">{node.sub}</div>
 
-      {/* 输入：左与上 */}
-      <Handle type="target" position={Position.Left} id="in-left" className="wf-port wf-port--in" />
-      <Handle type="target" position={Position.Top} id="in-top" className="wf-port wf-port--in" />
-      {/* 输出：右与下 */}
-      <Handle
-        type="source"
-        position={Position.Right}
-        id="out-right"
-        className="wf-port wf-port--out"
-      />
-      <Handle
-        type="source"
-        position={Position.Bottom}
-        id="out-bottom"
-        className="wf-port wf-port--out"
-      />
+      {SIDES.map(({ side, position, type }) => (
+        <Handle
+          key={side}
+          type={type}
+          position={position}
+          id={`${type === 'target' ? 'in' : 'out'}-${side}`}
+          className="wf-port"
+        />
+      ))}
     </div>
   );
 });

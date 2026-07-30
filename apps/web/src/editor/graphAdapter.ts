@@ -1,4 +1,4 @@
-import type { Edge, Node } from '@xyflow/react';
+import { MarkerType, type Edge, type Node } from '@xyflow/react';
 import {
   fanIn,
   fanOut,
@@ -8,7 +8,7 @@ import {
   type ValidationIssue,
   type WorkflowGraph,
 } from '@aiwf/contracts';
-import { joinBadge, type NodeTone } from './nodeVisuals.js';
+import { NODE_HEIGHT, NODE_WIDTH, joinBadge, type NodeTone } from './nodeVisuals.js';
 import type { WorkflowNodeData } from './WorkflowNode.tsx';
 
 /**
@@ -99,19 +99,125 @@ export function toFlowNodes(graph: WorkflowGraph, options: ToFlowOptions = {}): 
   });
 }
 
-export function toFlowEdges(graph: WorkflowGraph): Edge[] {
-  return graph.edges.map((edge) => ({
-    id: edge.id,
-    source: edge.source.nodeId,
-    target: edge.target.nodeId,
-    // 不给 type：节点那边有注册的 `workflow` 组件，边这边没有 ——
-    // 标一个未注册的类型，React Flow 会静默退回默认样式，
-    // 同时每渲染一次就往控制台刷一条警告（一次编辑累计几十条）。
-    // 图纸里的连线本来就是默认样式，不需要自定义组件
-    // 逻辑端口留在 data 里：连线选中后可以在右键菜单里切换
-    data: { sourcePort: edge.source.port, targetPort: edge.target.port },
-    label: edge.source.port,
-  }));
+/**
+ * 端口名 → 语义色。
+ *
+ * 规范 §2 第二条原则：「绿 = 成功；红 = 失败……**同一语义在全应用只有一种表达**」。
+ * 节点右上角的「完成」是绿字，那连线上的 `success` 就不能是灰的。
+ * 对工作流编辑器来说「失败走哪条线」恰恰是最需要一眼看清的信息。
+ *
+ * branch 的 cases 端口（`high` / `low` 这类自定义名）归强调紫 ——
+ * 它表达的是「这里要做判断」，与成功/失败是不同性质的分叉。
+ */
+function portLabelColor(port: string): string {
+  if (port === 'success' || port === 'approved') return 'var(--color-status-success)';
+  if (port === 'failed' || port === 'rejected' || port === 'error') {
+    return 'var(--color-status-failed)';
+  }
+  if (port === 'timeout' || port === 'changes_requested') return 'var(--color-status-waiting)';
+  // 内建的「就这一条路」端口不承载判断信息，保持中性
+  if (port === 'out' || port === 'next' || port === 'done') return 'var(--color-neutral-500)';
+  return 'var(--color-accent-300)';
+}
+
+/**
+ * 哪些源节点**实际上**分叉了 —— 只有它们的出边需要标端口名。
+ *
+ * 判据是「这个源节点**实际上**分叉了没有」，而不是「它的类型允许几个输出端口」。
+ * 按类型判的话，script.shell 定义里有 success/failed 两个端口，于是一条纯线性
+ * 的流程每段都会顶着一个「success」—— 12 条边 12 个标签，全是噪声，
+ * 还会被相邻节点裁掉半截。设计图里线上本来就是干净的。
+ *
+ * 只有同一个源节点接出了多条边、且用的端口不止一种时，标签才承载信息
+ * （「这条走成功、那条走失败」）。
+ */
+function forkedSourceNodes(graph: WorkflowGraph): ReadonlySet<string> {
+  // 单次遍历建 sourceNodeId → 用过的端口集合，避免每条边都 filter 全部边（O(E²)）
+  const portsBySource = new Map<string, Set<string>>();
+  for (const edge of graph.edges) {
+    const ports = portsBySource.get(edge.source.nodeId);
+    if (ports) ports.add(edge.source.port);
+    else portsBySource.set(edge.source.nodeId, new Set([edge.source.port]));
+  }
+  const forked = new Set<string>();
+  for (const [nodeId, ports] of portsBySource) {
+    if (ports.size > 1) forked.add(nodeId);
+  }
+  return forked;
+}
+
+export interface ToFlowEdgeOptions {
+  /** 正在等待审批的节点。指向它的连线要把视线引过去（§5.3）。 */
+  waitingNodeId?: string | null;
+  /** AI 提议新增的连线 id。 */
+  proposedEdgeIds?: ReadonlySet<string>;
+}
+
+export function toFlowEdges(graph: WorkflowGraph, options: ToFlowEdgeOptions = {}): Edge[] {
+  const forked = forkedSourceNodes(graph);
+
+  return graph.edges.map((edge) => {
+    return {
+      id: edge.id,
+      source: edge.source.nodeId,
+      target: edge.target.nodeId,
+      // 路径由 FloatingEdge 按两端节点的矩形实时算（四条边中点里 4×4
+      // 取最近的一对），见 edgeGeometry.ts
+      type: 'floating',
+      /*
+       * XYFlow 的**解析锚点**，不是画线用的坐标。
+       *
+       * 边不指定 handle 时 XYFlow 会去找 `id === null` 的那个，而节点上的
+       * 四个 handle 都带 id，于是每条边都报
+       * `Couldn't create edge for target handle id: "null"`，一条线都画不出来。
+       *
+       * FloatingEdge 不读这两个值 —— 端点方向随节点相对位置实时变，
+       * 写死在这里的话把节点拖到另一侧，线还从原来那条边出去。
+       */
+      sourceHandle: 'out-right',
+      targetHandle: 'in-left',
+      /*
+       * 箭头：设计图里 `markerEnd: 'url(#arrow)'` 是**无条件**给每条线的。
+       * 没有箭头就看不出方向 —— 而工作流的边是有向的，
+       * 「谁在前谁在后」是读这张图的第一件事。
+       */
+      markerEnd: {
+        type: MarkerType.ArrowClosed,
+        width: 14,
+        height: 14,
+        color: 'var(--color-neutral-600)',
+      },
+      // 逻辑端口留在 data 里：连线选中后可以在右键菜单里切换。
+      // fallbackSize 供 measured 尚未算出时兜底，值与 .wf-node 的样式一致。
+      data: {
+        sourcePort: edge.source.port,
+        targetPort: edge.target.port,
+        fallbackSize: { width: NODE_WIDTH, height: NODE_HEIGHT },
+      },
+      ...(forked.has(edge.source.nodeId) ? { label: edge.source.port } : {}),
+      labelStyle: { fill: portLabelColor(edge.source.port), fontSize: 11 },
+      /*
+       * 标签底色必须显式给出。XYFlow 的 `.react-flow__edge-textbg` 取
+       * `--xy-edge-label-background-color-default`，那个变量有 #ffffff / #141414
+       * 两个值，深色那份只在 dark colorMode 下生效 —— 而 EditorPage 从不传
+       * colorMode（默认 light）。不覆盖的话，暗场画布上每条连线中央都压着
+       * 一块白色药丸，是整屏最亮的东西。
+       */
+      labelBgStyle: { fill: 'var(--color-surface)', fillOpacity: 0.92 },
+      labelBgPadding: [4, 2] as [number, number],
+      labelBgBorderRadius: 4,
+      /*
+       * §5.3 的四种连线里，「指向等待节点」与「AI 提议」靠 dash 节奏区分，
+       * 都走 flow 动画（stroke-dashoffset，只动这一个属性，符合 §4.1）。
+       * 目的分别是「视线自然被引到待办」和「让用户看出哪几条是新加的」。
+       */
+      ...(options.proposedEdgeIds?.has(edge.id)
+        ? { className: 'react-flow__edge--proposed' }
+        : options.waitingNodeId && edge.target.nodeId === options.waitingNodeId
+          ? { className: 'react-flow__edge--waiting' }
+          : {}),
+    };
+  });
 }
 
 /**
