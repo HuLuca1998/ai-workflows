@@ -66,6 +66,15 @@ export function MemoryPage() {
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
   /** 丢弃提议同样不可撤销 —— 记住是哪一条，别让确认态跨条目残留 */
   const [confirmDismiss, setConfirmDismiss] = useState<string | null>(null);
+  /**
+   * 正在编写的那一条。
+   *
+   * 这一屏此前只能停用与删除 —— 契约里 memory.create / memory.update 都在，
+   * MCP 也开着它们：用户能让 AI 间接写入，却不能自己写一条
+   * 「构建命令是 pnpm verify」。一屏叫「管理」的页面只提供删除，
+   * 是把能力锁在了界面外面。
+   */
+  const [editing, setEditing] = useState<Memory | 'new' | null>(null);
 
   /**
    * 拉一页记忆。
@@ -116,6 +125,36 @@ export function MemoryPage() {
     }
   };
 
+  const save = async (input: { key: string; value: string; scope: string }) => {
+    try {
+      if (editing === 'new') {
+        await coreClient.call('memory.create', {
+          scope: input.scope,
+          key: input.key,
+          value: input.value,
+          // 契约要求的其余字段：来源与敏感度由界面这一层定死 ——
+          // 用户手写的记忆一律 user / internal，密钥走 Keychain 不进这里
+          source: 'user',
+          createdBy: 'user',
+          sensitivity: 'internal',
+          tags: [],
+          enabled: true,
+        });
+      } else if (editing) {
+        // ver 是乐观锁：后端靠它判断这次改动基于哪一版
+        await coreClient.call('memory.update', {
+          id: editing.id,
+          ver: editing.ver,
+          value: input.value,
+        });
+      }
+      setEditing(null);
+      await load();
+    } catch (err) {
+      setError(describeError(err));
+    }
+  };
+
   const toggle = async (memory: Memory) => {
     try {
       await coreClient.call('memory.toggle', { id: memory.id, enabled: !memory.enabled });
@@ -146,6 +185,14 @@ export function MemoryPage() {
           </p>
         </div>
         <span className="runs__grow" />
+        <button
+          type="button"
+          className="runs__action runs__action--primary"
+          onClick={() => setEditing('new')}
+        >
+          <i className="ph ph-plus" aria-hidden="true" />
+          新建记忆
+        </button>
         <label className="runs__search memory__search">
           <i className="ph ph-magnifying-glass" aria-hidden="true" />
           <input
@@ -191,6 +238,14 @@ export function MemoryPage() {
           <p className="runs__error" role="alert">
             {error}
           </p>
+        ) : null}
+
+        {editing ? (
+          <MemoryEditor
+            memory={editing === 'new' ? null : editing}
+            onCancel={() => setEditing(null)}
+            onSave={save}
+          />
         ) : null}
 
         {proposals.length > 0 ? (
@@ -305,6 +360,16 @@ export function MemoryPage() {
               <div className="memory__actions">
                 <button
                   type="button"
+                  aria-label={`编辑 ${item.key}`}
+                  onClick={() => {
+                    setConfirmDelete(null);
+                    setEditing(item);
+                  }}
+                >
+                  <i className="ph ph-pencil-simple" aria-hidden="true" />
+                </button>
+                <button
+                  type="button"
                   aria-label={item.enabled ? `停用 ${item.key}` : `启用 ${item.key}`}
                   onClick={() => {
                     // 点别的动作就把那个红按钮收回去，别让它一直悬着
@@ -366,4 +431,78 @@ function isExpired(memory: Memory): boolean {
 function formatTime(iso: string): string {
   const date = new Date(iso);
   return Number.isNaN(date.getTime()) ? iso : date.toLocaleString('zh-CN', { hour12: false });
+}
+
+/**
+ * 写一条记忆。
+ *
+ * 新建与编辑共用这一个面板，差别只有两处：编辑时 key 与作用域不可改
+ * （它们是这条记忆的身份，改了等于换一条），而 memory.update 也只收 value。
+ */
+function MemoryEditor({
+  memory,
+  onCancel,
+  onSave,
+}: {
+  memory: Memory | null;
+  onCancel: () => void;
+  onSave: (input: { key: string; value: string; scope: string }) => void | Promise<void>;
+}) {
+  const [key, setKey] = useState(memory?.key ?? '');
+  const [value, setValue] = useState(memory?.value ?? '');
+  const [scope, setScope] = useState(memory?.scope ?? 'workspace');
+
+  const ready = key.trim().length > 0 && value.trim().length > 0;
+
+  return (
+    <form
+      className="memory__editor"
+      aria-label={memory ? '编辑记忆' : '新建记忆'}
+      onSubmit={(event) => {
+        event.preventDefault();
+        if (ready) void onSave({ key: key.trim(), value: value.trim(), scope });
+      }}
+    >
+      <label className="models__field">
+        <span className="models__label">Key</span>
+        <input
+          type="text"
+          value={key}
+          // key 是这条记忆的身份，改了等于换一条 —— 而 memory.update 也只收 value
+          readOnly={memory !== null}
+          onChange={(event) => setKey(event.target.value)}
+        />
+      </label>
+      <label className="models__field">
+        <span className="models__label">作用域</span>
+        <select
+          value={scope}
+          disabled={memory !== null}
+          onChange={(event) => setScope(event.target.value)}
+        >
+          {SCOPES.filter((entry) => entry.key).map((entry) => (
+            <option key={entry.key} value={entry.key as string}>
+              {entry.label}
+            </option>
+          ))}
+        </select>
+      </label>
+      <label className="models__field">
+        <span className="models__label">内容</span>
+        <textarea value={value} onChange={(event) => setValue(event.target.value)} />
+      </label>
+      <p className="models__note">
+        这条内容会注入后续每一次 AI 调用。Secret 不要写在这里 —— 它只进 Keychain，
+        在这里只以 keychain:// 引用出现。
+      </p>
+      <div className="models__form-actions">
+        <button type="button" className="runs__action" onClick={onCancel}>
+          取消
+        </button>
+        <button type="submit" className="runs__action runs__action--primary" disabled={!ready}>
+          保存
+        </button>
+      </div>
+    </form>
+  );
 }

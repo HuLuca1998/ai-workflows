@@ -6386,3 +6386,20 @@ fieldset.launch__field {
   outline: 2px solid var(--color-accent-600);
   outline-offset: 2px;
 }
+
+/* 记忆的写入面板。与模型登记表单同一套字段排布 */
+.memory__editor {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px;
+  border-radius: 10px;
+  border: 1px solid var(--color-divider);
+  background: var(--color-surface);
+  margin-bottom: 16px;
+}
+
+.memory__editor textarea {
+  min-height: 80px;
+  resize: vertical;
+}
