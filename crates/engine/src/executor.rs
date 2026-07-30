@@ -1038,6 +1038,20 @@ impl NodeExecutor {
         });
 
         match outcome {
+            // 模型明确拒答。带着这半句话往下走的话，`ai.review` / `ai.decide`
+            // 的下游会按端口分支继续跑审查、分级、审批 ——
+            // 而它们手上是一段没有内容的话。用户唯一能看出异常的
+            // 是回答短得离谱
+            Ok(crate::acp::PromptOutcome::Refusal) => {
+                let 说了什么 = 摘要(&text);
+                Ok(NodeOutcome::Failed {
+                    message: if 说了什么.trim().is_empty() {
+                        "模型拒绝了这一轮，没有给出理由。换个说法或者调整角色的约束再试".to_string()
+                    } else {
+                        format!("模型拒绝了这一轮：{说了什么}")
+                    },
+                })
+            }
             Ok(stop) => {
                 // 回答落产物：几十 KB 的分析不该进事件表
                 let answer_ref = self.save_output(&node.id, "agent.md", &text);
@@ -1062,6 +1076,24 @@ impl NodeExecutor {
                         node_id: node.id.clone(),
                         summary: 摘要(&text),
                         payload_ref: answer_ref,
+                    });
+                }
+
+                // 撞上 token 上限时那半句话是**有用的**，不该丢掉让整个节点失败。
+                // 但下游必须知道它不完整 —— 一份被砍掉一半的方案清单
+                // 看起来和一份完整的没有区别。
+                //
+                // 正常结束不发这条：每轮都说一句「这轮怎么结束的」是噪声，
+                // 会把真正异常的那条淹掉
+                if stop == crate::acp::PromptOutcome::MaxTokens {
+                    sink(NodeEvent {
+                        kind: "system.output_truncated",
+                        node_id: node.id.clone(),
+                        summary: "回答在 token 上限处被截断，这份结果是不完整的。\
+                                  下游拿到的只是前半部分 —— 缩小一次要处理的范围，\
+                                  或者在「模型」页换一个上下文更大的"
+                            .to_string(),
+                        payload_ref: None,
                     });
                 }
 

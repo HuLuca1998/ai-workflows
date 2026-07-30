@@ -2100,3 +2100,115 @@ mod 权限档说的话要算数 {
         }
     }
 }
+
+/// 这一轮是怎么结束的，要算数。
+///
+/// `acp.rs` 认真把 `stopReason` 解析成五种（EndTurn / MaxTokens /
+/// Refusal / Cancelled / Other），而执行器**一种都不看** ——
+/// 只要 `prompt()` 返回 Ok 就是 Succeeded，事件里写「完成 · 走 success 分支」。
+///
+/// 于是模型明确拒答、答到一半撞上 token 上限被截断、这一轮被取消，
+/// 全都记成成功，半句话原样进 scope 交给下游。而 `ai.review` / `ai.decide`
+/// 的下游是按端口分支走的 —— 一次拒答会让工作流带着一段空文本
+/// 继续跑审查、分级、审批。
+///
+/// 掩护它的是那个五分支枚举本身（看着像处理过），加上 mock 从头到尾
+/// 只回 `end_turn`，非正常结束一条测试都没有。
+mod 这一轮怎么结束的要算数 {
+    #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+
+    use super::{node, workdir, 内置角色};
+    use aiwf_engine::executor::{NodeEvent, NodeExecutor};
+    use aiwf_engine::interp::Scope;
+    use aiwf_engine::runner::NodeOutcome;
+
+    fn 用场景跑(scenario: &str) -> (NodeOutcome, Vec<NodeEvent>) {
+        let script = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|p| p.parent())
+            .expect("仓库根")
+            .join("tests/fixtures/acp-mock.mjs");
+        let executor = NodeExecutor::new(workdir())
+            .with_permission_preset("workspace_safe")
+            .with_agent_profiles(&内置角色())
+            .with_acp_command(
+                "node",
+                &[script.display().to_string(), scenario.to_string()],
+            );
+
+        let 收到 = std::sync::Mutex::new(Vec::new());
+        let mut scope = Scope::new("run_stop");
+        let outcome = executor
+            .execute_with_sink(
+                &node(
+                    "analyze",
+                    "ai.analyze",
+                    serde_json::json!({
+                        "agentProfileId": "builtin:analyst",
+                        "instruction": "分析一下",
+                        "target": "某段代码",
+                        "runtime": "acp.claude"
+                    }),
+                ),
+                &mut scope,
+                &|event| 收到.lock().unwrap().push(event),
+            )
+            .unwrap();
+        (outcome, 收到.into_inner().unwrap())
+    }
+
+    #[test]
+    fn 模型拒答时节点失败_而不是带着空话往下走() {
+        let (outcome, _) = 用场景跑("refusal");
+
+        match outcome {
+            NodeOutcome::Failed { message } => {
+                assert!(
+                    message.contains("拒绝"),
+                    "没说清是模型拒绝了这一轮：{message}"
+                );
+            }
+            other => panic!("模型拒答却报成功，下游会拿着半句话继续跑：{other:?}"),
+        }
+    }
+
+    #[test]
+    fn 答到一半被截断时说清楚_而不是当成完整回答() {
+        // 截断与拒答不一样：那半句话是有用的，不该丢。
+        // 但下游必须知道它不完整 —— 一份被砍掉一半的方案清单
+        // 看起来和一份完整的没有区别
+        let (outcome, 事件) = 用场景跑("max-tokens");
+
+        assert!(
+            matches!(outcome, NodeOutcome::Succeeded { .. }),
+            "截断不该让节点整个失败 —— 那半句话还有用：{outcome:?}"
+        );
+
+        let 说了不完整 = 事件
+            .iter()
+            .any(|e| e.summary.contains("截断") || e.summary.contains("不完整"));
+        assert!(
+            说了不完整,
+            "没有任何一条事件说这份回答是被截断的：{:?}",
+            事件.iter().map(|e| &e.summary).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn 正常结束时不多嘴() {
+        // 每一轮都发一条「这轮怎么结束的」是噪声 ——
+        // 正常结束是默认情况，说出来反而让异常那条淹掉
+        let (outcome, 事件) = 用场景跑("normal");
+
+        assert!(
+            matches!(outcome, NodeOutcome::Succeeded { .. }),
+            "{outcome:?}"
+        );
+        assert!(
+            !事件
+                .iter()
+                .any(|e| e.summary.contains("截断") || e.summary.contains("拒绝")),
+            "正常结束却报了异常"
+        );
+    }
+}

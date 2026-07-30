@@ -93,6 +93,13 @@ export const RUN_EVENT_TYPES = [
   'system.notification_sent',
   'system.redaction_applied',
   'system.session_rebuilt',
+  /**
+   * 模型的回答在 token 上限处被截断。
+   *
+   * 那半句话是**有用的**，所以节点不失败；但下游必须知道它不完整 ——
+   * 一份被砍掉一半的方案清单，看起来和一份完整的没有区别。
+   */
+  'system.output_truncated',
   'system.audit',
 ] as const;
 export type RunEventType = (typeof RUN_EVENT_TYPES)[number];

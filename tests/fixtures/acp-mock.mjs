@@ -164,6 +164,23 @@ function handle(message) {
       process.exit(1);
     }
 
+    // 非正常结束的两种。真实 adapter 会给出这些 stopReason，
+    // 而在补这两个场景之前，mock 从头到尾只回 end_turn ——
+    // 于是「模型拒答 / 答到一半被截断」一条测试都没有
+    if (scenario === 'refusal' || scenario === 'max-tokens') {
+      notify('session/update', {
+        sessionId: params.sessionId,
+        update: {
+          sessionUpdate: 'agent_message_chunk',
+          // 拒答时 agent 通常还是会说点什么，截断时更是有半句话 ——
+          // 「有文本」不能当成「这一轮正常结束」的判据
+          content: { type: 'text', text: '我先说明一下…' },
+        },
+      });
+      reply(id, { stopReason: scenario === 'refusal' ? 'refusal' : 'max_tokens' });
+      return;
+    }
+
     // count-sessions 场景：把这一轮用的 sessionId 回显出来。
     // 复用同一条会话时两轮拿到的是同一个编号，各建一条时编号会涨
     if (scenario === 'count-sessions') {

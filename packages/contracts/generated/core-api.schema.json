@@ -3101,6 +3101,7 @@
                   "system.notification_sent",
                   "system.redaction_applied",
                   "system.session_rebuilt",
+                  "system.output_truncated",
                   "system.audit"
                 ]
               },
