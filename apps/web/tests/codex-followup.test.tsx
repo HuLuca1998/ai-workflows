@@ -188,3 +188,73 @@ describe('隐私模式下的首次引导', () => {
     });
   });
 });
+
+describe('提问进行中切换工作流', () => {
+  it('回答回来时提议不能挂到新的工作流上', async () => {
+    const graphA = {
+      nodes: [
+        {
+          id: 'entry',
+          type: 'entry' as const,
+          title: '入口',
+          position: { x: 0, y: 0 },
+          config: { trigger: 'manual', inputSchema: { type: 'object', properties: {} } },
+        },
+      ],
+      edges: [],
+      groups: [],
+    };
+
+    let release: null | (() => void) = null;
+    const checked = createContractCall({
+      'supervisor.sessions': () => ({ items: [] }),
+      'model.list': () => ({ items: [], total: 0 }),
+      'supervisor.ask': () =>
+        new Promise<{ text: string; toolCalls: number; proposal: unknown }>((resolve) => {
+          release = () =>
+            resolve({
+              text: '改好了',
+              toolCalls: 0,
+              proposal: {
+                summary: '把入口改名为「开始」',
+                operations: [{ op: 'renameNode', nodeId: 'entry', title: '开始' }],
+              },
+            });
+        }),
+    });
+    call.mockImplementation((m: string, i: unknown) => checked(m, i));
+
+    const onApply = vi.fn();
+    const user = userEvent.setup();
+    const { rerender } = render(
+      <SupervisorDrawer
+        open
+        context={{ workflowId: 'wf_A', draftRev: 1 }}
+        graph={graphA}
+        onApply={onApply}
+        onClose={() => {}}
+      />,
+    );
+
+    await user.type(screen.getByRole('textbox', { name: /问主管 AI/u }), '改个名');
+    await user.keyboard('{Enter}');
+
+    // 回答还没回来，用户已经切到了另一条工作流
+    rerender(
+      <SupervisorDrawer
+        open
+        context={{ workflowId: 'wf_B', draftRev: 1 }}
+        graph={graphA}
+        onApply={onApply}
+        onClose={() => {}}
+      />,
+    );
+    (release as (() => void) | null)?.();
+
+    await screen.findByText('改好了');
+    expect(
+      screen.queryByRole('button', { name: '应用到草稿' }),
+      '在 A 上问的，回来时挂到了 B 上',
+    ).toBeNull();
+  });
+});

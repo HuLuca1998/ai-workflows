@@ -177,6 +177,8 @@ export function SupervisorDrawer({
     );
   }, [context.workflowId]);
 
+
+
   const [messages, setMessages] = useState<Message[]>([]);
   const [draft, setDraft] = useState('');
   const [busy, setBusy] = useState(false);
@@ -184,6 +186,15 @@ export function SupervisorDrawer({
   const [modelId, setModelId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [proposal, setProposal] = useState<Proposal | null>(null);
+  /*
+   * 光有上面那条 effect 不够：它只在 workflowId **变化时**跑一次。
+   *
+   * 提问进行中切换工作流的话，effect 在 proposal 还是 null 时就跑完了，
+   * 而回答回来时按发问那一刻的 context 设置 proposal —— 那条 effect
+   * 不会再触发，提议就留在屏幕上，「应用到草稿」照样可点。
+   * 所以渲染时再比对一次身份，两道都要有。
+   */
+  const liveProposal = proposal && proposal.workflowId === context.workflowId ? proposal : null;
   /**
    * 当前会话。
    *
@@ -672,15 +683,15 @@ export function SupervisorDrawer({
             </div>
           ))}
 
-          {proposal ? (
+          {liveProposal ? (
             <section className="supervisor__proposal" aria-label="AI 提议的改动">
               <p className="supervisor__proposal-head">
                 <i className="ph ph-git-diff" aria-hidden="true" />
-                {proposal.summary}
+                {liveProposal.summary}
               </p>
-              {proposal.diff ? (
+              {liveProposal.diff ? (
                 <div className="ver__diff-body">
-                  <DiffLines diff={proposal.diff} empty="这组操作不会改变任何东西" />
+                  <DiffLines diff={liveProposal.diff} empty="这组操作不会改变任何东西" />
                 </div>
               ) : (
                 <p className="supervisor__proposal-note">
@@ -698,12 +709,12 @@ export function SupervisorDrawer({
                   * 「AI 的改动一律先出 Diff，用户确认才落草稿」是架构原则，
                   * 不能因为调用方碰巧传了 onApply 就绕过它。
                   */}
-                {onApply && proposal.diff ? (
+                {onApply && liveProposal.diff ? (
                   <button
                     type="button"
                     className="runs__action runs__action--primary"
                     onClick={() => {
-                      onApply(proposal.operations);
+                      onApply(liveProposal.operations);
                       setProposal(null);
                     }}
                   >
