@@ -39,11 +39,13 @@ fn 夹具不是空的() {
 #[test]
 fn 图校验与_typescript_逐字一致() {
     let mut 失败 = Vec::new();
+    let mut 比过 = 0_usize;
 
     for case in 用例() {
         let Some(期望) = case.get("validation") else {
             continue;
         };
+        比过 += 1;
         let name = case["name"].as_str().unwrap_or("(无名)");
         let 实得 = serde_json::to_value(validate_graph(&case["graph"])).unwrap();
 
@@ -62,16 +64,26 @@ fn 图校验与_typescript_逐字一致() {
         失败.len(),
         失败.join("\n")
     );
+    // **比过多少条也要断言**。上面那个 `continue` 看的是夹具里的键名，
+    // 键名一改（或生成器换了形状）就是「全部跳过、一条不比、测试全绿」——
+    // 43 组夹具的保护无声归零。`夹具不是空的` 拦不住这种：
+    // 用例还在，只是没有一条走进比对
+    assert!(
+        比过 >= 15,
+        "只比了 {比过} 条 validation 夹具 —— 夹具里的键名多半变了，这条测试已经空转"
+    );
 }
 
 #[test]
 fn patch_与_typescript_逐字一致() {
     let mut 失败 = Vec::new();
+    let mut 比过 = 0_usize;
 
     for case in 用例() {
         let Some(patch) = case.get("patch") else {
             continue;
         };
+        比过 += 1;
         let name = case["name"].as_str().unwrap_or("(无名)");
         let 期望 = &case["result"];
         // 当前 rev 由夹具显式给出 —— 猜的话版本守卫那条路径永远走不到
@@ -105,6 +117,10 @@ fn patch_与_typescript_逐字一致() {
         "{} 条不一致：\n{}",
         失败.len(),
         失败.join("\n")
+    );
+    assert!(
+        比过 >= 20,
+        "只比了 {比过} 条 patch 夹具 —— 夹具里的键名多半变了，这条测试已经空转"
     );
 }
 

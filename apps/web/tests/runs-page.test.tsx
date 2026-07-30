@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { fireEvent, render, screen, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, within, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router';
 
@@ -526,8 +526,19 @@ describe('状态穷尽性 —— 已经这么栽过一次', () => {
  * 而 tab 是纯 useState，从不读 URL。
  */
 describe('从 URL 进来', () => {
+  // **不预先注入 selectedId** —— 注入了的话 `?run=` 这条路径
+  // 一次都不会被读到，而这一节自称测的正是它。
+  // 原来的写法让整组用例对「实现里根本没读 ?run=」的版本照样绿
   const 从 = (entry: string) => {
-    reset({ items: [RUN] as never, selectedId: 'run_1' });
+    // 页面进来会先 `load()` 一次。默认 mock 返回空列表，那会把 items
+    // 清空 —— 于是就算 `?run=` 被正确读到，详情区也渲染不出东西。
+    // 这一节测的是 URL 那条路径，不该被一个空列表的 mock 挡在门外
+    call.mockImplementation((method: string) =>
+      method === 'run.list'
+        ? Promise.resolve({ items: [RUN], total: 1 })
+        : Promise.resolve({ items: [], events: [], nextSeq: 0, hasMore: false }),
+    );
+    reset({ items: [RUN] as never, selectedId: null });
     return render(
       <MemoryRouter initialEntries={[entry]}>
         <RunsPage />
@@ -535,18 +546,31 @@ describe('从 URL 进来', () => {
     );
   };
 
-  it('带 tab 参数进来时打开的是那个 tab', () => {
+  // 选中是异步的（先 load 再 select），同步断言会在 effect 落地之前就跑完
+  const 等选中 = () => screen.findAllByRole('tab');
+
+  it('?run= 里那条运行被选中', async () => {
+    从('/runs?run=run_1');
+    // 没选中时这一屏显示的是「选一次运行，这里会显示它的完整记录。」
+    expect((await 等选中()).length).toBe(3);
+    expect(screen.queryByText(/选一次运行/u)).toBeNull();
+  });
+
+  it('带 tab 参数进来时打开的是那个 tab', async () => {
     从('/runs?run=run_1&tab=artifacts');
+    await 等选中();
     expect(screen.getByRole('tab', { name: '产物' }).getAttribute('aria-selected')).toBe('true');
   });
 
-  it('没带 tab 时默认事件流', () => {
+  it('没带 tab 时默认事件流', async () => {
     从('/runs?run=run_1');
+    await 等选中();
     expect(screen.getByRole('tab', { name: '事件流' }).getAttribute('aria-selected')).toBe('true');
   });
 
-  it('认不出的 tab 值退回事件流，而不是三个都不选', () => {
+  it('认不出的 tab 值退回事件流，而不是三个都不选', async () => {
     从('/runs?run=run_1&tab=瞎写的');
+    await 等选中();
     expect(screen.getByRole('tab', { name: '事件流' }).getAttribute('aria-selected')).toBe('true');
   });
 });
@@ -608,6 +632,32 @@ describe('失败页防连点', () => {
       for (let i = 0; i < 5; i += 1) await user.click(按钮);
 
       expect(call.mock.calls.filter(([m]) => m === 方法)).toHaveLength(1);
+    });
+
+    it(`同一帧里连发五次「${名字}」也只发一次 —— ref 那一半`, async () => {
+      // 上面那条串行 `await user.click`：第一次点完按钮就 disabled 了，
+      // 后四次落在一个禁用的按钮上。它测的是 state 那一半，
+      // 而 `useAsyncAction` 里那个 ref 锁存在的**唯一理由**是
+      // 「React 还没重渲染成 disabled 的那个窗口」—— 串行点法碰不到它。
+      //
+      // 同步连发五次（不 await）：五次落在同一批更新里，只有 ref 挡得住
+      挂起(方法);
+      失败态();
+      view();
+
+      const 按钮 = screen.getByRole('button', { name: new RegExp(名字, 'u') });
+      // `fireEvent` 每一次都会 flush 一轮更新，第二次点时 disabled
+      // 已经生效 —— 那还是在测 state。要碰到 ref 那一半，
+      // 五次派发必须落在**同一个** act 批次里
+      await act(async () => {
+        for (let i = 0; i < 5; i += 1) {
+          按钮.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+        }
+      });
+
+      await waitFor(() => {
+        expect(call.mock.calls.filter(([m]) => m === 方法)).toHaveLength(1);
+      });
     });
 
     it(`「${名字}」进行中时自己是禁用的`, async () => {
