@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ApprovalBanner } from './ApprovalBanner.js';
 import { Link, useNavigate, useParams } from 'react-router';
 import {
+  type EdgeTypes,
   Background,
   BackgroundVariant,
   ReactFlow,
@@ -9,6 +10,7 @@ import {
   useReactFlow,
   ViewportPortal,
   type Connection,
+  type EdgeChange,
   type NodeChange,
   type NodeTypes,
   type OnSelectionChangeParams,
@@ -26,11 +28,19 @@ import { NodeLibrary } from './NodeLibrary.jsx';
 import { VersionDrawer } from './VersionDrawer.jsx';
 import { LaunchDialog } from '../runs/LaunchDialog.js';
 import { WorkflowNode } from './WorkflowNode.jsx';
+import { FloatingEdge } from './FloatingEdge.jsx';
+import { ConnectionLine } from './ConnectionLine.jsx';
 import { defaultSourcePort, defaultTargetPort, toFlowEdges, toFlowNodes } from './graphAdapter.js';
 import { NODE_HEIGHT, NODE_WIDTH } from './nodeVisuals.js';
 import { minimalConfigFor, titleFor } from './nodeDefaults.js';
 
 const NODE_TYPES: NodeTypes = { workflow: WorkflowNode };
+/**
+ * 连线用自定义组件：端点按节点矩形实时算，不绑 Handle。
+ * 对象定义在模块级 —— 放进组件里的话每次渲染都是新引用，
+ * XYFlow 会整片重建边。
+ */
+const EDGE_TYPES: EdgeTypes = { floating: FloatingEdge };
 
 interface LiveReactFlowProps extends Omit<
   ReactFlowProps,
@@ -154,6 +164,12 @@ function EditorCanvas() {
   const flow = useReactFlow();
   const wrapper = useRef<HTMLDivElement>(null);
   const [zoom, setZoom] = useState(1);
+  /**
+   * 正在等待审批的节点。规范 §6 的审批是双通道（画布脉冲 + 顶部横幅），
+   * 而 `toneOf` 此前在全仓没有任何调用方 —— 所有节点恒为 idle，
+   * §5.2 里 done / wait / ghost 三种状态全是死代码，双通道只剩横幅。
+   */
+  const [waitingNodeId, setWaitingNodeId] = useState<string | null>(null);
   const [selectedCount, setSelectedCount] = useState(0);
   /** 双击打开的节点（图纸：双击节点打开配置弹层）。 */
   const [configNodeId, setConfigNodeId] = useState<string | null>(null);
@@ -219,10 +235,26 @@ function EditorCanvas() {
 
   const selectedIds = useMemo(() => new Set(selection), [selection]);
   const nodes = useMemo(
-    () => toFlowNodes(graph, { issues: validation.issues, selected: selectedIds }),
-    [graph, validation, selectedIds],
+    () =>
+      toFlowNodes(graph, {
+        issues: validation.issues,
+        selected: selectedIds,
+        toneOf: (nodeId) => (nodeId === waitingNodeId ? 'wait' : 'idle'),
+      }),
+    [graph, validation, selectedIds, waitingNodeId],
   );
-  const edges = useMemo(() => toFlowEdges(graph), [graph]);
+  /**
+   * 连线的选中态要自己维护：`edges` 是受控 prop，
+   * XYFlow 只上报 change、不会自己改 props，所以不回灌 selected 就点不亮。
+   */
+  const [selectedEdgeIds, setSelectedEdgeIds] = useState<ReadonlySet<string>>(new Set());
+  const edges = useMemo(
+    () =>
+      toFlowEdges(graph, { waitingNodeId }).map((edge) =>
+        selectedEdgeIds.has(edge.id) ? { ...edge, selected: true } : edge,
+      ),
+    [graph, selectedEdgeIds, waitingNodeId],
+  );
   const groups = useMemo(() => groupBoxes(graph), [graph]);
   const configNode = useMemo(
     () => (configNodeId ? graph.nodes.find((n) => n.id === configNodeId) : undefined),
@@ -244,6 +276,31 @@ function EditorCanvas() {
       if (operations.length > 0) apply(operations);
     },
     [apply],
+  );
+
+  /**
+   * 受控的 `edges` 若不配 `onEdgesChange`，XYFlow 的 triggerEdgeChanges 会
+   * **静默丢弃**全部 edge change —— 点连线选不中、按 Delete 也删不掉，
+   * 而底部状态条上写着「点连线可删」。选中与删除都走这一条路。
+   */
+  const onEdgesChange = useCallback(
+    (changes: EdgeChange[]) => {
+      const operations: Parameters<typeof apply>[0] = [];
+      let nextSelection: Set<string> | null = null;
+      for (const change of changes) {
+        if (change.type === 'remove') {
+          operations.push({ op: 'disconnect', edgeId: change.id });
+        }
+        if (change.type === 'select') {
+          nextSelection ??= new Set(selectedEdgeIds);
+          if (change.selected) nextSelection.add(change.id);
+          else nextSelection.delete(change.id);
+        }
+      }
+      if (nextSelection) setSelectedEdgeIds(nextSelection);
+      if (operations.length > 0) apply(operations);
+    },
+    [apply, selectedEdgeIds],
   );
 
   const onConnect = useCallback(
@@ -378,7 +435,9 @@ function EditorCanvas() {
 
       {/* 图纸把它放在工具栏与画布之间：用户在这一屏做的是改流程，
           而有个运行正卡在审批上等他 —— 那件事得先看见 */}
-      {workflowId ? <ApprovalBanner workflowId={workflowId} /> : null}
+      {workflowId ? (
+        <ApprovalBanner workflowId={workflowId} onWaitingNode={setWaitingNodeId} />
+      ) : null}
 
       {error ? (
         <p className="editor-error" role="alert">
@@ -421,7 +480,12 @@ function EditorCanvas() {
             key={workflowId}
             nodes={nodes}
             edges={edges}
+            onEdgesChange={onEdgesChange}
             nodeTypes={NODE_TYPES}
+            edgeTypes={EDGE_TYPES}
+            // 拖线预览：源端口跟着鼠标方位换（设计图的行为）。
+            // 默认预览线锁死在被按下的那个 Handle 上，从下方拖会先向右甩一段。
+            connectionLineComponent={ConnectionLine}
             onNodesChange={onNodesChange}
             onConnect={onConnect}
             onSelectionChange={onSelectionChange}
@@ -456,12 +520,20 @@ function EditorCanvas() {
             maxZoom={MAX_ZOOM}
             fitView
             fitViewOptions={FIT_VIEW}
-            // 图纸：⌘/Ctrl + 滚轮以光标为中心缩放，滚轮平移
-            zoomActivationKeyCode="Meta"
+            // 规范 §6：⌘/Ctrl + 滚轮以光标为中心缩放，滚轮平移。
+            // 不写 zoomActivationKeyCode —— XYFlow 的默认值就是
+            // `isMacOs() ? 'Meta' : 'Control'`，写死 "Meta" 反而让非 macOS
+            // （Web 形态）失去缩放快捷键。
             panOnScroll
-            selectionOnDrag
+            // 框选靠默认的 selectionKeyCode='Shift'。
+            // 不传 selectionOnDrag：XYFlow 会算 `selectionOnDrag && panOnDrag !== true`，
+            // 而 panOnDrag 默认 true，所以那个 prop 恒为 false —— 留着只会误导下一个人。
             multiSelectionKeyCode="Shift"
-            deleteKeyCode={['Delete', 'Backspace']}
+            // 配置弹层开着时把删除键交还给输入框：焦点这时还停在被双击的
+            // react-flow 节点上，按 Backspace 会连节点带弹层一起删掉，而撤销是禁用的。
+            deleteKeyCode={configNode ? null : ['Delete', 'Backspace']}
+            // §8「200 节点拖拽 ≥50fps」：只渲染视口内的元素
+            onlyRenderVisibleElements
             proOptions={{ hideAttribution: true }}
           >
             <ViewportPortal>

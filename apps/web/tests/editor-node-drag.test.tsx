@@ -31,6 +31,8 @@ vi.mock('@xyflow/react', async (importOriginal) => {
     Background: () => null,
     useReactFlow: () => ({
       screenToFlowPosition: (position: { x: number; y: number }) => position,
+      getNodes: () => [],
+      setNodes: vi.fn(),
       zoomIn: vi.fn(),
       zoomOut: vi.fn(),
       zoomTo: vi.fn(),

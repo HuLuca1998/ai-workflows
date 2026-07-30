@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   describeIssue,
   fieldDescriptors,
@@ -30,6 +30,33 @@ type Tab = (typeof TABS)[number];
  * 新增节点类型只要写 Schema 与 describe，这里一行都不用改。
  */
 export function NodeConfigDialog({ node, graph, onClose, onSave }: NodeConfigDialogProps) {
+  const dialogRef = useRef<HTMLDivElement>(null);
+
+  /**
+   * Esc 关闭挂在 document 上，不挂 backdrop 的 onKeyDown。
+   *
+   * 双击节点打开配置时，DOM 焦点停在被双击的 `.react-flow__node`（tabIndex 0）——
+   * 那在 backdrop 的 React 子树之外，keydown 永远不会冒泡到 backdrop 的处理器，
+   * 于是「Esc 关闭」这条规范要求一直是不生效的（而测试里没有 Escape 断言）。
+   */
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        event.stopPropagation();
+        onClose();
+      }
+    };
+    document.addEventListener('keydown', onKeyDown);
+    return () => document.removeEventListener('keydown', onKeyDown);
+  }, [onClose]);
+
+  /** 焦点移进弹层：删除键这时才不会落到画布上把节点删掉。 */
+  useEffect(() => {
+    const title = dialogRef.current?.querySelector<HTMLInputElement>('.cfg__title');
+    title?.focus();
+    title?.select();
+  }, []);
+
   const definition = getNodeDefinition(node.type);
   const fields = useMemo(() => fieldDescriptors(node.type), [node.type]);
   const [tab, setTab] = useState<Tab>('配置');
@@ -65,11 +92,18 @@ export function NodeConfigDialog({ node, graph, onClose, onSave }: NodeConfigDia
   return (
     <div
       className="cfg__backdrop"
-      onKeyDown={(event) => {
-        if (event.key === 'Escape') onClose();
+      onMouseDown={(event) => {
+        // 点遮罩关闭；点弹层内部不关
+        if (event.target === event.currentTarget) onClose();
       }}
     >
-      <div className="cfg" role="dialog" aria-modal="true" aria-label={`配置 ${node.title}`}>
+      <div
+        className="cfg"
+        role="dialog"
+        aria-modal="true"
+        aria-label={`配置 ${node.title}`}
+        ref={dialogRef}
+      >
         <header className="cfg__head">
           <span className="cfg__icon" aria-hidden="true">
             <i className={`ph ${iconFor(node.type)}`} />
@@ -96,9 +130,25 @@ export function NodeConfigDialog({ node, graph, onClose, onSave }: NodeConfigDia
               key={name}
               type="button"
               role="tab"
+              id={`cfg-tab-${name}`}
               aria-selected={tab === name}
+              aria-controls="cfg-panel"
+              // roving tabindex：未选中的退出 Tab 序列，左右键切换
+              tabIndex={tab === name ? 0 : -1}
               className="cfg__tab"
               onClick={() => setTab(name)}
+              onKeyDown={(event) => {
+                const delta = event.key === 'ArrowRight' ? 1 : event.key === 'ArrowLeft' ? -1 : 0;
+                if (delta === 0) return;
+                event.preventDefault();
+                const index = TABS.indexOf(name); // 从焦点所在的按钮出发，不是从当前选中项 ——
+                // roving tabindex 下焦点与选中经常不在同一项
+                const next = TABS[(index + delta + TABS.length) % TABS.length];
+                if (next) {
+                  setTab(next);
+                  document.getElementById(`cfg-tab-${next}`)?.focus();
+                }
+              }}
             >
               {name}
             </button>
@@ -107,7 +157,12 @@ export function NodeConfigDialog({ node, graph, onClose, onSave }: NodeConfigDia
           <span className="cfg__scope">改动只影响草稿</span>
         </nav>
 
-        <div className="cfg__body">
+        <div
+          className="cfg__body"
+          id="cfg-panel"
+          role="tabpanel"
+          aria-labelledby={`cfg-tab-${tab}`}
+        >
           {tab === '配置' ? (
             <div className="cfg__fields">
               {fields.map((field) => (

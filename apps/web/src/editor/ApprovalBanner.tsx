@@ -13,6 +13,9 @@ import { coreClient } from '../data/workspace.js';
  * 「原来早上那次跑到一半停了」是最糟的顺序。
  */
 
+/** 审批是低频事件，5 秒一次足够，也不会给引擎添压。 */
+const PROBE_MS = 5000;
+
 interface Run {
   id: string;
   currentNode?: string;
@@ -27,7 +30,19 @@ interface RunEvent {
   summary: string;
 }
 
-export function ApprovalBanner({ workflowId }: { workflowId: string }) {
+export interface ApprovalBannerProps {
+  workflowId: string;
+  /**
+   * 上报「哪个节点正等着批」。
+   *
+   * 规范 §6 的审批是**双通道**：画布节点脉冲高亮 + 顶部横幅。此前这个组件
+   * 手里就有 request.nodeId，却没有任何一行把它交给画布 —— 用户看到横幅后
+   * 仍要自己在图里找是哪个节点，双通道退化成单通道。
+   */
+  onWaitingNode?: (nodeId: string | null) => void;
+}
+
+export function ApprovalBanner({ workflowId, onWaitingNode }: ApprovalBannerProps) {
   const [run, setRun] = useState<Run | null>(null);
   const [request, setRequest] = useState<RunEvent | null>(null);
   /** 每秒重算一次「已等待多久」——数字不动的话用户会以为界面卡了。 */
@@ -44,7 +59,13 @@ export function ApprovalBanner({ workflowId }: { workflowId: string }) {
           limit: 1,
         })) as { items: Run[] };
         const waiting = result.items[0];
-        if (cancelled || !waiting) return;
+        if (cancelled) return;
+        // 没有等待中的运行就把横幅收掉 —— 批过之后它不该继续挂在那里
+        if (!waiting) {
+          setRun(null);
+          setRequest(null);
+          return;
+        }
         setRun(waiting);
 
         // 审批请求那条事件里有「在批什么」的摘要
@@ -65,10 +86,22 @@ export function ApprovalBanner({ workflowId }: { workflowId: string }) {
     };
 
     void probe();
+    /*
+     * 必须轮询：运行往往是在编辑器已经打开之后才走到审批那一步的，
+     * 只在挂载时探一次的话，之后卡住等你也不会有任何提示 ——
+     * 正是这个组件开头注释说要防止的那个顺序。
+     */
+    const timer = setInterval(() => void probe(), PROBE_MS);
     return () => {
       cancelled = true;
+      clearInterval(timer);
     };
   }, [workflowId]);
+
+  // 把「谁在等」交给画布，让那个节点亮起来（规范 §6 的第二条通道）
+  useEffect(() => {
+    onWaitingNode?.(run ? (request?.nodeId ?? run.currentNode ?? null) : null);
+  }, [run, request, onWaitingNode]);
 
   useEffect(() => {
     if (!run) return;
