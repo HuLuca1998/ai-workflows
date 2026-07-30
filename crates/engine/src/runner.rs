@@ -533,6 +533,40 @@ impl Runner {
                 &format!("注入了 {} 条记忆：{}", keys.len(), keys.join("、")),
             )?;
         }
+        // 「这次运行用的是什么角色」也要在**开始之前**写下。
+        //
+        // 版本快照只冻结了图，而图里存的是 `agentProfileId` 这样的引用 ——
+        // 执行时现查 `agent_profile`，取的是当下的 persona / capabilities /
+        // runtime。三个月后打开一条旧运行问「它当时用的什么人设、什么权限」，
+        // 答案会是**今天**的；用同一个 config_hash 重跑，行为可能完全不同，
+        // 而没有任何东西记下这件事发生过。
+        //
+        // 与记忆那条同样的判据：没有 AI 节点就不写（纯脚本的工作流
+        // 写一条「用了哪些角色」是噪声），而且只写一次
+        if !profiles.is_empty()
+            && self.has_ai_node(store, run_id)?
+            && !self.event_written(store, run_id, "system.env_snapshot")?
+        {
+            let 摘要 = profiles
+                .iter()
+                .map(|p| {
+                    format!(
+                        "{}（{}）· runtime {} · 模型 {} · 权限 {}",
+                        p.name, p.id, p.runtime, p.model_ref, p.capabilities_json
+                    )
+                })
+                .collect::<Vec<_>>()
+                .join("\n");
+            self.emit(
+                store,
+                run_id,
+                "system.env_snapshot",
+                None,
+                "engine",
+                &format!("这次运行用的 {} 个角色：\n{摘要}", profiles.len()),
+            )?;
+        }
+
         let mut scope = self.restore_scope(store, run_id)?;
 
         loop {
@@ -949,10 +983,19 @@ impl Runner {
     /// 记忆快照在整个运行里是同一份，所以写一条就够 ——
     /// 每个 AI 节点各写一条的话，五个 AI 节点就是五条一模一样的事件。
     fn memory_event_written(&self, store: &Store, run_id: &str) -> Result<bool> {
+        self.event_written(store, run_id, "system.memory_injected")
+    }
+
+    /// 这条运行里已经写过这类事件了吗。
+    ///
+    /// 「运行开始时写一次」的那几条（记忆注入、角色快照）恢复执行时
+    /// 会再走一遍这段代码 —— 不查一下的话，一条被中断过三次的运行
+    /// 会有四条一模一样的快照。
+    fn event_written(&self, store: &Store, run_id: &str, kind: &str) -> Result<bool> {
         Ok(store
             .events(run_id, 0, 500)?
             .iter()
-            .any(|event| event.kind == "system.memory_injected"))
+            .any(|event| event.kind == kind))
     }
 
     /// 从运行引用的图里查节点标题。查不到就退回 id ——

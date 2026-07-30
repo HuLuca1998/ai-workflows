@@ -343,22 +343,18 @@ MCP 侧拼「接下来：」，前端 `describeError` 渲染成 `${message}（${
 
 以下是新发现，按严重度排。
 
-### N-3 · 版本快照只冻结了图，agent / model 是活引用
+### N-3 余下 · `delete_model` 是一条裸 DELETE
 
-`workflow_version` 的快照里只有 `graph_json`，而图里存的是
-`agentProfileId: "builtin:analyst"` 这样的**引用**。执行时现查
-`agent_profile`，把 persona / capabilities / runtime 全取当下的值。
-`run.env_snapshot_json` 这一列**零写入方**。
+角色快照已经写进事件流了（见「已经做完的」）。这一条还欠：
+`delete_model` 不查引用、不查 builtin（`model` 表根本没有 builtin 列）。
+删掉 `model:codex` 之后四个内置角色的 `model_ref` 全部悬空，
+而种子批次记账保证它不会被种回来 —— 唯一的恢复手段是一键初始化。
 
-三个月后打开一条旧运行问「它当时用的什么人设、什么权限」，答案是**今天**的。
-用同一个 `config_hash` 重跑，行为可能完全不同，而没有任何东西记下这件事 ——
-与「RunEvent 是唯一事实来源」「可解释性证据」直接冲突。
+界面上那句「删除后引用这个模型的 Agent 与节点会失效」也是错的：
+`model_ref` 引擎从来不读（只有 `runtime` 决定起哪个 adapter），
+什么都不会「失效」，只是记录从此指着一个不存在的东西。
 
-`delete_model` 还是一条裸 DELETE：不查引用、不查 builtin。删掉 `model:codex`
-之后四个内置角色的 `model_ref` 全部悬空，且种子批次记账保证它不会被种回来。
-
-**验收**：`create_run` 把解析后的 agent/model 快照写进 `env_snapshot_json`；
-改掉 agent 的 persona 后，旧运行的证据仍显示改之前的值。`delete_model` 补引用检查。
+**验收**：被引用时拒绝并说清是哪几个角色。
 
 ### N-4 · 三条量级较小但确认过的
 
@@ -533,6 +529,8 @@ DEBT B-1。归在 `entry | end` 那一档，什么都不做直接返回成功，
 - 认不出的能力值按最严 + 界面直说哪两项不读（V-5 的一半）
 - 改边界的工具任何档位都要确认（V-3）—— 之前 workspace_safe 下
   一次免确认调用就能把权限档自己改成 trusted_workflow
+- 运行开始时记下角色快照（N-3 的主要一半）—— 之前版本快照只冻结了图，
+  三个月后打开旧运行，「当时用的什么人设、什么权限」答的是今天的值
 - 迁移守卫（N-2）：老二进制打开新库明确报错；迁移在**有数据**的库上
   逐版本验过 —— 之前 002..012 在 CI 里从未在有行的表上执行过
 - FTS 级联删除走索引（N-1）—— 之前删一条工作流会独占写锁几十秒，

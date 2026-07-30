@@ -1195,3 +1195,129 @@ mod 超长摘要不该压垮运行 {
         );
     }
 }
+
+/// 版本快照只冻结了图，而图里存的是 `agentProfileId` 这样的**引用**。
+///
+/// 执行时现查 `agent_profile`，把 persona / capabilities / runtime
+/// 全取当下的值。三个月后打开一条旧运行问「它当时用的什么人设、
+/// 什么权限」，答案是**今天**的 —— 用同一个 config_hash 重跑，
+/// 行为可能完全不同，而没有任何东西记下这件事发生过。
+///
+/// 这与「RunEvent 是唯一事实来源」和「可解释性证据：用了哪个模型 /
+/// 提示词 / 注入了哪些记忆」直接冲突。`system.env_snapshot` 这个事件类型
+/// 契约里早就声明了，只是从来没被发射过。
+mod 角色快照要留痕 {
+    #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+
+    use aiwf_engine::runner::{RunRequest, Runner};
+    use aiwf_store::Store;
+
+    fn 起一条带_ai_节点的运行() -> (Store, String) {
+        let graph = serde_json::json!({
+            "nodes": [
+                {"id": "entry", "type": "entry", "title": "入口", "config": {}},
+                {"id": "think", "type": "ai.analyze", "title": "分析",
+                 "config": {"agentProfileId": "builtin:analyst", "instruction": "看看",
+                            "target": "某段代码"}}
+            ],
+            "edges": [
+                {"id": "e1", "source": {"nodeId": "entry", "port": "success"},
+                 "target": {"nodeId": "think", "port": "input"}}
+            ],
+            "groups": []
+        })
+        .to_string();
+
+        let store = Store::open_workspace(
+            &std::env::temp_dir().join(format!("aiwf_snap_{}.sqlite", std::process::id())),
+        )
+        .unwrap();
+        store
+            .set_workspace_setting("permissionPreset", "workspace_safe")
+            .unwrap();
+        let wf = store
+            .create_workflow_with_graph("带 AI 的", None, &graph)
+            .unwrap();
+
+        let runner = Runner::new();
+        let run_id = runner
+            .start(
+                &store,
+                RunRequest {
+                    workflow_id: wf,
+                    version_id: None,
+                    draft_rev: Some(0),
+                    inputs_json: "{}".to_string(),
+                    workdir: std::env::temp_dir().display().to_string(),
+                },
+            )
+            .unwrap();
+        // adapter 多半连不上，那没关系 —— 快照该在**开始执行之前**就写下
+        let _ = runner.run_all(&store, &run_id);
+        (store, run_id)
+    }
+
+    #[test]
+    fn 运行开始时记下当时的角色长什么样() {
+        let (store, run_id) = 起一条带_ai_节点的运行();
+        let events = store.events(&run_id, 0, 200).unwrap();
+
+        let 快照 = events
+            .iter()
+            .find(|e| e.kind == "system.env_snapshot")
+            .expect("没有 system.env_snapshot —— 三个月后没人答得出「它当时用的什么角色」");
+
+        // 要能回答的三个问题：谁、跑在哪个 runtime、有什么权限
+        assert!(快照.summary.contains("分析师"), "{}", 快照.summary);
+        assert!(快照.summary.contains("acp.codex"), "{}", 快照.summary);
+        assert!(
+            快照.summary.contains("read") || 快照.summary.contains("file"),
+            "没记下权限声明：{}",
+            快照.summary
+        );
+    }
+
+    #[test]
+    fn 没有_ai_节点时不写这条() {
+        // 一条纯脚本的工作流写一条「用了哪些角色」是噪声
+        let graph = serde_json::json!({
+            "nodes": [
+                {"id": "entry", "type": "entry", "title": "入口", "config": {}},
+                {"id": "done", "type": "end", "title": "结束", "config": {}}
+            ],
+            "edges": [
+                {"id": "e1", "source": {"nodeId": "entry", "port": "success"},
+                 "target": {"nodeId": "done", "port": "input"}}
+            ],
+            "groups": []
+        })
+        .to_string();
+        let store = Store::open_in_memory().unwrap();
+        store
+            .set_workspace_setting("permissionPreset", "workspace_safe")
+            .unwrap();
+        let wf = store
+            .create_workflow_with_graph("纯脚本", None, &graph)
+            .unwrap();
+        let runner = Runner::new();
+        let run_id = runner
+            .start(
+                &store,
+                RunRequest {
+                    workflow_id: wf,
+                    version_id: None,
+                    draft_rev: Some(0),
+                    inputs_json: "{}".to_string(),
+                    workdir: "/tmp".to_string(),
+                },
+            )
+            .unwrap();
+        runner.run_all(&store, &run_id).unwrap();
+
+        let events = store.events(&run_id, 0, 200).unwrap();
+        assert!(
+            !events.iter().any(|e| e.kind == "system.env_snapshot"),
+            "没有 AI 节点却写了角色快照"
+        );
+    }
+}
