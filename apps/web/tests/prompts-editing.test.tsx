@@ -110,11 +110,19 @@ describe('内置条目', () => {
     expect(screen.getByText('你是根因分析者')).toBeTruthy();
   });
 
-  it('对内置点保存时指向「先复制一份」，而不是抛一个契约错误', async () => {
-    const user = await open('记忆提议');
-    await user.click(screen.getByRole('button', { name: '保存新版本' }));
+  /*
+   * 这条原来是「点保存 → 出一句『先复制一份』」。
+   *
+   * 现在那句话提到了按钮上：内置条目上「保存新版本」直接不可点，
+   * 悬停说明出路 —— 让用户改完一大段正文、点了保存才被拒，是白费的一趟。
+   * onSave 里那道 builtin 守卫仍然留着（第二道），只是界面不再让人走到那儿。
+   */
+  it('内置条目的「保存新版本」不可点，并指向「先复制一份」', async () => {
+    await open('记忆提议');
+    const save = screen.getByRole('button', { name: '保存新版本' });
 
-    expect(await screen.findByRole('alert')).toHaveTextContent('先「复制」一份');
+    expect(save).toBeDisabled();
+    expect(save.title).toContain('复制');
     expect(call).not.toHaveBeenCalledWith('prompt.update', expect.anything());
   });
 

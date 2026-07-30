@@ -462,6 +462,12 @@ export function AgentsPage() {
                 <input
                   className="agents__name-input"
                   aria-label="角色名称"
+                  /*
+                   * 内置角色的权限、工具、输出契约都是只读的，这三个输入框
+                   * 却照样能改 —— 改完点保存必然被后端拒。一半能改一半不能
+                   * 是最难懂的一种状态。
+                   */
+                  readOnly={selected.builtin}
                   value={draft.name ?? selected.name}
                   onChange={(event) => setDraft((d) => ({ ...d, name: event.target.value }))}
                 />
@@ -537,6 +543,7 @@ export function AgentsPage() {
                 <textarea
                   id="agent-goal"
                   className="agents__block agents__editable"
+                  readOnly={selected.builtin}
                   value={draft.goal ?? selected.goal}
                   onChange={(event) => setDraft((d) => ({ ...d, goal: event.target.value }))}
                 />
@@ -553,6 +560,7 @@ export function AgentsPage() {
                 <textarea
                   id="agent-persona"
                   className="agents__persona agents__editable"
+                  readOnly={selected.builtin}
                   value={draft.persona ?? selected.persona}
                   onChange={(event) => setDraft((d) => ({ ...d, persona: event.target.value }))}
                 />

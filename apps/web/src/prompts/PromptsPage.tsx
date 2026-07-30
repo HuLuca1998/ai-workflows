@@ -334,6 +334,16 @@ export function PromptsPage() {
               <button
                 type="button"
                 className="runs__action runs__action--primary"
+                /*
+                 * 内置提示词点下去必然弹「不能直接改」—— 那句话该长在按钮上，
+                 * 而不是等用户改完一大段正文、点了保存才说
+                 */
+                disabled={selected.builtin}
+                title={
+                  selected.builtin
+                    ? '内置提示词不能直接改 —— 先「复制」一份，副本是可编辑的'
+                    : undefined
+                }
                 onClick={() => void onSave()}
               >
                 保存新版本
