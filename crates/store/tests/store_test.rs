@@ -3165,3 +3165,92 @@ mod 密钥判据不能误伤普通文本 {
         }
     }
 }
+
+/// 删一条工作流不该独占写锁几十秒。
+///
+/// `fts_index` 的 kind / ref_id 都是 UNINDEXED，而删除触发器的条件
+/// 正是 `WHERE kind = ? AND ref_id = ?` —— **每删一条事件全扫一遍
+/// 整个 FTS 表**。实测 40,000 条索引行、逐条删 2,000 条（那就是
+/// 删掉一条工作流时触发器真实的形态）要 **9.76 秒**；
+/// 按一年日用量的库删一条含 3,640 条事件的工作流是 50 秒量级。
+///
+/// SQLite 单写者、busy_timeout 只有 5 秒：这几十秒里 MCP 的连接、
+/// 桌面主连接、正在执行的运行的 append_event 全部失败。
+mod 级联删除不全表扫 {
+    use super::*;
+
+    #[test]
+    fn 删一条带大量事件的工作流够快() {
+        let store = Store::open_in_memory().unwrap();
+        let wf = store.create_workflow("要删的", None).unwrap();
+        let run = store.create_run_for_test(&wf).unwrap();
+
+        // 另造一批别的索引行 —— 全表扫的代价随索引总量涨，
+        // 只有被删的那些的话，扫不扫都一样快
+        let 陪跑 = store.create_workflow("留着的", None).unwrap();
+        let 陪跑运行 = store.create_run_for_test(&陪跑).unwrap();
+        for i in 0..4000 {
+            store
+                .append_event(&NewRunEvent {
+                    run_id: 陪跑运行.clone(),
+                    kind: "system.audit".to_string(),
+                    node_id: None,
+                    node_label: None,
+                    attempt: None,
+                    actor: "engine".to_string(),
+                    status: None,
+                    summary: format!("陪跑事件 {i}"),
+                    payload_ref: None,
+                    artifact_refs: vec![],
+                    parent_event_id: None,
+                    sensitivity: "internal".to_string(),
+                    schema_ver: 1,
+                })
+                .unwrap();
+        }
+        for i in 0..1500 {
+            store
+                .append_event(&NewRunEvent {
+                    run_id: run.clone(),
+                    kind: "system.audit".to_string(),
+                    node_id: None,
+                    node_label: None,
+                    attempt: None,
+                    actor: "engine".to_string(),
+                    status: None,
+                    summary: format!("要删的事件 {i}"),
+                    payload_ref: None,
+                    artifact_refs: vec![],
+                    parent_event_id: None,
+                    sensitivity: "internal".to_string(),
+                    schema_ver: 1,
+                })
+                .unwrap();
+        }
+
+        let 开始 = std::time::Instant::now();
+        store.delete_workflow(&wf).unwrap();
+        let 用时 = 开始.elapsed();
+
+        // 实测两种实现在这个规模下的差距：走索引 0.36s，全表扫 3.18s。
+        // 阈值取 1.2s —— 给走索引那侧三倍余量（慢机器上也够），
+        // 同时离全表扫那侧还有 2.6 倍距离。
+        //
+        // 一开始写的是 3 秒，回退成全表扫验证时它**照样绿** ——
+        // 一条抓不住退化的性能断言比没有更糟，它会让人以为这里被守着
+        assert!(
+            用时 < std::time::Duration::from_millis(1200),
+            "删一条工作流用了 {用时:?} —— 多半是 FTS 的级联删除又在全表扫了"
+        );
+
+        // 快了也得删干净：孤儿索引行会让搜索命中已经不存在的东西
+        assert!(
+            store.search("要删的事件").unwrap().is_empty(),
+            "被删工作流的索引行还在"
+        );
+        assert!(
+            !store.search("陪跑事件").unwrap().is_empty(),
+            "把别人的索引行一起删了"
+        );
+    }
+}

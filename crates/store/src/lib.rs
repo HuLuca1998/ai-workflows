@@ -2500,6 +2500,13 @@ impl Store {
             "INSERT INTO fts_index(kind, ref_id, text) VALUES (?1, ?2, ?3)",
             params![kind, ref_id, segment_cjk(text)],
         )?;
+        // 侧表跟着写：删除触发器靠它按 rowid 定位。
+        // 少了这一行，那条索引就再也删不掉了 —— FTS 的 kind/ref_id 是
+        // UNINDEXED，没有侧表就只能全表扫，而那正是这张表存在的理由
+        self.conn.execute(
+            "INSERT INTO fts_ref(kind, ref_id, fts_rowid) VALUES (?1, ?2, ?3)",
+            params![kind, ref_id, self.conn.last_insert_rowid()],
+        )?;
         Ok(())
     }
 

@@ -343,22 +343,6 @@ MCP 侧拼「接下来：」，前端 `describeError` 渲染成 `${message}（${
 
 以下是新发现，按严重度排。
 
-### N-1 · 删一条工作流独占写锁 50 秒，其余连接在第 5 秒全部 SQLITE_BUSY
-
-`fts_index` 的 `kind`/`ref_id` 都是 `UNINDEXED`，而删除触发器是
-`WHERE kind='run_event' AND ref_id=old.id` —— **每删一条事件全扫一遍整个 FTS 表**。
-
-在按一年日用量造的库上（1825 次运行 / 73,000 条事件 / 46 MB）实测删一条
-含 3,640 条事件的工作流：**带触发器 50.48s，DROP 掉触发器 0.10s —— 500 倍**。
-
-SQLite 单写者、`busy_timeout` 只有 5000ms：这条语句占着写锁 50 秒，
-期间 MCP 的 8 条连接、桌面主连接、主管 AI 那条、正在执行的运行的
-`append_event` 全部在第 5 秒失败。`workflow_delete` 界面上没有调用点，
-但它不在 `DELIBERATELY_HIDDEN` 里 —— 主管 AI 想「清理一下」就能把应用冻住，
-同时把正在跑的运行的事件写丢。三年量级约 150 秒。
-
-**验收**：73k FTS 行的库上删含 3,600 条事件的工作流 < 1s，且 FTS 行一条不剩。
-
 ### N-2 · 老二进制打开新库静默通过；十个迁移从没在有数据的库上跑过
 
 `EXPECTED_SCHEMA_VERSION` **运行时零处比较**，`migrate()` 只往上看不往下看。
@@ -565,6 +549,8 @@ DEBT B-1。归在 `entry | end` 那一档，什么都不做直接返回成功，
 - 认不出的能力值按最严 + 界面直说哪两项不读（V-5 的一半）
 - 改边界的工具任何档位都要确认（V-3）—— 之前 workspace_safe 下
   一次免确认调用就能把权限档自己改成 trusted_workflow
+- FTS 级联删除走索引（N-1）—— 之前删一条工作流会独占写锁几十秒，
+  期间所有连接在第 5 秒 SQLITE_BUSY
 - 发布前先校验（V-4）—— 之前一坨非 JSON 能被冻成不可变版本
 - 密钥判据不再误伤（R-1）：`task-manager` 曾在写入时被当成密钥吞掉，
   而 create_run 的脱敏在 INSERT 之前，明文永不落库

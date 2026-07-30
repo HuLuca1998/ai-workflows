@@ -8,7 +8,7 @@ use rusqlite::Connection;
 use crate::Result;
 
 /// 当前 schema 版本。新增迁移时同时更新这里与 `MIGRATIONS`。
-pub const EXPECTED_SCHEMA_VERSION: i64 = 11;
+pub const EXPECTED_SCHEMA_VERSION: i64 = 12;
 
 /// (版本号, 说明, SQL)
 const MIGRATIONS: &[(i64, &str, &str)] = &[
@@ -62,6 +62,11 @@ const MIGRATIONS: &[(i64, &str, &str)] = &[
         11,
         "一次性引导数据的记账表",
         include_str!("sql/011_bootstrap.sql"),
+    ),
+    (
+        12,
+        "FTS 级联删除走索引，不再全表扫",
+        include_str!("sql/012_fts_ref_index.sql"),
     ),
 ];
 
