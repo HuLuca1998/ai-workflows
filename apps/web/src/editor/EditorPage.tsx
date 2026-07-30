@@ -33,6 +33,7 @@ import { ConnectionLine } from './ConnectionLine.jsx';
 import { defaultSourcePort, defaultTargetPort, toFlowEdges, toFlowNodes } from './graphAdapter.js';
 import { NODE_HEIGHT, NODE_WIDTH } from './nodeVisuals.js';
 import { minimalConfigFor, titleFor } from './nodeDefaults.js';
+import { shortcut } from '../data/platformKeys.js';
 
 const NODE_TYPES: NodeTypes = { workflow: WorkflowNode };
 /**
@@ -602,7 +603,7 @@ function EditorCanvas() {
             <span className="editor__status-dot">·</span>
             <span>端口拖出连线 · 点连线可删</span>
             <span className="editor__status-dot">·</span>
-            <span>Shift 框选 · ⌘A 全选</span>
+            <span>Shift 框选 · {shortcut('A')} 全选</span>
             <span className="editor__status-dot">·</span>
             <span>{selectedCount > 0 ? `已选 ${selectedCount} 个` : '未选中'}</span>
             <span className="editor__status-dot">·</span>

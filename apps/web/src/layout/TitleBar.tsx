@@ -1,6 +1,7 @@
 import { useLocation } from 'react-router';
 import { navItemForPath } from '../navigation.js';
 import { isDesktopRuntime } from '../updater/useAppVersion.js';
+import { shortcut } from '../data/platformKeys.js';
 
 export interface TitleBarProps {
   onAskAi: () => void;
@@ -47,7 +48,7 @@ export function TitleBar({ onAskAi, activeRuns = 0, workdir }: TitleBarProps) {
 
       <button type="button" className="title-bar__ask" onClick={onAskAi}>
         <i className="ph ph-sparkle" aria-hidden="true" />
-        询问 AI<kbd>⌘K</kbd>
+        询问 AI<kbd>{shortcut('K')}</kbd>
       </button>
 
       {activeRuns > 0 ? (

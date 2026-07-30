@@ -176,6 +176,8 @@ describe('画布周边', () => {
   });
 
   it('左下状态条显示操作提示与计数（图纸原文）', () => {
+    // 快捷键提示按平台走 —— 图纸画的是 macOS，这里就按 macOS 断言
+    Object.defineProperty(navigator, 'platform', { value: 'MacIntel', configurable: true });
     renderEditor();
     expect(screen.getByText('双击编辑 · 右键菜单')).toBeInTheDocument();
     expect(screen.getByText('端口拖出连线 · 点连线可删')).toBeInTheDocument();

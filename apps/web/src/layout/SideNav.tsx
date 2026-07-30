@@ -21,6 +21,10 @@ export interface SideNavProps {
 export function SideNav({ counts, permission, environment }: SideNavProps) {
   const width = useViewportWidth();
   const collapsed = width < NAV_COLLAPSE_WIDTH;
+  // 收起态只有图标，文案要进 title / aria-label，所以先取出来
+  const permissionPreset = permission?.preset ?? '未设置权限档';
+  const permissionDetail = permission?.detail ?? '首次配置时授权工作目录并选择权限档';
+  const environmentText = environment?.text ?? '环境尚未检查';
 
   return (
     <nav aria-label="主导航" className="side-nav" data-collapsed={collapsed ? 'true' : 'false'}>
@@ -50,24 +54,38 @@ export function SideNav({ counts, permission, environment }: SideNavProps) {
       </div>
 
       <div className="side-nav__foot">
-        {collapsed ? null : (
-          <div className="side-nav__permission">
-            <p className="side-nav__permission-title">
-              <i className="ph ph-shield-check" aria-hidden="true" />
-              {permission?.preset ?? '未设置权限档'}
-            </p>
-            <p className="side-nav__permission-detail">
-              {permission?.detail ?? '首次配置时授权工作目录并选择权限档'}
-            </p>
-          </div>
-        )}
+        {/*
+          * 收起的是**标签**，不是**信息**。
+          *
+          * 这两块此前在窄窗口下一个整块不渲染、一个只剩图标：用户不知道
+          * 自己开的是哪一档权限（那一档决定了 AI 能不能改他的文件），
+          * 也不知道那个红色感叹号在说什么 —— 悬停没有 title，读屏念不出。
+          */}
+        <div
+          className="side-nav__permission"
+          aria-label={`权限档：${permissionPreset}`}
+          title={`权限档：${permissionPreset} —— ${permissionDetail}`}
+        >
+          <p className="side-nav__permission-title">
+            <i className="ph ph-shield-check" aria-hidden="true" />
+            {collapsed ? null : permissionPreset}
+          </p>
+          {collapsed ? null : (
+            <p className="side-nav__permission-detail">{permissionDetail}</p>
+          )}
+        </div>
 
-        <p className="side-nav__env" data-ok={environment?.ok ? 'true' : 'false'}>
+        <p
+          className="side-nav__env"
+          data-ok={environment?.ok ? 'true' : 'false'}
+          aria-label={`环境：${environmentText}`}
+          title={`环境：${environmentText}`}
+        >
           <i
             className={`ph ${environment?.ok ? 'ph-heartbeat' : 'ph-warning-circle'}`}
             aria-hidden="true"
           />
-          {collapsed ? null : <span>{environment?.text ?? '环境尚未检查'}</span>}
+          {collapsed ? null : <span>{environmentText}</span>}
         </p>
       </div>
     </nav>

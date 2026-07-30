@@ -80,9 +80,18 @@ describe('标题栏', () => {
     expect(screen.getByLabelText('当前位置')).toHaveTextContent('执行记录');
   });
 
-  it('提供询问 AI 入口并标注快捷键', () => {
+  it('提供询问 AI 入口并标注快捷键 —— 按平台写，Windows 上没有 ⌘ 这个键', () => {
+    // jsdom 默认既不是 mac 也不是 win，这里显式说清楚测的是哪一边
+    Object.defineProperty(navigator, 'platform', { value: 'MacIntel', configurable: true });
     renderShell();
     expect(screen.getByRole('button', { name: /询问 AI/u })).toHaveTextContent('⌘K');
+  });
+
+  it('非 macOS 上标 Ctrl+K —— 键盘处理本来就同时认 ctrlKey', () => {
+    Object.defineProperty(navigator, 'platform', { value: 'Win32', configurable: true });
+    Object.defineProperty(navigator, 'userAgent', { value: 'Win32', configurable: true });
+    renderShell();
+    expect(screen.getByRole('button', { name: /询问 AI/u })).toHaveTextContent('Ctrl+K');
   });
 });
 
