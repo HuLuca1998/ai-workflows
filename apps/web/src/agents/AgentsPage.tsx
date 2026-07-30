@@ -491,7 +491,19 @@ export function AgentsPage() {
                 </p>
               </div>
               <span className="runs__grow" />
-              <button type="button" className="runs__action" onClick={() => void onDuplicate()}>
+              <button
+                type="button"
+                className="runs__action"
+                /*
+                 * 复制走的是后端的 agent.duplicate —— 它拿到的是**已保存的**
+                 * 那一版，界面里没保存的草稿它看不见。有草稿时把这句说出来，
+                 * 否则用户会以为副本带着他刚改的内容。
+                 */
+                title={
+                  hasUnsaved ? '复制的是已保存的那一版，界面里未保存的改动不会带过去' : undefined
+                }
+                onClick={() => void onDuplicate()}
+              >
                 <i className="ph ph-copy" aria-hidden="true" />
                 复制
               </button>

@@ -110,3 +110,19 @@ describe('确认删除的焦点', () => {
     });
   });
 });
+
+describe('有未保存改动时复制', () => {
+  it('说清楚复制的是已保存的那一版 —— 后端拿不到界面里的草稿', async () => {
+    respond([agent('a1', '角色甲')]);
+    const user = userEvent.setup();
+    render(<AgentsPage />);
+
+    await user.click(await screen.findByText('角色甲'));
+    const name = await screen.findByLabelText('角色名称');
+    await user.clear(name);
+    await user.type(name, '改过的');
+
+    const copy = screen.getByRole('button', { name: /复制/u });
+    expect(copy.title).toContain('已保存');
+  });
+});
