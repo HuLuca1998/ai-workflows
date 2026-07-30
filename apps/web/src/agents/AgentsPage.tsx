@@ -258,6 +258,9 @@ export function AgentsPage() {
     try {
       await coreClient.call('agent.update', changed);
       setDraft({});
+      // 改动已经落地，那条「有未保存的改动」的警告要跟着收 ——
+      // 不收的话它还挂在屏幕上说着一件已经不成立的事
+      setPendingSelect(null);
       setError(null);
       await load();
     } catch (err) {
@@ -527,6 +530,16 @@ export function AgentsPage() {
               <button
                 type="button"
                 className="runs__action runs__action--primary"
+                /*
+                 * 内置角色改了必然被后端拒 —— 权限、工具、输出契约已经只读，
+                 * 两个模型下拉与这个按钮却还能动，等于让用户白改一遍
+                 */
+                disabled={selected.builtin}
+                title={
+                  selected.builtin
+                    ? '内置角色不能直接改 —— 先「复制」一份，副本是可编辑的'
+                    : undefined
+                }
                 onClick={() => void onSave()}
               >
                 保存新版本
@@ -589,6 +602,7 @@ export function AgentsPage() {
                   <select
                     className="agents__select"
                     aria-label="模型"
+                    disabled={selected.builtin}
                     value={draft.modelRef ?? selected.modelRef}
                     onChange={(event) => setDraft((d) => ({ ...d, modelRef: event.target.value }))}
                   >
@@ -613,6 +627,7 @@ export function AgentsPage() {
                   <select
                     className="agents__select"
                     aria-label="降级模型"
+                    disabled={selected.builtin}
                     value={draft.fallbackModelRef ?? selected.fallbackModelRef ?? ''}
                     onChange={(event) =>
                       setDraft((d) => ({ ...d, fallbackModelRef: event.target.value }))

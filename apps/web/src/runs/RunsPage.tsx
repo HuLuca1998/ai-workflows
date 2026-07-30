@@ -77,10 +77,17 @@ export function RunsPage() {
    */
   const [jumpToArtifact, setJumpToArtifact] = useState<string | null>(null);
   /** 刚导出的诊断包路径。不告诉用户在哪的话他找不到。 */
-  const [diagnostics, setDiagnostics] = useState<string | null>(null);
+  /*
+   * 诊断包结果带着**是哪条运行**的 id。
+   *
+   * 两个毛病一起治：此前它是页面级的匿名值，导出 A 之后切到 B，那行路径
+   * 挂在 B 的详情下；而反馈整块又长在失败横幅内部 —— 成功的运行导出成功
+   * 也什么都不显示。
+   */
+  const [diagnostics, setDiagnostics] = useState<{ runId: string; path: string } | null>(null);
   /** 选中的节点；null 表示看整条运行。图纸的节点进度栏每行都可点。 */
   const [selectedNode, setSelectedNode] = useState<string | null>(null);
-  const [exportError, setExportError] = useState<string | null>(null);
+  const [exportError, setExportError] = useState<{ runId: string; message: string } | null>(null);
   /* 每点一次后端真出一个包 —— 无中间态时用户等不到反馈就会再点 */
   const exporting = useAsyncAction();
 
@@ -89,9 +96,9 @@ export function RunsPage() {
     setExportError(null);
     try {
       const result = (await coreClient.call('run.diagnostics', { runId })) as { path: string };
-      setDiagnostics(result.path);
+      setDiagnostics({ runId, path: result.path });
     } catch (err) {
-      setExportError(err instanceof Error ? err.message : String(err));
+      setExportError({ runId, message: err instanceof Error ? err.message : String(err) });
     }
   };
   /*
@@ -320,10 +327,10 @@ export function RunsPage() {
                   <button
                     type="button"
                     className="runs__action runs__action--primary"
-                    disabled={resuming.running}
-                    onClick={() => resuming.run(() => runs.resume(selected.id))}
+                    disabled={resuming.running && resuming.target === selected.id}
+                    onClick={() => resuming.run(() => runs.resume(selected.id), selected.id)}
                   >
-                    {resuming.running ? '恢复中…' : '恢复运行'}
+                    {resuming.running && resuming.target === selected.id ? '恢复中…' : '恢复运行'}
                   </button>
                 ) : null}
                 {/*
@@ -334,25 +341,25 @@ export function RunsPage() {
                   <button
                     type="button"
                     className="runs__action"
-                    disabled={rerunning.running}
-                    onClick={() => rerunning.run(() => runs.rerun(selected.id))}
+                    disabled={rerunning.running && rerunning.target === selected.id}
+                    onClick={() => rerunning.run(() => runs.rerun(selected.id), selected.id)}
                   >
-                    {rerunning.running ? '启动中…' : '用相同参数重跑'}
+                    {rerunning.running && rerunning.target === selected.id ? '启动中…' : '用相同参数重跑'}
                   </button>
                 ) : null}
                 <button
                   type="button"
                   className="runs__action"
-                  disabled={exporting.running}
-                  onClick={() => exporting.run(() => exportDiagnostics(selected.id))}
+                  disabled={exporting.running && exporting.target === selected.id}
+                  onClick={() => exporting.run(() => exportDiagnostics(selected.id), selected.id)}
                 >
-                  {exporting.running ? '导出中…' : '导出诊断包'}
+                  {exporting.running && exporting.target === selected.id ? '导出中…' : '导出诊断包'}
                 </button>
                 {isActive(selected.status) ? (
                   <button
                     type="button"
                     className="runs__action"
-                    disabled={cancelling.running}
+                    disabled={cancelling.running && cancelling.target === selected.id}
                     onClick={() => {
                       // 取消会杀掉一条正在跑的运行 —— 不可撤销，要确认。
                       // 而且后端不幂等，连点两次就是两条命令。
@@ -361,11 +368,11 @@ export function RunsPage() {
                         return;
                       }
                       setConfirmCancel(null);
-                      cancelling.run(() => runs.cancel(selected.id));
+                      cancelling.run(() => runs.cancel(selected.id), selected.id);
                     }}
                     data-danger={confirmCancel === selected.id ? 'true' : undefined}
                   >
-                    {cancelling.running
+                    {cancelling.running && cancelling.target === selected.id
                       ? '取消中…'
                       : confirmCancel === selected.id
                         ? '确认取消运行'
@@ -429,8 +436,8 @@ export function RunsPage() {
                   <button
                     type="button"
                     className="runs__action runs__action--primary"
-                    disabled={resuming.running}
-                    onClick={() => resuming.run(() => runs.resume(selected.id))}
+                    disabled={resuming.running && resuming.target === selected.id}
+                    onClick={() => resuming.run(() => runs.resume(selected.id), selected.id)}
                   >
                     <i className="ph ph-arrow-counter-clockwise" aria-hidden="true" />
                     从失败节点重试
@@ -440,8 +447,8 @@ export function RunsPage() {
                   <button
                     type="button"
                     className="runs__action"
-                    disabled={rewinding.running}
-                    onClick={() => rewinding.run(() => runs.rewindToApproval(selected.id))}
+                    disabled={rewinding.running && rewinding.target === selected.id}
+                    onClick={() => rewinding.run(() => runs.rewindToApproval(selected.id), selected.id)}
                   >
                     回到最近审批点改选择
                   </button>
@@ -452,28 +459,34 @@ export function RunsPage() {
                    * 横幅里只留失败专属的两个：从失败节点重试、回到审批点。
                    */}
                 </div>
-                {exportError ? (
-                  <p className="runs__error" role="alert">
-                    {exportError}
-                  </p>
-                ) : null}
-                {diagnostics ? (
-                  <p className="runs__diagnostics" role="status">
-                    <i className="ph ph-file-arrow-down" aria-hidden="true" />
-                    已导出到 {diagnostics}
-                    <CopyButton
-                      value={diagnostics}
-                      label=""
-                      className="runs__inline-copy"
-                      ariaLabel="复制诊断包路径"
-                    />
-                    {/* 用户要把它发给别人，得知道能不能发 */}
-                    <span className="runs__diagnostics-note">
-                      · 内容已过脱敏器，Secret 只以 keychain:// 引用出现
-                    </span>
-                  </p>
-                ) : null}
               </div>
+            ) : null}
+
+            {/*
+             * 导出反馈在失败横幅**外面**：任何一次运行都能导出诊断包
+             * （成功但结果不对同样想把证据发给别人），而它此前长在
+             * `progress.failed` 那一块里 —— 成功的运行导出成功也什么都不显示。
+             */}
+            {exportError?.runId === selected.id ? (
+              <p className="runs__error" role="alert">
+                {exportError.message}
+              </p>
+            ) : null}
+            {diagnostics?.runId === selected.id ? (
+              <p className="runs__diagnostics" role="status">
+                <i className="ph ph-file-arrow-down" aria-hidden="true" />
+                已导出到 {diagnostics.path}
+                <CopyButton
+                  value={diagnostics.path}
+                  label=""
+                  className="runs__inline-copy"
+                  ariaLabel="复制诊断包路径"
+                />
+                {/* 用户要把它发给别人，得知道能不能发 */}
+                <span className="runs__diagnostics-note">
+                  · 内容已过脱敏器，Secret 只以 keychain:// 引用出现
+                </span>
+              </p>
             ) : null}
 
             {selected.status === 'waiting_approval' ? (

@@ -46,8 +46,13 @@ export function ModelsPage() {
   const [creating, setCreating] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  /** 连通性测试：进行中的标记与最近一次结果。 */
-  const [testing, setTesting] = useState(false);
+  /**
+   * 连通性测试：**正在测哪一个**，以及最近一次结果。
+   *
+   * 只存一个布尔时它会跟着跑：测 A 的过程中切到 B，B 的按钮显示
+   * 「测试中…」并且点不动，而那个请求根本不是对它发的。
+   */
+  const [testingId, setTestingId] = useState<string | null>(null);
   /*
    * 结果里带着**是哪个模型**的 id。此前是一个页面级的匿名结果，
    * 在 A 上测出「连不上」再切到 B，那句红字就挂在 B 的详情里了。
@@ -58,6 +63,8 @@ export function ModelsPage() {
     ok: boolean;
     detail: string;
   } | null>(null);
+  /** 测试失败的报错。与结果一样绑 id —— 页面级的 error 会跟着跑。 */
+  const [testError, setTestError] = useState<{ id: string; message: string } | null>(null);
   /** 满足条件的总条数与当前页起点。后端早就分页了，缺的是界面这一层。 */
   const [total, setTotal] = useState(0);
   const [offset, setOffset] = useState(0);
@@ -95,9 +102,9 @@ export function ModelsPage() {
    */
   const runTest = async () => {
     if (!selectedId) return;
-    setTesting(true);
+    setTestingId(selectedId);
     setTestResult(null);
-    setError(null);
+    setTestError(null);
     try {
       const result = (await coreClient.call('model.test', { id: selectedId })) as {
         ok: boolean;
@@ -107,9 +114,10 @@ export function ModelsPage() {
       setTestResult({ id: selectedId, ok: result.ok, detail: result.detail });
       await load(offset);
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      // 错误也绑 id：不绑的话 A 的「连不上」会显示在 B 的详情下
+      setTestError({ id: selectedId, message: err instanceof Error ? err.message : String(err) });
     } finally {
-      setTesting(false);
+      setTestingId(null);
     }
   };
 
@@ -275,10 +283,10 @@ export function ModelsPage() {
               <button
                 type="button"
                 className="runs__action"
-                disabled={testing}
+                disabled={testingId === selected.id}
                 onClick={() => void runTest()}
               >
-                {testing ? '测试中…' : '测试连通性'}
+                {testingId === selected.id ? '测试中…' : '测试连通性'}
               </button>
               <button type="button" className="runs__action" onClick={() => void onToggle()}>
                 {selected.enabled ? '停用' : '启用'}
@@ -377,6 +385,11 @@ export function ModelsPage() {
                 </dl>
                 {/* 测试结果连原因一起显示：adapter 没装是最常见的情况，
                     而用户需要的是「装什么」，不是一个红色的「失败」 */}
+                {testError?.id === selected.id ? (
+                  <p className="runs__error" role="alert">
+                    {testError.message}
+                  </p>
+                ) : null}
                 {testResult && testResult.id === selected.id ? (
                   <p className="models__test-result" data-ok={testResult.ok} role="status">
                     <i

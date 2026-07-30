@@ -72,7 +72,14 @@ export function createContractCall(
      */
     const 校验 = (value: unknown) => {
       const out = spec.output.safeParse(value);
-      if (out.success) return value;
+      /*
+       * 返回**解析后**的值，与真实 CoreClient 一致。
+       *
+       * 返回原始值的话夹具里多写的键会活着传给组件（真实后端那份会被
+       * strip 掉），而夹具漏写的带默认值的字段又拿不到默认值 ——
+       * 两个方向上测的都不是组件真正会收到的东西。
+       */
+      if (out.success) return out.data;
       const issues = out.error.issues
         .map((issue) => `${issue.path.join('.') || '(根)'}: ${issue.message}`)
         .join('; ');
@@ -83,7 +90,8 @@ export function createContractCall(
       throw new Error(message);
     };
 
-    return result instanceof Promise ? result.then(校验) : 校验(result);
+    // await 一个非 Promise 也是合法的，这样连 thenable 都能正确处理
+    return 校验(await result);
   };
 }
 

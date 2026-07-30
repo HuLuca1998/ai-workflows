@@ -197,6 +197,12 @@ export function SupervisorDrawer({
    * 先把那条运行的 id 摘掉。摘掉的项会列在下面，随时能加回来。
    */
   const [droppedContext, setDroppedContext] = useState<ContextKey[]>([]);
+  /*
+   * 摘除是「这次对话」的事 —— 换了会话就该回到默认。
+   *
+   * 不清的话：在上一条会话里摘掉了运行，开新对话或翻开一条历史会话时
+   * 那个运行仍然默认被排除，而注释与界面都说的是「从这次对话摘掉」。
+   */
   const dropped = (key: ContextKey) => droppedContext.includes(key);
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [historyOpen, setHistoryOpen] = useState(false);
@@ -279,6 +285,8 @@ export function SupervisorDrawer({
 
   /** 读一条历史会话回对话区。 */
   const openSession = async (id: string) => {
+    // 同上：翻开另一条会话时不该带着上一条的摘除
+    setDroppedContext([]);
     setError(null);
     try {
       const result = (await coreClient.call('supervisor.session', { sessionId: id })) as {
@@ -526,6 +534,8 @@ export function SupervisorDrawer({
               setSessionId(null);
               setProposal(null);
               setError(null);
+              // 摘除是「这次对话」的事，新对话回到默认
+              setDroppedContext([]);
             }}
           >
             <i className="ph ph-plus" aria-hidden="true" />

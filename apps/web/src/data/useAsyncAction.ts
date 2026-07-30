@@ -17,21 +17,32 @@ import { useCallback, useRef, useState } from 'react';
 export function useAsyncAction(): {
   /** 进行中。绑到按钮的 disabled 上。 */
   running: boolean;
+  /**
+   * 请求是对**哪个对象**发的。
+   *
+   * 列表 + 详情这种布局里，中间态挂在页面级会跟着跑：取消运行 A、切到 B，
+   * B 的按钮显示「取消中…」并且不能点，而那个请求根本不属于它。
+   * 调用方传了 target 之后，用 `running && target === 当前 id` 判断。
+   */
+  target: string | null;
   /** 包一层：进行中时直接丢弃这次点击。 */
-  run: (action: () => Promise<unknown>) => void;
+  run: (action: () => Promise<unknown>, target?: string) => void;
 } {
   const inFlight = useRef(false);
   const [running, setRunning] = useState(false);
+  const [target, setTarget] = useState<string | null>(null);
 
-  const run = useCallback((action: () => Promise<unknown>) => {
+  const run = useCallback((action: () => Promise<unknown>, next?: string) => {
     if (inFlight.current) return;
     inFlight.current = true;
     setRunning(true);
+    setTarget(next ?? null);
     void action().finally(() => {
       inFlight.current = false;
       setRunning(false);
+      setTarget(null);
     });
   }, []);
 
-  return { running, run };
+  return { running, target, run };
 }
