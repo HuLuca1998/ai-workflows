@@ -706,9 +706,22 @@ pub fn capability_flags(capabilities: &Value) -> HashMap<String, bool> {
 /// 而**同一条对话本来就不该并发**（两轮 prompt 交错发给同一个 session，
 /// agent 那边的上下文会乱掉）。
 pub struct SessionPool {
-    live: std::sync::Mutex<HashMap<String, Live>>,
+    /// key → 那条会话的槽位。
+    ///
+    /// 槽位是 `Arc<Mutex<..>>` 而不是直接放 `Live`：整轮 ACP 对话要跑
+    /// 十几分钟，握着整张表那么久的话，`shutdown()` 也得排在后面 ——
+    /// 用户在主管 AI 说话时按 ⌘Q，退出回调阻塞在锁上，窗口关了而进程不退。
+    /// 他会强杀，于是 adapter 子进程一个都没被 kill：**正是 shutdown
+    /// 要防的那件事，在最可能发生的时刻失效**。
+    ///
+    /// 按槽位上锁之后，外层那把锁只在「取槽位」的一瞬间持有。
+    /// 顺带两条不同的对话也能并发了。
+    live: std::sync::Mutex<HashMap<String, Slot>>,
     idle: Duration,
 }
+
+/// 一条会话的槽位。`None` 表示「占了位但还没建起来」。
+type Slot = std::sync::Arc<std::sync::Mutex<Option<Live>>>;
 
 struct Live {
     client: AcpClient,
@@ -754,27 +767,32 @@ impl SessionPool {
         text: &str,
         mut on_update: impl FnMut(SessionUpdate<'_>),
     ) -> Result<PromptOutcome> {
-        let mut live = self.live.lock().map_err(|_| AcpError::Disconnected)?;
+        // 外层锁只在这一瞬间持有：取到自己那个槽位就放开，
+        // 整轮对话锁的是槽位而不是整张表
+        let slot = {
+            let mut live = self.live.lock().map_err(|_| AcpError::Disconnected)?;
 
-        // 先清掉放太久的：借这次调用顺手做，不额外起一个收割线程 ——
-        // 那个线程的生命周期又要跟着 App 管一遍
-        let idle = self.idle;
-        live.retain(|_, session| session.last_used.elapsed() < idle);
+            // 先清掉放太久的：借这次调用顺手做，不额外起一个收割线程 ——
+            // 那个线程的生命周期又要跟着 App 管一遍。
+            // 正在用的槽位锁着，`try_lock` 拿不到就跳过它
+            self.reap_locked(&mut live);
 
-        if !live.contains_key(key) {
+            live.entry(key.to_string()).or_default().clone()
+        };
+
+        let mut held = slot.lock().map_err(|_| AcpError::Disconnected)?;
+
+        if held.is_none() {
             let (client, session_id) = 建()?;
-            live.insert(
-                key.to_string(),
-                Live {
-                    client,
-                    session_id,
-                    last_used: std::time::Instant::now(),
-                },
-            );
+            *held = Some(Live {
+                client,
+                session_id,
+                last_used: std::time::Instant::now(),
+            });
         }
 
         let 结果 = {
-            let session = live.get_mut(key).ok_or(AcpError::Disconnected)?;
+            let session = held.as_mut().ok_or(AcpError::Disconnected)?;
             let id = session.session_id.clone();
             session.last_used = std::time::Instant::now();
             session.client.prompt(&id, text, &mut on_update)
@@ -786,22 +804,33 @@ impl SessionPool {
             // 把「adapter 昨天半夜被升级了」这种事报给用户没有意义，
             // 他能做的也只是再点一次
             Err(_) => {
-                live.remove(key);
+                *held = None;
                 let (mut client, session_id) = 建()?;
                 let outcome = client.prompt(&session_id, text, &mut on_update);
                 // 新会话照样放回池里：这一轮可能还是失败（adapter 真的坏了），
                 // 但下一轮不该再为此多起一个进程
-                live.insert(
-                    key.to_string(),
-                    Live {
-                        client,
-                        session_id,
-                        last_used: std::time::Instant::now(),
-                    },
-                );
+                *held = Some(Live {
+                    client,
+                    session_id,
+                    last_used: std::time::Instant::now(),
+                });
                 outcome
             }
         }
+    }
+
+    /// 收掉空闲太久的槽位。调用方已经持有外层锁。
+    ///
+    /// **正在用的槽位跳过**：`try_lock` 拿不到就说明有人在对话，
+    /// 而那条会话按定义不是空闲的。
+    fn reap_locked(&self, live: &mut HashMap<String, Slot>) {
+        let idle = self.idle;
+        live.retain(|_, slot| match slot.try_lock() {
+            Ok(held) => held
+                .as_ref()
+                .is_none_or(|session| session.last_used.elapsed() < idle),
+            Err(_) => true,
+        });
     }
 
     /// 把一条会话改挂到新的 key 下。
@@ -823,7 +852,15 @@ impl SessionPool {
     /// 池子里现在活着几条。
     #[must_use]
     pub fn live_count(&self) -> usize {
-        self.live.lock().map(|live| live.len()).unwrap_or(0)
+        self.live
+            .lock()
+            .map(|live| {
+                // 只数真的建起来了的：占了位还没建的槽位不算一条会话
+                live.values()
+                    .filter(|slot| slot.lock().is_ok_and(|held| held.is_some()))
+                    .count()
+            })
+            .unwrap_or(0)
     }
 
     /// 收掉空闲太久的会话。
@@ -831,12 +868,16 @@ impl SessionPool {
     /// `prompt` 每次也会顺手做一遍，这个方法是给「一直没人说话」的情况用的。
     pub fn reap_idle(&self) {
         if let Ok(mut live) = self.live.lock() {
-            let idle = self.idle;
-            live.retain(|_, session| session.last_used.elapsed() < idle);
+            self.reap_locked(&mut live);
         }
     }
 
     /// 全部关掉。App 退出时走这条，不然会留下一堆孤儿 adapter 进程。
+    ///
+    /// **立刻返回**，不等正在进行的那轮对话讲完 —— 用户按 ⌘Q 时
+    /// 不该被一个还在说话的 agent 拖住。清表只是丢掉这些 Arc；
+    /// 正在用的那条由持有者的 Arc 保活，那一轮结束、guard 落地之后
+    /// 引用计数归零，`AcpClient::drop` 照样把整个进程组 kill 掉。
     pub fn shutdown(&self) {
         if let Ok(mut live) = self.live.lock() {
             live.clear();
@@ -858,9 +899,8 @@ impl SessionPool {
     #[doc(hidden)]
     #[must_use]
     pub fn pid_for_test(&self, key: &str) -> Option<u32> {
-        self.live
-            .lock()
-            .ok()
-            .and_then(|live| live.get(key).map(|s| s.client.pid()))
+        let slot = self.live.lock().ok()?.get(key)?.clone();
+        let held = slot.lock().ok()?;
+        held.as_ref().map(|session| session.client.pid())
     }
 }

@@ -178,3 +178,57 @@ fn 改挂一个不存在的_key_不出事() {
     pool.rekey("不存在", "也不存在");
     assert_eq!(pool.live_count(), 0);
 }
+
+#[test]
+fn 正在对话时也关得掉_不会卡在退出上() {
+    // `prompt` 原本整轮握着整张表的锁，而 `shutdown()` 要抢同一把 ——
+    // 用户在主管 AI 说话时按 ⌘Q，退出回调阻塞在锁上，窗口关了而进程不退。
+    // 他会强杀，于是 adapter 子进程一个都没被 kill：
+    // **正是 shutdown 要防的那件事，在最可能发生的时刻失效**。
+    use std::sync::Arc;
+
+    let pool = Arc::new(SessionPool::new(Duration::from_secs(300)));
+    问(&pool, "sup_busy", "count-sessions", "第一句");
+
+    // 占住那条会话的槽位，模拟「正在对话」
+    let 占住 = Arc::clone(&pool);
+    let (发, 收) = std::sync::mpsc::channel::<()>();
+    let 对话中 = std::thread::spawn(move || {
+        占住.prompt("sup_busy", 建会话("hang"), "这一轮会挂住", |_| {
+            let _ = 发.send(());
+        })
+    });
+
+    // 等它真的进到那一轮里；hang 场景不会回应答，所以靠超时兜底
+    let _ = 收.recv_timeout(Duration::from_secs(2));
+    std::thread::sleep(Duration::from_millis(200));
+
+    let 开始 = std::time::Instant::now();
+    pool.shutdown();
+    assert!(
+        开始.elapsed() < Duration::from_secs(2),
+        "shutdown 卡在了正在进行的那轮对话上：{:?}",
+        开始.elapsed()
+    );
+
+    // 那一轮自己会以超时收场；它持有的 Arc 落地后进程才被回收
+    let _ = 对话中.join();
+}
+
+#[test]
+fn 两条不同的对话能并发() {
+    // 池是进程级单例。整池一把锁的话，桌面端与 MCP 上的两条**不同**对话
+    // 不能同时说话 —— 后来的那条要等前一条讲完十几分钟
+    use std::sync::Arc;
+
+    let pool = Arc::new(SessionPool::new(Duration::from_secs(300)));
+    let a = Arc::clone(&pool);
+    let b = Arc::clone(&pool);
+
+    let 甲 = std::thread::spawn(move || 问(&a, "sup_甲", "count-sessions", "问题"));
+    let 乙 = std::thread::spawn(move || 问(&b, "sup_乙", "count-sessions", "问题"));
+
+    assert!(!甲.join().unwrap().is_empty());
+    assert!(!乙.join().unwrap().is_empty());
+    assert_eq!(pool.live_count(), 2);
+}
