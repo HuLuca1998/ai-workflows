@@ -359,7 +359,7 @@ MCP 侧拼「接下来：」，前端 `describeError` 渲染成 `${message}（${
 ## 〇之七、第 7 轮：复核我自己上一轮的修复
 
 这一轮的探索 agent 专挑「刚改过的地方」看，**四条命中都是我上一轮的产物**。
-记在这里是因为它们同属一种失效：*修完之后我自己写的测试证明它修好了*。
+记在这里是因为它们同属一种失效：_修完之后我自己写的测试证明它修好了_。
 
 已修的三条见「已经做完的」。以下是查证属实、尚未动手的：
 
@@ -393,6 +393,88 @@ Round 7 点名，逐条查证过：
 
 **验收**：先定方向再动它。接的话补契约方法与界面入口（记忆/提示词/运行
 三处搜索都可以走它），删的话连表带触发器一起走。
+
+---
+
+## 〇之八、外部审计报告（2026-07-30）并入
+
+一份完整的端到端审计（真实模型 canary + 浏览器 E2E + API E2E）留在了仓库根
+（`AUDIT-DEFECT-REPORT-2026-07-30.md`，已删）。它的结论比清单上任何一条都重：
+**「组件多数存在，但默认主流程仍不可用」**。原文的 P0/P1 逐条并入这里。
+
+### AU-1 · P0 · 调度器忽略输出端口，互斥分支**全部执行**
+
+`approval` 节点的 `approved` 连 A、`rejected` 连 B，用户选「批准」——
+**A 和 B 都跑了**（run_a22919cf8e6dbbf7 里两条 `script.stdout` 分别是
+`APPROVED_BRANCH` 与 `REJECTED_BRANCH`），最终状态还是 succeeded。
+
+根因：执行计划只统计「上游节点完成没有」，不记录「上游实际走了哪个端口」，
+于是 `ready_nodes` 把两条边都当成已满足。
+
+这不是分支功能缺失，是**安全语义作废**：用户拒绝的操作照样执行，
+review 的 passed / changes_requested 两路同时走，
+内置模板可能在不该 push 的时候进 push/PR 链路。
+
+**验收**：checkpoint 持久化每个节点实际走的输出端口；只激活 source port
+匹配的边；未选中的分支进 `skipped` 明确状态；join 只统计已激活的边；
+approved/rejected、review 双端口、decision 双端口各加正反向 E2E。
+
+### AU-2 · P0 · 内置模板没有把分析结果交给 Fix Agent
+
+连线只表达调度依赖，**不传数据**。而内置 Issue 修复模板的 Fix 指令里
+没有 `${analyze.success.text}` —— 开发 Agent 不知道分析结论、
+也不知道用户在审批里选了什么，只能重新猜。
+
+已排除底层故障：canary 里显式写上引用之后，开发节点准确收到了
+`ANALYSIS_CANARY`，中间隔一个人工审批也还在。是模板映射缺的。
+
+**验收**：Fix 指令显式引用结构化的分析结果与审批选择；审批选择本身要
+成为可引用的输出；E2E 读 `develop/prompt.md` 断言 canary 在里面；
+必需的上游内容缺失时**硬失败**，不让模型接着猜。
+
+### AU-3 · P0 · 内置 Issue 模板第一步就跑不了
+
+模板写的是 `gh issue view "$ISSUE" --repo "$REPO"`，而引擎注入的名字是
+`AIWF_ISSUE` / `AIWF_REPO`；且 `repo` 现在是 `{name, branch}` 对象，
+不能直接当 `--repo` 的值。默认模板在第一个真实业务节点就失败。
+
+**验收**：脚本改用 `${input.issue}` 与 `${input.repo.name}`；
+用受控 fake `gh` 做无网络 E2E，再拿一个专用测试 Issue 做真实 smoke。
+
+### AU-4 · P1 · AI 审查/决策节点固定走第一个输出端口
+
+AI 节点完成后直接取节点目录里的第一个端口，不看模型的结构化结论。
+**即使修好 AU-1，审查与决策仍然不会按实际结论路由**。
+
+**验收**：定义并校验结构化输出契约；映射到合法端口；未知值硬失败；
+每个端口都有确定性 adapter 测试 + 真实模型 smoke。
+
+### AU-5 · P1 · 保存成功、执行时静默无效的字段（B-1 的具体名单）
+
+`ai.execute.verifyCommands` 不执行、`ai.*.outputContract` 不校验、
+`ai.review.checklist/severities` 不进提示词、`ai.decide.rules/autoDecideUpTo`
+不进路由、`approval.bodyMarkdown/interaction` 审批时看不到也无差别、
+`script.shell` 的 `env/secretEnv/successExitCodes/outputLimitBytes/workdir`
+全都不生效。
+
+现有漂移测试把它们列为「允许欠账」，所以**测试全绿不代表功能生效**。
+
+### AU-6 · P2 · 首次配置完成后外壳不刷新
+
+授权写库成功、跳到首页，顶栏仍显示「尚未授权工作目录」，刷新才好。
+`AppShell` 的设置 hook 只在 mount 时加载一次，Onboarding 写完只 navigate。
+
+### AU-T · 测试基础设施四条
+
+- **T-001**：Playwright 没有自动 seed，空库跑会出现与产品无关的超时；
+  seed 也没设 `workspace_safe`，默认档下脚本节点停在审批
+- **T-002**：API E2E 仍按旧 DTO 断言（`workflow_list` 已是 `{items,total}`、
+  字段已是 `graphJson`、AI 节点已实现）—— 6 项失败没对应任何产品回归
+- **T-003**：3 条浏览器用例的定位/夹具过期（取错 artifact、把安全插值再套
+  双引号被新预检拦下、只有 11 条运行却等分页控件）
+- **T-004**：真实 ACP smoke 只握手不发 `session/prompt` ——
+  「adapter 能握手但答不了」「上游内容没进下游 prompt」「审批后 Scope 丢失」
+  这三种都不会失败
 
 ---
 
