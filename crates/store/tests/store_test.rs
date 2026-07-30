@@ -3254,3 +3254,58 @@ mod 级联删除不全表扫 {
         );
     }
 }
+
+/// 删模型要先看有没有人在引用它。
+///
+/// `delete_model` 是一条裸 DELETE：不查引用、也不查内置
+/// （`model` 表根本没有 builtin 列）。删掉 `model:codex` 之后，
+/// 四个内置角色的 `model_ref` 全部悬空 —— 而种子批次记账保证它
+/// **不会在下次启动被种回来**，唯一的恢复手段是一键初始化。
+///
+/// `delete_agent` 那边早就有这道检查了（内置角色不让删，让你复制一份）。
+mod 删模型先看引用 {
+    use super::*;
+
+    #[test]
+    fn 被角色引用时拒绝并说清是谁() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::open_workspace(&dir.path().join("aiwf.sqlite")).unwrap();
+
+        // 种子里四个内置角色都引用 model:codex
+        let 错 = store
+            .delete_model("model:codex")
+            .expect_err("被四个角色引用的模型被删掉了");
+        let 话 = 错.to_string();
+
+        assert!(
+            话.contains("分析师") || 话.contains("角色"),
+            "没说清是谁在用：{话}"
+        );
+        assert!(
+            store.get_model("model:codex").unwrap().is_some(),
+            "拒绝了却已经删掉了"
+        );
+    }
+
+    #[test]
+    fn 没人引用的照常删() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::open_workspace(&dir.path().join("aiwf.sqlite")).unwrap();
+
+        let id = store
+            .create_model(&NewModel {
+                name: "没人用的".to_string(),
+                runtime: "acp.codex".to_string(),
+                model_id: "x".to_string(),
+                effort: "medium".to_string(),
+                context_window: 100_000,
+                capabilities: vec![],
+                credential_ref: None,
+                enabled: true,
+            })
+            .unwrap();
+
+        store.delete_model(&id).unwrap();
+        assert!(store.get_model(&id).unwrap().is_none());
+    }
+}

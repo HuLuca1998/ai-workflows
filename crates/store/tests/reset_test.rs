@@ -36,11 +36,16 @@ fn 重置后用户建的工作流没了() {
 #[test]
 fn 重置后内置数据回来了() {
     let (_dir, mut store) = 新库();
-    // 模拟一个「被折腾坏了」的库：模型删光，内置角色的目标改成一句废话。
-    // 内置角色删不掉（存储层挡着），但改得动 —— 而「改坏了想恢复」
-    // 正是用户会来点这个按钮的场景
-    store.delete_model("model:codex").unwrap();
-    store.delete_model("model:claude").unwrap();
+    // 模拟一个「被折腾坏了」的库：内置模型全停用、内置角色的目标改成一句废话。
+    //
+    // 内置角色删不掉（存储层挡着），模型现在也删不掉（四个内置角色在引用它，
+    // `delete_model` 会拒绝并说清是谁）—— 但两者都**改得动**，
+    // 而「改坏了想恢复」正是用户会来点这个按钮的场景。
+    for id in ["model:codex", "model:claude"] {
+        store
+            .update_model(id, None, None, None, None, None, None, Some(false))
+            .unwrap();
+    }
     let 角色 = store.get_agent("builtin:analyst").unwrap().unwrap();
     store
         .update_agent(

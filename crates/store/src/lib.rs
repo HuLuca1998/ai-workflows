@@ -2177,6 +2177,28 @@ impl Store {
     }
 
     pub fn delete_model(&self, id: &str) -> Result<()> {
+        // 先看有没有人在用它。
+        //
+        // 这里原本是一条裸 DELETE：不查引用、也不查内置（model 表根本
+        // 没有 builtin 列）。删掉 `model:codex` 之后四个内置角色的
+        // `model_ref` 全部悬空 —— 而种子批次记账保证它**不会在下次启动
+        // 被种回来**，唯一的恢复手段是一键初始化。
+        //
+        // `delete_agent` 那边早就有这道检查了。
+        let mut stmt = self
+            .conn
+            .prepare("SELECT name FROM agent_profile WHERE model_ref = ?1 OR fallback_model_ref = ?1 ORDER BY name")?;
+        let 用它的: Vec<String> = stmt
+            .query_map(params![id], |row| row.get::<_, String>(0))?
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+
+        if !用它的.is_empty() {
+            return Err(StoreError::Invalid(format!(
+                "这些 Agent 角色还在用它：{}。先给它们换一个模型再删",
+                用它的.join("、")
+            )));
+        }
+
         self.conn
             .execute("DELETE FROM model WHERE id = ?1", params![id])?;
         Ok(())

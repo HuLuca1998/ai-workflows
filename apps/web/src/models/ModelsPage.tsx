@@ -282,7 +282,12 @@ export function ModelsPage() {
 
             {confirmDelete ? (
               <p className="models__warn" role="status">
-                删除后引用这个模型的 Agent 与节点会失效。确认要删除吗？
+                {/* 原来写的是「引用这个模型的 Agent 与节点会失效」——
+                    两处都不准：还有角色在引用时后端**直接拒绝**（不会删掉），
+                    而 model_ref 引擎从来不读（只有 runtime 决定起哪个
+                    adapter），所以也谈不上「失效」。承诺一件不会发生的事，
+                    用户会按错的预期做决定 */}
+                还有 Agent 角色在用它的话删不掉 —— 会告诉你是哪几个。确认要删除吗？
               </p>
             ) : null}
 
