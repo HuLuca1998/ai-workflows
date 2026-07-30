@@ -1073,3 +1073,125 @@ mod 端到端_人工介入 {
         let _ = std::fs::remove_dir_all(&dir);
     }
 }
+
+/// 一条超长的失败信息不该让整个运行猝死。
+///
+/// `摘要()` 把 stdout/stderr 事件截到 400 字，但 `NodeOutcome::Failed`
+/// 那条路走的是 `first_line()` —— 只取第一行，**不限长度**。
+/// 编译器、node 的 stack、curl 打回的 body 都可能把几千字打在同一行上。
+///
+/// 于是存储层拒收（摘要上限 2000），而那是在 `node.failed` 写入的时候 ——
+/// 结果是：**一条 `node.failed` 都没有**，界面上那个节点永远停在
+/// 「运行中」（有 started 无终态），用户看到的是一句提「artifact」
+/// 「payload_ref」的内部术语，而真正的失败原因（退出码与 stderr）
+/// 被这条假错误盖过去了。
+mod 超长摘要不该压垮运行 {
+    #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+
+    use aiwf_engine::runner::{RunRequest, Runner};
+    use aiwf_store::Store;
+
+    #[test]
+    fn 一行五千字的_stderr_仍然写得出_node_failed() {
+        // 同一行五千字 —— first_line() 挡不住这种
+        let graph = serde_json::json!({
+            "nodes": [
+                {"id": "entry", "type": "entry", "title": "入口", "config": {}},
+                {"id": "boom", "type": "script.shell", "title": "会长篇大论地失败",
+                 "config": {"interpreter": "bash", "timeoutMs": 5000,
+                            "script": "python3 -c \"import sys; sys.stderr.write('E'*5000)\"; exit 1"}}
+            ],
+            "edges": [
+                {"id": "e1", "source": {"nodeId": "entry", "port": "success"},
+                 "target": {"nodeId": "boom", "port": "input"}}
+            ],
+            "groups": []
+        }).to_string();
+
+        let store = Store::open_in_memory().unwrap();
+        store
+            .set_workspace_setting("permissionPreset", "workspace_safe")
+            .unwrap();
+        let workflow = store
+            .create_workflow_with_graph("长错误", None, &graph)
+            .unwrap();
+
+        let runner = Runner::new();
+        let run_id = runner
+            .start(
+                &store,
+                RunRequest {
+                    workflow_id: workflow,
+                    version_id: None,
+                    draft_rev: Some(0),
+                    inputs_json: "{}".to_string(),
+                    workdir: "/tmp".to_string(),
+                },
+            )
+            .unwrap();
+        let status = runner.run_all(&store, &run_id).unwrap();
+
+        let events = store.events(&run_id, 0, 500).unwrap();
+        let 种类: Vec<&str> = events.iter().map(|e| e.kind.as_str()).collect();
+
+        assert!(
+            种类.contains(&"node.failed"),
+            "节点失败了却没有 node.failed —— 界面上它会永远停在「运行中」：{种类:?}"
+        );
+        assert_eq!(status, "failed");
+
+        // 失败原因要说清是哪个节点，不能是一句存储层的内部术语
+        let 收尾 = events.iter().find(|e| e.kind == "run.failed").unwrap();
+        assert!(
+            !收尾.summary.contains("payload_ref") && !收尾.summary.contains("artifact"),
+            "把存储层的内部术语抛给了用户：{}",
+            收尾.summary
+        );
+    }
+
+    #[test]
+    fn 超长的节点标题也不该让运行卡住() {
+        // 契约对 title 只有 min(1)，没有上限
+        let 长标题 = "标".repeat(3000);
+        let graph = serde_json::json!({
+            "nodes": [
+                {"id": "entry", "type": "entry", "title": "入口", "config": {}},
+                {"id": "long", "type": "end", "title": 长标题, "config": {}}
+            ],
+            "edges": [
+                {"id": "e1", "source": {"nodeId": "entry", "port": "success"},
+                 "target": {"nodeId": "long", "port": "input"}}
+            ],
+            "groups": []
+        })
+        .to_string();
+
+        let store = Store::open_in_memory().unwrap();
+        store
+            .set_workspace_setting("permissionPreset", "workspace_safe")
+            .unwrap();
+        let workflow = store
+            .create_workflow_with_graph("长标题", None, &graph)
+            .unwrap();
+
+        let runner = Runner::new();
+        let run_id = runner
+            .start(
+                &store,
+                RunRequest {
+                    workflow_id: workflow,
+                    version_id: None,
+                    draft_rev: Some(0),
+                    inputs_json: "{}".to_string(),
+                    workdir: "/tmp".to_string(),
+                },
+            )
+            .unwrap();
+
+        assert_eq!(
+            runner.run_all(&store, &run_id).unwrap(),
+            "succeeded",
+            "一个标题太长的节点让整条运行跑不完"
+        );
+    }
+}

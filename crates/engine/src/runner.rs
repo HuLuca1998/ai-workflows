@@ -882,7 +882,7 @@ impl Runner {
             // 「Secret 值在写入事件存储前已脱敏，界面不提供绕过查看」。
             //
             // 只在读取点脱的话，数据库文件本身仍然带着明文走备份
-            summary: crate::redactor::redact_shared(summary),
+            summary: 截到上限(&crate::redactor::redact_shared(summary)),
             payload_ref,
             artifact_refs: vec![],
             parent_event_id: None,
@@ -978,4 +978,31 @@ impl Runner {
 /// 终态：没有出边。恢复要走显式的 `resume`，而它只接受 failed。
 pub fn is_terminal(status: &str) -> bool {
     matches!(status, "succeeded" | "failed" | "cancelled")
+}
+
+/// 摘要的兜底截断。
+///
+/// 存储层拒收超过 `EVENT_SUMMARY_MAX` 的摘要，那条约束是对的 ——
+/// 大内容该走 artifact + `payload_ref`。但**拒收发生在写入的那一刻**，
+/// 而写入的那一刻常常正是「节点失败了，要记下为什么」：
+///
+/// - 脚本把 5000 字错误打在同一行 stderr 上（编译器、node 的 stack、
+///   curl 打回的 body 都会这样），`first_line()` 只取第一行、不限长度
+/// - 节点标题本身很长（契约对 title 只有 `min(1)`，没有上限）
+///
+/// 结果是**连 `node.failed` 都写不进去**：界面上那个节点永远停在
+/// 「运行中」，而用户看到的是一句提「artifact」「payload_ref」的内部术语 ——
+/// 真正的失败原因反而被这条假错误盖过去了。
+///
+/// 所以在唯一的写入口兜一道。截断比丢事件好得多：前半段通常就够定位问题，
+/// 而丢掉整条之后连「它失败过」都无从得知。
+fn 截到上限(summary: &str) -> String {
+    let 上限 = aiwf_store::EVENT_SUMMARY_MAX;
+    if summary.chars().count() <= 上限 {
+        return summary.to_string();
+    }
+    // 留出省略提示的位置，并且**按字符切**不按字节 —— 中文按字节切会切出半个字
+    const 提示: &str = "…（超长已截断，全文见产物）";
+    let 保留 = 上限.saturating_sub(提示.chars().count());
+    format!("{}{提示}", summary.chars().take(保留).collect::<String>())
 }

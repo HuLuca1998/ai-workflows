@@ -229,6 +229,96 @@ Rust `status.rs` 一份、TS `state-machine.ts` 一份，**两份都没有生产
 
 ---
 
+## 〇之四、第 4 轮探索：出错时会怎样
+
+按「出事之后有多难查」排。前两条有实测输出为证。
+
+### W-1 · 进程里有两个 Supervisor，同一个节点会真的执行两遍 ← 最难查
+
+`Supervisor::spawn` 用 `self.cancels` 挡「同一个运行只允许一个线程」，
+但那张表是**实例级**的，而一个 App 进程里有两个实例：
+桌面壳 `AppState.supervisor` 一个，进程内 MCP 服务 `serve()` 里又 `new` 一个。
+两张表互不知道对方，`resume` 的 `is_active()` 对另一侧起的线程恒返回 false。
+
+实测（两个 Supervisor 指同一个库、同时 resume 同一条 failed 运行）：
+副作用文件 **2 行**，`node.started` **2 条**，最终状态 `succeeded`。
+
+`run.resume` 的 scope 是 `workflow:run`，`trusted_workflow` 档下免确认 ——
+主管 AI 手上就有这把工具。用户点「从失败节点重试」的同时让 AI 也恢复一下
+就撞上了。脚本、`git push`、AI 写文件全做两遍，没有任何错误。
+
+**验收**：两个实例指同一个 db 并发 resume，断言副作用只发生一次
+（或第二次拿到 AlreadyRunning）。修法是把「谁在推进这个 Run」落到库里
+（一列 owner/lease），而不是进程内存的 HashMap。
+
+### W-2 · 主管 AI 一说话，整个桌面端冻住
+
+桌面壳 70 条命令里 58 条走同一把 `Mutex<Store>` —— `run_events`、
+`run_cancel`、`approval_decide` 全在内。而 `supervisor_ask` 也在内，
+且它**握着锁做完整轮 ACP 对话**：connect 超时 180 秒，
+prompt 的 recv_timeout 每收到一条通知就重置，话多的 agent 能跑十几分钟。
+运行页每 1200ms 轮询一次，这些 invoke 全堆在锁后面。
+
+对照组就在同一个仓库：MCP 那侧对同一件事的判断是「慢请求会占住线程好几分钟」，
+于是开 8 个 worker、每线程一条自己的连接。
+
+用户看到的是「应用卡住了」——没有错误、没有转圈。他最可能做的事是强杀 App，
+正好撞上 DEBT 里那条「杀 App 后运行卡在运行中」。
+
+**验收**：`supervisor_ask` 进 ACP 之前放掉 store 锁（它只在开头读 draft、
+结尾写会话）。测试：在它阻塞期间调 `run_cancel`，断言 100ms 内返回。
+
+### W-3 · 一键初始化不看有没有运行在跑
+
+`workspace_reset` 直接 `reset_workspace()`，没有「先看看有没有 active run」，
+也没有停掉任何执行线程（`Supervisor` 根本没传进来）。
+
+实测：重置报成功、运行记录消失，而那个 shell 脚本跑完了、文件写进去了。
+它写事件时撞的 `FOREIGN KEY constraint failed` 只 `eprintln!` 到 stderr，
+打包版里没人看得到。
+
+同一个函数还有一处名不副实：`清空重建()` 的注释写「整件事在一个事务里，
+中途失败就回滚」，而事务只包 DROP 那一段 —— `COMMIT` 之后才跑 migrate 与 seed。
+
+**验收**：有 active run 时拒绝并说清是哪几条；注释与实现二选一改到一致。
+
+### W-4 · 失败页三个主操作零 in-flight 防重
+
+「从失败节点重试」「回到最近审批点」「用相同参数重跑」都是裸 button，
+没有 disabled、没有 loading、store 里也没有 ref 锁。后端 `run.start` 不幂等 ——
+连点两次就是两条运行、两个执行线程、同一个 workdir。
+第二条的 worktree 节点会撞 `BranchExists`，报「分支已存在。换一个分支名」——
+一句完全指错方向的提示。
+
+发布按钮同类：`disabled` 只绑了 `dirty`，连点会得到两个 `config_hash`
+完全相同的版本。
+
+仓库里已经有做对的写法（`OverviewPage.tsx:85` 的 `creatingRef` 配
+「连点五次只建一条」测试）——**那是全仓唯一一条连点测试**，没有推广。
+
+**验收**：每条配一个「连点五次」的用例；发布还需要后端幂等
+（同一个 rev 重复发布返回已有版本）。
+
+### W-5 · `hint` 这条管道建好了但零灌注
+
+`ApiError::with_hint()` **全仓零调用**（含测试）。生产代码 `hint: None` 21 处、
+`Some` 5 处而那 5 处全在两个 `From` impl 里 —— `ApiError::validation()`
+写死 `hint: None`，用它的 22 处全部没有。而管道两头都通着：
+MCP 侧拼「接下来：」，前端 `describeError` 渲染成 `${message}（${hint}）`。
+
+最刺眼的一条：`NotPendingApproval` 的 `{expected:?}` 作用在 `Option<String>` 上，
+用户界面上看到字面的 `Some("n_review")`。而 `WrongState`（连点两次审批最常撞的）
+被 `_ => None` 吞掉 —— 批准成功之后紧跟一条「运行 r_x 当前是 running，
+不能提交审批决定」，没有一个字告诉用户「你的批准已经生效了」。
+
+底层错误原样外泄同档：`UNIQUE constraint failed: 表.列` 直接给用户；
+检查点 JSON 解析失败报成「图无法解析」，用户会去检查画布，而画布毫无问题。
+
+**验收**：照 `patch.rs` 的 `PatchError::hint()` 给各错误类型配 `hint()`；
+门禁：所有 `VALIDATION` 码必须带非空 hint，配一条故意不带、断言变红的元测试。
+
+---
+
 ## 一、ACP 与 Agent 架构
 
 ### A-1 · 主管 AI 每问一句就新建一个 ACP 会话
@@ -379,3 +469,5 @@ DEBT B-1。归在 `entry | end` 那一档，什么都不做直接返回成功，
 - 侧栏那行「环境正常」由真实健康结果决定（Z-2），
   「重新检查」也会更新时间戳 —— 之前它只看时间戳存不存在然后硬编码 ok: true
 - 跳转 URL 与读取对上了（Z-4）：首页「重试」改用 ?run=，RunsPage 读 tab 参数
+- 超长摘要不再压垮运行：`emit_full` 兜底截断 —— 之前一行五千字的 stderr
+  会让 `node.failed` 一条都写不进去，节点永远停在「运行中」
