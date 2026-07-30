@@ -1,4 +1,4 @@
-import { type CSSProperties, useEffect, useState } from 'react';
+import { type CSSProperties, useEffect, useMemo, useState } from 'react';
 import { LIST_PAGE_SIZE, isRunResumable, isRunTerminal, type RunStatus } from '@aiwf/contracts';
 import { formatBytes } from '../data/format.js';
 import { useDebouncedSearch } from '../hooks/useDebouncedSearch.js';
@@ -111,6 +111,19 @@ export function RunsPage() {
     const timer = setInterval(() => setNow(Date.now()), 30_000);
     return () => clearInterval(timer);
   }, []);
+
+  /*
+   * 事件派生值算一次就够。
+   *
+   * `pendingApprovalNode(runs.events)` 在同一次渲染里被调用四次，每次都
+   * 完整遍历事件数组并建一个 Set；`nodeRows` 也是每次渲染遍历一遍。
+   * 事件上限是 5000 条，而这一屏还挂着 1.2 秒一次的轮询 ——
+   * 每次轮询都要把这几遍重跑。
+   */
+  const events = runs.events;
+  const approvalNode = useMemo(() => pendingApprovalNode(events), [events]);
+  const approvalSummary = useMemo(() => pendingApprovalSummary(events), [events]);
+  const rows = useMemo(() => nodeRows(events), [events]);
 
   const { active, past } = runs.grouped();
   const selected = runs.selected();
@@ -280,7 +293,7 @@ export function RunsPage() {
 
         <div className="runs__nodes-body">
           {selected ? (
-            nodeRows(runs.events).map((row) => (
+            rows.map((row) => (
               // 图纸每一行都带 onClick：选中之后详情区只看这个节点。
               // 一条 20 个节点的运行，不能点的话只能在事件流里自己数
               <button
@@ -498,12 +511,10 @@ export function RunsPage() {
                  * 里面的「确认拒绝」是组件内状态，不重挂就会跨审批残留：
                  * 在上一条审批点出确认态、切到下一条，第一下就直接拒了。
                  */
-                key={`${selected.id}:${pendingApprovalNode(runs.events) ?? ''}`}
-                nodeId={pendingApprovalNode(runs.events) ?? ''}
-                summary={pendingApprovalSummary(runs.events)}
-                onDecide={(decision) =>
-                  runs.decide(pendingApprovalNode(runs.events) ?? '', decision)
-                }
+                key={`${selected.id}:${approvalNode ?? ''}`}
+                nodeId={approvalNode ?? ''}
+                summary={approvalSummary}
+                onDecide={(decision) => runs.decide(approvalNode ?? '', decision)}
               />
             ) : null}
 
