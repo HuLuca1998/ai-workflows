@@ -5,6 +5,15 @@ import { iconFor, isAiNode } from './nodeVisuals.js';
 export interface NodeLibraryProps {
   /** 拖入画布时回调（画布负责换算落点坐标）。 */
   onDragStart: (type: NodeType) => void;
+  /**
+   * 点击或按键激活时回调 —— 画布把它落在中央。
+   *
+   * 只做拖拽是不够的：这些条目挂着 `role="button"` 与 `tabIndex={0}`，
+   * 那是在宣告「我可以被激活」。而在补上这个之前，
+   * 点它没有任何反应（节点没出现也没报错），**键盘用户
+   * 无法往画布添加任何节点** —— 空画布右键那一项还是禁用的。
+   */
+  onAdd: (type: NodeType) => void;
 }
 
 /**
@@ -14,7 +23,7 @@ export interface NodeLibraryProps {
  * 图纸里是 15 条目录项（脚本节点合并成一条）。点开脚本那条会展开两种解释器——
  * 图纸没画展开态，所以这里让它直接给出两个条目而不是自造一个交互。
  */
-export function NodeLibrary({ onDragStart }: NodeLibraryProps) {
+export function NodeLibrary({ onDragStart, onAdd }: NodeLibraryProps) {
   const [query, setQuery] = useState('');
 
   const entries = useMemo(() => {
@@ -63,6 +72,15 @@ export function NodeLibrary({ onDragStart }: NodeLibraryProps) {
               event.dataTransfer.setData('application/aiwf-node-type', item.type);
               event.dataTransfer.effectAllowed = 'move';
               onDragStart(item.type);
+            }}
+            onClick={() => onAdd(item.type)}
+            onKeyDown={(event) => {
+              // 空格的默认行为是滚动页面 —— 不拦的话用户按一下
+              // 节点加上了，同时整页往下跳一屏
+              if (event.key === 'Enter' || event.key === ' ') {
+                event.preventDefault();
+                onAdd(item.type);
+              }
             }}
             title={item.summary}
             role="button"

@@ -289,6 +289,32 @@ function EditorCanvas() {
     [flow, apply],
   );
 
+  /**
+   * 从节点库**点**出来的节点落在哪。
+   *
+   * 拖拽有鼠标位置，点击没有 —— 落在视口中央是唯一说得通的选择：
+   * 落在原点的话，画布已经平移过之后新节点会出现在屏幕外，
+   * 用户看到的仍然是「点了没反应」。
+   */
+  const onAddFromLibrary = useCallback(
+    (type: NodeType) => {
+      const center = flow.screenToFlowPosition({
+        x: window.innerWidth / 2,
+        y: window.innerHeight / 2,
+      });
+      apply([
+        {
+          op: 'addNode',
+          type,
+          title: titleFor(type),
+          position: { x: center.x - NODE_WIDTH / 2, y: center.y - NODE_HEIGHT / 2 },
+          config: minimalConfigFor(type),
+        },
+      ]);
+    },
+    [flow, apply],
+  );
+
   const onSelectionChange = useCallback(
     ({ nodes: selected }: OnSelectionChangeParams) => {
       setSelectedCount(selected.length);
@@ -388,7 +414,7 @@ function EditorCanvas() {
       ) : null}
 
       <div className="editor__body">
-        <NodeLibrary onDragStart={() => {}} />
+        <NodeLibrary onDragStart={() => {}} onAdd={onAddFromLibrary} />
 
         <div className="editor__canvas" ref={wrapper}>
           <LiveReactFlow

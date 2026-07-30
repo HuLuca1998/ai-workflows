@@ -190,22 +190,6 @@ Rust `status.rs` 一份、TS `state-machine.ts` 一份，**两份都没有生产
 
 从「第一次用这个应用的人」出发找的，按多快撞上排。
 
-### Z-1 · 节点库只认拖拽，点击和键盘完全无效 ← 新用户第一件事
-
-`NodeLibrary.tsx:56` 的条目是 `<div draggable role="button" tabIndex={0}>`，
-**没有 onClick 也没有 onKeyDown**。`role="button"` 把它宣告成可激活控件，
-实现里只有一条 HTML5 drag 通道；`styles.css:893` 连 `:focus-visible` 都没有，
-Tab 过去看不见焦点。`EditorPage.tsx:391` 传的 `onDragStart={() => {}}` 是空函数。
-
-备用入口也没有：空画布右键只有一项「用选中节点建分组」且 `disabled`。
-**键盘用户无法向画布添加任何节点，一个都不行。**
-
-用户看到的：空画布提示「从左侧拖入入口节点」→ 点左侧「入口设置」→
-没有任何反应，节点没出现也没报错。
-
-**验收**：点击落一个节点在画布中央；Enter/Space 等效；有可见焦点环。
-坚持只做拖拽的话就去掉 `role="button"` 与 `tabIndex`，另给一条键盘可达的路径。
-
 ### Z-2 · 走完首次配置后侧栏无条件说「环境正常」
 
 `useWorkspaceSettings.ts:67` 的 `environmentDisplay()` 只看 `envCheckedAt`
@@ -413,3 +397,5 @@ DEBT B-1。归在 `entry | end` 那一档，什么都不做直接返回成功，
 - **第三条接缝守卫**（事件类型）：引擎发射的必须在契约里声明过 ——
   写这个修复时我自己发了个 `system.warning`，编译过、测试绿、照样写进库
 - 端到端压了一轮「人工介入」方向
+- 节点库能点也能用键盘了（Z-1）—— 之前它挂着 role="button" 却没有 onClick，
+  键盘用户根本无法往画布添加任何节点

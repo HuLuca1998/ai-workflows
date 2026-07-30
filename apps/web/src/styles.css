@@ -906,6 +906,16 @@
   color: var(--color-text);
 }
 
+/* 键盘焦点要看得见。这些条目挂着 role="button"，宣告了「我可以被激活」——
+   而在补上这条之前 Tab 过去连焦点在哪都看不出来，
+   用键盘的人根本无从知道自己选中了哪一条 */
+.node-lib__item:focus-visible {
+  outline: 2px solid var(--color-accent-300);
+  outline-offset: -1px;
+  background: color-mix(in srgb, var(--color-text) 6%, transparent);
+  color: var(--color-text);
+}
+
 .node-lib__item i {
   font-size: 14px;
   color: var(--color-neutral-400);
