@@ -956,3 +956,120 @@ mod 事件不留明文 {
         assert!(命中.is_empty(), "全文索引里还留着令牌明文：{命中:?}");
     }
 }
+
+/// 端到端：人工介入这条链路，从挂起到批准到真的产生副作用。
+///
+/// 这是「审查循环」里「人工介入」方向的那一轮。要看的不只是跑通，
+/// 而是三件事：执行过程停在该停的地方没有、写进库的数据对不对、
+/// 那些数据是不是真发生过（有独立可验证的副作用）。
+mod 端到端_人工介入 {
+    #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+
+    use aiwf_engine::runner::{RunRequest, Runner};
+    use aiwf_store::Store;
+
+    #[test]
+    fn 批准之后脚本真的写了文件_而不是只把节点标绿() {
+        let dir = std::env::temp_dir().join("aiwf_e2e_approval");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let 产出 = dir.join("批准之后才该出现.txt");
+
+        let graph = serde_json::json!({
+            "nodes": [
+                {"id": "entry", "type": "entry", "title": "入口", "config": {}},
+                {"id": "write", "type": "script.shell", "title": "写一个文件",
+                 "config": {"interpreter": "bash", "timeoutMs": 5000,
+                            "script": format!("echo 真的跑了 > {}", 产出.display())}},
+                {"id": "done", "type": "end", "title": "结束", "config": {}}
+            ],
+            "edges": [
+                {"id": "e1", "source": {"nodeId": "entry", "port": "success"}, "target": {"nodeId": "write", "port": "input"}},
+                {"id": "e2", "source": {"nodeId": "write", "port": "success"}, "target": {"nodeId": "done", "port": "input"}}
+            ],
+            "groups": []
+        }).to_string();
+
+        let store = Store::open_in_memory().unwrap();
+        // 最严档：脚本节点要先问一句
+        store
+            .set_workspace_setting("permissionPreset", "review_every_change")
+            .unwrap();
+        let workflow = store
+            .create_workflow_with_graph("人工介入", None, &graph)
+            .unwrap();
+
+        let runner = Runner::new();
+        let run_id = runner
+            .start(
+                &store,
+                RunRequest {
+                    workflow_id: workflow,
+                    version_id: None,
+                    draft_rev: Some(0),
+                    inputs_json: "{}".to_string(),
+                    workdir: dir.display().to_string(),
+                },
+            )
+            .unwrap();
+
+        // ── 执行过程：停在该停的地方 ──────────────────────────────────
+        // 走 run_all 而不是自己搭 executor —— 它会按 workspace 设置
+        // 构造权限档与 approved_nodes，那正是生产路径
+        let status = runner.run_all(&store, &run_id).unwrap();
+        assert_eq!(status, "waiting_approval", "最严档下脚本节点没有先问一句");
+        assert!(
+            !产出.exists(),
+            "还没批准，文件就已经写出来了 —— 审批拦在了副作用之后"
+        );
+        assert_eq!(
+            runner.pending_approval(&store, &run_id).unwrap().as_deref(),
+            Some("write"),
+            "卡住的不是那个脚本节点"
+        );
+
+        runner
+            .decide_approval(&store, &run_id, "write", "approved")
+            .unwrap();
+        let status = runner.run_all(&store, &run_id).unwrap();
+        assert_eq!(status, "succeeded", "批准之后没跑完");
+
+        // ── 真实：副作用能独立验证 ───────────────────────────────────
+        assert!(
+            产出.exists(),
+            "运行说成功了，而文件根本没出现 —— 这正是「批准之后节点没被执行」那个坑"
+        );
+        assert_eq!(std::fs::read_to_string(&产出).unwrap().trim(), "真的跑了");
+
+        // ── 正确：事件流讲的是同一件事 ───────────────────────────────
+        let events = store.events(&run_id, 0, 200).unwrap();
+        let 种类: Vec<&str> = events.iter().map(|e| e.kind.as_str()).collect();
+        assert!(种类.contains(&"approval.requested"), "{种类:?}");
+        assert!(种类.contains(&"approval.decided"), "{种类:?}");
+        assert!(
+            种类.iter().filter(|k| **k == "node.succeeded").count() >= 2,
+            "入口与脚本都该有成功事件：{种类:?}"
+        );
+
+        // 顺序：先问、再决定、然后才是那个节点成功
+        let 位置 = |kind: &str| events.iter().position(|e| e.kind == kind);
+        assert!(位置("approval.requested") < 位置("approval.decided"));
+        let 脚本成功 = events
+            .iter()
+            .position(|e| e.kind == "node.succeeded" && e.node_id.as_deref() == Some("write"));
+        assert!(
+            位置("approval.decided") < 脚本成功,
+            "脚本的成功事件排在审批决定之前 —— 那说明它在批准前就跑了"
+        );
+
+        // ── 必须留：删掉这些还答不答得出「为什么是这个结果」 ─────────
+        let 决定 = events
+            .iter()
+            .find(|e| e.kind == "approval.decided")
+            .unwrap();
+        assert_eq!(决定.actor, "user", "审批的执行者必须是人，不能记成 engine");
+        assert!(决定.summary.contains("approved"), "{}", 决定.summary);
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+}
