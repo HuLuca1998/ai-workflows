@@ -64,6 +64,8 @@ export function MemoryPage() {
   const [offset, setOffset] = useState(0);
   /** 正在等第二次点击的那一条；null 表示没有。 */
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
+  /** 丢弃提议同样不可撤销 —— 记住是哪一条，别让确认态跨条目残留 */
+  const [confirmDismiss, setConfirmDismiss] = useState<string | null>(null);
 
   /**
    * 拉一页记忆。
@@ -196,7 +198,9 @@ export function MemoryPage() {
             <p className="memory__proposals-head">
               <i className="ph ph-sparkle" aria-hidden="true" />
               <span>AI 提议写入</span>
-              <span className="memory__proposals-note">确认后才保存，并注入后续调用</span>
+              <span className="memory__proposals-note">
+                确认后才保存，并注入后续调用；丢弃是直接删掉这条提议，没有回收站
+              </span>
             </p>
             {proposals.map((item) => (
               <div key={item.id} className="memory__proposal">
@@ -210,9 +214,38 @@ export function MemoryPage() {
                   <p className="memory__proposal-value">{item.value}</p>
                   <p className="memory__proposal-by">来源 {item.createdBy}</p>
                 </div>
-                <button type="button" className="runs__action" onClick={() => void dismiss(item)}>
-                  忽略
-                </button>
+                {/*
+                  * 原来这个按钮叫「忽略」，发的却是 memory.delete —— 永久删除。
+                  * 后端没有「已忽略」这个状态（提议就是 ai_proposed && !enabled，
+                  * 留着它就还在提议区），所以只能把话说实，不能编一个状态出来。
+                  */}
+                {confirmDismiss === item.id ? (
+                  <>
+                    <button
+                      type="button"
+                      className="runs__action"
+                      onClick={() => setConfirmDismiss(null)}
+                    >
+                      取消
+                    </button>
+                    <button
+                      type="button"
+                      className="runs__action"
+                      data-danger="true"
+                      onClick={() => void dismiss(item)}
+                    >
+                      确认丢弃
+                    </button>
+                  </>
+                ) : (
+                  <button
+                    type="button"
+                    className="runs__action"
+                    onClick={() => setConfirmDismiss(item.id)}
+                  >
+                    丢弃这条提议
+                  </button>
+                )}
                 <button
                   type="button"
                   className="runs__action runs__action--primary"

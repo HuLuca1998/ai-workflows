@@ -299,14 +299,28 @@ export function PromptsPage() {
                 复制
               </button>
               {selected.builtin ? null : confirmDelete ? (
-                <button
-                  type="button"
-                  className="runs__action"
-                  data-danger="true"
-                  onClick={() => void onDelete()}
-                >
-                  确认删除
-                </button>
+                /*
+                 * 确认按钮**不能长在原位**：原位替换时用户双击「删除」的第二下
+                 * 就落在「确认删除」上 —— 他以为自己双击了一个按钮，数据已经没了。
+                 * 原位留给「取消」，确认排在它后面。
+                 */
+                <>
+                  <button
+                    type="button"
+                    className="runs__action"
+                    onClick={() => setConfirmDelete(false)}
+                  >
+                    取消
+                  </button>
+                  <button
+                    type="button"
+                    className="runs__action"
+                    data-danger="true"
+                    onClick={() => void onDelete()}
+                  >
+                    确认删除
+                  </button>
+                </>
               ) : (
                 <button
                   type="button"

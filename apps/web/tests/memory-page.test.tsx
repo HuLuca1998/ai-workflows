@@ -137,12 +137,18 @@ describe('AI 提议', () => {
     });
   });
 
-  it('忽略就删掉，不留在列表里占位', async () => {
+  // 这条原来点一下「忽略」就断言 memory.delete 发了出去 —— 而「忽略」
+  // 在界面上读作「先放着不管」，实现却是永久删除。现在按钮直说「丢弃这条提议」
+  // 并要确认，断言跟着改：第一下不发请求，确认之后才发。
+  it('丢弃提议要确认，确认后才真的删', async () => {
     respond({ 'memory.list': () => ({ items: [PROPOSED], total: 0 }) });
     const user = userEvent.setup();
     view();
 
-    await user.click(await screen.findByRole('button', { name: '忽略' }));
+    await user.click(await screen.findByRole('button', { name: '丢弃这条提议' }));
+    expect(call.mock.calls.filter(([m]) => m === 'memory.delete')).toHaveLength(0);
+
+    await user.click(await screen.findByRole('button', { name: '确认丢弃' }));
     await waitFor(() => {
       expect(call).toHaveBeenCalledWith('memory.delete', { id: 'mem_2' });
     });

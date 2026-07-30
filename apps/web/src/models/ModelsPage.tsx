@@ -47,7 +47,16 @@ export function ModelsPage() {
   const [error, setError] = useState<string | null>(null);
   /** 连通性测试：进行中的标记与最近一次结果。 */
   const [testing, setTesting] = useState(false);
-  const [testResult, setTestResult] = useState<{ ok: boolean; detail: string } | null>(null);
+  /*
+   * 结果里带着**是哪个模型**的 id。此前是一个页面级的匿名结果，
+   * 在 A 上测出「连不上」再切到 B，那句红字就挂在 B 的详情里了。
+   * 绑 id 比「切换时记得清空」稳：新增一个切换入口时不会忘。
+   */
+  const [testResult, setTestResult] = useState<{
+    id: string;
+    ok: boolean;
+    detail: string;
+  } | null>(null);
   /** 满足条件的总条数与当前页起点。后端早就分页了，缺的是界面这一层。 */
   const [total, setTotal] = useState(0);
   const [offset, setOffset] = useState(0);
@@ -94,7 +103,7 @@ export function ModelsPage() {
         detail: string;
         latencyMs: number;
       };
-      setTestResult({ ok: result.ok, detail: result.detail });
+      setTestResult({ id: selectedId, ok: result.ok, detail: result.detail });
       await load(offset);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -274,14 +283,28 @@ export function ModelsPage() {
                 {selected.enabled ? '停用' : '启用'}
               </button>
               {confirmDelete ? (
-                <button
-                  type="button"
-                  className="runs__action"
-                  data-danger="true"
-                  onClick={() => void onDelete()}
-                >
-                  确认删除
-                </button>
+                /*
+                 * 确认按钮**不能长在原位**：原位替换时用户双击「删除」的第二下
+                 * 就落在「确认删除」上 —— 他以为自己双击了一个按钮，数据已经没了。
+                 * 原位留给「取消」，确认排在它后面。
+                 */
+                <>
+                  <button
+                    type="button"
+                    className="runs__action"
+                    onClick={() => setConfirmDelete(false)}
+                  >
+                    取消
+                  </button>
+                  <button
+                    type="button"
+                    className="runs__action"
+                    data-danger="true"
+                    onClick={() => void onDelete()}
+                  >
+                    确认删除
+                  </button>
+                </>
               ) : (
                 <button
                   type="button"
@@ -353,7 +376,7 @@ export function ModelsPage() {
                 </dl>
                 {/* 测试结果连原因一起显示：adapter 没装是最常见的情况，
                     而用户需要的是「装什么」，不是一个红色的「失败」 */}
-                {testResult ? (
+                {testResult && testResult.id === selected.id ? (
                   <p className="models__test-result" data-ok={testResult.ok} role="status">
                     <i
                       className={`ph ${testResult.ok ? 'ph-check-circle' : 'ph-warning-circle'}`}
@@ -426,6 +449,16 @@ function ModelForm({ onCancel, onSaved }: { onCancel: () => void; onSaved: () =>
       setError('名称、模型 ID 与上下文窗口是必填项。');
       return;
     }
+    /*
+     * 只查非空的话，「abc」会被 Number() 变成 NaN 发给后端 ——
+     * 契约那头 positive int 会拒，但错误要等一个来回才回来，
+     * 而且报的是契约语言，用户看不懂自己填错了哪一格。
+     */
+    const window = Number(contextWindow);
+    if (!Number.isInteger(window) || window <= 0) {
+      setError('上下文窗口要填一个正整数（单位是 token），比如 200000。');
+      return;
+    }
 
     setError(null);
     try {
@@ -434,7 +467,7 @@ function ModelForm({ onCancel, onSaved }: { onCancel: () => void; onSaved: () =>
         runtime,
         modelId,
         effort,
-        contextWindow: Number(contextWindow),
+        contextWindow: window,
         capabilities: [],
         ...(credentialRef ? { credentialRef } : {}),
         enabled: true,
@@ -446,7 +479,17 @@ function ModelForm({ onCancel, onSaved }: { onCancel: () => void; onSaved: () =>
   };
 
   return (
-    <div className="models__form">
+    /*
+     * 是 <form> 而不是 div：填完在输入框里按回车提交是填表最自然的收尾，
+     * 而那个默认行为要有 form 才成立。
+     */
+    <form
+      className="models__form"
+      onSubmit={(e) => {
+        e.preventDefault();
+        void onSave();
+      }}
+    >
       <h4>登记模型</h4>
       <label className="models__field">
         <span className="models__label">名称</span>
@@ -504,15 +547,11 @@ function ModelForm({ onCancel, onSaved }: { onCancel: () => void; onSaved: () =>
         <button type="button" className="runs__action" onClick={onCancel}>
           取消
         </button>
-        <button
-          type="button"
-          className="runs__action runs__action--primary"
-          onClick={() => void onSave()}
-        >
+        <button type="submit" className="runs__action runs__action--primary">
           保存
         </button>
       </div>
-    </div>
+    </form>
   );
 }
 
