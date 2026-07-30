@@ -2,6 +2,8 @@ import { useEffect, useState } from 'react';
 import { describeError } from '../data/describeError.js';
 import { useNavigate } from 'react-router';
 import { coreClient } from '../data/workspace.js';
+import { markOnboardingSkipped } from './skipMark.js';
+import { useWorkspaceSettings } from '../data/useWorkspaceSettings.js';
 
 /**
  * 首次配置 —— 严格照图纸「06 首次安装与检测」。
@@ -33,8 +35,6 @@ interface HealthItem {
 /** 图纸顶部那四步。 */
 const STEPS = ['设备与磁盘', '工具与运行时', 'ACP 探测', '目录授权与示例'];
 
-/** 配置过的记号。记下来才不会每次进来都拦人。 */
-const SKIP_KEY = 'aiwf.onboarding.skipped';
 
 /**
  * 默认工作目录。图纸「将写入的位置」写的就是它。
@@ -80,11 +80,7 @@ export function OnboardingPage() {
         permissionPreset: 'review_every_change',
         envCheckedAt: new Date().toISOString(),
       });
-      try {
-        window.localStorage.setItem(SKIP_KEY, '1');
-      } catch {
-        // 隐私模式下会抛 —— 记不住也不该挡住用户往下走
-      }
+      markOnboardingSkipped();
       navigate('/');
     } catch (err) {
       // 写失败就留在这一屏。跳走的话用户看到的还是「尚未授权」，
@@ -104,6 +100,9 @@ export function OnboardingPage() {
       setError(describeError(err));
     }
   };
+
+  // 第 4 步「目录授权与示例」要看后端记没记下工作目录 —— 界面自己不知道
+  const { settings } = useWorkspaceSettings();
 
   const probe = async (recheck: boolean) => {
     setChecking(true);
@@ -131,11 +130,30 @@ export function OnboardingPage() {
     (item) => item.status === 'missing' || item.status === 'needs_attention',
   ).length;
 
+  /**
+   * 每一步是不是真的完成了。
+   *
+   * 0 设备与磁盘 —— 应用已经在这台机器上跑起来了，这一步天然成立
+   * 1 工具与运行时 —— 必需项一个不缺
+   * 2 ACP 探测 —— 至少探到一个可用的 adapter（没有它 AI 节点全不能跑）
+   * 3 目录授权与示例 —— 后端记下了工作目录与检查时间
+   */
+  const stepDone = (index: number): boolean => {
+    if (index === 0) return true;
+    if (index === 1) return items !== null && missing === 0;
+    // 状态枚举是 ready/optional/missing/needs_attention —— 没有 'ok'。
+    // 写错的值不会报错，只会让这一步永远不亮
+    if (index === 2) return acp.some((item) => item.status === 'ready');
+    return Boolean(settings.workdir && settings.envCheckedAt);
+  };
+
   return (
     <article className="onboarding">
       <ol className="onboarding__steps" aria-label="配置步骤">
         {STEPS.map((label, index) => (
-          <li key={label} data-done={index === 0 || (index === 1 && missing === 0)}>
+          // 第 3、4 步此前恒为灰：条件只写到 index === 1，
+          // ACP 探到了、目录也授权了，那两步照旧不亮 —— 步骤条在说假话
+          <li key={label} data-done={stepDone(index)}>
             {index + 1} {label}
           </li>
         ))}
@@ -225,6 +243,24 @@ export function OnboardingPage() {
         </button>
         <span className="runs__grow" />
         <span className="models__note">下一步：授权工作目录并运行内置示例</span>
+        {/*
+          * 「先跳过」只做一件事：这次不拦你了。
+          *
+          * 它**刻意不承诺任何状态落地** —— 这一屏之前有过一个
+          * 「跳过配置，用默认目录开始」，它只写了个 localStorage 就走人，
+          * 而顶栏仍写着「尚未授权工作目录」：按钮承诺的事没有发生。
+          * 现在文案说的就是它做的事，顶栏那句提示照旧显示，因为它是真的。
+          */}
+        <button
+          type="button"
+          className="runs__action"
+          onClick={() => {
+            markOnboardingSkipped();
+            navigate('/');
+          }}
+        >
+          先跳过，稍后在设置里配
+        </button>
       </footer>
 
       {showCommands ? (

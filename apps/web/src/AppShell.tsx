@@ -5,6 +5,8 @@ import { SideNav } from './layout/SideNav.js';
 import { useTrayNavigation } from './layout/useTrayNavigation.js';
 import { SupervisorDrawer } from './supervisor/SupervisorDrawer.js';
 import { useEditor } from './editor/editorStore.js';
+import { useLocation, useNavigate } from 'react-router';
+import { isOnboardingSkipped } from './onboarding/skipMark.js';
 import { useRuns } from './runs/runsStore.js';
 import { TitleBar } from './layout/TitleBar.js';
 import { McpConfirmCard } from './mcp/McpConfirmCard.js';
@@ -23,7 +25,7 @@ import { PAGES } from './pages/index.js';
  * 主管 AI 抽屉 468px（屏幕清单 §11）。
  */
 export function AppShell() {
-  const { settings, health } = useWorkspaceSettings();
+  const { settings, health, loaded } = useWorkspaceSettings();
   const permission = permissionDisplay(settings);
   const environment = environmentDisplay(settings, health);
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -38,6 +40,28 @@ export function AppShell() {
   const selectedRunId = useRuns((state) => state.selectedId);
   // 托盘「检查更新…」把用户带到「系统版本」屏
   useTrayNavigation();
+
+  /*
+   * 首次启动把用户带到首次配置那一屏。
+   *
+   * 在这之前，`/onboarding` 只是设置页里的一档和一条谁都不会手输的路由 ——
+   * 装完第一次打开落在一个空的概览页上，没有任何东西告诉他要先配环境。
+   *
+   * 「配没配过」看后端的 envCheckedAt（权威、换台机器也认），
+   * 不看 localStorage —— 那个只记「这次先不配」的一次性偏好。
+   * settings 还没读回来时 configured 与 skipped 都不成立，
+   * 但 `settings.workdir === undefined` 也可能只是没加载完 ——
+   * 所以要等第一次读取有结果（loaded）再决定拦不拦。
+   */
+  const navigate = useNavigate();
+  const location = useLocation();
+  useEffect(() => {
+    if (!loaded) return;
+    if (settings.envCheckedAt) return;
+    if (isOnboardingSkipped()) return;
+    if (location.pathname !== '/') return;
+    navigate('/onboarding', { replace: true });
+  }, [loaded, settings.envCheckedAt, location.pathname, navigate]);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {

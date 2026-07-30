@@ -32,10 +32,18 @@ const PRESET_DETAILS: Record<string, string> = {
 export function useWorkspaceSettings(): {
   settings: WorkspaceSettings;
   health: EnvSummary | undefined;
+  /**
+   * 第一次读取有没有回来过。
+   *
+   * `settings` 初值是 `{}`，与「读回来了但什么都没配」长得一模一样 ——
+   * 调用方据此判断「配没配过」会在加载那一瞬间判错（比如把用户弹到首次配置）。
+   */
+  loaded: boolean;
   reload: () => Promise<void>;
 } {
   const [settings, setSettings] = useState<WorkspaceSettings>({});
   const [health, setHealth] = useState<EnvSummary | undefined>(undefined);
+  const [loaded, setLoaded] = useState(false);
 
   const reload = async () => {
     try {
@@ -43,6 +51,9 @@ export function useWorkspaceSettings(): {
     } catch {
       // 读不到就当没配过 —— 外壳不该因为一次设置读取失败就崩掉，
       // 那三条「尚未…」提示照旧显示，用户仍能去配
+    } finally {
+      // 失败也算「问过了」：一直不置位的话调用方会永远停在等待态
+      setLoaded(true);
     }
     try {
       // 侧栏那一行说的「环境正常」得是真的。只存了一个 envCheckedAt
@@ -58,7 +69,7 @@ export function useWorkspaceSettings(): {
     void reload();
   }, []);
 
-  return { settings, health, reload };
+  return { settings, health, loaded, reload };
 }
 
 /** 侧栏权限档那一块的显示内容。没选过时返回 undefined，界面自己说「未设置」。 */
