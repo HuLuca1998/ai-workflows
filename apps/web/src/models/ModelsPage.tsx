@@ -5,6 +5,7 @@ import { AGENT_RUNTIMES, type Model, LIST_PAGE_SIZE } from '@aiwf/contracts';
 import { SplitPane } from '../layout/SplitPane.js';
 import { Pager } from '../layout/Pager.js';
 import { coreClient } from '../data/workspace.js';
+import { ListEmpty } from '../layout/ListEmpty.js';
 
 /**
  * 模型 —— 严格照图纸「07 模型」：262px 左栏（按接入方式分组）+ 详情。
@@ -188,10 +189,10 @@ export function ModelsPage() {
 
         <div className="models__list-body">
           {items !== null && items.length === 0 ? (
-            <p className="runs__empty">
+            <ListEmpty query={search.value} noun="模型" onClear={() => search.onChange('')}>
               还没有登记模型。ACP 握手不返回模型列表，所以模型要在这里手工登记， 或从本机 CLI
               配置导入。
-            </p>
+            </ListEmpty>
           ) : null}
 
           {grouped.map(([runtime, models]) => (

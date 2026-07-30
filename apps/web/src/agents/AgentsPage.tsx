@@ -6,6 +6,7 @@ import type { AGENT_RUNTIMES } from '@aiwf/contracts';
 import { SplitPane } from '../layout/SplitPane.js';
 import { Pager } from '../layout/Pager.js';
 import { coreClient } from '../data/workspace.js';
+import { ListEmpty } from '../layout/ListEmpty.js';
 
 /**
  * Agent 角色 —— 严格照图纸「05 Agent 角色」：250px 左栏 + 详情区四块。
@@ -149,6 +150,12 @@ export function AgentsPage() {
    * 而这一屏的保存是显式的（按钮叫「保存新版本」）。
    */
   const [draft, setDraft] = useState<Partial<Agent>>({});
+  /*
+   * 切走时要拦一下，所以「改了没有」这个判断有两个用处：保存与守卫。
+   * 两份各写各的迟早会不一致 —— 那时按钮说「没有改动可保存」而守卫
+   * 还在拦人，用户被卡在中间。
+   */
+  const [pendingSelect, setPendingSelect] = useState<string | null>(null);
 
   /**
    * query 默认取当前搜索框的内容。
@@ -187,12 +194,10 @@ export function AgentsPage() {
 
   const selected = items?.find((agent) => agent.id === selectedId) ?? null;
 
-  const onSave = async () => {
-    if (!selected) return;
-    // 只发真正改过的字段：全量回写会把并发的其他改动覆盖掉，
-    // 而 agent.update 的契约本来就是 partial。
-    // ver 是乐观锁，必带 —— 少发它的话后端无从判断这次改动基于哪一版
-    const changed: Record<string, unknown> = { id: selected.id, ver: selected.ver };
+  /** 相对当前选中项，草稿里真正改了的字段（不含 id/ver）。 */
+  const changedFields = (): Record<string, unknown> => {
+    if (!selected) return {};
+    const changed: Record<string, unknown> = {};
     for (const key of [
       'name',
       'goal',
@@ -211,10 +216,34 @@ export function AgentsPage() {
     if (draft.tools && !same(draft.tools, selected.tools)) {
       changed['tools'] = draft.tools;
     }
-    if (Object.keys(changed).length === 2) {
+    return changed;
+  };
+
+  const hasUnsaved = Object.keys(changedFields()).length > 0;
+
+  /** 选中另一条。有未保存的改动时先拦下来 —— 切走这个动作本身不该销毁数据。 */
+  const selectAgent = (id: string) => {
+    if (hasUnsaved && id !== selectedId) {
+      setPendingSelect(id);
+      return;
+    }
+    setSelectedId(id);
+    setConfirmDelete(false);
+    setCreating(false);
+    setDraft({});
+  };
+
+  const onSave = async () => {
+    if (!selected) return;
+    // 只发真正改过的字段：全量回写会把并发的其他改动覆盖掉，
+    // 而 agent.update 的契约本来就是 partial。
+    const fields = changedFields();
+    if (Object.keys(fields).length === 0) {
       setError('没有改动可保存。');
       return;
     }
+    // ver 是乐观锁，必带 —— 少发它的话后端无从判断这次改动基于哪一版
+    const changed = { id: selected.id, ver: selected.ver, ...fields };
 
     try {
       await coreClient.call('agent.update', changed);
@@ -341,10 +370,14 @@ export function AgentsPage() {
 
         <div className="agents__list-body">
           {items !== null && items.length === 0 ? (
-            <p className="runs__empty">
+            <ListEmpty
+              query={search.value}
+              noun="角色"
+              onClear={() => search.onChange('')}
+            >
               还没有 Agent 角色。角色把「人格 + 权限 + 模型」打包成一个可引用的整体，
               节点引用它而不是各自复制一份 Prompt。
-            </p>
+            </ListEmpty>
           ) : null}
 
           {(items ?? []).map((agent) => (
@@ -353,12 +386,7 @@ export function AgentsPage() {
               type="button"
               className="agents__item"
               data-selected={agent.id === selectedId ? 'true' : undefined}
-              onClick={() => {
-                setSelectedId(agent.id);
-                setConfirmDelete(false);
-                setCreating(false);
-                setDraft({});
-              }}
+              onClick={() => selectAgent(agent.id)}
             >
               <i className="ph ph-robot" aria-hidden="true" />
               <span className="agents__item-main">
@@ -399,6 +427,33 @@ export function AgentsPage() {
           <AgentForm onCancel={() => setCreating(false)} onSubmit={onCreate} models={models} />
         ) : selected ? (
           <>
+            {pendingSelect ? (
+              <p className="models__warn" role="alert">
+                这个角色有未保存的改动。切到另一个会把它们丢掉。
+                <button
+                  type="button"
+                  className="runs__action"
+                  onClick={() => setPendingSelect(null)}
+                >
+                  留在这里
+                </button>
+                <button
+                  type="button"
+                  className="runs__action"
+                  data-danger="true"
+                  onClick={() => {
+                    const id = pendingSelect;
+                    setPendingSelect(null);
+                    setDraft({});
+                    setConfirmDelete(false);
+                    setCreating(false);
+                    setSelectedId(id);
+                  }}
+                >
+                  放弃改动并切换
+                </button>
+              </p>
+            ) : null}
             <header className="agents__detail-head">
               <div className="agents__avatar">
                 <i className="ph ph-robot" aria-hidden="true" />

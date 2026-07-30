@@ -6318,3 +6318,20 @@ fieldset.launch__field {
   border-radius: 8px;
   background: var(--overlay-chip);
 }
+
+/* 空态里的「清空搜索」—— 它是一句话里的出口，不是一个独立按钮 */
+.list-empty__clear {
+  margin-left: 8px;
+  border: 0;
+  background: none;
+  padding: 4px 8px;
+  min-height: 28px;
+  color: var(--color-accent-400);
+  cursor: pointer;
+  border-radius: 6px;
+  transition: var(--transition-state);
+}
+
+.list-empty__clear:hover {
+  background: var(--overlay-hover);
+}
