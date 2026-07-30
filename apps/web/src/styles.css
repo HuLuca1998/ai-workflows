@@ -6298,3 +6298,23 @@ fieldset.launch__field {
 .copy-feedback[data-state='failed'] {
   color: var(--color-status-failed);
 }
+
+/* 这一轮用了几次工具 —— 契约一直给着，界面此前不读 */
+.supervisor__toolcalls {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin-top: 7px;
+  font-size: 11px;
+  color: var(--color-neutral-500);
+}
+
+/* 没有草稿图时算不出 Diff，说清楚去哪能应用，不假装有 */
+.supervisor__proposal-note {
+  font-size: 12px;
+  line-height: 1.7;
+  color: var(--color-neutral-400);
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: var(--overlay-chip);
+}

@@ -105,10 +105,14 @@ describe('上下文', () => {
     expect(screen.getByText('选中节点 7')).toBeTruthy();
   });
 
-  it('有记忆时显示条数 —— 那些会被注入', () => {
-    view({ memoryCount: 4 });
-    expect(screen.getByText('记忆 4 条')).toBeTruthy();
-  });
+  /*
+   * 这里原来有一条「有记忆时显示条数 —— 那些会被注入」。
+   *
+   * 它是单侧绿灯的标本：chip 有渲染代码、测试传了 memoryCount 断言它出现，
+   * 而 AppShell 从来不传这个字段，契约的 supervisor.ask.context 里也根本
+   * 没有记忆这一项 —— 前端无从知道后端会注入哪些。整条链路只有测试是通的。
+   * chip 已删；要它回来得先让后端把实际注入的记忆回给前端。
+   */
 
   it('没有上下文时只显示标签，不编造 chips', () => {
     view();

@@ -37,6 +37,13 @@ interface Message {
   streaming?: boolean;
   /** 系统回执（取消、超时）。它不是模型说的话，样式上要区分开。 */
   system?: boolean;
+  /**
+   * 这一轮用掉的工具调用次数。
+   *
+   * 契约一直给着它，界面从来不读 —— 于是「它到底做了什么」在整个抽屉里
+   * 没有任何线索：一次读了 12 个文件的回答与一次纯聊天的回答长得一样。
+   */
+  toolCalls?: number;
 }
 
 /** 头部那排上下文 chips。图标与文案照图纸。 */
@@ -45,10 +52,8 @@ export interface SupervisorContext {
   draftRev?: number;
   /** 选中的节点数。 */
   selectedNodes?: number;
-  /** 正在看的运行。 */
+  /** 正在看的运行。运行页把当前选中那条传进来，AI 才答得了「上次为什么失败」。 */
   runId?: string;
-  /** 会注入的记忆条数。 */
-  memoryCount?: number;
   /** 当前工作流。后端靠它读草稿的图，AI 才提得出能落地的操作。 */
   workflowId?: string;
 }
@@ -77,7 +82,8 @@ interface SessionSummary {
 interface Proposal {
   summary: string;
   operations: PatchOperation[];
-  diff: WorkflowDiff;
+  /** 没有当前草稿图时算不出 Diff —— 那时只报提议本身，不假装有 Diff。 */
+  diff: WorkflowDiff | null;
 }
 
 interface ModelOption {
@@ -290,6 +296,8 @@ export function SupervisorDrawer({
         sessionId?: string;
         /** 这轮对话有没有进历史。false 时答案照给，但要告诉用户。 */
         historySaved?: boolean;
+        /** 这轮用了几次工具。界面显示「工具活动 · N 次」。 */
+        toolCalls?: number;
         proposal?: { summary: string; operations: PatchOperation[] };
       };
 
@@ -306,7 +314,14 @@ export function SupervisorDrawer({
 
       setMessages((prev) => {
         const settled = prev.map((message) =>
-          message.streaming ? { ...message, text: result.text, streaming: false } : message,
+          message.streaming
+            ? {
+                ...message,
+                text: result.text,
+                streaming: false,
+                ...(result.toolCalls ? { toolCalls: result.toolCalls } : {}),
+              }
+            : message,
         );
         // 落库失败时答案照给，但要说出来 —— 用户隔天回来找不到这条对话，
         // 会以为是自己记错了
@@ -323,6 +338,19 @@ export function SupervisorDrawer({
 
       // 改动**先出 Diff**，用户确认才落草稿。
       // 这里只是算出「会变成什么样」，一个字节都不写
+      if (result.proposal && !graph) {
+        /*
+         * 没有草稿图时此前整块被 `if (proposal && graph)` 吞掉：
+         * AI 在运行页/设置页回了一组改动，界面上什么都不显示，
+         * 用户以为它没听懂。算不出 Diff 是事实，但提议本身要说出来。
+         */
+        setProposal({
+          summary: result.proposal.summary,
+          operations: result.proposal.operations,
+          diff: null,
+        });
+      }
+
       if (result.proposal && graph) {
         try {
           // 用当前 rev 当 baseRevision：这一步只是**试算**，
@@ -518,12 +546,12 @@ export function SupervisorDrawer({
               {context.runId.slice(0, 10)}
             </span>
           ) : null}
-          {context.memoryCount ? (
-            <span className="supervisor__chip">
-              <i className="ph ph-brain" aria-hidden="true" />
-              记忆 {context.memoryCount} 条
-            </span>
-          ) : null}
+          {/*
+            * 这里原来还有一个「记忆 N 条」的 chip。删掉了：契约的
+            * supervisor.ask.context 里根本没有记忆这一项，前端也无从知道
+            * 后端会注入哪些 —— 它承诺的「这次对话它能看到什么」说不了真话。
+            * 要它回来的话，得先让后端把实际注入的记忆回给前端。
+            */}
         </div>
 
         <div className="supervisor__body" ref={bodyRef}>
@@ -554,6 +582,12 @@ export function SupervisorDrawer({
                 ) : (
                   message.text
                 )}
+                {message.toolCalls ? (
+                  <span className="supervisor__toolcalls">
+                    <i className="ph ph-wrench" aria-hidden="true" />
+                    工具活动 · {message.toolCalls} 次
+                  </span>
+                ) : null}
               </div>
             </div>
           ))}
@@ -564,15 +598,27 @@ export function SupervisorDrawer({
                 <i className="ph ph-git-diff" aria-hidden="true" />
                 {proposal.summary}
               </p>
-              <div className="ver__diff-body">
-                <DiffLines diff={proposal.diff} empty="这组操作不会改变任何东西" />
-              </div>
+              {proposal.diff ? (
+                <div className="ver__diff-body">
+                  <DiffLines diff={proposal.diff} empty="这组操作不会改变任何东西" />
+                </div>
+              ) : (
+                <p className="supervisor__proposal-note">
+                  这里算不出 Diff —— 当前没有打开的工作流草稿。
+                  去工作流编辑器里打开对应的工作流再问一次，就能看到改动并应用。
+                </p>
+              )}
               <div className="supervisor__proposal-actions">
                 <button type="button" className="runs__action" onClick={() => setProposal(null)}>
                   不用了
                 </button>
-                {/* 没有 onApply 就是没有草稿可落 —— 那时只显示 Diff 供参考 */}
-                {onApply ? (
+                {/*
+                  * 两个条件都要：没有 onApply 是没有草稿可落，
+                  * 没有 diff 是用户没看过这组操作会变成什么样 ——
+                  * 「AI 的改动一律先出 Diff，用户确认才落草稿」是架构原则，
+                  * 不能因为调用方碰巧传了 onApply 就绕过它。
+                  */}
+                {onApply && proposal.diff ? (
                   <button
                     type="button"
                     className="runs__action runs__action--primary"

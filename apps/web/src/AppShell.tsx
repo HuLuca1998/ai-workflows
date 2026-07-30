@@ -5,6 +5,7 @@ import { SideNav } from './layout/SideNav.js';
 import { useTrayNavigation } from './layout/useTrayNavigation.js';
 import { SupervisorDrawer } from './supervisor/SupervisorDrawer.js';
 import { useEditor } from './editor/editorStore.js';
+import { useRuns } from './runs/runsStore.js';
 import { TitleBar } from './layout/TitleBar.js';
 import { McpConfirmCard } from './mcp/McpConfirmCard.js';
 import {
@@ -27,6 +28,14 @@ export function AppShell() {
   const environment = environmentDisplay(settings, health);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const editor = useEditor();
+  /*
+   * 只订阅 selectedId 这一个标量：订整个 store 的话，运行页 1.2s 一次的
+   * 轮询会把整个外壳跟着重渲染。
+   *
+   * 选择器必须返回**原始值**——返回 `{ selectedId }` 这种新对象时
+   * zustand 每次比较都不相等，React 判定快照没缓存，直接 Maximum update depth。
+   */
+  const selectedRunId = useRuns((state) => state.selectedId);
   // 托盘「检查更新…」把用户带到「系统版本」屏
   useTrayNavigation();
 
@@ -74,6 +83,12 @@ export function AppShell() {
           context={{
             ...(editor.workflowId ? { workflowId: editor.workflowId, draftRev: editor.rev } : {}),
             ...(editor.selection.length > 0 ? { selectedNodes: editor.selection.length } : {}),
+            /*
+             * 正在看的那条运行。chip 与契约字段一直都在，就是没人传 ——
+             * 于是在运行页问「上次为什么失败」，AI 拿不到任何运行 id，
+             * 只能泛泛地讲一遍失败的可能原因。
+             */
+            ...(selectedRunId ? { runId: selectedRunId } : {}),
           }}
           {...(editor.workflowId ? { graph: editor.graph, onApply: editor.apply } : {})}
           onClose={() => setDrawerOpen(false)}
