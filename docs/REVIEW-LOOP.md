@@ -294,21 +294,6 @@ MCP 侧拼「接下来：」，前端 `describeError` 渲染成 `${message}（${
 公布的 required 造入参调 dispatch，断言不出现「缺少参数 X 而 X 不在 schema 里」；
 可选字段要么有读取点要么进白名单。
 
-### V-3 · `workspace_safe` 档下，MCP 客户端能自己提权到 `trusted_workflow` ← 安全
-
-`gate_for` 只看 scope 与 destructive。`workspace.updateSettings` 的 scope 是
-`workflow:write-draft` 且不在 destructive 名单里 → 直接 `Allow`。
-
-实测：提权调用 `isError = false`，之后 `workflow_delete` 不再需要确认、
-`workdir` 还能被改成 `/`。而 `catalog.rs:196` 写着 workspace_safe 的含义是
-「改草稿放行……发布、运行、删除仍要确认」—— 一次免确认调用就把三条全解除了。
-
-同一条口子上还有 `supervisor_ask`（会在本机拉起 adapter 进程
-并把系统 MCP 令牌交给它）。
-
-**验收**：「会改变安全边界本身」的工具任何档位下都 `NeedsConfirm`；
-配元测试：往 `workflow:write-draft` 新加一个能改设置的方法而没进名单时变红。
-
 ### V-4 · 非 JSON 的草稿能落库，还能发布成不可变版本
 
 契约对 `workflow.create.graphJson` 只有 `z.string().min(1)`，
@@ -522,5 +507,7 @@ DEBT B-1。归在 `entry | end` 那一档，什么都不做直接返回成功，
 - MCP 的确认通道接通了（V-1）：批准 → 再调一次真的执行，一次批准换一次执行。
   之前默认档下 40 多个写工具一个都用不了，而确认卡上写着「批准后会走版本守卫与审计」
 - 认不出的能力值按最严 + 界面直说哪两项不读（V-5 的一半）
+- 改边界的工具任何档位都要确认（V-3）—— 之前 workspace_safe 下
+  一次免确认调用就能把权限档自己改成 trusted_workflow
 - 主管 AI 单开一条数据库连接（W-2）—— 之前它握着主锁做完整轮 ACP 对话，
   桌面壳另外 58 条命令全堵在后面，用户看到的是「应用卡住了」

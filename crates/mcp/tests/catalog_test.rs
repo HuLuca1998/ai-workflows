@@ -233,3 +233,91 @@ fn 工具描述里带上了_scope_与副作用() {
         删除.description
     );
 }
+
+/// 会改变安全边界本身的工具，任何档位下都要先问用户。
+///
+/// `gate_for` 只看 scope 与 destructive。而 `workspace.updateSettings`
+/// 的 scope 是 `workflow:write-draft` 且不在 destructive 名单里 ——
+/// 于是 `workspace_safe` 档下它直接 Allow。
+///
+/// 实测：一次免确认调用就能把权限档改成 `trusted_workflow`，
+/// 之后 `workflow_delete` 不再需要确认、`workdir` 还能被改成 `/`。
+/// 而这一档的含义本来写着「改草稿放行……发布、运行、删除仍要确认」——
+/// 三条一次性全解除了。
+///
+/// 用户在设置页选的是「中间档」，得到的是一个可被单方面升级的档。
+mod 改边界的工具任何档位都要确认 {
+    use super::*;
+
+    /// 这些工具改的不是数据，是**这个系统还会不会拦你**。
+    const 改边界的: &[&str] = &["workspace_update_settings", "supervisor_ask"];
+
+    #[test]
+    fn 中间档下也拦() {
+        for name in 改边界的 {
+            let tool = catalog::tool(name).unwrap_or_else(|| panic!("没有 {name} 这个工具"));
+            assert_eq!(
+                catalog::gate_for(tool, "workspace_safe"),
+                catalog::WriteGate::NeedsConfirm,
+                "{name} 在 workspace_safe 下被放行了 —— 一次调用就能把这一档自己解除"
+            );
+        }
+    }
+
+    #[test]
+    fn 最松那档仍然放行_那是用户明说过的() {
+        // trusted_workflow 的含义就是「这条工作流我信得过」。
+        // 连它都拦的话，这一档就没有存在的意义了
+        for name in 改边界的 {
+            let Some(tool) = catalog::tool(name) else {
+                continue;
+            };
+            assert_eq!(
+                catalog::gate_for(tool, "trusted_workflow"),
+                catalog::WriteGate::Allow,
+                "{name}"
+            );
+        }
+    }
+
+    #[test]
+    fn 名单里的工具都真实存在() {
+        // 拼错一个名字，那条防线就静默失效了 —— 而 gate_for 照常返回 Allow
+        for name in 改边界的 {
+            assert!(catalog::tool(name).is_some(), "{name} 不在工具清单里");
+        }
+    }
+}
+
+/// 以后新加一个能改设置的写工具而忘了进名单时，这条会红。
+///
+/// 名单是手写的，手写的名单会过时 —— 而它过时的方式恰好是
+/// 「新的提权口子没被拦住」。按名字启发式地扫一遍：
+/// scope 是 write-draft、名字里带 setting/config/preset 的写工具，
+/// 都该在 `CHANGES_THE_BOUNDARY` 里。
+///
+/// 误判了就把那个工具加进名单（多问一次用户），或者改它的 scope ——
+/// 两种都比漏掉一个提权口子好。
+#[test]
+fn 新的改设置工具必须进名单() {
+    let 可疑: Vec<&str> = catalog::tools()
+        .iter()
+        .filter(|tool| tool.mutates)
+        .filter(|tool| tool.scope.as_deref() == Some("workflow:write-draft"))
+        .filter(|tool| {
+            ["setting", "config", "preset", "permission"]
+                .iter()
+                .any(|词| tool.name.contains(词))
+        })
+        .filter(|tool| {
+            catalog::gate_for(tool, "workspace_safe") != catalog::WriteGate::NeedsConfirm
+        })
+        .map(|tool| tool.name.as_str())
+        .collect();
+
+    assert!(
+        可疑.is_empty(),
+        "这些工具看着能改配置，却在 workspace_safe 下免确认 —— \
+         要么加进 CHANGES_THE_BOUNDARY，要么给它一个更合适的 scope：{可疑:?}"
+    );
+}

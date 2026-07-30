@@ -196,6 +196,9 @@ pub fn gate_for(tool: &McpTool, preset: &str) -> WriteGate {
         // 改草稿放行：它可回滚、有 Diff、不碰外部世界。
         // 发布、运行、删除仍要确认 —— 那三件事要么不可逆，要么会真的动起来
         "workspace_safe" => match tool.scope.as_deref() {
+            // 改边界的先拦下。它们的 scope 恰好也是 write-draft，
+            // 而按 scope 放行等于让这一档能自己把自己解除
+            _ if CHANGES_THE_BOUNDARY.contains(&tool.name.as_str()) => WriteGate::NeedsConfirm,
             Some("workflow:write-draft" | "memory:write") if !tool.destructive => WriteGate::Allow,
             _ => WriteGate::NeedsConfirm,
         },
@@ -203,3 +206,18 @@ pub fn gate_for(tool: &McpTool, preset: &str) -> WriteGate {
         _ => WriteGate::NeedsConfirm,
     }
 }
+
+/// 改的不是数据，是**这个系统还会不会拦你**。
+///
+/// `workspace_safe` 那一档的含义写着「改草稿放行……发布、运行、删除仍要确认」，
+/// 而 `workspace_update_settings` 的 scope 恰好是 `workflow:write-draft`
+/// 且不 destructive —— 于是一次免确认调用就能把权限档改成
+/// `trusted_workflow`，那三条限制一次性全部解除，`workdir` 还能被改成 `/`。
+/// 用户在设置页选的是「中间档」，得到的是一个可被单方面升级的档。
+///
+/// `supervisor_ask` 在这里是因为它会在本机拉起 adapter 进程，
+/// 并把系统 MCP 的令牌交给它 —— 那同样是在扩大边界，不是在改数据。
+///
+/// **最松那档仍然放行**：`trusted_workflow` 的含义就是「这条工作流我信得过」，
+/// 连它都拦的话这一档就没有存在的意义了。
+const CHANGES_THE_BOUNDARY: &[&str] = &["workspace_update_settings", "supervisor_ask"];
