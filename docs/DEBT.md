@@ -490,6 +490,10 @@ rg -c 'tools/call' crates/mcp/tests/http_test.rs   # 6
 | O-3 | **WKWebView 零测试**：`tests/e2e/` 全是 Playwright；「拖动卡」的定论依赖它                            | 唯一一条真实用户反馈悬着                      |
 | O-4 | 模型策略映射                                                                                          | 要等 `provider.api` 运行时                    |
 | O-5 | 审查未覆盖项：混沌输入、键盘走查与读屏、worktree 与存储层的深度审查                                   | 见 [archive/审查历史.md](archive/审查历史.md) |
+| O-6 | **产物列表不分页**：`run.artifacts` 的契约里没有 `limit`/`offset`                                     | 要先改契约，不是纯界面改动                    |
+| O-7 | **AI 提议只能整体接受**：逐条挑选要先做「操作依赖」分析（删掉 addNode 就不能保留引用它的 connect）    | 属于新能力，不是修复                          |
+| O-8 | **提议的节点在画布上没有 ghost 呈现**：`NodeTone` 的 `ghost` 仍是死代码                               | 要让画布能渲染「应用后的预览图」，改动大      |
+| O-9 | **没有离线 / 连接断开的全局提示**                                                                     | 只对 Web 形态有意义，而 Web 形态本身是 O-2    |
 
 ---
 
