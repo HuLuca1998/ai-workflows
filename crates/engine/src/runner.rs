@@ -882,7 +882,7 @@ impl Runner {
             // 「Secret 值在写入事件存储前已脱敏，界面不提供绕过查看」。
             //
             // 只在读取点脱的话，数据库文件本身仍然带着明文走备份
-            summary: event_redactor().redact(summary),
+            summary: crate::redactor::redact_shared(summary),
             payload_ref,
             artifact_refs: vec![],
             parent_event_id: None,
@@ -978,13 +978,4 @@ impl Runner {
 /// 终态：没有出边。恢复要走显式的 `resume`，而它只接受 failed。
 pub fn is_terminal(status: &str) -> bool {
     matches!(status, "succeeded" | "failed" | "cancelled")
-}
-
-/// 事件摘要的脱敏器。
-///
-/// 共享一份：默认规则集要编译十来条正则，而每条事件都会走一次
-/// —— 一次运行几十上百条，每次重新编译是白花的钱。
-fn event_redactor() -> &'static crate::redactor::Redactor {
-    static REDACTOR: std::sync::OnceLock<crate::redactor::Redactor> = std::sync::OnceLock::new();
-    REDACTOR.get_or_init(crate::redactor::Redactor::with_defaults)
 }

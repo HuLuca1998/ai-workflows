@@ -128,3 +128,46 @@ fn 提供检测接口_供导出前做最后一道扫描() {
     assert!(r.contains_secret("Bearer sk-live-abcdef1234567890"));
     assert!(!r.contains_secret("一切正常"));
 }
+
+/// 进程级脱敏器：把「已知明文」那条路接上。
+///
+/// 形态规则只挡得住有固定形态的那一半。模块开头写着「两条路子并用」，
+/// 第二条是「运行时注入过哪些 Secret 就把那些字面量也挡掉 ——
+/// **密码没有固定形态**」，而 `add_secret_value` 一直是零调用点。
+///
+/// 系统里真实存在的那份明文密钥是 MCP 的令牌：它会顺着 adapter 的 stderr、
+/// agent 的复述、失败时带整个 URL 的错误信息冒到事件流里，而它只是
+/// 一串随机字符，什么形态规则都认不出。
+mod 已知明文 {
+    #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+
+    use aiwf_engine::redactor::{redact_shared, register_secret};
+
+    #[test]
+    fn 登记过的密钥在事件文本里被挡掉() {
+        // 一串纯随机字母 —— 任何形态规则都认不出它
+        let 令牌 = "Kj8mQx2vNp7wRt4yBc6zHd9fLs3aGe5u";
+        register_secret(令牌);
+
+        let 脱敏后 = redact_shared(&format!("调用失败：http://127.0.0.1:7423/mcp/{令牌}"));
+
+        assert!(!脱敏后.contains(令牌), "登记过的密钥还是漏出来了：{脱敏后}");
+        assert!(脱敏后.contains("127.0.0.1:7423"), "把整段都吞了：{脱敏后}");
+    }
+
+    #[test]
+    fn 没登记过也仍然走默认规则() {
+        // 登记只是补上另一半，不能把原来那半关掉
+        let 脱敏后 = redact_shared("Authorization: Bearer abcdefghijklmnop");
+        assert!(!脱敏后.contains("abcdefghijklmnop"), "{脱敏后}");
+    }
+
+    #[test]
+    fn 引用形式不当成明文登记() {
+        // `keychain://gh-cli` 本来就该出现在界面与日志里 ——
+        // 把它挡掉的话，用户连「引用了哪个凭据」都看不到
+        register_secret("keychain://gh-cli");
+        let 脱敏后 = redact_shared("凭据：keychain://gh-cli");
+        assert!(脱敏后.contains("keychain://gh-cli"), "{脱敏后}");
+    }
+}

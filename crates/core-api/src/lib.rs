@@ -2485,6 +2485,17 @@ pub fn system_mcp_server(data_dir: &std::path::Path) -> Vec<aiwf_engine::acp::Mc
         return Vec::new();
     }
 
+    // 把这个令牌登记进脱敏器。
+    //
+    // 它是这个系统里**真实存在的一份明文密钥**，而且会顺着好几条路
+    // 冒到事件流里：adapter 把请求头打进 stderr、agent 在回答里复述、
+    // 工具调用失败时错误信息带上整个 URL。
+    //
+    // 形态规则挡不住它 —— 它只是一串随机字符，不长成 `ghp_` / `sk-` 那样。
+    // 脱敏器模块开头写着「两条路子并用」，第二条（已知明文）就是为这种东西准备的，
+    // 而在此之前 `add_secret_value` 生产零调用点，那句话一直是空的
+    aiwf_engine::redactor::register_secret(&config.token);
+
     vec![aiwf_engine::acp::McpHttpServer {
         name: mcp_clients::SERVER_NAME.to_string(),
         url: format!("http://127.0.0.1:{}/mcp", config.port),

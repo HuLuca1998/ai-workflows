@@ -31,6 +31,51 @@ pub enum RedactorError {
     InvalidPattern(#[from] regex::Error),
 }
 
+/// 进程级的脱敏器。
+///
+/// 事件落库前过的就是它（`runner::emit_full`）。做成可变的，是因为
+/// **形态规则只挡得住有固定形态的那一半** —— 模块开头那句
+/// 「两条路子并用」的第二条（已知明文）一直没人接：
+/// `add_secret_value` 生产零调用点，于是 MCP 的令牌、模型凭据这些
+/// 不长成 `ghp_` / `sk-` / `Bearer` 样子的东西照样进事件摘要。
+///
+/// 密码没有固定形态 —— 这正是那条注释存在的理由。
+static SHARED: std::sync::RwLock<Option<Redactor>> = std::sync::RwLock::new(None);
+
+/// 登记一个这个进程会用到的 Secret 明文。
+///
+/// 登记之后，它出现在任何事件摘要里都会被挡掉。
+/// `keychain://` 引用与太短的串会被 [`Redactor::add_secret_value`] 自己滤掉 ——
+/// 一个三字符的「密钥」会把正文里所有出现它的地方都打码。
+pub fn register_secret(value: &str) {
+    if let Ok(mut guard) = SHARED.write() {
+        guard
+            .get_or_insert_with(Redactor::with_defaults)
+            .add_secret_value(value);
+    }
+}
+
+/// 用当前的进程级脱敏器处理一段文本。
+///
+/// 还没登记过任何密钥时走默认规则集 —— 那是下限，不是全部。
+pub fn redact_shared(text: &str) -> String {
+    match SHARED.read() {
+        Ok(guard) => match guard.as_ref() {
+            Some(redactor) => redactor.redact(text),
+            None => default_redactor().redact(text),
+        },
+        // 锁中毒说明有线程在持锁时 panic 过。这时**不能**原样返回 ——
+        // 那等于在出问题的时候把脱敏关掉。退回默认规则集
+        Err(_) => default_redactor().redact(text),
+    }
+}
+
+/// 默认规则集，只建一次：编译十来条正则不便宜，而每条事件都会走一次。
+fn default_redactor() -> &'static Redactor {
+    static DEFAULT: std::sync::OnceLock<Redactor> = std::sync::OnceLock::new();
+    DEFAULT.get_or_init(Redactor::with_defaults)
+}
+
 #[derive(Clone, Copy)]
 enum Mode {
     /// 保留第 1 组（键名 / header 名），替换第 2 组（值）。
