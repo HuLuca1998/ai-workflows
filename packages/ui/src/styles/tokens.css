@@ -42,15 +42,91 @@
   --color-accent-800: #423a6a;
   --color-accent-900: #2b2741;
 
-  /* ── 状态语义色 ───────────────────────────────────────────────────────
-   * 只是「辅助」标识：重要状态一律同时给文字与形状，绝不只靠颜色区分。 */
+  /* ── 状态语义色（规范 §2.3）─────────────────────────────────────────────
+   * 只是「辅助」标识：重要状态一律同时给文字与形状，绝不只靠颜色区分。
+   *
+   * 三个色的明度都压在 L≈0.72，与强调色同一视觉重量，并排出现时不会有
+   * 某一色「跳出来」。值不要随手调 —— 规范里逐条写了出现位置，
+   * `spec-budget.test.ts` 会拿它们比对。
+   *
+   * 「运行中」用强调紫而不是蓝：规范 §1 定的是「紫 = 需要你或 AI 正在参与」，
+   * 蓝色不在色板里，之前那个 #6ea8fe 是凭空多出来的第五种语义色。 */
   --color-status-idle: var(--color-neutral-600);
   --color-status-queued: var(--color-neutral-400);
-  --color-status-running: #6ea8fe;
-  --color-status-waiting: #e0b355;
-  --color-status-success: #5cbf8a;
-  --color-status-failed: #e5715f;
+  --color-status-running: var(--color-accent);
+  --color-status-waiting: #dfb04a;
+  --color-status-success: #7fb894;
+  --color-status-failed: #e0685c;
   --color-status-cancelled: var(--color-neutral-500);
+
+  /* §2.3：状态色「只做文字色与 14% 底色，不做大面积填充」。
+   * 底色单列成令牌，省得每处各写各的浓度（实测同一个失败红曾有五种）。 */
+  --color-status-success-bg: rgb(111 185 114 / 14%);
+  --color-status-waiting-bg: rgb(223 176 74 / 10%);
+  --color-status-failed-bg: rgb(224 104 92 / 12%);
+
+  /* ── 叠加层（§2.5 的穷举清单，不得新增）─────────────────────────────── */
+  --overlay-row-hover: rgb(233 233 237 / 3.5%);
+  /* 悬停统一 4.5%：低于 3% 用户感知不到，高于 6% 在暗场里会显得发白 */
+  --overlay-hover: rgb(233 233 237 / 4.5%);
+  --overlay-chip: rgb(233 233 237 / 7%);
+  --overlay-accent-dim: rgb(145 132 217 / 10%);
+  /* §5.4 的 Primary 按钮：hover 叠 12% 强调底，active 22% */
+  --overlay-accent-hover: rgb(145 132 217 / 12%);
+  --overlay-accent-active: rgb(145 132 217 / 22%);
+  /* 面积性紫底：框选矩形（§6 写明「紫色 12% 半透明矩形」）、
+   * 标题栏的「有运行在跑」指示条。与上面同值但语义不同，
+   * 各自独立才不会因为改按钮 hover 顺手把框选也改了。 */
+  --overlay-accent-veil: rgb(145 132 217 / 12%);
+  --overlay-accent-bright: rgb(145 132 217 / 24%);
+
+  /* §5.1 选中态的完整配方：accent-700 描边 + 横向渐变 + 投影。
+   * 渐变从左端 20% 衰减到右端 6%（两端分别落在 §2.5 的「亮端」与「暗端」区间），
+   * 光从行首起、向右淡出 —— 平涂一块紫底是没有这个方向感的。 */
+  --selected-surface: linear-gradient(90deg, rgb(145 132 217 / 20%), rgb(145 132 217 / 6%));
+  --selected-shadow: 0 6px 18px -14px rgb(145 132 217 / 95%);
+  /* 卡片上缘 1px 内高光 —— §1「层次靠光而不是靠框」的物理载体。
+   * L1 面板用更淡的一档（§3 的配方是 .03），L2 卡片用 .06。 */
+  --overlay-inset-edge: rgb(255 255 255 / 3%);
+  --overlay-inset-highlight: rgb(255 255 255 / 6%);
+
+  /* 纯黑，只用于 color-mix 把表面压暗（输入框底、代码块底这类下沉面）。
+   * 单列成令牌是为了让业务样式表里不出现任何十六进制。 */
+  --color-shade: #000;
+
+  /* ── 环境光（§3.1，静态渐变，零运行时成本）───────────────────────────
+   * 左上紫、右下青的对角布光，让 1440×900 的大面积暗场有方向感。
+   * 两色都压在 16–30% 不透明度，正文对比度不受影响。
+   *
+   * 青色是 §2.3 的「信息（辅）」色，规范写明**只作环境光**、
+   * 界面控件里不出现 —— 所以它不进 --color-status-*，免得被人拿去当状态色用。
+   *
+   * 写成空格分隔的分量而不是 rgb()，是为了能 `rgb(var(--ambient-accent) / 30%)`
+   * 按位置调透明度 —— 环境光每一层的浓度都不一样。 */
+  --ambient-accent: 145 132 217;
+  --ambient-info: 64 150 178;
+
+  /* §3 L5 的模态遮罩：35% 黑，**不含 blur**。
+   * 之前五个弹层各写各的（62% / 50%，三个还叠了 backdrop-filter），
+   * 同一个「模态」语义在应用里有两种表现，而全屏 blur 每帧要重采样整屏。 */
+  --overlay-scrim: rgb(0 0 0 / 35%);
+
+  /* ── 动效（规范 §4 的时长表）─────────────────────────────────────────
+   * 令牌化的理由：§4 给了六种动效的精确时长，之前散在各业务文件里各写各的
+   * （组件库 120ms、主应用干脆一处都没有），改一次要翻十几个地方。
+   *
+   * §4.1 只允许动 opacity / transform / stroke-dashoffset / 小元素的 box-shadow，
+   * 所以下面两条组合令牌刻意不含 width/height/top/left/filter。 */
+  --duration-state: 160ms;
+  --duration-elevation: 190ms;
+  --duration-rise: 180ms;
+  --duration-slidein: 220ms;
+
+  /* 悬停 / 选中不闪切 */
+  --transition-state: background-color var(--duration-state) ease, color var(--duration-state) ease;
+  /* 抬起感跟手但不拖沓 */
+  --transition-elevation:
+    border-color var(--duration-elevation) ease, box-shadow var(--duration-elevation) ease;
 
   /* ── 字体 ─────────────────────────────────────────────────────────── */
   --font-heading: Inter, -apple-system, 'PingFang SC', 'Hiragino Sans GB', system-ui, sans-serif;

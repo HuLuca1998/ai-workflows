@@ -17,9 +17,9 @@
   font: inherit;
   font-size: 12.5px;
   cursor: pointer;
-  transition:
-    background-color 120ms ease,
-    border-color 120ms ease;
+  /* §4 的时长表：背景色 160ms，描边 180–200ms。
+   * 之前两个都写 120ms —— 偏快，且 border-color 套用了背景色的档位。 */
+  transition: var(--transition-state), var(--transition-elevation);
 }
 
 /* 主操作是强调色描边，不铺色块 */
@@ -131,18 +131,14 @@
   );
 }
 
+/*
+ * 「运行中」徽章过去挂着无限脉冲。列表里每条运行一个徽章、详情头再一个，
+ * 三条并行运行同屏就是 4–5 个呼吸元素 —— §4.1 限 3 个、§9 写明「不做」。
+ * 徽章本来就是文字 + 形状 + 颜色三件套，去掉动画不丢任何信息；
+ * 「仍在进行」的动态提示交给全局唯一的那个 6px dotrun 指示点。
+ */
 .aiwf-status__mark[data-shape='pulse'] {
-  animation: aiwf-pulse 1.6s ease-in-out infinite;
-}
-
-@keyframes aiwf-pulse {
-  0%,
-  100% {
-    opacity: 1;
-  }
-  50% {
-    opacity: 0.35;
-  }
+  box-shadow: 0 0 0 3px color-mix(in srgb, currentcolor 22%, transparent);
 }
 
 .aiwf-status__detail {
