@@ -11,19 +11,33 @@
  */
 export const ONBOARDING_SKIP_KEY = 'aiwf.onboarding.skipped';
 
+/**
+ * 本次会话内的备份。
+ *
+ * localStorage 在隐私模式下读写都抛，而首次引导会**按「没跳过」处理**——
+ * 两件事凑在一起是个死循环：用户点「先跳过」→ 存不住 → 回到 / →
+ * 立刻又被弹回引导页 → 再点跳过……他永远出不去。
+ *
+ * 存不住至少要在这一次会话里记住。关掉应用后再拦一次是可以接受的，
+ * 把人锁死不行。
+ */
+let skippedThisSession = false;
+
 export function isOnboardingSkipped(): boolean {
+  if (skippedThisSession) return true;
   try {
     return window.localStorage.getItem(ONBOARDING_SKIP_KEY) === '1';
   } catch {
-    // 隐私模式下 localStorage 会抛 —— 记不住就当没跳过，宁可多拦一次
+    // 读不到就看会话内的那份，上面已经查过了
     return false;
   }
 }
 
 export function markOnboardingSkipped(): void {
+  skippedThisSession = true;
   try {
     window.localStorage.setItem(ONBOARDING_SKIP_KEY, '1');
   } catch {
-    // 同上：记不住也不该挡住用户往下走
+    // 存不住也不该挡住用户往下走 —— 会话内的那份已经置位了
   }
 }

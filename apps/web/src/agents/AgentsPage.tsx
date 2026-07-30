@@ -155,7 +155,7 @@ export function AgentsPage() {
    * 两份各写各的迟早会不一致 —— 那时按钮说「没有改动可保存」而守卫
    * 还在拦人，用户被卡在中间。
    */
-  const [pendingSelect, setPendingSelect] = useState<string | null>(null);
+  const [pendingSelect, setPendingSelect] = useState<string | 'new' | null>(null);
 
   /**
    * query 默认取当前搜索框的内容。
@@ -221,16 +221,26 @@ export function AgentsPage() {
 
   const hasUnsaved = Object.keys(changedFields()).length > 0;
 
-  /** 选中另一条。有未保存的改动时先拦下来 —— 切走这个动作本身不该销毁数据。 */
-  const selectAgent = (id: string) => {
-    if (hasUnsaved && id !== selectedId) {
-      setPendingSelect(id);
+  /**
+   * 离开当前这一条。`'new'` 表示去新建表单。
+   *
+   * 「新建」也要走这道守卫 —— 它同样会把详情区换掉。第一版只拦了列表里的
+   * 切换，于是改了名字没保存、点右上角的「+」，改动照样没了。
+   */
+  const goTo = (target: string | 'new') => {
+    if (hasUnsaved && target !== selectedId) {
+      setPendingSelect(target);
       return;
     }
-    setSelectedId(id);
     setConfirmDelete(false);
-    setCreating(false);
     setDraft({});
+    if (target === 'new') {
+      setCreating(true);
+      setSelectedId(null);
+      return;
+    }
+    setSelectedId(target);
+    setCreating(false);
   };
 
   const onSave = async () => {
@@ -343,11 +353,7 @@ export function AgentsPage() {
             type="button"
             className="models__add"
             aria-label="新建角色"
-            onClick={() => {
-              setCreating(true);
-              setSelectedId(null);
-              setDraft({});
-            }}
+            onClick={() => goTo('new')}
           >
             <i className="ph ph-plus" aria-hidden="true" />
           </button>
@@ -386,7 +392,7 @@ export function AgentsPage() {
               type="button"
               className="agents__item"
               data-selected={agent.id === selectedId ? 'true' : undefined}
-              onClick={() => selectAgent(agent.id)}
+              onClick={() => goTo(agent.id)}
             >
               <i className="ph ph-robot" aria-hidden="true" />
               <span className="agents__item-main">
@@ -442,12 +448,17 @@ export function AgentsPage() {
                   className="runs__action"
                   data-danger="true"
                   onClick={() => {
-                    const id = pendingSelect;
+                    const target = pendingSelect;
                     setPendingSelect(null);
                     setDraft({});
                     setConfirmDelete(false);
+                    if (target === 'new') {
+                      setCreating(true);
+                      setSelectedId(null);
+                      return;
+                    }
                     setCreating(false);
-                    setSelectedId(id);
+                    setSelectedId(target);
                   }}
                 >
                   放弃改动并切换

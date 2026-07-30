@@ -88,6 +88,14 @@ interface SessionSummary {
 
 /** 待确认的提议：AI 说了什么、会变成什么样。 */
 interface Proposal {
+  /**
+   * 这组操作是对哪条工作流算出来的。
+   *
+   * 不记的话它跨工作流存活：在 A 里让 AI 提了一组改动，切到 B，
+   * 提议还挂在抽屉里，点「应用到草稿」就把 A 的操作落到了 B 上 ——
+   * nodeId 在 B 里要么不存在（报错），要么**碰巧存在**（改错东西）。
+   */
+  workflowId: string | undefined;
   summary: string;
   operations: PatchOperation[];
   /** 没有当前草稿图时算不出 Diff —— 那时只报提议本身，不假装有 Diff。 */
@@ -156,6 +164,18 @@ export function SupervisorDrawer({
     if (!open) return;
     drawerRef.current?.querySelector<HTMLTextAreaElement>('textarea')?.focus();
   }, [open]);
+
+  /*
+   * 换了工作流就把提议丢掉 —— 它是对上一张图算出来的。
+   *
+   * 留着它的话「应用到草稿」会把 A 的操作落到 B：那些 nodeId 在 B 里
+   * 要么不存在（报一个用户看不懂的错），要么碰巧存在（改错东西，而且没人会发现）。
+   */
+  useEffect(() => {
+    setProposal((current) =>
+      current && current.workflowId !== context.workflowId ? null : current,
+    );
+  }, [context.workflowId]);
 
   const [messages, setMessages] = useState<Message[]>([]);
   const [draft, setDraft] = useState('');
@@ -363,6 +383,7 @@ export function SupervisorDrawer({
          * 用户以为它没听懂。算不出 Diff 是事实，但提议本身要说出来。
          */
         setProposal({
+          workflowId: context.workflowId,
           summary: result.proposal.summary,
           operations: result.proposal.operations,
           diff: null,
@@ -379,6 +400,7 @@ export function SupervisorDrawer({
             operations: result.proposal.operations,
           });
           setProposal({
+            workflowId: context.workflowId,
             summary: result.proposal.summary,
             operations: result.proposal.operations,
             diff: applied.diff,
