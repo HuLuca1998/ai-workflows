@@ -34,7 +34,12 @@ fn supervisor_ask(
     context_json: Option<String>,
     session_id: Option<String>,
 ) -> IpcResult<api::SupervisorAnswer> {
-    let store = lock(&state)?;
+    // 走主管 AI 自己那条连接 —— 这一整轮对话可能几分钟，
+    // 占着主锁的话界面上连「取消运行」都点不动
+    let store = state
+        .supervisor_store
+        .lock()
+        .map_err(|_| ApiError::validation("存储锁已中毒，请重启应用"))?;
     api::supervisor_ask(&store, &state.data_dir, question, context_json, session_id)
 }
 
@@ -740,6 +745,23 @@ fn workflow_delete(state: State<'_, AppState>, id: String) -> IpcResult<()> {
 /// 否则一个跑十分钟的脚本会把界面的所有查询卡住。
 pub struct AppState {
     store: Mutex<Store>,
+    /**
+     * 主管 AI 专用的第二条连接。
+     *
+     * 它与那 58 条走 `store` 的命令**不该抢同一把锁**：`supervisor_ask`
+     * 会握着锁做完整轮 ACP 对话 —— connect 超时 180 秒，而 prompt 的
+     * 等待每收到一条通知就重置，话多的 agent 能跑十几分钟。那期间
+     * `run_events`、`run_cancel`、`approval_decide` 全堵在后面，
+     * 运行页每 1200ms 一次的轮询会一条条堆起来。
+     *
+     * 用户看到的是「应用卡住了」—— 没有错误、没有转圈。他最可能做的事
+     * 是强杀 App，而那正好撞上「杀掉 App 后运行永远卡在运行中」。
+     *
+     * 同一个判断在 MCP 那侧已经做过一次：它对「慢请求会占住线程好几分钟」
+     * 的回应是每线程一条自己的连接（`crates/mcp/src/http.rs`）。
+     * SQLite 开着 WAL，多连接并发读写正是它支持的用法。
+     */
+    supervisor_store: Mutex<Store>,
     supervisor: Supervisor,
     /// 应用数据目录。运行目录、产物都落在它下面。
     data_dir: PathBuf,
@@ -866,8 +888,13 @@ pub fn run() {
                 Err(error) => eprintln!("[aiwf] 系统 MCP 没起来：{error}"),
             }
 
+            // 主管 AI 那条连接单独开：Store::open 只做迁移不种数据，
+            // 种子已经由上面那条走过了
+            let supervisor_store = Store::open(&path)?;
+
             app.manage(AppState {
                 store: Mutex::new(store),
+                supervisor_store: Mutex::new(supervisor_store),
                 supervisor: Supervisor::new(path),
                 data_dir,
             });

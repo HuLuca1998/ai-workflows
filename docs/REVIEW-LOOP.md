@@ -251,23 +251,6 @@ Rust `status.rs` 一份、TS `state-machine.ts` 一份，**两份都没有生产
 （或第二次拿到 AlreadyRunning）。修法是把「谁在推进这个 Run」落到库里
 （一列 owner/lease），而不是进程内存的 HashMap。
 
-### W-2 · 主管 AI 一说话，整个桌面端冻住
-
-桌面壳 70 条命令里 58 条走同一把 `Mutex<Store>` —— `run_events`、
-`run_cancel`、`approval_decide` 全在内。而 `supervisor_ask` 也在内，
-且它**握着锁做完整轮 ACP 对话**：connect 超时 180 秒，
-prompt 的 recv_timeout 每收到一条通知就重置，话多的 agent 能跑十几分钟。
-运行页每 1200ms 轮询一次，这些 invoke 全堆在锁后面。
-
-对照组就在同一个仓库：MCP 那侧对同一件事的判断是「慢请求会占住线程好几分钟」，
-于是开 8 个 worker、每线程一条自己的连接。
-
-用户看到的是「应用卡住了」——没有错误、没有转圈。他最可能做的事是强杀 App，
-正好撞上 DEBT 里那条「杀 App 后运行卡在运行中」。
-
-**验收**：`supervisor_ask` 进 ACP 之前放掉 store 锁（它只在开头读 draft、
-结尾写会话）。测试：在它阻塞期间调 `run_cancel`，断言 100ms 内返回。
-
 ### W-3 · 一键初始化不看有没有运行在跑
 
 `workspace_reset` 直接 `reset_workspace()`，没有「先看看有没有 active run」，
@@ -471,3 +454,5 @@ DEBT B-1。归在 `entry | end` 那一档，什么都不做直接返回成功，
 - 跳转 URL 与读取对上了（Z-4）：首页「重试」改用 ?run=，RunsPage 读 tab 参数
 - 超长摘要不再压垮运行：`emit_full` 兜底截断 —— 之前一行五千字的 stderr
   会让 `node.failed` 一条都写不进去，节点永远停在「运行中」
+- 主管 AI 单开一条数据库连接（W-2）—— 之前它握着主锁做完整轮 ACP 对话，
+  桌面壳另外 58 条命令全堵在后面，用户看到的是「应用卡住了」
