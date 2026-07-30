@@ -1184,6 +1184,36 @@ pub fn workspace_reset(
     workdir: Option<&Path>,
     include_artifacts: bool,
 ) -> ApiResult<ResetResultDto> {
+    // 有运行在跑就不清。
+    //
+    // 清空**不会停掉执行线程** —— 它们还握着自己的 store 连接在跑。
+    // 实测过的后果：重置报成功、运行记录消失，而那个 shell 脚本跑完了、
+    // 文件写进去了；它写事件时撞的 FOREIGN KEY constraint failed
+    // 只 eprintln! 到 stderr，打包版里没人看得到。
+    //
+    // 用户点「清空重来」，界面说清完了，几秒后磁盘上多出几个文件、
+    // 或者一个 git push 发出去了 —— 他不会把这两件事联系起来。
+    // 非终态由 RunStatus 派生，不在这里抄一份 —— 抄的那份会与状态机漂移，
+    // 而漂移的方向恰好是「新加的活跃状态不在名单里」，也就是拦不住
+    let 活跃状态: Vec<String> = aiwf_engine::status::RunStatus::ALL
+        .iter()
+        .filter(|status| !status.is_terminal())
+        .map(|status| status.as_str().to_string())
+        .collect();
+    let 还在跑 = store.list_runs_paged(None, &活跃状态, None, 20, 0)?.0;
+    if !还在跑.is_empty() {
+        let 清单 = 还在跑
+            .iter()
+            .map(|run| run.id.clone())
+            .collect::<Vec<_>>()
+            .join("、");
+        return Err(ApiError::validation(format!(
+            "还有 {} 条运行没结束，先让它们停下来再清空：{清单}",
+            还在跑.len()
+        ))
+        .with_hint("去执行记录里取消它们，或者等它们跑完。清空不会停掉正在执行的脚本"));
+    }
+
     // 先清库。目录删一半而库没清的话，界面上还留着一堆运行记录，
     // 点开每一条都是「产物不见了」—— 那比什么都没做更难解释
     store.reset_workspace()?;

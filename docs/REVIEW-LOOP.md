@@ -251,37 +251,6 @@ Rust `status.rs` 一份、TS `state-machine.ts` 一份，**两份都没有生产
 （或第二次拿到 AlreadyRunning）。修法是把「谁在推进这个 Run」落到库里
 （一列 owner/lease），而不是进程内存的 HashMap。
 
-### W-3 · 一键初始化不看有没有运行在跑
-
-`workspace_reset` 直接 `reset_workspace()`，没有「先看看有没有 active run」，
-也没有停掉任何执行线程（`Supervisor` 根本没传进来）。
-
-实测：重置报成功、运行记录消失，而那个 shell 脚本跑完了、文件写进去了。
-它写事件时撞的 `FOREIGN KEY constraint failed` 只 `eprintln!` 到 stderr，
-打包版里没人看得到。
-
-同一个函数还有一处名不副实：`清空重建()` 的注释写「整件事在一个事务里，
-中途失败就回滚」，而事务只包 DROP 那一段 —— `COMMIT` 之后才跑 migrate 与 seed。
-
-**验收**：有 active run 时拒绝并说清是哪几条；注释与实现二选一改到一致。
-
-### W-4 · 失败页三个主操作零 in-flight 防重
-
-「从失败节点重试」「回到最近审批点」「用相同参数重跑」都是裸 button，
-没有 disabled、没有 loading、store 里也没有 ref 锁。后端 `run.start` 不幂等 ——
-连点两次就是两条运行、两个执行线程、同一个 workdir。
-第二条的 worktree 节点会撞 `BranchExists`，报「分支已存在。换一个分支名」——
-一句完全指错方向的提示。
-
-发布按钮同类：`disabled` 只绑了 `dirty`，连点会得到两个 `config_hash`
-完全相同的版本。
-
-仓库里已经有做对的写法（`OverviewPage.tsx:85` 的 `creatingRef` 配
-「连点五次只建一条」测试）——**那是全仓唯一一条连点测试**，没有推广。
-
-**验收**：每条配一个「连点五次」的用例；发布还需要后端幂等
-（同一个 rev 重复发布返回已有版本）。
-
 ### W-5 · `hint` 这条管道建好了但零灌注
 
 `ApiError::with_hint()` **全仓零调用**（含测试）。生产代码 `hint: None` 21 处、
@@ -299,6 +268,104 @@ MCP 侧拼「接下来：」，前端 `describeError` 渲染成 `${message}（${
 
 **验收**：照 `patch.rs` 的 `PatchError::hint()` 给各错误类型配 `hint()`；
 门禁：所有 `VALIDATION` 码必须带非空 hint，配一条故意不带、断言变红的元测试。
+
+---
+
+## 〇之五、第 5 轮探索：契约与 MCP 这道对外的门
+
+**六条全部有实测输出。** 三条是安全级的。
+
+### V-1 · MCP 的确认通道是死路，默认档下 40 多个写工具一个都用不了 ← 功能完全不可用
+
+`call_tool` 每次无条件重跑 `gate_for`，`NeedsConfirm` 就新建一条待确认记录。
+**没有任何一处代码读 `status = 'approved'`** —— 设计好的「提交 → 轮询 → 再调」
+三步，第二步（`mcp.confirmStatus`）自己躺在 `DELIBERATELY_HIDDEN` 里。
+
+实测：批准之后再调一次，`isError = true`、同一句话、**又入队一条新的**，
+工作流总数仍是 0。用户看到确认卡、按下「批准这次写入」、卡片消失，
+而卡上那句「批准后这次写入会走 Core API 的版本守卫与审计」是假的。
+Agent 照提示重试则每次再塞一条 pending，用户被同一个弹层反复砸。
+
+掩护它的是 `http_test.rs:563`：只断言「被挡住 + 进了队列」，从不批准、也不再调。
+
+**验收**：端到端 —— 提交 → 批准 → 用同样入参再调一次，断言真的执行了、
+队列回到 0；再配一条防重放（同一条 approved 记录不能被消费两次）。
+
+### V-2 · MCP 公布的 inputSchema 描述的是一个不存在的 API
+
+`toIpcInput` 把契约字段名翻译成引擎参数名（`inputs`→`inputsJson`…），
+而 **MCP 完全不经过这一层**，直接把契约字段名喂给 dispatch。
+
+实测三个照 schema 调必然失败：`run_start`（要 `inputsJson`）、
+`memory_update`（要 `baseVer`）、`prompt_create`（要 `sectionsJson`）。
+另有 8 处字段被**静默丢掉**：`workflow.create.fromTemplate/folder`、
+`workflow.publish.note`、`agent.update.role/runtime/turnLimit/timeoutMs`、
+`prompt.update.sections`（版本号照涨、正文不变）…
+
+`run_start` 是「只靠 MCP 把工作流跑起来」这条出口标准的必经工具。
+唯一能猜对的办法是读散文指南 `knowledge.rs:341` —— 机器可读的 schema
+与散文互相矛盾。
+
+**验收**：**输入侧**的漂移守卫（现在只有输出侧的两条）：按每个工具
+公布的 required 造入参调 dispatch，断言不出现「缺少参数 X 而 X 不在 schema 里」；
+可选字段要么有读取点要么进白名单。
+
+### V-3 · `workspace_safe` 档下，MCP 客户端能自己提权到 `trusted_workflow` ← 安全
+
+`gate_for` 只看 scope 与 destructive。`workspace.updateSettings` 的 scope 是
+`workflow:write-draft` 且不在 destructive 名单里 → 直接 `Allow`。
+
+实测：提权调用 `isError = false`，之后 `workflow_delete` 不再需要确认、
+`workdir` 还能被改成 `/`。而 `catalog.rs:196` 写着 workspace_safe 的含义是
+「改草稿放行……发布、运行、删除仍要确认」—— 一次免确认调用就把三条全解除了。
+
+同一条口子上还有 `supervisor_ask`（会在本机拉起 adapter 进程
+并把系统 MCP 令牌交给它）。
+
+**验收**：「会改变安全边界本身」的工具任何档位下都 `NeedsConfirm`；
+配元测试：往 `workflow:write-draft` 新加一个能改设置的方法而没进名单时变红。
+
+### V-4 · 非 JSON 的草稿能落库，还能发布成不可变版本
+
+契约对 `workflow.create.graphJson` 只有 `z.string().min(1)`，
+`create_workflow_with_graph` 零校验，`workflow_publish` 全文三行、从不调 validate。
+
+实测：`graphJson="这不是 JSON"` → create Ok → `workflow_patch` 从此报
+「草稿不是合法 JSON」（这条草稿再也改不动）→ **publish 照样成功**，
+拿到一个 `config_hash` 算在垃圾上的不可变版本，而运行记录永远引用它。
+
+`workflow_patch` 那套「结构化写入是唯一形态」的防线被 create 从侧门绕过。
+
+**验收**：入口按 `WorkflowGraphSchema` 校验；publish 先跑 validate，
+有 error 级 issue 就拒绝（界面同步置灰并说明原因）。
+
+### V-5 · 「引擎强制，Prompt 无法越权」：5 个维度只认 2 个，`declared` 与 `any` 等价 ← 安全
+
+`grep '"network"\|"memory"\|"secret"\|"declared"' crates/engine/src` **零命中**。
+引擎只读 `file` 与 `command`，判据是 `== "none"` / `!= "read-write"`。
+
+实测同一个 `script.shell` 节点：`command` 填 `any` / `declared` / `随便写的` / 空串
+**四种全部放行**。没挂角色时更是走 `(None, None) => Ok(())` 直接过 ——
+而 `with_capabilities` 生产零调用。
+
+两处界面都写着「权限（引擎强制，Prompt 无法越权）」并让用户逐项配
+网络 / 记忆 / 凭据 —— 这三项一行代码都不参与执行。
+数据库里一个拼错的能力值等于放行，与「认不出的按最严处理」正相反。
+
+**验收**：`level()` 对枚举外的值按最严；`declared` 真的与节点的命令清单比对；
+其余三维要么接上要么在界面直说不生效。每种绕过方式一条用例。
+
+### V-6 · 契约的默认值与必填在 Rust 侧一律作废
+
+`dispatch.rs` 的 `fn boolean` 缺席返回 `false`、永不报错。
+
+实测：`model_create` 不带 `enabled`（契约 default 是 **true**）→ 库里 `false`，
+`model_list {enabledOnly:true}` 看不见它；`agent_create` 不带 `capabilities`
+（契约**必填**）→ Ok，库里 `{}`，拿这个角色跑 ai.execute 直接失败，
+而错误信息把锅甩给用户「去 Agent 角色里改」—— 那个角色是三秒前它自己按契约建的。
+
+**验收**：`boolean()` 拆成必填版与带默认值版（默认值从契约抄并注明出处）；
+守卫：契约里带 default 或列在 required 的标量字段，dispatch 对应分支必须用对应语义的取值函数。
 
 ---
 
@@ -454,5 +521,8 @@ DEBT B-1。归在 `entry | end` 那一档，什么都不做直接返回成功，
 - 跳转 URL 与读取对上了（Z-4）：首页「重试」改用 ?run=，RunsPage 读 tab 参数
 - 超长摘要不再压垮运行：`emit_full` 兜底截断 —— 之前一行五千字的 stderr
   会让 `node.failed` 一条都写不进去，节点永远停在「运行中」
+- 有运行在跑时拒绝一键初始化（W-3）—— 之前重置报成功而脚本还在往磁盘写
+- 失败页三个入口防连点（W-4）+ 可复用的 useAsyncAction
+- RunError 说清下一步（W-5 的一半）—— WrongState 是连点两次审批必撞的那个
 - 主管 AI 单开一条数据库连接（W-2）—— 之前它握着主锁做完整轮 ACP 对话，
   桌面壳另外 58 条命令全堵在后面，用户看到的是「应用卡住了」

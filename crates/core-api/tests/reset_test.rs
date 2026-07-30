@@ -261,3 +261,73 @@ mod 执行 {
         assert_eq!(结果.removed_directories.len(), 1, "{结果:?}");
     }
 }
+
+/// 有运行在跑的时候不能清空重来。
+///
+/// `workspace_reset` 直接 `reset_workspace()`，全程没有「先看看有没有
+/// active run」这一步，也没有停掉任何执行线程（`Supervisor` 根本没传进来）。
+///
+/// 实测过的后果：重置报成功、运行记录消失，**而那个 shell 脚本跑完了、
+/// 文件写进去了**。它写事件时撞的 `FOREIGN KEY constraint failed`
+/// 只 `eprintln!` 到 stderr，打包版里没人看得到。
+///
+/// 用户点「清空重来」，界面说清完了，几秒后磁盘上多出几个文件、
+/// 或者一个 `git push` 发出去了 —— 他不会把这两件事联系起来。
+mod 有运行在跑时不清空 {
+    use super::*;
+
+    /// 造一条停在非终态的运行。
+    fn 造一条活着的运行(store: &Store) -> String {
+        let wf = store.create_workflow("在跑的", None).unwrap();
+        let run = store.create_run_for_test(&wf).unwrap();
+        store.set_run_status(&run, "running", None).unwrap();
+        run
+    }
+
+    #[test]
+    fn 拒绝并说清是哪几条() {
+        let (dir, store) = 环境();
+        let run_id = {
+            let store = store.lock().unwrap();
+            造一条活着的运行(&store)
+        };
+
+        let 结果 = {
+            let mut store = store.lock().unwrap();
+            aiwf_core_api::workspace_reset(&mut store, dir.path(), None, false)
+        };
+
+        let 错 = 结果.expect_err("有运行在跑却让清空成功了");
+        assert!(
+            错.message.contains("还在跑") || 错.message.contains("运行"),
+            "没说清为什么拒绝：{}",
+            错.message
+        );
+        assert!(错.message.contains(&run_id), "没说是哪一条：{}", 错.message);
+        assert!(错.hint.is_some(), "没说接下来该干什么");
+
+        // 库还在 —— 拒绝就要拒绝干净，不能删一半
+        let store = store.lock().unwrap();
+        assert!(
+            store.get_run(&run_id).unwrap().is_some(),
+            "拒绝了却已经把运行记录删了"
+        );
+    }
+
+    #[test]
+    fn 全是终态时照常清空() {
+        // 跑完的、失败的、取消的都不该拦着用户重来
+        let (dir, store) = 环境();
+        {
+            let store = store.lock().unwrap();
+            for status in ["succeeded", "failed", "cancelled"] {
+                let run = 造一条活着的运行(&store);
+                store.set_run_status(&run, status, None).unwrap();
+            }
+        }
+
+        let mut store = store.lock().unwrap();
+        let 结果 = aiwf_core_api::workspace_reset(&mut store, dir.path(), None, false).unwrap();
+        assert!(结果.ok);
+    }
+}
