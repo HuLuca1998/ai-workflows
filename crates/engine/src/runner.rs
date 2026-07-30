@@ -31,7 +31,10 @@ pub enum RunError {
         status: String,
         action: &'static str,
     },
-    #[error("运行 {run_id} 当前等的是节点 {expected:?}，不是 {got}")]
+    // `{expected:?}` 会把 Option 的 Debug 形态原样显示给用户 ——
+    // 界面上出现的是字面的 `Some("n_review")`，而 None 那支
+    // 更是一句病句：「当前等的是节点 None」
+    #[error("运行 {run_id} 当前等的{}，而你提交的是 {got}", 待审批的(.expected))]
     NotPendingApproval {
         run_id: String,
         expected: Option<String>,
@@ -39,6 +42,40 @@ pub enum RunError {
     },
     #[error("节点执行失败：{0}")]
     Executor(#[from] crate::executor::ExecutorError),
+}
+
+fn 待审批的(expected: &Option<String>) -> String {
+    match expected {
+        Some(node) => format!("是节点 {node} 的审批"),
+        None => "根本不是审批".to_string(),
+    }
+}
+
+impl RunError {
+    /// 接下来该干什么。
+    ///
+    /// 「发生了什么」只答了一半 —— 用户拿到「运行 r_x 当前是 running，
+    /// 不能提交审批决定」之后，最想知道的是「我刚才那一下到底算没算数」。
+    /// 照 `patch.rs` 的 `PatchError::hint()` 那个写法。
+    #[must_use]
+    pub fn hint(&self) -> Option<&'static str> {
+        match self {
+            // 连点两次审批必撞这个：第一次其实已经成功了
+            Self::WrongState { .. } => {
+                Some("这次操作没生效，多半是上一次已经成功了。去执行记录里看它现在停在哪一步")
+            }
+            Self::NotPendingApproval { .. } => {
+                Some("刷新一下执行记录，按它当前真正等的那一步再决定")
+            }
+            Self::RunNotFound(_) => Some("这条运行可能已被清理。回执行记录列表看看还在不在"),
+            Self::GraphMissing { .. } | Self::GraphInvalid(_) => {
+                Some("这条运行引用的图已经读不出来了。回编辑器确认草稿还在，再重新发起一次")
+            }
+            Self::Plan(_) => Some("回编辑器看画布上的报错：多半是有环，或者某个节点没连上"),
+            // 存储与执行器的错误由它们自己那层给提示
+            Self::Store(_) | Self::Executor(_) => None,
+        }
+    }
 }
 
 pub type Result<T> = std::result::Result<T, RunError>;

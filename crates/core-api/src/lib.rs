@@ -193,11 +193,17 @@ impl From<aiwf_engine::supervisor::SupervisorError> for ApiError {
             E::AlreadyRunning(_) => ("VALIDATION", false),
             E::Poisoned => ("INTERNAL", false),
         };
-        // 已经在跑是最常撞的一种，给条出路
         let hint = match &error {
+            // 已经在跑是最常撞的一种，给条出路
             E::AlreadyRunning(_) => {
                 Some("这条运行还没结束。去执行记录里看它停在哪一步".to_string())
             }
+            // RunError 自己知道该给什么提示（照 PatchError::hint 的写法）。
+            // 这一支原本是 `_ => None`，把 WrongState 与 NotPendingApproval
+            // 一起吞了 —— 而前者正是连点两次审批必撞的那个：
+            // 批准成功之后紧跟一句「当前是 running，不能提交审批决定」，
+            // 没有一个字告诉用户「你的批准已经生效了」
+            E::Run(inner) => inner.hint().map(str::to_string),
             _ => None,
         };
         Self {

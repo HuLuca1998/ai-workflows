@@ -217,3 +217,73 @@ fn 错误响应整体序列化_不手拼字段() {
          手拼那版漏了 hint"
     );
 }
+
+/// 错误必须说清「接下来怎么办」。
+///
+/// `ApiError::with_hint()` **全仓零调用**（含测试），而管道两头都通着：
+/// MCP 侧把 hint 拼成「接下来：」，前端 `describeError` 渲染成
+/// `${message}（${hint}）`。中间那一段一直是空的。
+///
+/// 两条最常撞的：
+///
+/// - **WrongState** —— 连点两次审批必撞。第二次拿到「运行 r_x 当前是
+///   running，不能提交审批决定」，没有一个字告诉用户「你的批准已经生效了」
+/// - **NotPendingApproval** —— `{expected:?}` 作用在 `Option<String>` 上，
+///   用户在界面上看到的是字面的 `Some("n_review")`
+mod 错误要说下一步二 {
+    #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+
+    use aiwf_engine::runner::RunError;
+    use aiwf_engine::supervisor::SupervisorError;
+
+    /// 走用户真正会碰到的那条路：RunError 是被 SupervisorError 包着上来的。
+    fn 转成_api(error: RunError) -> aiwf_core_api::ApiError {
+        SupervisorError::Run(error).into()
+    }
+
+    #[test]
+    fn 状态不对时告诉用户去哪儿看当前状态() {
+        let error = RunError::WrongState {
+            run_id: "run_1".to_string(),
+            status: "running".to_string(),
+            action: "提交审批决定",
+        };
+        let api = 转成_api(error);
+
+        let hint = api.hint.expect("这是连点两次审批最常撞的一个，必须给出路");
+        assert!(!hint.trim().is_empty());
+        // 用户此刻最需要知道的是「我刚才那一下到底算没算数」
+        assert!(hint.contains("执行记录") || hint.contains("已经"), "{hint}");
+    }
+
+    #[test]
+    fn 审批指向错节点时不把_rust_的_debug_形态抛给用户() {
+        let error = RunError::NotPendingApproval {
+            run_id: "run_1".to_string(),
+            expected: Some("n_review".to_string()),
+            got: "n_other".to_string(),
+        };
+        let api = 转成_api(error);
+
+        assert!(
+            !api.message.contains("Some("),
+            "把 Option 的 Debug 形态抛给了用户：{}",
+            api.message
+        );
+        assert!(api.message.contains("n_review"), "{}", api.message);
+        assert!(api.hint.is_some(), "没给出下一步");
+    }
+
+    #[test]
+    fn 没有待审批节点时那句话读得通() {
+        // expected 是 None 的情形 —— 「当前等的是节点 None」是句病句
+        let error = RunError::NotPendingApproval {
+            run_id: "run_1".to_string(),
+            expected: None,
+            got: "n_other".to_string(),
+        };
+        let api = 转成_api(error);
+
+        assert!(!api.message.contains("None"), "{}", api.message);
+    }
+}
