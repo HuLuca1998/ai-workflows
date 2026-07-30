@@ -6420,3 +6420,9 @@ fieldset.launch__field {
   min-height: 80px;
   resize: vertical;
 }
+
+/* 「加载更早」在列表上方 —— 更早的在上面，与阅读方向一致 */
+.runs__load-earlier {
+  align-self: flex-start;
+  margin-bottom: 10px;
+}

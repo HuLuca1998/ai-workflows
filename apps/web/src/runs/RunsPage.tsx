@@ -42,6 +42,9 @@ const TABS: { key: DetailTab; label: string }[] = [
 /** 运行中的记录要跟着刷新，停下的不必轮询。 */
 const POLL_MS = 1200;
 
+/** 事件流一次铺多少条。见 EventList 里的说明。 */
+const EVENT_WINDOW = 200;
+
 export function RunsPage() {
   const runs = useRuns();
   const search = useDebouncedSearch((query) => {
@@ -670,6 +673,15 @@ function EventList({
    * 「它在哪一步崩的」只能一行行往下读。
    */
   const [onlyProblems, setOnlyProblems] = useState(false);
+  /**
+   * 一次只铺这么多。
+   *
+   * 事件上限是 5000 条，全铺出来的话每 1.2 秒一次的轮询要让 5000 个 DOM
+   * 节点参与一次 diff（规范 §8：超过 300 行要虚拟滚动）。
+   * 「最近 N 条 + 加载更早」比虚拟滚动简单得多，而且它顺带回答了
+   * 「我要看的通常是最后发生的事」。
+   */
+  const [windowSize, setWindowSize] = useState(EVENT_WINDOW);
   /** 「跳到失败处」标记的那一条。标记而不是滚动 —— 滚动在 jsdom 里也验证不了。 */
   const [jumpedId, setJumpedId] = useState<string | null>(null);
 
@@ -679,12 +691,15 @@ function EventList({
     return tone === 'failed' || tone === 'warn';
   });
 
-  const shown = onlyProblems
+  const filtered = onlyProblems
     ? events.filter((event) => {
         const tone = toneOfEvent(event.type, event.summary);
         return tone === 'failed' || tone === 'warn';
       })
     : events;
+  // 取**最近的**一段：截头不截尾
+  const hidden = Math.max(0, filtered.length - windowSize);
+  const shown = hidden > 0 ? filtered.slice(hidden) : filtered;
 
   return (
     <>
@@ -724,6 +739,16 @@ function EventList({
       ) : null}
       {events.length > 0 && shown.length === 0 ? (
         <p className="runs__empty">这条运行没有异常事件。</p>
+      ) : null}
+      {hidden > 0 ? (
+        <button
+          type="button"
+          className="runs__action runs__action--small runs__load-earlier"
+          onClick={() => setWindowSize((size) => size + EVENT_WINDOW)}
+        >
+          <i className="ph ph-arrow-up" aria-hidden="true" />
+          加载更早的 {hidden} 条
+        </button>
       ) : null}
       <ul className="runs__events">
         {shown.map((event) => (
