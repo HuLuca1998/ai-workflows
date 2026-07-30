@@ -89,6 +89,26 @@ export function PromptsPage() {
    * 所以这里存整个数组的副本，改哪段替换哪段。
    */
   const [sections, setSections] = useState<Section[] | null>(null);
+  /**
+   * 有未保存改动时要拦下切换 —— 与 Agent 页同一道守卫。
+   *
+   * `sections` 不是 null 就说明用户动过正文；切走时 `setSections(null)`
+   * 会直接把它丢掉，而这一屏的保存是显式的（按钮叫「保存新版本」）。
+   */
+  const [pendingSelect, setPendingSelect] = useState<string | null>(null);
+  const hasUnsaved = sections !== null;
+
+  const goTo = (id: string) => {
+    if (hasUnsaved && id !== selectedId) {
+      setPendingSelect(id);
+      return;
+    }
+    setSelectedId(id);
+    setConfirmDelete(false);
+    setCreating(false);
+    setSections(null);
+    setTab('template');
+  };
 
   /**
    * 参数顺序与另两页统一成 (offset, query)，query 默认取当前搜索框。
@@ -131,6 +151,8 @@ export function PromptsPage() {
       // ver 是乐观锁：后端靠它判断这次改动基于哪一版，
       // 少发的话契约层直接拒，而错误信息说不清是哪个字段
       await coreClient.call('prompt.update', { id: selected.id, ver: selected.ver, sections });
+      // 改动已经落地，那条警告要跟着收
+      setPendingSelect(null);
       setSections(null);
       setError(null);
       await load();
@@ -241,13 +263,7 @@ export function PromptsPage() {
                   type="button"
                   className="prompts__item"
                   data-selected={prompt.id === selectedId ? 'true' : undefined}
-                  onClick={() => {
-                    setSelectedId(prompt.id);
-                    setConfirmDelete(false);
-                    setCreating(false);
-                    setSections(null);
-                    setTab('template');
-                  }}
+                  onClick={() => goTo(prompt.id)}
                 >
                   <span className="prompts__item-name">{prompt.name}</span>
                   <span className="prompts__item-meta">
@@ -359,6 +375,35 @@ export function PromptsPage() {
                 保存新版本
               </button>
             </header>
+
+            {pendingSelect ? (
+              <p className="models__warn" role="alert">
+                这条提示词有未保存的改动。切到另一条会把它们丢掉。
+                <button
+                  type="button"
+                  className="runs__action"
+                  onClick={() => setPendingSelect(null)}
+                >
+                  留在这里
+                </button>
+                <button
+                  type="button"
+                  className="runs__action"
+                  data-danger="true"
+                  onClick={() => {
+                    const id = pendingSelect;
+                    setPendingSelect(null);
+                    setSections(null);
+                    setConfirmDelete(false);
+                    setCreating(false);
+                    setTab('template');
+                    setSelectedId(id);
+                  }}
+                >
+                  放弃改动并切换
+                </button>
+              </p>
+            ) : null}
 
             {selected.builtin ? (
               <p className="models__warn" role="status">
