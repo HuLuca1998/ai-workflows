@@ -765,8 +765,14 @@ pub fn run_dry_run(
             hint: None,
         })?;
 
+    // 带上角色 —— 不带的话 Dry Run 查的 adapter 与执行时用的不是一个：
+    // 角色的 runtime 压过节点上那个 M2 遗留字段（`resolve_runtime`）。
+    // 症状是「装了 codex 的机器上每个 AI 节点都报 claude 没安装」，
+    // 反过来则是「说通过，一跑就挂」
+    let profiles = aiwf_engine::runner::agent_profiles_for_graph(store, &graph).unwrap_or_default();
+
     Ok(DryRunDto {
-        report: aiwf_engine::preflight::dry_run(&graph, &workdir),
+        report: aiwf_engine::preflight::dry_run_with_profiles(&graph, &workdir, &profiles),
         workdir: workdir.display().to_string(),
     })
 }

@@ -51,6 +51,52 @@ fn 待审批的(expected: &Option<String>) -> String {
     }
 }
 
+/// 一张图引用到的 Agent 角色，从库里查好。
+///
+/// **执行器与 Dry Run 共用**：Dry Run 不带角色的话，它解出的 runtime
+/// 与执行时不是同一个（角色的 runtime 压过节点上那个 M2 遗留字段），
+/// 于是查的 adapter 也不是同一个 —— 说通过，一跑就挂。
+pub fn agent_profiles_for_graph(
+    store: &Store,
+    graph: &crate::graph::WorkflowGraph,
+) -> Result<Vec<crate::executor::AgentProfile>> {
+    let mut ids: Vec<String> = Vec::new();
+    for node in &graph.nodes {
+        let Some(id) = node
+            .config
+            .get("agentProfileId")
+            .and_then(serde_json::Value::as_str)
+            .filter(|id| !id.is_empty())
+        else {
+            continue;
+        };
+        if !ids.iter().any(|seen| seen == id) {
+            ids.push(id.to_string());
+        }
+    }
+
+    let mut profiles = Vec::new();
+    for id in ids {
+        // 查不到就不放进去 —— 执行器会在跑到那个节点时报
+        // 「找不到 Agent 角色 X」，那句话比这里静默跳过有用
+        if let Some(row) = store.get_agent(&id)? {
+            profiles.push(crate::executor::AgentProfile {
+                id: row.id,
+                name: row.name,
+                role: row.role,
+                goal: row.goal,
+                persona: row.persona,
+                runtime: row.runtime,
+                model_ref: row.model_ref,
+                output_contract: row.output_contract,
+                capabilities_json: row.capabilities_json,
+                timeout_ms: row.timeout_ms,
+            });
+        }
+    }
+    Ok(profiles)
+}
+
 impl RunError {
     /// 接下来该干什么。
     ///
@@ -848,42 +894,7 @@ impl Runner {
         run_id: &str,
     ) -> Result<Vec<crate::executor::AgentProfile>> {
         let (graph, _) = self.load_plan(store, run_id)?;
-
-        let mut ids: Vec<String> = Vec::new();
-        for node in &graph.nodes {
-            let Some(id) = node
-                .config
-                .get("agentProfileId")
-                .and_then(serde_json::Value::as_str)
-                .filter(|id| !id.is_empty())
-            else {
-                continue;
-            };
-            if !ids.iter().any(|seen| seen == id) {
-                ids.push(id.to_string());
-            }
-        }
-
-        let mut profiles = Vec::new();
-        for id in ids {
-            // 查不到就不放进去 —— 执行器会在跑到那个节点时报
-            // 「找不到 Agent 角色 X」，那句话比这里静默跳过有用
-            if let Some(row) = store.get_agent(&id)? {
-                profiles.push(crate::executor::AgentProfile {
-                    id: row.id,
-                    name: row.name,
-                    role: row.role,
-                    goal: row.goal,
-                    persona: row.persona,
-                    runtime: row.runtime,
-                    model_ref: row.model_ref,
-                    output_contract: row.output_contract,
-                    capabilities_json: row.capabilities_json,
-                    timeout_ms: row.timeout_ms,
-                });
-            }
-        }
-        Ok(profiles)
+        agent_profiles_for_graph(store, &graph)
     }
 
     fn emit(

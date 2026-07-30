@@ -69,6 +69,34 @@ pub struct NodeExecutor {
     resolutions: std::sync::Mutex<Vec<Resolution>>,
 }
 
+/// 这个节点最终跑在哪个 runtime 上。
+///
+/// 角色说了算：节点上的 `runtime` 是 M2 时期的写法（那时还没有角色），
+/// 两处都写着时以界面上用户真正在改的那一栏为准。
+///
+/// 抽成自由函数是因为 **Dry Run 也要解出同一个值** —— 它原来自己
+/// 读 `node.config["runtime"]`、自己缺省 `acp.claude`，
+/// 于是查的 adapter 和执行时用的不是一个。两处各写一套默认值，
+/// 迟早对不上；对不上的样子是「Dry Run 说通过，一跑就挂」。
+#[must_use]
+pub fn resolve_runtime(node: &GraphNode, profiles: &[AgentProfile]) -> String {
+    let 角色的 = node
+        .config
+        .get("agentProfileId")
+        .and_then(serde_json::Value::as_str)
+        .and_then(|id| profiles.iter().find(|p| p.id == id));
+    if let Some(profile) = 角色的 {
+        if !profile.runtime.is_empty() {
+            return profile.runtime.clone();
+        }
+    }
+    node.config
+        .get("runtime")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or("acp.codex")
+        .to_string()
+}
+
 /// 一个 Agent 角色，解析好的形态。
 ///
 /// **执行器不碰数据库** —— 上层查好了传进来。这样它既能单测，
@@ -286,21 +314,9 @@ impl NodeExecutor {
     }
 
     /// 这个节点最终跑在哪个 runtime 上。
-    ///
-    /// 角色说了算：节点上的 `runtime` 是 M2 时期的写法（那时还没有角色），
-    /// 两处都写着时以界面上用户真正在改的那一栏为准。
     #[must_use]
     pub fn resolved_runtime(&self, node: &GraphNode) -> String {
-        if let Some(profile) = self.profile_for(node) {
-            if !profile.runtime.is_empty() {
-                return profile.runtime.clone();
-            }
-        }
-        node.config
-            .get("runtime")
-            .and_then(serde_json::Value::as_str)
-            .unwrap_or("acp.codex")
-            .to_string()
+        resolve_runtime(node, &self.agent_profiles)
     }
 
     /// Agent 角色声明的能力。不传表示这次运行没挂角色。

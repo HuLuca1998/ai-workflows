@@ -404,3 +404,159 @@ fn 变量只是挨着引号而不是被包住_不报() {
     let report = aiwf_engine::preflight::dry_run(&脚本图("echo \"前缀\"${input.x}"), dir.path());
     assert!(找检查(&report, "引号").is_none(), "这不是重复加引号");
 }
+
+// ── Dry Run 查的必须是执行时真会用的那个 adapter ──────────────────────────
+//
+// `check_acp` 原本只读 `node.config["runtime"]`，缺省 `acp.claude`；
+// 而执行时 `resolved_runtime` **以角色为准**，缺省 `acp.codex`。
+// 界面新建的 AI 节点不写 node.runtime（那是 M2 时期的字段），只挂角色 ——
+// 于是每一个 AI 节点，Dry Run 查的都是另一个 adapter：
+//
+// - 角色是 codex（默认）而机器上只装了 codex → Dry Run 报「claude 没安装」。
+//   假警报，用户会去装一个根本用不上的东西。
+// - 角色是 claude 而节点上留着旧的 `runtime: acp.codex` → Dry Run 说通过，
+//   一跑就挂在「连不上 adapter」。**漏报更糟** —— Dry Run 的全部价值
+//   就是「跑之前告诉我它会不会挂」。
+
+fn 挂角色的_ai_图(node_runtime: Option<&str>) -> aiwf_engine::graph::WorkflowGraph {
+    let mut config = serde_json::json!({
+        "agentProfileId": "ap_1",
+        "instruction": "看看这个",
+        "target": "issue"
+    });
+    if let Some(runtime) = node_runtime {
+        config["runtime"] = serde_json::json!(runtime);
+    }
+    let graph = serde_json::json!({
+        "nodes": [
+            {"id":"entry","type":"entry","title":"入口","position":{"x":0,"y":0},"config":{}},
+            {"id":"a","type":"ai.analyze","title":"分析","position":{"x":1,"y":0},
+             "config": config}
+        ],
+        "edges": [
+            {"id":"e1","source":{"nodeId":"entry","port":"success"},
+             "target":{"nodeId":"a","port":"input"}}
+        ],
+        "groups": []
+    });
+    serde_json::from_value(graph).expect("图解析不了")
+}
+
+fn 角色(runtime: &str) -> aiwf_engine::executor::AgentProfile {
+    aiwf_engine::executor::AgentProfile {
+        id: "ap_1".to_string(),
+        name: "分析师".to_string(),
+        role: "分析".to_string(),
+        goal: String::new(),
+        persona: String::new(),
+        runtime: runtime.to_string(),
+        model_ref: "model:codex".to_string(),
+        output_contract: String::new(),
+        capabilities_json:
+            r#"{"file":"read","command":"none","network":"none","memory":"read","secret":[]}"#
+                .to_string(),
+        timeout_ms: 900_000,
+    }
+}
+
+fn adapter标签(report: &aiwf_engine::preflight::DryRunReport) -> Vec<String> {
+    report
+        .checks
+        .iter()
+        .filter(|c| c.label.starts_with("ACP adapter"))
+        .map(|c| c.label.clone())
+        .collect()
+}
+
+#[test]
+fn 角色的_runtime_压过节点上写的那个_dry_run_也要认() {
+    let dir = tempfile::tempdir().unwrap();
+    let report = aiwf_engine::preflight::dry_run_with_profiles(
+        &挂角色的_ai_图(Some("acp.claude")),
+        dir.path(),
+        &[角色("acp.codex")],
+    );
+
+    assert_eq!(
+        adapter标签(&report),
+        vec!["ACP adapter acp.codex".to_string()],
+        "查的不是执行时真会用的那个 —— 节点上那个 runtime 是 M2 遗留字段，角色说了算"
+    );
+}
+
+#[test]
+fn 只挂角色不写节点_runtime_时按角色查() {
+    // 界面新建的 AI 节点就长这样。
+    //
+    // 角色特意选 codex：选 claude 的话，就算实现退回「自己读
+    // node.runtime、缺省 acp.claude」这条测试也绿 —— 一条靠巧合
+    // 通过的断言守不住任何东西
+    let dir = tempfile::tempdir().unwrap();
+    let report = aiwf_engine::preflight::dry_run_with_profiles(
+        &挂角色的_ai_图(None),
+        dir.path(),
+        &[角色("acp.codex")],
+    );
+
+    assert_eq!(
+        adapter标签(&report),
+        vec!["ACP adapter acp.codex".to_string()]
+    );
+}
+
+#[test]
+fn 查不到角色时退回节点上写的_再退回默认() {
+    let dir = tempfile::tempdir().unwrap();
+
+    let 有节点字段 = aiwf_engine::preflight::dry_run_with_profiles(
+        &挂角色的_ai_图(Some("acp.claude")),
+        dir.path(),
+        &[],
+    );
+    assert_eq!(
+        adapter标签(&有节点字段),
+        vec!["ACP adapter acp.claude".to_string()]
+    );
+
+    // 两处都没有 → 与执行时同一个缺省。契约把 acp.codex 排在第一位，
+    // 缺省跟着它（CLAUDE.md「ACP：测试与试验优先用 codex」）
+    let 都没有 =
+        aiwf_engine::preflight::dry_run_with_profiles(&挂角色的_ai_图(None), dir.path(), &[]);
+    assert_eq!(
+        adapter标签(&都没有),
+        vec!["ACP adapter acp.codex".to_string()],
+        "缺省与 resolved_runtime 不一致 —— 两处各有一个默认值，迟早对不上"
+    );
+}
+
+#[test]
+fn dry_run_与执行器解出同一个_runtime() {
+    // 上面三条钉的是具体场景，这条钉的是**两个 API 不许分叉**。
+    //
+    // 各自断言一个硬编码的期望值，守不住「两边一起改错」；
+    // 直接比对才守得住。四种组合覆盖解析链的每一环
+    let dir = tempfile::tempdir().unwrap();
+    let 组合: [(Option<&str>, Option<&str>); 4] = [
+        (None, Some("acp.claude")),              // 只挂角色 —— 界面新建的形状
+        (Some("acp.claude"), Some("acp.codex")), // 两处都有，角色赢
+        (Some("acp.claude"), None),              // 只有节点上那个 M2 字段
+        (None, None),                            // 都没有，看缺省
+    ];
+
+    for (节点上的, 角色的) in 组合 {
+        let graph = 挂角色的_ai_图(节点上的);
+        let profiles: Vec<_> = 角色的.map(角色).into_iter().collect();
+
+        let 执行器解的 = aiwf_engine::executor::NodeExecutor::new(dir.path().to_path_buf())
+            .with_agent_profiles(&profiles)
+            .resolved_runtime(&graph.nodes[1]);
+
+        let report = aiwf_engine::preflight::dry_run_with_profiles(&graph, dir.path(), &profiles);
+
+        assert_eq!(
+            adapter标签(&report),
+            vec![format!("ACP adapter {执行器解的}")],
+            "节点上 {节点上的:?} / 角色 {角色的:?} 时，Dry Run 查的 adapter 与执行时用的不是一个"
+        );
+    }
+}

@@ -55,7 +55,26 @@ const IMPLEMENTED: &[&str] = &[
     "ai.decide",
 ];
 
+/// 不带角色的 Dry Run。
+///
+/// AI 节点的 runtime 会退回节点上那个 M2 遗留字段、再退回默认 ——
+/// 与执行时同一条链，只是少了最优先的那一环。
+/// 拿得到角色就用 [`dry_run_with_profiles`]：**它才是执行时真会用的那个**。
 pub fn dry_run(graph: &WorkflowGraph, workdir: &Path) -> DryRunReport {
+    dry_run_with_profiles(graph, workdir, &[])
+}
+
+/// 带上这张图引用到的 Agent 角色。
+///
+/// 角色的 runtime 压过节点上写的那个（`resolved_runtime` 就是这么解的），
+/// 不传的话 Dry Run 查的是另一个 adapter：装了 codex 的机器上
+/// 每个 AI 节点都报「claude 没安装」，而角色写着 claude、
+/// 节点上留着旧的 codex 时反过来 —— **说通过，一跑就挂**。
+pub fn dry_run_with_profiles(
+    graph: &WorkflowGraph,
+    workdir: &Path,
+    profiles: &[crate::executor::AgentProfile],
+) -> DryRunReport {
     let mut checks = Vec::new();
 
     checks.push(check_structure(graph));
@@ -63,7 +82,7 @@ pub fn dry_run(graph: &WorkflowGraph, workdir: &Path) -> DryRunReport {
     checks.push(check_workdir(workdir));
     checks.extend(check_interpreters(graph));
     checks.extend(check_git(graph));
-    checks.extend(check_acp(graph));
+    checks.extend(check_acp(graph, profiles));
     checks.extend(check_unimplemented(graph));
     checks.extend(check_double_quoting(graph));
 
@@ -306,22 +325,20 @@ fn check_git(graph: &WorkflowGraph) -> Vec<Check> {
 /// 与「节点类型没实现」分开报：那是我们的问题，这是用户能自己解决的 ——
 /// 错误信息也就该长得不一样（一个说「运行会停在这里」，
 /// 一个说「装上它就能跑」）。
-fn check_acp(graph: &WorkflowGraph) -> Vec<Check> {
-    let runtimes: BTreeSet<&str> = graph
+fn check_acp(graph: &WorkflowGraph, profiles: &[crate::executor::AgentProfile]) -> Vec<Check> {
+    // **必须与 `resolved_runtime` 解出同一个值**，否则查的是另一个 adapter。
+    // 两处各写一套默认值是这个 bug 的来源：这里原来缺省 `acp.claude`，
+    // 而执行那边缺省 `acp.codex`
+    let runtimes: BTreeSet<String> = graph
         .nodes
         .iter()
         .filter(|node| node.node_type.starts_with("ai."))
-        .map(|node| {
-            node.config
-                .get("runtime")
-                .and_then(serde_json::Value::as_str)
-                .unwrap_or("acp.claude")
-        })
+        .map(|node| crate::executor::resolve_runtime(node, profiles))
         .collect();
 
     runtimes
         .into_iter()
-        .map(|runtime| match crate::acp::adapter_installed(runtime) {
+        .map(|runtime| match crate::acp::adapter_installed(&runtime) {
             Some(path) => Check {
                 label: format!("ACP adapter {runtime}"),
                 status: CheckStatus::Passed,
@@ -332,7 +349,7 @@ fn check_acp(graph: &WorkflowGraph) -> Vec<Check> {
                 status: CheckStatus::Failed,
                 detail: format!(
                     "{} 没有安装。装上它才能跑 AI 节点",
-                    crate::acp::adapter_command(runtime).map_or("adapter", |(cmd, _)| cmd)
+                    crate::acp::adapter_command(&runtime).map_or("adapter", |(cmd, _)| cmd)
                 ),
             },
         })
