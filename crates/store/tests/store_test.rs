@@ -3082,3 +3082,86 @@ fn 非_node_事件不受这条约束() {
             .unwrap_or_else(|error| panic!("{kind} 不该被拦：{error}"));
     }
 }
+
+/// 「像密钥」的判据不能靠**无边界的子串包含**。
+///
+/// `looks_like_secret` 原本是 `value.contains(prefix)`，而前缀里有 `sk-`——
+/// 于是 `task-manager`（ta**sk-**manager）被判成密钥。这不是理论问题：
+/// `create_run` 的脱敏发生在 **INSERT 之前**（注释写着「代价是引擎也
+/// 拿不到明文了。这是有意的」），所以仓库叫 `acme/task-manager` 的用户
+/// 从下拉里选中它 → 库里存的是 `[已脱敏]` → 工作流跑向一个不存在的仓库，
+/// **而明文从未落库，不可恢复**。
+///
+/// 同一份判据还挡在写入路径上：把工作目录设成 `~/work/task-manager`
+/// 会被硬拒，报的是「内容里像是有 API Key」。
+mod 密钥判据不能误伤普通文本 {
+    use super::*;
+
+    /// 真实世界里会出现、且**不该**被当成密钥的串。
+    const 普通的: &[&str] = &[
+        "acme/task-manager",
+        "https://github.com/acme/task-runner",
+        "/Users/x/work/disk-usage-report",
+        "risk-engine",
+        "my-task-manager",
+        "basket-service",
+        "keychain://gh-cli",
+    ];
+
+    /// 真的是密钥，必须挡住。
+    const 密钥: &[&str] = &[
+        "ghp_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        "AKIAIOSFODNN7EXAMPLE",
+        "-----BEGIN RSA PRIVATE KEY-----",
+    ];
+
+    #[test]
+    fn 普通仓库名不会被当成密钥吞掉() {
+        let store = Store::open_in_memory().unwrap();
+        let wf = store.create_workflow("测试", None).unwrap();
+
+        for 值 in 普通的 {
+            let inputs = serde_json::json!({ "repo": 值 }).to_string();
+            let run = store
+                .create_run_in(&wf, None, Some(0), &inputs, Some("/tmp"))
+                .unwrap();
+            let 读回来 = store.get_run(&run).unwrap().unwrap();
+            assert!(
+                读回来.inputs_json.contains(值),
+                "{值:?} 在写入时被当成密钥遮掉了，而明文永不落库：{}",
+                读回来.inputs_json
+            );
+        }
+    }
+
+    #[test]
+    fn 真的密钥仍然挡得住() {
+        let store = Store::open_in_memory().unwrap();
+        let wf = store.create_workflow("测试", None).unwrap();
+
+        for 值 in 密钥 {
+            let inputs = serde_json::json!({ "token": 值 }).to_string();
+            let run = store
+                .create_run_in(&wf, None, Some(0), &inputs, Some("/tmp"))
+                .unwrap();
+            let 读回来 = store.get_run(&run).unwrap().unwrap();
+            assert!(
+                !读回来.inputs_json.contains(值),
+                "真的密钥漏进库里了：{}",
+                读回来.inputs_json
+            );
+        }
+    }
+
+    #[test]
+    fn 普通路径能设成工作目录() {
+        // 同一份判据挡在设置的写入路径上
+        let store = Store::open_in_memory().unwrap();
+        for 值 in 普通的 {
+            assert!(
+                store.set_workspace_setting("workdir", 值).is_ok(),
+                "{值:?} 被当成密钥拒收了"
+            );
+        }
+    }
+}

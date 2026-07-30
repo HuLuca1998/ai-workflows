@@ -2758,20 +2758,56 @@ fn looks_like_secret(value: &str) -> bool {
     if value.starts_with("keychain://") {
         return false;
     }
-    SECRET_PREFIXES
-        .iter()
-        .any(|(prefix, _)| value.contains(prefix))
+    secret_hit(value).is_some()
+}
+
+/// 命中了哪一类密钥。没命中返回 None。
+///
+/// **要边界，也要长度。** 原来是裸的 `value.contains(prefix)`，
+/// 而前缀里有 `sk-` —— 于是 `task-manager`（ta**sk-**manager）被判成密钥。
+/// 那不是理论问题：`create_run` 的脱敏发生在 INSERT **之前**，
+/// 所以仓库叫 `acme/task-manager` 的用户从下拉里选中它，
+/// 库里存的就是 `[已脱敏]`，工作流跑向一个不存在的仓库，
+/// **而明文从未落库，不可恢复**。同一份判据还挡在设置的写入路径上：
+/// 把工作目录设成 `~/work/task-manager` 会被硬拒。
+///
+/// 两条约束合起来才够：
+/// - **前面是边界**：前缀要么在开头，要么前一个字符不是字母/数字/`-`/`_`。
+///   `task-manager` 里的 `sk-` 前面是 `a`，不算
+/// - **后面够长**：真令牌前缀后面跟着一长串随机字符。
+///   一个恰好以 `sk-` 结尾的词后面什么都没有，不算
+fn secret_hit(value: &str) -> Option<&'static str> {
+    /// 前缀之后至少还要有这么多字符才像个真令牌。
+    /// GitHub / OpenAI / AWS 的令牌都远长于此。
+    const MIN_TAIL: usize = 12;
+
+    for (prefix, what) in SECRET_PREFIXES {
+        let mut from = 0;
+        while let Some(offset) = value[from..].find(prefix) {
+            let at = from + offset;
+            let 前面是边界 = at == 0
+                || !value[..at]
+                    .chars()
+                    .next_back()
+                    .is_some_and(|c| c.is_alphanumeric() || c == '-' || c == '_');
+            // 私钥块自带 `-----` 边界，长度另算：它后面跟的是换行与 base64
+            let 够长 = *prefix == "-----BEGIN" || value.len() - at - prefix.len() >= MIN_TAIL;
+            if 前面是边界 && 够长 {
+                return Some(what);
+            }
+            from = at + prefix.len();
+        }
+    }
+    None
 }
 
 fn reject_secret_like(value: &str) -> Result<()> {
-    const PATTERNS: &[(&str, &str)] = SECRET_PREFIXES;
-
-    for (prefix, what) in PATTERNS {
-        if value.contains(prefix) {
-            return Err(StoreError::Invalid(format!(
-                "内容里像是有{what}。记忆会被注入每一次 AI 调用，密钥请存进钥匙串后用 keychain:// 引用"
-            )));
-        }
+    // 与 looks_like_secret 同一份判据 —— 两处各写一个 contains 的话，
+    // 「什么算密钥」就有了两个互不知道的答案
+    if let Some(what) = secret_hit(value) {
+        return Err(StoreError::Invalid(format!(
+            "内容里像是有{what}。记忆会被注入每一次 AI 调用，密钥请存进钥匙串后用 keychain:// 引用"
+        )));
     }
     Ok(())
 }
