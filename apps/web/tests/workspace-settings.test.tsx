@@ -106,8 +106,49 @@ describe('设置配过之后界面跟着变', () => {
     }
   });
 
-  it('检查过环境后侧栏说环境正常', async () => {
-    respond({ 'workspace.settings': () => ({ envCheckedAt: '2026-07-28T13:00:00Z' }) });
+  it('检查过而且真的都就绪时才说环境正常', async () => {
+    respond({
+      'workspace.settings': () => ({ envCheckedAt: '2026-07-28T13:00:00Z' }),
+      'env.health': () => ({ ready: true, items: [] }),
+    });
+    view();
+
+    expect(await screen.findByText(/环境正常/u)).toBeTruthy();
+  });
+
+  it('有缺项时说清还差几项 —— 不是无条件报「环境正常」', async () => {
+    // 原来这一行只看 envCheckedAt 存不存在，然后硬编码 ok: true。
+    // 而首次配置在「还缺 N 项」时也会写那个时间戳（底部按钮变成
+    // 「装好了，继续」，什么都没装也能按）—— 于是用户回到主界面
+    // 看到的是「环境正常」，而设置页里还挂着「缺失 2 项」
+    respond({
+      'workspace.settings': () => ({ envCheckedAt: '2026-07-28T13:00:00Z' }),
+      'env.health': () => ({
+        ready: false,
+        items: [
+          { capability: 'git', label: 'Git', source: 'system', status: 'ready' },
+          { capability: 'node', label: 'Node.js', source: 'missing', status: 'missing' },
+          { capability: 'gh', label: 'GitHub CLI', source: 'missing', status: 'missing' },
+        ],
+      }),
+    });
+    view();
+
+    expect(await screen.findByText(/2 项待处理/u)).toBeTruthy();
+    expect(screen.queryByText(/环境正常/u)).toBeNull();
+  });
+
+  it('可选项缺失不算待处理 —— 一个不跑容器的人不该总被提醒', async () => {
+    respond({
+      'workspace.settings': () => ({ envCheckedAt: '2026-07-28T13:00:00Z' }),
+      'env.health': () => ({
+        ready: true,
+        items: [
+          { capability: 'git', label: 'Git', source: 'system', status: 'ready' },
+          { capability: 'docker', label: 'Docker', source: 'missing', status: 'optional' },
+        ],
+      }),
+    });
     view();
 
     expect(await screen.findByText(/环境正常/u)).toBeTruthy();

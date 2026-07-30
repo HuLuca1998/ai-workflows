@@ -22,9 +22,9 @@ import { PAGES } from './pages/index.js';
  * 主管 AI 抽屉 468px（屏幕清单 §11）。
  */
 export function AppShell() {
-  const { settings } = useWorkspaceSettings();
+  const { settings, health } = useWorkspaceSettings();
   const permission = permissionDisplay(settings);
-  const environment = environmentDisplay(settings);
+  const environment = environmentDisplay(settings, health);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const editor = useEditor();
   // 托盘「检查更新…」把用户带到「系统版本」屏

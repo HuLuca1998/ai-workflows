@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { coreClient } from '../data/workspace.js';
+import { describeError } from '../data/describeError.js';
 
 /**
  * 运行环境健康 —— 严格照图纸「05 设置与环境」：五列表格。
@@ -65,8 +66,22 @@ export function EnvHealth() {
     setError(null);
     try {
       setReport((await coreClient.call('env.health', { recheck })) as Report);
+      if (recheck) {
+        // 记下「查过了」。不记的话侧栏那一行永远停在首次配置那一刻 ——
+        // 用户装好缺的东西、回这里点了重新检查、看到全绿，
+        // 而侧栏还挂着几天前的时间
+        try {
+          await coreClient.call('workspace.updateSettings', {
+            envCheckedAt: new Date().toISOString(),
+          });
+        } catch {
+          // 记不下不影响这一屏已经查出来的结果 —— 那才是用户点这个按钮想要的
+        }
+      }
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      // describeError 而不是 err.message：CoreApiError 带着「接下来怎么办」，
+      // 用 message 会把那半句丢掉
+      setError(describeError(err));
     } finally {
       setChecking(false);
     }

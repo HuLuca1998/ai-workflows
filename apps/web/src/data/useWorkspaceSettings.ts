@@ -31,9 +31,11 @@ const PRESET_DETAILS: Record<string, string> = {
 
 export function useWorkspaceSettings(): {
   settings: WorkspaceSettings;
+  health: EnvSummary | undefined;
   reload: () => Promise<void>;
 } {
   const [settings, setSettings] = useState<WorkspaceSettings>({});
+  const [health, setHealth] = useState<EnvSummary | undefined>(undefined);
 
   const reload = async () => {
     try {
@@ -42,13 +44,21 @@ export function useWorkspaceSettings(): {
       // 读不到就当没配过 —— 外壳不该因为一次设置读取失败就崩掉，
       // 那三条「尚未…」提示照旧显示，用户仍能去配
     }
+    try {
+      // 侧栏那一行说的「环境正常」得是真的。只存了一个 envCheckedAt
+      // 时间戳是不够的 —— 那只能回答「什么时候查的」，回答不了「查出什么」
+      setHealth((await coreClient.call('env.health', {})) as EnvSummary);
+    } catch {
+      // 探测失败时不猜。environmentDisplay 拿不到结果就只说
+      // 「上次检查是什么时候」，不替它断言正不正常
+    }
   };
 
   useEffect(() => {
     void reload();
   }, []);
 
-  return { settings, reload };
+  return { settings, health, reload };
 }
 
 /** 侧栏权限档那一块的显示内容。没选过时返回 undefined，界面自己说「未设置」。 */
@@ -63,14 +73,42 @@ export function permissionDisplay(
   };
 }
 
-/** 侧栏环境那一行。没检查过时返回 undefined。 */
+/** 环境检查的结果，只取这一行用得上的部分。 */
+export interface EnvSummary {
+  ready: boolean;
+  items: readonly { status: string }[];
+}
+
+/**
+ * 侧栏环境那一行。没检查过时返回 undefined。
+ *
+ * **由真实的健康结果决定**，不是「检查过就算正常」。
+ * 原来这里只看 `envCheckedAt` 存不存在然后硬编码 `ok: true` ——
+ * 而首次配置在「还缺 N 项」时也会写那个时间戳（底部按钮那时
+ * 已经变成「装好了，继续」，什么都没装也能按下去）。
+ * 于是用户回到主界面看到「环境正常」，而设置页里还挂着「缺失 2 项」。
+ *
+ * 可选项缺失不算待处理：一个从不跑容器的人不该永远被提醒装 Docker。
+ */
 export function environmentDisplay(
   settings: WorkspaceSettings,
+  health?: EnvSummary,
 ): { ok: boolean; text: string } | undefined {
   if (!settings.envCheckedAt) return undefined;
   const at = new Date(settings.envCheckedAt);
   const checkedAt = Number.isNaN(at.getTime())
     ? settings.envCheckedAt
     : at.toLocaleString('zh-CN', { hour12: false });
-  return { ok: true, text: `环境正常 · 上次检查 ${checkedAt}` };
+
+  // 还没拿到检查结果时只说「上次检查是什么时候」——
+  // 那是确定的事实，而「正不正常」这时还不知道
+  if (!health) return { ok: true, text: `上次检查 ${checkedAt}` };
+
+  const needsAttention = health.items.filter(
+    (item) => item.status === 'missing' || item.status === 'needs_attention',
+  ).length;
+
+  return needsAttention > 0
+    ? { ok: false, text: `${needsAttention} 项待处理 · 上次检查 ${checkedAt}` }
+    : { ok: true, text: `环境正常 · 上次检查 ${checkedAt}` };
 }
