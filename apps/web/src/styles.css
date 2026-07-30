@@ -6335,3 +6335,35 @@ fieldset.launch__field {
 .list-empty__clear:hover {
   background: var(--overlay-hover);
 }
+
+/* chip 上的「摘掉」按钮。它是 chip 的一部分，不是独立控件 */
+.supervisor__chip-drop {
+  border: 0;
+  background: none;
+  padding: 0 2px;
+  margin-left: 4px;
+  color: var(--color-neutral-500);
+  cursor: pointer;
+  border-radius: 4px;
+  line-height: 1;
+  transition: var(--transition-state);
+}
+
+.supervisor__chip-drop:hover {
+  color: var(--color-neutral-200);
+  background: var(--overlay-hover);
+}
+
+/* 摘掉的项：整块是一个「加回来」的按钮 */
+.supervisor__chip--dropped {
+  border: 1px dashed var(--color-divider);
+  background: none;
+  color: var(--color-neutral-500);
+  cursor: pointer;
+  transition: var(--transition-state);
+}
+
+.supervisor__chip--dropped:hover {
+  color: var(--color-neutral-300);
+  border-color: var(--color-neutral-600);
+}

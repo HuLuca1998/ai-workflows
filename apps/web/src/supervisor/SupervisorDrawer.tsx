@@ -68,6 +68,14 @@ export interface SupervisorDrawerProps {
   onClose: () => void;
 }
 
+/**
+ * 可增删的上下文项。
+ *
+ * 「草稿」是 workflowId 与 draftRev 一组 —— 后端靠 workflowId 读草稿的图，
+ * 只留 rev 不留 id 的话它无从解析，AI 提出的操作会引用编出来的 nodeId。
+ */
+type ContextKey = 'draft' | 'run';
+
 /** 历史会话列表里的一条。 */
 interface SessionSummary {
   id: string;
@@ -162,6 +170,14 @@ export function SupervisorDrawer({
    * 第一问时是 null（那时还没有会话），后端回来带上 id，
    * 之后的每一问都带着它 —— 不然同一次对话会散成好几条历史。
    */
+  /**
+   * 用户从这次对话里摘掉的上下文项（规范 §6：chips 可增删）。
+   *
+   * 两个用处：问一般性问题时不想被当前草稿带偏；把对话给别人看之前
+   * 先把那条运行的 id 摘掉。摘掉的项会列在下面，随时能加回来。
+   */
+  const [droppedContext, setDroppedContext] = useState<ContextKey[]>([]);
+  const dropped = (key: ContextKey) => droppedContext.includes(key);
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [historyOpen, setHistoryOpen] = useState(false);
   /**
@@ -285,11 +301,13 @@ export function SupervisorDrawer({
         ...(sessionId ? { sessionId } : {}),
         ...(modelId ? { modelRef: modelId } : {}),
         context: {
-          ...(context.draftRev === undefined ? {} : { draftRev: context.draftRev }),
-          ...(context.runId ? { runId: context.runId } : {}),
+          ...(dropped('draft') || context.draftRev === undefined
+            ? {}
+            : { draftRev: context.draftRev }),
+          ...(dropped('run') || !context.runId ? {} : { runId: context.runId }),
           // 后端靠它读当前草稿的图 —— 不给的话 AI 只能凭空造 nodeId，
           // 那些操作应用不到任何东西上
-          ...(context.workflowId ? { workflowId: context.workflowId } : {}),
+          ...(dropped('draft') || !context.workflowId ? {} : { workflowId: context.workflowId }),
         },
       })) as {
         text: string;
@@ -528,24 +546,54 @@ export function SupervisorDrawer({
 
         <div className="supervisor__context" aria-label="上下文">
           <span className="supervisor__context-label">上下文</span>
-          {context.draftRev === undefined ? null : (
+          {context.draftRev !== undefined && !dropped('draft') ? (
             <span className="supervisor__chip">
               <i className="ph ph-graph" aria-hidden="true" />
               草稿 rev{context.draftRev}
+              <button
+                type="button"
+                className="supervisor__chip-drop"
+                aria-label="移除草稿上下文"
+                onClick={() => setDroppedContext((keys) => [...keys, 'draft'])}
+              >
+                <i className="ph ph-x" aria-hidden="true" />
+              </button>
             </span>
-          )}
+          ) : null}
+          {/* 选中节点数不在契约的 context 里，只是给用户看的 —— 没有可摘的东西 */}
           {context.selectedNodes ? (
             <span className="supervisor__chip">
               <i className="ph ph-selection" aria-hidden="true" />
               选中节点 {context.selectedNodes}
             </span>
           ) : null}
-          {context.runId ? (
+          {context.runId && !dropped('run') ? (
             <span className="supervisor__chip">
               <i className="ph ph-clock-counter-clockwise" aria-hidden="true" />
               {context.runId.slice(0, 10)}
+              <button
+                type="button"
+                className="supervisor__chip-drop"
+                aria-label="移除运行上下文"
+                onClick={() => setDroppedContext((keys) => [...keys, 'run'])}
+              >
+                <i className="ph ph-x" aria-hidden="true" />
+              </button>
             </span>
           ) : null}
+          {/* 摘掉的留在这里，随时加回来 —— 否则得关掉抽屉重开 */}
+          {droppedContext.map((key) => (
+            <button
+              key={key}
+              type="button"
+              className="supervisor__chip supervisor__chip--dropped"
+              aria-label={key === 'draft' ? '加回草稿上下文' : '加回运行上下文'}
+              onClick={() => setDroppedContext((keys) => keys.filter((k) => k !== key))}
+            >
+              <i className="ph ph-plus" aria-hidden="true" />
+              {key === 'draft' ? '草稿' : '运行'}
+            </button>
+          ))}
           {/*
             * 这里原来还有一个「记忆 N 条」的 chip。删掉了：契约的
             * supervisor.ask.context 里根本没有记忆这一项，前端也无从知道
