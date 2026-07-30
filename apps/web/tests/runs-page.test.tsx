@@ -119,7 +119,9 @@ describe('中栏 · 节点进度', () => {
           nodeId: 'a',
           actor: 'engine',
           summary: 'a',
-        },
+    sensitivity: 'internal',
+    schemaVer: 1,
+  },
         {
           id: 'e2',
           seq: 2,
@@ -128,7 +130,9 @@ describe('中栏 · 节点进度', () => {
           nodeId: 'b',
           actor: 'engine',
           summary: 'b',
-        },
+    sensitivity: 'internal',
+    schemaVer: 1,
+  },
       ] as never,
     });
     view();
@@ -172,7 +176,9 @@ describe('右栏 · 运行详情', () => {
           type: 'run.created',
           actor: 'engine',
           summary: '运行已创建',
-        },
+    sensitivity: 'internal',
+    schemaVer: 1,
+  },
         {
           id: 'e2',
           seq: 2,
@@ -181,7 +187,9 @@ describe('右栏 · 运行详情', () => {
           nodeId: 'fix',
           actor: 'engine',
           summary: '修复 开始',
-        },
+    sensitivity: 'internal',
+    schemaVer: 1,
+  },
       ] as never,
     });
     view();
@@ -210,7 +218,9 @@ describe('右栏 · 运行详情', () => {
           nodeId: '解析日志',
           actor: 'engine',
           summary: 'exitCode 124',
-        },
+    sensitivity: 'internal',
+    schemaVer: 1,
+  },
       ] as never,
     });
     view();
@@ -259,7 +269,9 @@ describe('操作', () => {
           nodeId: 'ap',
           actor: 'engine',
           summary: '选择修复方案',
-        },
+    sensitivity: 'internal',
+    schemaVer: 1,
+  },
       ] as never,
     });
     view();
@@ -614,7 +626,9 @@ describe('失败页防连点', () => {
           nodeId: '解析日志',
           actor: 'engine',
           summary: 'exitCode 1',
-        },
+    sensitivity: 'internal',
+    schemaVer: 1,
+  },
       ] as never,
     });
 

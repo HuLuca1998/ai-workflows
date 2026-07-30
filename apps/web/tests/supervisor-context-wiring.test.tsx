@@ -28,7 +28,11 @@ const PROPOSAL = {
   operations: [
     {
       op: 'addNode',
-      node: { id: 'n_new', type: 'notify', title: '通知', config: {}, x: 10, y: 10 },
+      id: 'n_new',
+      type: 'notify',
+      title: '通知',
+      position: { x: 10, y: 10 },
+      config: { channel: 'system', template: '跑完了' },
     },
   ],
 };

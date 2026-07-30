@@ -57,6 +57,7 @@ describe('模型列表', () => {
     respond({
       'model.list': () => ({
         items: [MODEL, { ...MODEL, id: 'model_2', name: 'Codex', runtime: 'acp.codex' }],
+        total: 2,
       }),
     });
     view();

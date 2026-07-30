@@ -48,6 +48,9 @@ function approvalEventOf(runId: string) {
     summary: '检查 Diff',
     nodeId: 'approve',
     nodeLabel: '审批 · 检查 Diff',
+    actor: 'engine' as const,
+    sensitivity: 'internal' as const,
+    schemaVer: 1,
   };
 }
 
@@ -61,10 +64,10 @@ beforeEach(() => {
   pendingDecide = null;
   const checked = createContractCall({
     'run.list': () => ({ items: [run], total: 1 }),
-    'run.events': () => ({ events: [approvalEvent], nextSeq: 2 }),
+    'run.events': () => ({ events: [approvalEvent], nextSeq: 2, hasMore: false }),
     'approval.decide': () =>
       new Promise((resolve) => {
-        pendingDecide = () => resolve({ ok: true });
+        pendingDecide = () => resolve({ accepted: true });
       }),
   });
   call.mockImplementation((method: string, input: unknown) => checked(method, input));
@@ -135,8 +138,9 @@ describe('拒绝', () => {
       'run.events': (input: unknown) => ({
         events: [approvalEventOf((input as { runId: string }).runId)],
         nextSeq: 2,
+        hasMore: false,
       }),
-      'approval.decide': () => ({ ok: true }),
+      'approval.decide': () => ({ accepted: true }),
     });
     call.mockImplementation((method: string, input: unknown) => checked(method, input));
 
@@ -170,7 +174,7 @@ describe('取消运行', () => {
         items: [makeRun('run_1', 'running'), makeRun('run_2', 'running')],
         total: 2,
       }),
-      'run.events': () => ({ events: [], nextSeq: 1 }),
+      'run.events': () => ({ events: [], nextSeq: 1, hasMore: false }),
       'run.cancel': () => ({ ok: true }),
     });
     call.mockImplementation((method: string, input: unknown) => checked(method, input));

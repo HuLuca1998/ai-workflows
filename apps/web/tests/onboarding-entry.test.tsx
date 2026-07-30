@@ -27,9 +27,24 @@ const { OnboardingPage } = await import('../src/onboarding/OnboardingPage.js');
 const { ONBOARDING_SKIP_KEY } = await import('../src/onboarding/skipMark.js');
 
 const HEALTH = {
+  ready: true,
   items: [
-    { capability: 'git', status: 'ready', detail: 'git 2.44', version: '2.44' },
-    { capability: 'acp.codex', status: 'ready', detail: 'codex 0.9', version: '0.9' },
+    {
+      capability: 'git',
+      label: 'Git',
+      source: 'system',
+      status: 'ready',
+      detail: 'git 2.44',
+      version: '2.44',
+    },
+    {
+      capability: 'acp.codex',
+      label: 'Codex（ACP）',
+      source: 'system',
+      status: 'ready',
+      detail: 'codex 0.9',
+      version: '0.9',
+    },
   ],
 };
 

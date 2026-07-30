@@ -41,6 +41,11 @@ function event(seq: number, type: string, summary: string) {
     type,
     summary,
     nodeId: 'n1',
+    actor: 'engine' as const,
+    sensitivity: 'internal' as const,
+    schemaVer: 1,
+    // node.* 事件必须带 attempt —— 重试历史靠它区分轮次
+    ...(type.startsWith('node.') ? { attempt: 1 } : {}),
   };
 }
 
@@ -59,10 +64,10 @@ beforeEach(() => {
   pendingExport = null;
   const checked = createContractCall({
     'run.list': () => ({ items: [run], total: 1 }),
-    'run.events': () => ({ events, nextSeq: 4 }),
+    'run.events': () => ({ events, nextSeq: 4, hasMore: false }),
     'run.diagnostics': () =>
       new Promise((resolve) => {
-        pendingExport = () => resolve({ path: '/tmp/diag.zip' });
+        pendingExport = () => resolve({ path: '/tmp/diag.zip', bytes: 2048 });
       }),
   });
   call.mockImplementation((method: string, input: unknown) => checked(method, input));

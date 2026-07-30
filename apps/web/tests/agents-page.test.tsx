@@ -54,7 +54,7 @@ function respond(handlers: Record<string, (input: unknown) => unknown>) {
     'agent.list': () => ({ items: [AGENT], total: 0 }),
     'model.list': () => ({ items: [MODEL], total: 0 }),
     'agent.create': () => ({ id: 'agent_new' }),
-    'agent.update': () => ({ ok: true }),
+    'agent.update': () => ({ ver: 4 }),
     'agent.delete': () => ({ ok: true }),
     ...handlers,
   });

@@ -185,10 +185,12 @@ describe('底部动作照图纸', () => {
   it('全都就绪时不再劝人安装，改成「授权工作目录并开始」', async () => {
     respond({
       'env.health': () => ({
+        ready: true,
         items: [
           {
             capability: 'git',
             label: 'Git',
+            source: 'system',
             status: 'ready',
             version: '2.45.1',
             path: '/usr/bin/git',
@@ -266,10 +268,12 @@ describe('缺东西时给可复制的命令，不代劳安装', () => {
   it('全就绪时按钮直接是「授权工作目录并开始」，不绕这一步', async () => {
     respond({
       'env.health': () => ({
+        ready: true,
         items: [
           {
             capability: 'git',
             label: 'Git',
+            source: 'system',
             status: 'ready',
             version: '2.45.1',
             path: '/usr/bin/git',

@@ -77,4 +77,46 @@ describe('契约替身', () => {
     await expect(建一个()('agent.create', 少一个字段)).resolves.toBeTruthy();
     expect(VIOLATIONS.length).toBe(before);
   });
+
+  /*
+   * 出参那一道的元测试。
+   *
+   * 它拦的是第三类：夹具**编造后端不会返回的形状**。真实发生过 ——
+   * 环境健康的夹具写 `status: 'ok'`（枚举里只有 ready/optional/
+   * missing/needs_attention），实现跟着写 `=== 'ok'`，那一步于是
+   * 永远不亮，而测试从头到尾是绿的。
+   */
+  describe('出参', () => {
+    it('夹具返回后端不会返回的形状时会红', async () => {
+      const before = VIOLATIONS.length;
+      const 编的 = createContractCall({
+        // agent.create 的出参是 { id }，这里少了它
+        'agent.create': () => ({ 编的字段: 1 }),
+      });
+
+      await expect(编的('agent.create', 合法入参)).rejects.toThrow(/夹具返回值不合契约/u);
+      expect(VIOLATIONS.at(-1)).toContain('agent.create');
+      VIOLATIONS.length = before;
+    });
+
+    it('枚举值写错也认得出 —— 那是最难发现的一种', async () => {
+      const before = VIOLATIONS.length;
+      const 编的 = createContractCall({
+        'env.health': () => ({
+          ready: true,
+          // 真实枚举里没有 'ok'
+          items: [{ capability: 'git', label: 'Git', source: 'system', status: 'ok' }],
+        }),
+      });
+
+      await expect(编的('env.health', {})).rejects.toThrow(/status/u);
+      VIOLATIONS.length = before;
+    });
+
+    it('合法的出参照常放行', async () => {
+      const before = VIOLATIONS.length;
+      await expect(建一个()('agent.create', 合法入参)).resolves.toEqual({ id: 'agent_new' });
+      expect(VIOLATIONS.length).toBe(before);
+    });
+  });
 });

@@ -165,7 +165,7 @@ describe('运行页的 tab 条', () => {
         ],
         total: 1,
       }),
-      'run.events': () => ({ events: [], nextSeq: 0 }),
+      'run.events': () => ({ events: [], nextSeq: 0, hasMore: false }),
     });
     call.mockImplementation((method: string, input: unknown) => checked(method, input));
 

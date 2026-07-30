@@ -48,7 +48,7 @@ const MODELS = [
 function respond(handlers: Record<string, (input: unknown) => unknown> = {}) {
   const checked = createContractCall({
     'agent.list': () => ({ items: [AGENT], total: 0 }),
-    'model.list': () => ({ items: MODELS.map(full) }),
+    'model.list': () => ({ items: MODELS.map(full), total: MODELS.length }),
     'agent.update': () => ({ ver: 4 }),
     'agent.create': () => ({ id: 'agent_new' }),
     ...handlers,
@@ -128,7 +128,7 @@ describe('详情区可编辑', () => {
 
   it('引用的模型已停用时保留它并标出来 —— 不静默跳到第一项', async () => {
     // 模型页停用了 model_1，enabledOnly 就不再返回它
-    respond({ 'model.list': () => ({ items: [full(MODELS[1]!)] }) });
+    respond({ 'model.list': () => ({ items: [full(MODELS[1]!)], total: 1 }) });
     const user = await open();
     void user;
 
@@ -210,7 +210,7 @@ describe('加载竞态', () => {
     respond({
       'model.list': async () => {
         await slow;
-        return { items: MODELS.map(full) };
+        return { items: MODELS.map(full), total: MODELS.length };
       },
     });
 

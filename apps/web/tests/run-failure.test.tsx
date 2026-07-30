@@ -72,7 +72,7 @@ function respond(handlers: Record<string, (input: unknown) => unknown> = {}) {
     'run.get': () => ({ run: RUN }),
     'run.events': () => ({ events: EVENTS, hasMore: false, nextSeq: 5 }),
     'run.artifacts': () => ({ items: [], root: '/tmp/run_1' }),
-    'run.resume': () => ({ ok: true }),
+    'run.resume': () => ({ runId: 'run_1' }),
     'run.start': () => ({ runId: 'run_2' }),
     'run.rewindToApproval': () => ({ runId: 'run_3', nodeId: 'approve_1' }),
     ...handlers,

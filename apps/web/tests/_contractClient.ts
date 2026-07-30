@@ -56,7 +56,34 @@ export function createContractCall(
 
     const handler = handlers[method as CoreApiMethod];
     if (!handler) throw new Error(`测试没有为 ${method} 准备返回值`);
-    return handler(parsed.data);
+    const result = handler(parsed.data);
+
+    /*
+     * 出参也要校验。
+     *
+     * 只校入参时，夹具可以编造后端永远不会返回的形状 —— 而界面照着那个
+     * 形状写的判断在真实数据上永远不成立，两侧却各自绿灯。
+     * 踩到的那次：夹具写 `status: 'ok'`（真实枚举是 ready/optional/
+     * missing/needs_attention），实现跟着写 `=== 'ok'`，
+     * 那一步于是永远不亮，测试全绿。
+     *
+     * 与入参那两道一样记进 VIOLATIONS —— 组件把错误 catch 进 setError 时
+     * 光抛错是拦不住的。
+     */
+    const 校验 = (value: unknown) => {
+      const out = spec.output.safeParse(value);
+      if (out.success) return value;
+      const issues = out.error.issues
+        .map((issue) => `${issue.path.join('.') || '(根)'}: ${issue.message}`)
+        .join('; ');
+      const message =
+        `${method} 的夹具返回值不合契约 —— ${issues}。` +
+        `后端不会返回这个形状，照着它写的界面判断在真实数据上不成立`;
+      VIOLATIONS.push(message);
+      throw new Error(message);
+    };
+
+    return result instanceof Promise ? result.then(校验) : 校验(result);
   };
 }
 

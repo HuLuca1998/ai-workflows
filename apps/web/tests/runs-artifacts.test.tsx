@@ -47,7 +47,7 @@ beforeEach(() => {
   artifacts = [artifact('patch.diff')];
   const checked = createContractCall({
     'run.list': () => ({ items: [run], total: 1 }),
-    'run.events': () => ({ events: [], nextSeq: 1 }),
+    'run.events': () => ({ events: [], nextSeq: 1, hasMore: false }),
     'run.artifacts': () => ({ items: artifacts, root: '/tmp/aiwf/run_1' }),
   });
   call.mockImplementation((method: string, input: unknown) => checked(method, input));

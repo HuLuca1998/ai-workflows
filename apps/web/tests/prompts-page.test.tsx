@@ -38,7 +38,7 @@ function respond(handlers: Record<string, (input: unknown) => unknown> = {}) {
   const checked = createContractCall({
     'prompt.list': () => ({ items: [PROMPT], total: 0 }),
     'prompt.create': () => ({ id: 'prompt_new' }),
-    'prompt.update': () => ({ ok: true }),
+    'prompt.update': () => ({ ver: 5 }),
     'prompt.duplicate': () => ({ id: 'prompt_copy' }),
     'prompt.delete': () => ({ ok: true }),
     ...handlers,
