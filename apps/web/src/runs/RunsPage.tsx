@@ -3,6 +3,7 @@ import { LIST_PAGE_SIZE } from '@aiwf/contracts';
 import { formatBytes } from '../data/format.js';
 import { useDebouncedSearch } from '../hooks/useDebouncedSearch.js';
 import { useSearchParams } from 'react-router';
+import { useAsyncAction } from '../data/useAsyncAction.js';
 import { type RunStatusName, StatusBadge } from '@aiwf/ui';
 import { Pager } from '../layout/Pager.js';
 import { coreClient } from '../data/workspace.js';
@@ -45,6 +46,11 @@ export function RunsPage() {
     void runs.load();
   });
   const [params] = useSearchParams();
+  // 失败页那三个入口都会真的起一条运行 —— 后端 run.start 不幂等，
+  // 连点两次就是两条运行、两个执行线程、同一个 workdir
+  const resuming = useAsyncAction();
+  const rewinding = useAsyncAction();
+  const rerunning = useAsyncAction();
   // tab 从 URL 读一次初值：审批横幅的「查看 Diff」带着 &tab=artifacts 过来，
   // 而在此之前这里是个纯 useState —— 那个参数一路没人读，
   // 用户点「查看 Diff」落到的是事件流
@@ -317,7 +323,8 @@ export function RunsPage() {
                   <button
                     type="button"
                     className="runs__action runs__action--primary"
-                    onClick={() => void runs.resume(selected.id)}
+                    disabled={resuming.running}
+                    onClick={() => resuming.run(() => runs.resume(selected.id))}
                   >
                     <i className="ph ph-arrow-counter-clockwise" aria-hidden="true" />
                     从失败节点重试
@@ -327,7 +334,8 @@ export function RunsPage() {
                   <button
                     type="button"
                     className="runs__action"
-                    onClick={() => void runs.rewindToApproval(selected.id)}
+                    disabled={rewinding.running}
+                    onClick={() => rewinding.run(() => runs.rewindToApproval(selected.id))}
                   >
                     回到最近审批点改选择
                   </button>
@@ -336,7 +344,8 @@ export function RunsPage() {
                   <button
                     type="button"
                     className="runs__action"
-                    onClick={() => void runs.rerun(selected.id)}
+                    disabled={rerunning.running}
+                    onClick={() => rerunning.run(() => runs.rerun(selected.id))}
                   >
                     用相同参数重跑
                   </button>

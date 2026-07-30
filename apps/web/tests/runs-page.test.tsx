@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router';
 
 /**
@@ -548,4 +549,78 @@ describe('从 URL 进来', () => {
     从('/runs?run=run_1&tab=瞎写的');
     expect(screen.getByRole('tab', { name: '事件流' }).getAttribute('aria-selected')).toBe('true');
   });
+});
+
+/**
+ * 失败页那三个主操作要防连点。
+ *
+ * 它们原本是裸 `<button>`：没有 disabled、没有 loading，store 里也没有
+ * ref 锁。而后端 `run.start` 不幂等 —— 连点两次就是两条运行、
+ * 两个执行线程、同一个 workdir。第二条的 worktree 节点会撞
+ * 「分支已存在。换一个分支名」，一句完全指错方向的提示。
+ *
+ * 仓库里已经有做对的写法（`OverviewPage` 的 `creatingRef` 配
+ * 「连点五次只建一条」）—— 那是全仓唯一一条连点测试，没有推广到别处。
+ */
+describe('失败页防连点', () => {
+  /**
+   * 让某个方法的请求**悬着**不返回 —— 连点的窗口正是「上一次还没回来」那段。
+   * 其余方法照常应答：页面加载时的 run.list 会重设列表，
+   * 不给它那条失败运行的话，失败横幅连同这几个按钮会当场从 DOM 上消失。
+   */
+  const 挂起 = (方法: string) => {
+    const 失败运行 = { ...RUN, status: 'failed' };
+    call.mockImplementation((method: string) => {
+      if (method === 方法) return new Promise(() => {});
+      if (method === 'run.list') return Promise.resolve({ items: [失败运行], total: 1 });
+      return Promise.resolve({ items: [], events: [], nextSeq: 0, hasMore: false });
+    });
+  };
+
+  const 失败态 = () =>
+    reset({
+      items: [{ ...RUN, status: 'failed' }] as never,
+      selectedId: 'run_1',
+      events: [
+        {
+          id: 'e1',
+          seq: 1,
+          ts: 't',
+          type: 'node.failed',
+          nodeId: '解析日志',
+          actor: 'engine',
+          summary: 'exitCode 1',
+        },
+      ] as never,
+    });
+
+  for (const [名字, 方法] of [
+    ['从失败节点重试', 'run.resume'],
+    ['回到最近审批点改选择', 'run.rewindToApproval'],
+  ] as const) {
+    it(`连点五次「${名字}」只发一次请求`, async () => {
+      const user = userEvent.setup();
+      挂起(方法);
+      失败态();
+      view();
+
+      const 按钮 = screen.getByRole('button', { name: new RegExp(名字, 'u') });
+      for (let i = 0; i < 5; i += 1) await user.click(按钮);
+
+      expect(call.mock.calls.filter(([m]) => m === 方法)).toHaveLength(1);
+    });
+
+    it(`「${名字}」进行中时自己是禁用的`, async () => {
+      const user = userEvent.setup();
+      挂起(方法);
+      失败态();
+      view();
+
+      const 按钮 = screen.getByRole('button', { name: new RegExp(名字, 'u') });
+      await user.click(按钮);
+
+      // 禁用是给人看的那一半：没有它，用户不知道自己那一下算没算数
+      expect(按钮).toBeDisabled();
+    });
+  }
 });
