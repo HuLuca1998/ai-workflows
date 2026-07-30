@@ -149,12 +149,19 @@ fn 摘要(text: &str) -> String {
 ///
 /// transform 只改内存里的数据、分支只看条件 —— 逐项审批它们没有意义，
 /// 而每个节点都弹一次的话用户会直接把最严那一档关掉。
+/// 这里的每一项都必须是**契约里真实存在**的节点类型。
+/// 写一个不存在的进来等于没写：那一支永远匹配不到，
+/// 而设置页还照着这份名单向用户承诺「它们会挂起等你审批」。
+/// `权限档说的话要算数::挂起名单里不能有契约里不存在的节点类型` 盯着这件事。
 const SIDE_EFFECT_NODES: &[&str] = &[
     "script.shell",
     "script.python",
+    // ai.execute 是唯一会放一个**自主 agent** 进 worktree 写文件、跑命令的节点。
+    // 它一度不在这份名单里 —— 于是用户选了最严那一档，
+    // 以为「文件写入、命令与外部写操作逐项审批」，
+    // 而写得最多的那个节点一次都不问。那不是功能缺失，是反向的安全感
+    "ai.execute",
     "git.worktree",
-    "git.commit",
-    "github.pr",
     "mcp.tool",
 ];
 
@@ -333,13 +340,21 @@ impl NodeExecutor {
                  在「Agent 角色」里改它的权限声明"
                     .to_string())
             }
-            "git.worktree" | "git.commit" if level("file") != "read-write" => {
-                Err("这个角色的「文件」权限不是「可读写」，动不了工作目录。\
+            // ai.execute 两样都要：agent 会改文件，也会跑命令。
+            // 这两支曾经不存在 —— 角色页写着「权限（引擎强制，Prompt 无法越权）」，
+            // 而这个节点把一个自主 agent 放进工作目录时一项都不查
+            "ai.execute" if level("file") != "read-write" => Err(
+                "这个角色的「文件」权限不是「可读写」，改不了工作目录里的文件。\
+                 在「Agent 角色」里改它的权限声明"
+                    .to_string(),
+            ),
+            "ai.execute" if level("command") == "none" => {
+                Err("这个角色的「命令」权限是「不允许」，agent 跑不了验证命令。\
                  在「Agent 角色」里改它的权限声明"
                     .to_string())
             }
-            "github.pr" if level("network") == "none" => {
-                Err("这个角色的「网络」权限是「禁止」，发不了 PR。\
+            "git.worktree" if level("file") != "read-write" => {
+                Err("这个角色的「文件」权限不是「可读写」，动不了工作目录。\
                  在「Agent 角色」里改它的权限声明"
                     .to_string())
             }
@@ -367,13 +382,48 @@ impl NodeExecutor {
 
     /// 这个节点在当前权限档下需不需要先问一句。
     fn needs_permission_approval(&self, node: &GraphNode) -> bool {
-        if self.permission_preset != "review_every_change" {
+        // 认不出的档位按**最严**处理（CLAUDE.md）。
+        //
+        // 原来是 `!= "review_every_change" → 直接放行`，于是配置里一个拼错的
+        // 档位名会把所有审批静默关掉 —— 而用户以为自己选的是某一档。
+        // 宁可多问一次：多问是麻烦，不问是把边界让出去了
+        let 已知放行档 = matches!(
+            self.permission_preset.as_str(),
+            "workspace_safe" | "trusted_workflow"
+        );
+        if 已知放行档 {
             return false;
         }
         if self.approved_nodes.iter().any(|id| id == &node.id) {
             return false;
         }
         SIDE_EFFECT_NODES.contains(&node.node_type.as_str())
+    }
+
+    /// 最严档下会先挂起等审批的节点类型。
+    ///
+    /// 暴露出来是给那条元测试用的 —— 它盯着「名单里混进一个契约里
+    /// 不存在的类型」：那种条目永远匹配不到，而设置页还照着它
+    /// 向用户承诺「它们会挂起等你审批」。
+    #[must_use]
+    pub fn side_effect_nodes() -> &'static [&'static str] {
+        SIDE_EFFECT_NODES
+    }
+
+    /// 只跑执行**之前**那两道关：权限档与能力声明。
+    ///
+    /// 放行时返回 `None`。抽出来是因为这两道关本身值得单独测 ——
+    /// 走完整的 `execute` 会真的起进程、连 adapter，
+    /// 而要验证的只是「它到底拦不拦」。
+    #[must_use]
+    pub fn precheck(&self, node: &GraphNode) -> Option<NodeOutcome> {
+        if self.needs_permission_approval(node) {
+            return Some(NodeOutcome::NeedsApproval);
+        }
+        match self.check_capability(node) {
+            Err(message) => Some(NodeOutcome::Failed { message }),
+            Ok(()) => None,
+        }
     }
 
     /// 传入会注入 AI 节点的记忆。
@@ -446,14 +496,10 @@ impl NodeExecutor {
         // 权限档先说话。「Review Every Change」这一档的原话是
         //「文件写入、命令与外部写操作逐项审批」—— 引擎不拦的话，
         // 设置屏那三张卡就只是三个好看的卡片
-        if self.needs_permission_approval(node) {
-            return Ok(NodeOutcome::NeedsApproval);
-        }
-
-        // 能力检查在**起进程之前**：拦晚了脚本已经写了文件才报错，
+        // 权限档与能力检查都在**起进程之前**：拦晚了脚本已经写了文件才报错，
         // 而那时副作用已经发生
-        if let Err(message) = self.check_capability(node) {
-            return Ok(NodeOutcome::Failed { message });
+        if let Some(outcome) = self.precheck(node) {
+            return Ok(outcome);
         }
 
         match node.node_type.as_str() {

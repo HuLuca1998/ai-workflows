@@ -93,19 +93,6 @@
 **验收**：二选一（界面改用 EventStore，或删掉没人用的方法连同测试）；
 类别必须来自 `categoryOfEventType`。
 
-### X-7 · `ai.execute` 不受权限档管，档位说明点名的节点不存在
-
-`SIDE_EFFECT_NODES` 六项里 `git.commit` / `github.pr` **不是契约里的节点类型**，
-`script.python` / `mcp.tool` 未实现 —— 真正生效的只有两条。
-而 `ai.execute`（唯一会放自主 agent 进 worktree 写文件的节点）
-既不在这个数组里，`check_capability` 也没有它的分支。
-设置页却写着「commit、PR 与 MCP 工具节点会挂起等你审批」。
-另外未知权限档一律放行，与「认不出的档位按最严处理」相反。
-
-**验收**：`ai.execute` 进 `SIDE_EFFECT_NODES` 与 `check_capability`；
-数组里不存在的类型删掉并加元测试断言它是 `NODE_TYPES` 的子集；
-未知档位按最严；设置页说明与数组同源生成。
-
 ### X-8 · `PathGuard` 从未被调用，35 项逃逸测试守着没接电的开关
 
 生产代码零调用点，而 `PROJECT.md` / ADR-0002 / CLAUDE.md 三处都写着它在守。
@@ -255,3 +242,5 @@ DEBT B-1。归在 `entry | end` 那一档，什么都不做直接返回成功，
 - 主管 AI 一条对话复用一条 ACP 会话（A-1）
 - 新建 Agent 角色的权限被 Zod 悄悄清空（X-1）+ 契约替身的通用「被吃掉的键」守卫
 - 事件摘要落库前过脱敏（X-5）—— 之前界面写着「已脱敏」而链路上一次都没调过
+- 权限档说的话要算数（X-7）：ai.execute 进挂起名单与能力校验、
+  名单里两个契约里不存在的类型删掉、未知档位按最严、设置页文案改成与实际一致

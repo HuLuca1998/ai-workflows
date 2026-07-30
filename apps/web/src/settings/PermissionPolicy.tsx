@@ -95,9 +95,14 @@ export function PermissionPolicy() {
         ))}
       </div>
 
-      {/* 说清对运行的实际影响：不说的话用户不知道选了会怎样 */}
+      {/* 说清对运行的实际影响：不说的话用户不知道选了会怎样。
+          这里点名的每一类都必须真的会挂起 —— 原来写的是
+          「脚本、worktree、commit、PR 与 MCP 工具节点」，
+          而 commit 与 PR **在契约里根本不是节点类型**，
+          真正会挂起的那个（AI 执行）反倒没提。
+          承诺得比实际多，比不承诺更糟 */}
       <p className="permission__note">
-        选「Review Every Change」时，脚本、worktree、commit、PR 与 MCP 工具节点
+        选「Review Every Change」时，脚本、AI 执行、worktree 与 MCP 工具节点
         会在执行前挂起等你审批；批准过的节点恢复运行时不再重复询问。
       </p>
     </section>

@@ -508,6 +508,12 @@ fn with_mock_adapter(dir: std::path::PathBuf) -> NodeExecutor {
         .join("tests/fixtures/acp-mock.mjs");
     NodeExecutor::new(dir)
         .with_agent_profiles(&内置角色())
+        // 显式声明权限档。默认是最严那一档，而 `ai.execute` 在那一档下
+        // 会先挂起等审批 —— 这些用例问的是「跑起来之后 cwd 是哪个、
+        // 走哪个端口」，不是「拦不拦」。拦不拦由
+        // `权限档说的话要算数` 那一组单独压着。
+        // 声明比放宽默认好：默认放宽等于替用户做一个他不知道的决定
+        .with_permission_preset("workspace_safe")
         .with_acp_command(
             "node",
             &[script.display().to_string(), "normal".to_string()],
@@ -1115,7 +1121,9 @@ fn 角色不存在时当场失败_而不是悄悄按没有角色跑() {
     // 悄悄跑下去的话，用户得到的分析是一个没有人设、没有输出契约、
     // 也没有权限约束的模型给的 —— 而界面上显示的是「审查者」
     let (command, args) = mock_acp();
-    let executor = NodeExecutor::new(workdir()).with_acp_command(&command, &args);
+    let executor = NodeExecutor::new(workdir())
+        .with_acp_command(&command, &args)
+        .with_permission_preset("workspace_safe");
 
     let mut scope = Scope::new("run_role");
     let outcome = executor
@@ -1212,7 +1220,9 @@ fn 没挂角色的_ai_节点照旧能跑() {
     // 已经存在的工作流里有一堆没写 agentProfileId 的 AI 节点。
     // 一刀切要求挂角色的话，它们会在这次升级之后全部跑不了
     let (command, args) = mock_acp();
-    let executor = NodeExecutor::new(workdir()).with_acp_command(&command, &args);
+    let executor = NodeExecutor::new(workdir())
+        .with_acp_command(&command, &args)
+        .with_permission_preset("workspace_safe");
 
     let outcome = executor
         .execute(&ai_节点(), &mut Scope::new("run_plain"))
@@ -1339,6 +1349,7 @@ fn 声明了_worktree_却没有上游_worktree_时当场失败() {
     let (command, args) = mock_acp();
     let executor = NodeExecutor::new(workdir())
         .with_acp_command(&command, &args)
+        .with_permission_preset("workspace_safe")
         .with_agent_profiles(&内置角色());
 
     let outcome = executor
@@ -1358,6 +1369,7 @@ fn 声明了_worktree_时_cwd_就是那个_worktree() {
     let (command, args) = mock_acp();
     let executor = NodeExecutor::new(workdir())
         .with_acp_command(&command, &args)
+        .with_permission_preset("workspace_safe")
         .with_agent_profiles(&内置角色());
 
     let mut scope = Scope::new("run_wds2");
@@ -1386,6 +1398,7 @@ fn 声明了_inherit_时_cwd_是运行工作目录() {
     let dir = workdir();
     let executor = NodeExecutor::new(dir.clone())
         .with_acp_command(&command, &args)
+        .with_permission_preset("workspace_safe")
         .with_agent_profiles(&内置角色());
 
     executor
@@ -1405,6 +1418,7 @@ fn 分析与审查节点不受_worktree_约束() {
     let (command, args) = mock_acp();
     let executor = NodeExecutor::new(workdir())
         .with_acp_command(&command, &args)
+        .with_permission_preset("workspace_safe")
         .with_agent_profiles(&内置角色());
 
     let outcome = executor
@@ -1452,6 +1466,7 @@ fn 各类_ai_节点走的端口都在节点目录里() {
 
         let executor = NodeExecutor::new(workdir())
             .with_acp_command(&command, &args)
+            .with_permission_preset("workspace_safe")
             .with_agent_profiles(&内置角色());
         let mut scope = Scope::new("run_ports");
         let outcome = executor
@@ -1891,7 +1906,9 @@ mod 分析对象 {
     #[test]
     fn target_要进提示词() {
         let (command, args) = mock_acp();
-        let executor = NodeExecutor::new(workdir()).with_acp_command(&command, &args);
+        let executor = NodeExecutor::new(workdir())
+            .with_acp_command(&command, &args)
+            .with_permission_preset("workspace_safe");
 
         let mut scope = Scope::new("run_target");
         let outcome = executor
@@ -1926,7 +1943,9 @@ mod 分析对象 {
         // 内置模板写的是 `${read_issue.success}` —— 不解析的话，
         // agent 收到的是那串字面量，会把它当成一个真实存在的东西去理解
         let (command, args) = mock_acp();
-        let executor = NodeExecutor::new(workdir()).with_acp_command(&command, &args);
+        let executor = NodeExecutor::new(workdir())
+            .with_acp_command(&command, &args)
+            .with_permission_preset("workspace_safe");
 
         let mut scope = Scope::new("run_target_interp");
         scope.set_node_output(
@@ -1959,7 +1978,9 @@ mod 分析对象 {
     fn 没有_target_的节点照常跑() {
         // ai.decide / ai.execute 的契约里没有 target —— 不能因为缺它就失败
         let (command, args) = mock_acp();
-        let executor = NodeExecutor::new(workdir()).with_acp_command(&command, &args);
+        let executor = NodeExecutor::new(workdir())
+            .with_acp_command(&command, &args)
+            .with_permission_preset("workspace_safe");
 
         let mut scope = Scope::new("run_no_target");
         let outcome = executor
@@ -1983,5 +2004,99 @@ mod 分析对象 {
             matches!(outcome, NodeOutcome::Succeeded { .. }),
             "{outcome:?}"
         );
+    }
+}
+
+/// 权限档说的话要算数。
+///
+/// 设置页那三张卡下面写着「选『Review Every Change』时，脚本、worktree、
+/// commit、PR 与 MCP 工具节点会在执行前挂起等你审批」——
+/// 点名的五类里 `git.commit` 与 `github.pr` **在契约里根本不存在**，
+/// 而 `ai.execute`（唯一会放一个自主 agent 进 worktree 写文件、跑命令的节点）
+/// 既不在挂起名单里，能力校验也没有它的分支。
+///
+/// 用户选了最严那一档，以为「文件写入、命令与外部写操作逐项审批」，
+/// 结果写得最多的那个节点一次都不问 —— 这不是功能缺失，是**反向的安全感**。
+mod 权限档说的话要算数 {
+    #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+
+    use super::{node, workdir};
+    use aiwf_engine::catalog;
+    use aiwf_engine::executor::NodeExecutor;
+    use aiwf_engine::runner::NodeOutcome;
+
+    fn ai_execute() -> aiwf_engine::graph::GraphNode {
+        node(
+            "fix",
+            "ai.execute",
+            serde_json::json!({
+                "instruction": "改一下",
+                "workdirSource": "inherit",
+                "runtime": "acp.claude"
+            }),
+        )
+    }
+
+    #[test]
+    fn 挂起名单里不能有契约里不存在的节点类型() {
+        // 门禁证明不了自己会红就不是门禁：这条元测试盯的是
+        // 「名单里混进一个拼错的/已经改名的类型」——那种条目永远不会生效，
+        // 而设置页还照着它向用户承诺
+        let 全集 = catalog::node_types();
+        let 不存在: Vec<&str> = NodeExecutor::side_effect_nodes()
+            .iter()
+            .copied()
+            .filter(|kind| !全集.contains(kind))
+            .collect();
+
+        assert!(
+            不存在.is_empty(),
+            "这些类型不在契约里，写在挂起名单里等于没写：{不存在:?}"
+        );
+    }
+
+    #[test]
+    fn ai_execute_在最严档下要先问一句() {
+        // 它是唯一会放一个自主 agent 进 worktree 写文件、跑命令的节点
+        let executor = NodeExecutor::new(workdir()).with_permission_preset("review_every_change");
+
+        let outcome = executor.precheck(&ai_execute());
+        assert!(
+            matches!(outcome, Some(NodeOutcome::NeedsApproval)),
+            "最严档下 ai.execute 没有挂起等审批：{outcome:?}"
+        );
+    }
+
+    #[test]
+    fn 认不出的权限档按最严处理() {
+        // CLAUDE.md：「认不出的档位按最严处理」。
+        // 反过来的话，配置里一个拼错的档位名会把所有审批静默关掉
+        let executor = NodeExecutor::new(workdir()).with_permission_preset("拼错的档位");
+
+        let outcome = executor.precheck(&ai_execute());
+        assert!(
+            matches!(outcome, Some(NodeOutcome::NeedsApproval)),
+            "认不出的档位放行了：{outcome:?}"
+        );
+    }
+
+    #[test]
+    fn 角色没有写文件权限时_ai_execute_跑不了() {
+        // 角色页写着「权限（引擎强制，Prompt 无法越权）」
+        let 只读角色 = serde_json::json!({
+            "file": "read", "command": "none", "network": "none",
+            "memory": "read", "secret": []
+        });
+        let executor = NodeExecutor::new(workdir())
+            .with_permission_preset("workspace_safe")
+            .with_capabilities(&只读角色);
+
+        let outcome = executor.precheck(&ai_execute());
+        match outcome {
+            Some(NodeOutcome::Failed { message }) => {
+                assert!(message.contains("文件"), "没说清缺的是哪项权限：{message}");
+            }
+            other => panic!("只读角色跑起了会写文件的节点：{other:?}"),
+        }
     }
 }
