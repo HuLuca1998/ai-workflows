@@ -3014,6 +3014,36 @@ impl Store {
 
     /// 用户的决定。**只能决定一次** —— 否则同一条写操作可能被批准两次，
     /// 或者批准后又被改成拒绝，而 MCP 那边可能已经读到第一个结果动手了。
+    /// 认领一条已批准的确认：找到就把它标成已消费，并回报「找到了」。
+    ///
+    /// 这一步原本不存在 —— `call_tool` 每次都无条件重跑 `gate_for`，
+    /// 而没有任何一处代码读 `status = 'approved'`。于是默认权限档下
+    /// 40 多个写工具一个都用不了：用户点了「批准」，agent 再调一次
+    /// 仍然被挡，而且**又入队一条新的**，用户被同一个弹层反复砸。
+    ///
+    /// **一次批准换一次执行**：认领成功就改成 `consumed`。
+    /// 不消费的话，agent 拿着一条旧批准可以把同一个写操作重复做任意多次 ——
+    /// 而用户以为自己只批准了一次。
+    ///
+    /// 匹配 tool + input_json 完全一致：用户批准的是「建一个叫『新的』
+    /// 的工作流」，不是「建任何工作流」。
+    ///
+    /// 单条 UPDATE 完成查找与消费，两个并发调用不会都认领到同一条 ——
+    /// 先到的那条把 status 改掉，后到的 `changed` 就是 0。
+    pub fn claim_approved_confirmation(&self, tool: &str, input_json: &str) -> Result<bool> {
+        let changed = self.conn.execute(
+            "UPDATE mcp_confirmation SET status = 'consumed', decided_at = ?3
+             WHERE id = (
+               SELECT id FROM mcp_confirmation
+                WHERE tool = ?1 AND input_json = ?2 AND status = 'approved'
+                ORDER BY created_at
+                LIMIT 1
+             )",
+            params![tool, input_json, now_iso()],
+        )?;
+        Ok(changed > 0)
+    }
+
     pub fn decide_confirmation(&self, id: &str, approved: bool) -> Result<()> {
         let status = if approved { "approved" } else { "rejected" };
         let changed = self.conn.execute(

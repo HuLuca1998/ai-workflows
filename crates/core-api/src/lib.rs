@@ -2822,6 +2822,16 @@ pub fn mcp_pending_confirms(store: &Store) -> ApiResult<Vec<ConfirmationDto>> {
 }
 
 /// 用户的决定。
+/// 认领一条已批准的确认。认领到就该真的执行那次调用。
+///
+/// MCP 的 `call_tool` 在被 `gate_for` 判为 NeedsConfirm 时先问它一句：
+/// 用户是不是已经批准过同样的调用了。没有这一步的话，那条
+/// 「提交 → 用户批准 → 再调一次」的通道在第三步断掉 ——
+/// 而界面上的确认卡写着「批准后这次写入会走 Core API 的版本守卫与审计」。
+pub fn mcp_claim_approved(store: &Store, tool: &str, input_json: &str) -> ApiResult<bool> {
+    Ok(store.claim_approved_confirmation(tool, input_json)?)
+}
+
 pub fn mcp_decide_confirm(store: &Store, id: String, approved: bool) -> ApiResult<()> {
     store.decide_confirmation(&id, approved)?;
     Ok(())

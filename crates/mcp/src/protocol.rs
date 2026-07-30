@@ -160,7 +160,18 @@ fn call_tool(ctx: &McpContext<'_>, params: &Value) -> Value {
 
     // 写操作的确认。挂在权限档上，与节点执行那边同一个开关
     let preset = ctx.permission_preset();
-    if catalog::gate_for(tool, &preset) == WriteGate::NeedsConfirm {
+    if catalog::gate_for(tool, &preset) == WriteGate::NeedsConfirm
+        // 先问一句：用户是不是已经批准过同样的调用了。
+        //
+        // 没有这一步的话，那条「提交 → 用户批准 → 再调一次」的通道
+        // 在第三步断掉：每次都无条件重新入队，默认档下 40 多个写工具
+        // 一个都用不了。用户点了「批准」，卡片消失，而什么都没写 ——
+        // 卡上那句「批准后这次写入会走 Core API 的版本守卫与审计」是假的。
+        //
+        // 认领会**消费掉**那条批准：一次批准换一次执行，
+        // 否则 agent 拿着一条旧批准能把同一个写操作重复做任意多次
+        && !claim_approved(ctx, tool.name.as_str(), &input)
+    {
         return match request_confirmation(ctx, tool.name.as_str(), &input) {
             Ok(()) => error_result(format!(
                 "{} 是写操作，已经把它提交给用户确认了。\
@@ -195,6 +206,18 @@ fn call_tool(ctx: &McpContext<'_>, params: &Value) -> Value {
             error_result(format!("[{}] {message}", error.code))
         }
     }
+}
+
+/// 用户是不是已经批准过同样的调用了。认领到就消费掉那条批准。
+///
+/// 锁拿不到时按「没批准过」办：那会让这次调用重新入队，用户多点一次；
+/// 反过来当成「批准过」就等于在数据库出问题时放行一个写操作。
+fn claim_approved(ctx: &McpContext<'_>, tool: &str, input: &Value) -> bool {
+    ctx.store
+        .lock()
+        .ok()
+        .and_then(|store| aiwf_core_api::mcp_claim_approved(&store, tool, &input.to_string()).ok())
+        .unwrap_or(false)
 }
 
 /// 提交一条待确认的写操作。

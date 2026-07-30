@@ -275,22 +275,6 @@ MCP 侧拼「接下来：」，前端 `describeError` 渲染成 `${message}（${
 
 **六条全部有实测输出。** 三条是安全级的。
 
-### V-1 · MCP 的确认通道是死路，默认档下 40 多个写工具一个都用不了 ← 功能完全不可用
-
-`call_tool` 每次无条件重跑 `gate_for`，`NeedsConfirm` 就新建一条待确认记录。
-**没有任何一处代码读 `status = 'approved'`** —— 设计好的「提交 → 轮询 → 再调」
-三步，第二步（`mcp.confirmStatus`）自己躺在 `DELIBERATELY_HIDDEN` 里。
-
-实测：批准之后再调一次，`isError = true`、同一句话、**又入队一条新的**，
-工作流总数仍是 0。用户看到确认卡、按下「批准这次写入」、卡片消失，
-而卡上那句「批准后这次写入会走 Core API 的版本守卫与审计」是假的。
-Agent 照提示重试则每次再塞一条 pending，用户被同一个弹层反复砸。
-
-掩护它的是 `http_test.rs:563`：只断言「被挡住 + 进了队列」，从不批准、也不再调。
-
-**验收**：端到端 —— 提交 → 批准 → 用同样入参再调一次，断言真的执行了、
-队列回到 0；再配一条防重放（同一条 approved 记录不能被消费两次）。
-
 ### V-2 · MCP 公布的 inputSchema 描述的是一个不存在的 API
 
 `toIpcInput` 把契约字段名翻译成引擎参数名（`inputs`→`inputsJson`…），
@@ -339,7 +323,18 @@ Agent 照提示重试则每次再塞一条 pending，用户被同一个弹层反
 **验收**：入口按 `WorkflowGraphSchema` 校验；publish 先跑 validate，
 有 error 级 issue 就拒绝（界面同步置灰并说明原因）。
 
-### V-5 · 「引擎强制，Prompt 无法越权」：5 个维度只认 2 个，`declared` 与 `any` 等价 ← 安全
+### V-5 · `declared` 与 `any` 仍然等价，network / memory / secret 仍未接上
+
+枚举外的值已经按最严处理了，界面也直说了那两项引擎不读。**剩下两半**：
+
+- `command: 'declared'`（「只能执行节点配置里显式列出的命令」）
+  与 `any` 行为完全一样 —— 没有任何一处拿它跟节点的命令清单比对
+- `network` / `memory` / `secret` 三维引擎源码里零命中。
+  记忆注入前该查 `memory` 档，adapter 起进程前该查 `network`
+
+**验收**：每种绕过方式一条用例（CLAUDE.md 明列的要求）。
+
+### V-5 旧记录 · 「引擎强制」那句话曾经有多空
 
 `grep '"network"\|"memory"\|"secret"\|"declared"' crates/engine/src` **零命中**。
 引擎只读 `file` 与 `command`，判据是 `== "none"` / `!= "read-write"`。
@@ -524,5 +519,8 @@ DEBT B-1。归在 `entry | end` 那一档，什么都不做直接返回成功，
 - 有运行在跑时拒绝一键初始化（W-3）—— 之前重置报成功而脚本还在往磁盘写
 - 失败页三个入口防连点（W-4）+ 可复用的 useAsyncAction
 - RunError 说清下一步（W-5 的一半）—— WrongState 是连点两次审批必撞的那个
+- MCP 的确认通道接通了（V-1）：批准 → 再调一次真的执行，一次批准换一次执行。
+  之前默认档下 40 多个写工具一个都用不了，而确认卡上写着「批准后会走版本守卫与审计」
+- 认不出的能力值按最严 + 界面直说哪两项不读（V-5 的一半）
 - 主管 AI 单开一条数据库连接（W-2）—— 之前它握着主锁做完整轮 ACP 对话，
   桌面壳另外 58 条命令全堵在后面，用户看到的是「应用卡住了」

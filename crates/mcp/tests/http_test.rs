@@ -14,6 +14,10 @@ use serde_json::{Value, json};
 
 struct 服务 {
     handle: http::ServerHandle,
+    /// 库的路径。要在测试里扮演「用户在应用里点了同意」，
+    /// 就得能自己开一条连接去改那条确认记录 —— 确认通道
+    /// 刻意不对 MCP 开放（`DELIBERATELY_HIDDEN`）
+    db: std::path::PathBuf,
     _dir: tempfile::TempDir,
 }
 
@@ -26,12 +30,16 @@ fn 起一个() -> 服务 {
     let handle = http::serve(
         0,
         aiwf_core_api::mcp_config::generate_token(),
-        db,
+        db.clone(),
         dir.path().to_path_buf(),
     )
     .expect("MCP 起不来");
 
-    服务 { handle, _dir: dir }
+    服务 {
+        handle,
+        db,
+        _dir: dir,
+    }
 }
 
 struct 应答 {
@@ -660,4 +668,107 @@ fn 调一个不存在的工具时指路到_tools_list() {
         .unwrap()
         .to_string();
     assert!(text.contains("tools/list"), "{text}");
+}
+
+#[test]
+fn 用户批准之后再调一次就真的执行了() {
+    // 这条通道原本在第三步断掉：`call_tool` 每次都无条件重跑 gate_for，
+    // 而**没有任何一处代码读 status = 'approved'**。
+    // 于是默认档下 40 多个写工具一个都用不了 —— 用户点了「批准」，
+    // 卡片消失，agent 再调一次仍然被挡，而且又入队一条新的。
+    //
+    // 上一条测试只断言「被挡住 + 进了队列」，从不批准、也不再调一次，
+    // 正好把断掉的那一步盖住了。
+    let 服务 = 起一个();
+    let path = format!("/mcp/{}", 服务.handle.token);
+    初始化(服务.handle.port, &path);
+
+    let 建工作流 = json!({
+        "jsonrpc": "2.0", "id": 2, "method": "tools/call",
+        "params": { "name": "workflow_create", "arguments": { "name": "批准之后才该出现" } },
+    });
+
+    // 第一次：被挡下并入队
+    let 第一次 = 发消息(服务.handle.port, &path, &建工作流);
+    assert_eq!(第一次.json()["result"]["isError"], json!(true));
+
+    // 用户在应用里点「同意」—— 确认通道刻意不对 MCP 开放，
+    // 所以这里自己开一条连接扮演那一步
+    {
+        let store = aiwf_store::Store::open(&服务.db).unwrap();
+        let 待办 = store.pending_confirmations().unwrap();
+        assert_eq!(待办.len(), 1, "第一次调用没进待确认队列");
+        aiwf_core_api::mcp_decide_confirm(&store, 待办[0].id.clone(), true).unwrap();
+    }
+
+    // 第二次：同样的入参，这次该真的建出来
+    let 第二次 = 发消息(服务.handle.port, &path, &建工作流);
+    let result = &第二次.json()["result"];
+    assert_eq!(
+        result["isError"],
+        json!(false),
+        "批准之后仍然被挡：{result}"
+    );
+
+    let 列表 = 发消息(
+        服务.handle.port,
+        &path,
+        &json!({
+            "jsonrpc": "2.0", "id": 4, "method": "tools/call",
+            "params": { "name": "workflow_list", "arguments": {} },
+        }),
+    );
+    assert_eq!(
+        列表.json()["result"]["structuredContent"]["total"],
+        json!(1),
+        "批准之后工作流还是没建出来"
+    );
+
+    let store = aiwf_store::Store::open(&服务.db).unwrap();
+    assert!(
+        store.pending_confirmations().unwrap().is_empty(),
+        "认领之后队列该空了 —— 不然用户会被同一个弹层反复砸"
+    );
+}
+
+#[test]
+fn 一次批准只换一次执行() {
+    // 防重放：拿着一条旧批准把同一个写操作重复做任意多次，
+    // 而用户以为自己只批准了一次
+    let 服务 = 起一个();
+    let path = format!("/mcp/{}", 服务.handle.token);
+    初始化(服务.handle.port, &path);
+
+    let 建工作流 = json!({
+        "jsonrpc": "2.0", "id": 2, "method": "tools/call",
+        "params": { "name": "workflow_create", "arguments": { "name": "只该有一个" } },
+    });
+
+    发消息(服务.handle.port, &path, &建工作流);
+    {
+        let store = aiwf_store::Store::open(&服务.db).unwrap();
+        let 待办 = store.pending_confirmations().unwrap();
+        aiwf_core_api::mcp_decide_confirm(&store, 待办[0].id.clone(), true).unwrap();
+    }
+
+    发消息(服务.handle.port, &path, &建工作流); // 认领掉那条批准
+    let 第三次 = 发消息(服务.handle.port, &path, &建工作流); // 该重新要确认了
+    assert_eq!(
+        第三次.json()["result"]["isError"],
+        json!(true),
+        "同一条批准被用了第二次"
+    );
+
+    let 列表 = 发消息(
+        服务.handle.port,
+        &path,
+        &json!({
+            "jsonrpc": "2.0", "id": 5, "method": "tools/call",
+            "params": { "name": "workflow_list", "arguments": {} },
+        }),
+    );
+    assert_eq!(
+        列表.json()["result"]["structuredContent"]["total"],
+        json!(1)
+    );
 }
