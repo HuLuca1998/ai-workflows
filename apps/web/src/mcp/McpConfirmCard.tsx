@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { coreClient } from '../data/workspace.js';
 
 /**
@@ -28,9 +28,11 @@ const POLL_MS = 1200;
 export function McpConfirmCard() {
   const [pending, setPending] = useState<Pending | null>(null);
   const [deciding, setDeciding] = useState(false);
+  const cardRef = useRef<HTMLElement>(null);
 
   useEffect(() => {
     let stopped = false;
+    let timer: ReturnType<typeof setInterval> | null = null;
 
     const poll = async () => {
       try {
@@ -42,13 +44,42 @@ export function McpConfirmCard() {
       }
     };
 
-    void poll();
-    const timer = setInterval(() => void poll(), POLL_MS);
+    /*
+     * 先问一句 MCP 起没起。
+     *
+     * 没起就不轮询：一台没接过任何 MCP 客户端的机器上，
+     * 这条定时器每 1.2 秒发一次请求、永远不停，而信箱永远是空的。
+     */
+    void (async () => {
+      try {
+        const status = (await coreClient.call('mcp.status', {})) as { running: boolean };
+        if (stopped || !status.running) return;
+      } catch {
+        // 问不到状态时按「起着」处理：宁可多轮询，也不能漏掉一次待确认 ——
+        // 漏掉的那次会在 MCP 那边超时，表现成「AI 说改了但什么都没变」
+      }
+      if (stopped) return;
+      void poll();
+      timer = setInterval(() => void poll(), POLL_MS);
+    })();
+
     return () => {
       stopped = true;
-      clearInterval(timer);
+      if (timer) clearInterval(timer);
     };
   }, []);
+
+  /*
+   * alertdialog 的含义是「打断你，等你决定」。
+   *
+   * 此前它从不接管焦点：卡片出现在屏幕角落，键盘用户要 Tab 过整屏才够得着，
+   * 读屏用户完全不知道它出现了 —— 一个不打断的 alertdialog 是在说假话。
+   * 焦点给「拒绝」而不是「批准」：默认动作应该是不批准。
+   */
+  useEffect(() => {
+    if (!pending) return;
+    cardRef.current?.querySelector<HTMLButtonElement>('button')?.focus();
+  }, [pending?.id]);
 
   if (!pending) return null;
 
@@ -66,7 +97,7 @@ export function McpConfirmCard() {
   };
 
   return (
-    <aside className="mcp-confirm" role="alertdialog" aria-label="MCP 写入确认">
+    <aside className="mcp-confirm" role="alertdialog" aria-label="MCP 写入确认" ref={cardRef}>
       <p className="mcp-confirm__head">
         <i className="ph-fill ph-plugs-connected" aria-hidden="true" />
         <span>

@@ -639,8 +639,53 @@ function EventList({
   loading: boolean;
   truncated: boolean;
 }) {
+  /*
+   * 一条 AI 密集的运行有几百条事件，而这一栏此前没有任何收窄的手段：
+   * 「它在哪一步崩的」只能一行行往下读。
+   */
+  const [onlyProblems, setOnlyProblems] = useState(false);
+  /** 「跳到失败处」标记的那一条。标记而不是滚动 —— 滚动在 jsdom 里也验证不了。 */
+  const [jumpedId, setJumpedId] = useState<string | null>(null);
+
+  // 最后一条出问题的事件。用最后一条：重试过的运行前面那些失败已经被覆盖了
+  const lastProblem = [...events].reverse().find((event) => {
+    const tone = toneOfEvent(event.type, event.summary);
+    return tone === 'failed' || tone === 'warn';
+  });
+
+  const shown = onlyProblems
+    ? events.filter((event) => {
+        const tone = toneOfEvent(event.type, event.summary);
+        return tone === 'failed' || tone === 'warn';
+      })
+    : events;
+
   return (
     <>
+      {events.length > 0 ? (
+        <div className="runs__event-tools">
+          <button
+            type="button"
+            className="runs__action runs__action--small"
+            aria-pressed={onlyProblems}
+            onClick={() => setOnlyProblems((on) => !on)}
+          >
+            <i className="ph ph-funnel" aria-hidden="true" />
+            只看异常
+          </button>
+          {/* 没有异常时不显示 —— 点了没反应的按钮比没有更糟 */}
+          {lastProblem ? (
+            <button
+              type="button"
+              className="runs__action runs__action--small"
+              onClick={() => setJumpedId(lastProblem.id)}
+            >
+              <i className="ph ph-crosshair" aria-hidden="true" />
+              跳到失败处
+            </button>
+          ) : null}
+        </div>
+      ) : null}
       {/*
        * 「未加载」与「真的没有」必须分开说。
        *
@@ -651,8 +696,11 @@ function EventList({
       {events.length === 0 ? (
         <p className="runs__empty">{loading ? '正在读取事件…' : '这次运行还没有事件。'}</p>
       ) : null}
+      {events.length > 0 && shown.length === 0 ? (
+        <p className="runs__empty">这条运行没有异常事件。</p>
+      ) : null}
       <ul className="runs__events">
-        {events.map((event) => (
+        {shown.map((event) => (
           <li
             key={event.id}
             className="runs__event"
@@ -662,9 +710,19 @@ function EventList({
              * 在同一条流里长得一模一样，几百条事件里找不出「哪一步崩的」。
              */
             data-tone={toneOfEvent(event.type, event.summary)}
+            data-jumped={event.id === jumpedId ? 'true' : undefined}
+            ref={
+              event.id === jumpedId
+                ? // 可选调用：jsdom 与老 WebView 里没有这个方法，
+                  // 而「滚过去」失败不该把整条事件流一起炸掉
+                  (el) => el?.scrollIntoView?.({ block: 'center', behavior: 'smooth' })
+                : undefined
+            }
           >
             <span className="runs__event-rail" aria-hidden="true" />
             <span className="runs__event-head">
+              {/* seq 是这条事件的唯一号码：报问题时要引用「第几条」 */}
+              <span className="runs__event-seq">#{event.seq}</span>
               <span className="runs__event-time">{formatClock(event.ts)}</span>
               <span className="runs__event-cat">{category(event.type)}</span>
               <span className="runs__event-type">{event.type}</span>

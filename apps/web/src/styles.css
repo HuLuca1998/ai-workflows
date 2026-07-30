@@ -6367,3 +6367,22 @@ fieldset.launch__field {
   color: var(--color-neutral-300);
   border-color: var(--color-neutral-600);
 }
+
+/* 事件流顶部的收窄工具 */
+.runs__event-tools {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.runs__event-seq {
+  font-family: ui-monospace, Menlo, monospace;
+  font-size: 11px;
+  color: var(--color-neutral-600);
+}
+
+/* 「跳到失败处」标出来的那条 —— 只是标记，不改变它自己的语气色 */
+.runs__event[data-jumped='true'] {
+  outline: 2px solid var(--color-accent-600);
+  outline-offset: 2px;
+}
