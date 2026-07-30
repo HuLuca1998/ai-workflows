@@ -110,6 +110,21 @@ function same(a: unknown, b: unknown): boolean {
   return JSON.stringify(a) === JSON.stringify(b);
 }
 
+/**
+ * 新建角色的默认能力档。
+ *
+ * 提交与乐观插入必须用同一份 —— 之前乐观行写的是 `{}`，
+ * 而详情区取不到键就回落 'none'，于是刚建好的角色在安全设置上显示的是假值。
+ */
+const NEW_AGENT_CAPABILITIES = {
+  file: 'read',
+  command: 'none',
+  network: 'none',
+  // 读记忆：AI 节点靠注入的记忆才知道这个工作区的长期约定
+  memory: 'read',
+  secret: [],
+} as const;
+
 export function AgentsPage() {
   const [items, setItems] = useState<Agent[] | null>(null);
   const [models, setModels] = useState<ModelOption[] | null>(null);
@@ -135,7 +150,15 @@ export function AgentsPage() {
    */
   const [draft, setDraft] = useState<Partial<Agent>>({});
 
-  const load = async (nextOffset = offset, query?: string) => {
+  /**
+   * query 默认取当前搜索框的内容。
+   *
+   * 之前是 `query?: string`，翻页写的是 `load(next)`、删除后写的是 `load()` ——
+   * 两处都不传词，`...(query ? {query} : {})` 于是整段消失：用户搜「review」
+   * 得到 60 条，点「下一页」立刻变成全部 120 条的第 51–100 条，
+   * 而搜索框里还写着「review」，他会以为这些都匹配。
+   */
+  const load = async (nextOffset = offset, query: string | undefined = search.value) => {
     setOffset(nextOffset);
     try {
       const result = (await coreClient.call('agent.list', {
@@ -212,14 +235,7 @@ export function AgentsPage() {
         // **校验照样通过** —— Zod 对未知键是 strip、对缺失键是填默认值，
         // 于是到引擎那边变成全 none：用户新建的角色挂到脚本节点上必然失败，
         // 而下面那句文案还写着「默认只读文件、不联网」
-        capabilities: {
-          file: 'read',
-          command: 'none',
-          network: 'none',
-          // 读记忆：AI 节点靠注入的记忆才知道这个工作区的长期约定
-          memory: 'read',
-          secret: [],
-        },
+        capabilities: NEW_AGENT_CAPABILITIES,
         outputContract: '',
         turnLimit: 12,
         timeoutMs: 900_000,
@@ -245,7 +261,10 @@ export function AgentsPage() {
             runtime: input.runtime,
             modelRef: input.modelRef,
             tools: [],
-            capabilities: {},
+            // 必须与上面提交的那份是同一个常量。写 `{}` 的话详情区取不到键
+            // 会回落 'none'，四项全显示「不允许」—— 而表单上明写着
+            // 「新建时默认只读文件、不联网」，用户看到的是假值。
+            capabilities: NEW_AGENT_CAPABILITIES,
             outputContract: '',
             turnLimit: 12,
             timeoutMs: 900_000,
@@ -402,7 +421,12 @@ export function AgentsPage() {
                 复制
               </button>
               {selected.builtin ? null : confirmDelete ? (
-                <button type="button" className="runs__action" onClick={() => void onDelete()}>
+                <button
+                  type="button"
+                  className="runs__action"
+                  data-danger="true"
+                  onClick={() => void onDelete()}
+                >
                   确认删除
                 </button>
               ) : (

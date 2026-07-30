@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { LIST_PAGE_SIZE } from '@aiwf/contracts';
+import { LIST_PAGE_SIZE, isRunTerminal, type RunStatus } from '@aiwf/contracts';
 import { describeError } from '../data/describeError.js';
 import type { Run, RunEvent as ContractRunEvent } from '@aiwf/contracts';
 import { coreClient } from '../data/workspace.js';
@@ -27,7 +27,16 @@ export type RunEvent = ContractRunEvent;
 export type RunFilter = 'all' | 'running' | 'waiting_approval' | 'failed';
 
 /** 「进行中」= 还没结束的：等待审批也算，它只是在等人。 */
-const ACTIVE_STATUSES = new Set(['created', 'queued', 'running', 'waiting_approval']);
+/**
+ * 活跃 = 非终态。**从契约派生**，不再手写枚举。
+ *
+ * 手写那份只列了 created/queued/running/waiting_approval，漏掉契约里的
+ * preflight / paused / interrupted / resuming —— 杀掉 App 后落在
+ * interrupted 的运行于是混进「历史」跟已完成的排一起，既不轮询、
+ * 也不显示「取消运行」，而「从失败节点重试」只长在失败横幅上。
+ * 那条运行连一个可点的按钮都没有。
+ */
+const isActiveStatus = (status: string): boolean => !isRunTerminal(status as RunStatus);
 
 /** 每页事件数。与后端的默认 limit 对齐。 */
 const EVENT_PAGE_SIZE = 200;
@@ -324,8 +333,8 @@ export const useRuns = create<RunsState>((set, get) => ({
   grouped: () => {
     const { items } = get();
     return {
-      active: items.filter((run) => ACTIVE_STATUSES.has(run.status)),
-      past: items.filter((run) => !ACTIVE_STATUSES.has(run.status)),
+      active: items.filter((run) => isActiveStatus(run.status)),
+      past: items.filter((run) => !isActiveStatus(run.status)),
     };
   },
 

@@ -52,7 +52,15 @@ export function ModelsPage() {
   const [total, setTotal] = useState(0);
   const [offset, setOffset] = useState(0);
 
-  const load = async (nextOffset = offset, query?: string) => {
+  /**
+   * query 默认取当前搜索框的内容。
+   *
+   * 之前是 `query?: string`，翻页写的是 `load(next)`、删除后写的是 `load()` ——
+   * 两处都不传词，`...(query ? {query} : {})` 于是整段消失：用户搜「review」
+   * 得到 60 条，点「下一页」立刻变成全部 120 条的第 51–100 条，
+   * 而搜索框里还写着「review」，他会以为这些都匹配。
+   */
+  const load = async (nextOffset = offset, query: string | undefined = search.value) => {
     setOffset(nextOffset);
     try {
       const result = (await coreClient.call('model.list', {
@@ -266,7 +274,12 @@ export function ModelsPage() {
                 {selected.enabled ? '停用' : '启用'}
               </button>
               {confirmDelete ? (
-                <button type="button" className="runs__action" onClick={() => void onDelete()}>
+                <button
+                  type="button"
+                  className="runs__action"
+                  data-danger="true"
+                  onClick={() => void onDelete()}
+                >
                   确认删除
                 </button>
               ) : (

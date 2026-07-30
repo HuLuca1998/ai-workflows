@@ -212,7 +212,7 @@ export function OnboardingPage() {
           onClick={() => (missing > 0 && !showCommands ? setShowCommands(true) : void authorize())}
         >
           {missing > 0 && !showCommands
-            ? `确认并安装（${missing} 项）`
+            ? `查看要执行的命令（${missing} 项）`
             : missing > 0
               ? '装好了，继续'
               : '授权工作目录并开始'}

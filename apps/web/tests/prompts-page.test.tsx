@@ -6,8 +6,8 @@ import userEvent from '@testing-library/user-event';
  * 提示词库 —— 图纸「06 提示词库」。
  *
  * 要压住的产品规则：
- * 1.「系统调用 AI 的每一处都在这里」—— 内置条目不能删，只能复制
- * 2.「框架分段可见可改 · 保存后新运行生效」
+ * 1. 这里收着系统调用 AI 的各处提示词 —— 内置条目不能删，只能复制
+ * 2. 执行路径尚未接上，界面必须如实说明（纪律二：绝不假装成功）
  * 3.「Secret 只能以引用形式出现，预览与日志中永不展开明文」
  * 4.「运行记录会引用当时的提示词版本，历史结果始终可解释」
  */
@@ -80,12 +80,10 @@ describe('列表', () => {
     });
   });
 
-  it('底部常驻那句关于「系统调用 AI 的每一处」的说明', async () => {
+  it('底部常驻的说明如实交代「执行路径尚未接上」', async () => {
     view();
     expect(
-      await screen.findByText(
-        '系统调用 AI 的每一处都在这里：节点、⌘K 协作、记忆提议、通知与失败归因。',
-      ),
+      await screen.findByText(/执行路径尚未接上 —— 运行时用的仍是引擎内建的那一份/u),
     ).toBeTruthy();
   });
 
@@ -118,9 +116,13 @@ describe('详情的四个 tab', () => {
     expect(panel.textContent).toContain('Task');
   });
 
-  it('那句「框架分段可见可改 · 保存后新运行生效」在位', async () => {
+  // DEBT.md B-3：run_ai 只读 agentProfileId + instruction，promptId 在
+  // crates/engine/src 里出现 0 次。界面不能承诺「保存后新运行生效」。
+  it('提示条如实说明引擎目前不读提示词库', async () => {
     await open();
-    expect(screen.getByText('框架分段可见可改 · 保存后新运行生效')).toBeTruthy();
+    expect(
+      screen.getByText('框架分段可见可改 · 引擎目前不读提示词库，改了不会影响运行'),
+    ).toBeTruthy();
   });
 
   it('变量 tab 列出来源与缺失时的行为', async () => {

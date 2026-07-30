@@ -101,6 +101,45 @@ describe.each(CASES)('$name 页', ({ Page, method, anchor }) => {
     });
   });
 
+  it('翻页带着搜索词 —— 否则第二页悄悄变成全量', async () => {
+    const user = userEvent.setup();
+    render(<Page />);
+    await screen.findByText(anchor);
+
+    // 输入搜索词（三页共用同一个 useDebouncedSearch，300ms 防抖）
+    const box = screen.getByRole('searchbox');
+    await user.type(box, 'review');
+    await waitFor(() => {
+      expect(call).toHaveBeenCalledWith(method, expect.objectContaining({ query: 'review' }));
+    });
+
+    await user.click(screen.getByRole('button', { name: '下一页' }));
+    await waitFor(() => {
+      // 之前翻页写的是 load(next)，query 整段消失：用户搜到 60 条，
+      // 点下一页变成全部 120 条的第 51–100 条，而搜索框里还写着 review
+      expect(call).toHaveBeenCalledWith(
+        method,
+        expect.objectContaining({ query: 'review', offset: 50 }),
+      );
+    });
+  });
+
+  it('搜索回到第一页 —— 停在第 3 页搜完可能一片空白', async () => {
+    const user = userEvent.setup();
+    render(<Page />);
+    await screen.findByText(anchor);
+
+    await user.click(screen.getByRole('button', { name: '下一页' }));
+    await waitFor(() => {
+      expect(call).toHaveBeenCalledWith(method, expect.objectContaining({ offset: 50 }));
+    });
+
+    await user.type(screen.getByRole('searchbox'), 'x');
+    await waitFor(() => {
+      expect(call).toHaveBeenCalledWith(method, expect.objectContaining({ query: 'x', offset: 0 }));
+    });
+  });
+
   it('一页装得下时不显示分页 —— 那时它只是噪音', async () => {
     respond({ [method]: () => ({ items: [], total: 3 }) });
     render(<Page />);

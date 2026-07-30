@@ -156,7 +156,11 @@ describe('环境检测', () => {
 describe('底部动作照图纸', () => {
   /**
    * 图纸「06 首次安装与检测」底部是三个按钮：
-   *「确认并安装（2 项）」「仅检测，不安装」「导出脱敏诊断报告」，
+   *「查看要执行的命令（2 项）」「仅检测，不安装」「导出脱敏诊断报告」。
+   *
+   * 图纸原文是「确认并安装」，但那个按钮不安装任何东西 —— 它只是展开
+   * 一段要用户自己去终端粘贴的命令，而同屏两段说明都写着「应用不替你
+   * 下载任何东西」。文案已按纪律二改成实话，断言跟着改。
    * 右边一句「下一步：授权工作目录并运行内置示例」。
    *
    * 之前这里只有一个我自己加的「跳过配置，用默认目录开始」——
@@ -166,16 +170,16 @@ describe('底部动作照图纸', () => {
    */
   it('三个按钮都在，文案照图纸', async () => {
     view();
-    expect(await screen.findByRole('button', { name: /^确认并安装/u })).toBeTruthy();
+    expect(await screen.findByRole('button', { name: /^查看要执行的命令/u })).toBeTruthy();
     expect(screen.getByRole('button', { name: '仅检测，不安装' })).toBeTruthy();
     expect(screen.getByRole('button', { name: '导出脱敏诊断报告' })).toBeTruthy();
   });
 
-  it('「确认并安装」标出还差几项 —— 图纸写的是「（2 项）」', async () => {
+  it('按钮标出还差几项 —— 图纸写的是「（2 项）」', async () => {
     view();
     // mock 里 gh 是 missing；acp.codex 是 optional，不催人装 ——
     // 「可选」的东西写进「还差几项」会让用户以为不装就不能用
-    expect(await screen.findByRole('button', { name: '确认并安装（1 项）' })).toBeTruthy();
+    expect(await screen.findByRole('button', { name: '查看要执行的命令（1 项）' })).toBeTruthy();
   });
 
   it('全都就绪时不再劝人安装，改成「授权工作目录并开始」', async () => {
@@ -194,7 +198,7 @@ describe('底部动作照图纸', () => {
     });
     view();
     expect(await screen.findByRole('button', { name: '授权工作目录并开始' })).toBeTruthy();
-    expect(screen.queryByRole('button', { name: /确认并安装/u })).toBeNull();
+    expect(screen.queryByRole('button', { name: /查看要执行的命令/u })).toBeNull();
   });
 
   it('右边那句「下一步」照图纸', async () => {
@@ -213,10 +217,10 @@ describe('缺东西时给可复制的命令，不代劳安装', () => {
    * 装坏了怎么回滚」全都做决定，而每个决定都是新的攻击面。
    * 给命令，用户自己看、自己跑。
    */
-  it('点「确认并安装」展开命令清单，而不是开始下载', async () => {
+  it('点主按钮展开命令清单，而不是开始下载 —— 文案也如实这么写', async () => {
     const user = userEvent.setup();
     view();
-    await user.click(await screen.findByRole('button', { name: /确认并安装/u }));
+    await user.click(await screen.findByRole('button', { name: /查看要执行的命令/u }));
 
     const 区 = await screen.findByRole('region', { name: '要执行的命令' });
     expect(区.textContent).toContain('brew install gh');
@@ -227,7 +231,7 @@ describe('缺东西时给可复制的命令，不代劳安装', () => {
   it('把一键脚本指出来 —— 一条条粘贴太容易漏', async () => {
     const user = userEvent.setup();
     view();
-    await user.click(await screen.findByRole('button', { name: /确认并安装/u }));
+    await user.click(await screen.findByRole('button', { name: /查看要执行的命令/u }));
 
     expect(await screen.findByText(/scripts\/install-deps\.sh/u)).toBeTruthy();
   });
@@ -235,7 +239,7 @@ describe('缺东西时给可复制的命令，不代劳安装', () => {
   it('说明为什么不代劳 —— 否则看起来像功能没做完', async () => {
     const user = userEvent.setup();
     view();
-    await user.click(await screen.findByRole('button', { name: /确认并安装/u }));
+    await user.click(await screen.findByRole('button', { name: /查看要执行的命令/u }));
 
     const 区 = await screen.findByRole('region', { name: '要执行的命令' });
     expect(区.textContent).toMatch(/不使用 sudo|自己看|攻击面/u);
@@ -244,7 +248,7 @@ describe('缺东西时给可复制的命令，不代劳安装', () => {
   it('命令里不能出现 sudo —— 那是图纸写死的产品原则', async () => {
     const user = userEvent.setup();
     view();
-    await user.click(await screen.findByRole('button', { name: /确认并安装/u }));
+    await user.click(await screen.findByRole('button', { name: /查看要执行的命令/u }));
 
     const 区 = await screen.findByRole('region', { name: '要执行的命令' });
     const 命令 = [...区.querySelectorAll('code')].map((el) => el.textContent ?? '');
@@ -254,7 +258,7 @@ describe('缺东西时给可复制的命令，不代劳安装', () => {
   it('展开之后还能继续往下走 —— 装不装是用户的事', async () => {
     const user = userEvent.setup();
     view();
-    await user.click(await screen.findByRole('button', { name: /确认并安装/u }));
+    await user.click(await screen.findByRole('button', { name: /查看要执行的命令/u }));
 
     expect(await screen.findByRole('button', { name: '装好了，继续' })).toBeTruthy();
   });
@@ -295,7 +299,7 @@ describe('配置真的落地', () => {
     const user = userEvent.setup();
     view();
     // 有缺失项时第一下展开命令清单，「装好了，继续」才真的往下走
-    await user.click(await screen.findByRole('button', { name: /确认并安装/u }));
+    await user.click(await screen.findByRole('button', { name: /查看要执行的命令/u }));
     await user.click(await screen.findByRole('button', { name: '装好了，继续' }));
 
     await waitFor(() => {
@@ -312,7 +316,7 @@ describe('配置真的落地', () => {
   it('写完才回首页 —— 提前跳的话用户看到的还是旧状态', async () => {
     const user = userEvent.setup();
     view();
-    await user.click(await screen.findByRole('button', { name: /确认并安装/u }));
+    await user.click(await screen.findByRole('button', { name: /查看要执行的命令/u }));
     await user.click(await screen.findByRole('button', { name: '装好了，继续' }));
 
     await waitFor(() => {
@@ -329,7 +333,7 @@ describe('配置真的落地', () => {
     });
     const user = userEvent.setup();
     view();
-    await user.click(await screen.findByRole('button', { name: /确认并安装/u }));
+    await user.click(await screen.findByRole('button', { name: /查看要执行的命令/u }));
     await user.click(await screen.findByRole('button', { name: '装好了，继续' }));
 
     expect(await screen.findByRole('alert')).toHaveTextContent('数据库忙');

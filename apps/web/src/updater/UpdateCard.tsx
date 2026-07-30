@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { coreClient } from '../data/workspace.js';
 import { UpdateController, isDevVersion, type UpdaterBackend } from '@aiwf/client-core';
 import { Button, Tag } from '@aiwf/ui';
 import type { VersionInfo } from './useAppVersion.js';
@@ -24,6 +25,13 @@ export function UpdateCard({ versionInfo, backend, autoCheck = true }: UpdateCar
     [backend, currentVersion],
   );
   const [, forceRender] = useState(0);
+  /**
+   * applyAndRestart 的失败此前被 `.catch(() => {})` 整个吞掉。
+   * 它的两条抛错路径（「更新尚未就绪」「还有未结束的运行」）在 throw 之前
+   * 都不 patch state，所以错误既不进 state.message 也不进任何 UI ——
+   * 用户点「重启并安装」，应用不重启、不报错、按钮也不变，只能反复点。
+   */
+  const [applyError, setApplyError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!controller) return;
@@ -31,6 +39,35 @@ export function UpdateCard({ versionInfo, backend, autoCheck = true }: UpdateCar
     if (autoCheck) void controller.check();
     return off;
   }, [controller, autoCheck]);
+
+  /*
+   * 把「还有未结束的运行」这道护栏接上。
+   *
+   * `setBlockers` 在 client-core 里定义了、也被 applyAndRestart 读了，
+   * 但整个 apps/web 一次都没调过 —— 唯一的调用点在它自己的单测里。
+   * 于是用户在有运行正等审批时点「重启并安装」，应用直接重启，
+   * 那句「确认后再重启，检查点可恢复」永远不会出现。
+   */
+  useEffect(() => {
+    if (!controller) return;
+    let cancelled = false;
+    const sync = async () => {
+      try {
+        const result = (await coreClient.call('run.list', {
+          status: ['running', 'waiting_approval', 'paused', 'resuming'],
+          limit: 20,
+        })) as { items: { id: string; status: string }[] };
+        if (cancelled) return;
+        controller.setBlockers(result.items.map((run) => ({ runId: run.id, reason: run.status })));
+      } catch {
+        // 查不到就当没有拦截项：更新卡片不该因为一次查询失败多出一条报错
+      }
+    };
+    void sync();
+    return () => {
+      cancelled = true;
+    };
+  }, [controller]);
 
   if (!controller) {
     return (
@@ -75,6 +112,11 @@ export function UpdateCard({ versionInfo, backend, autoCheck = true }: UpdateCar
       </p>
       {state.notes ? <p className="update-card__notes">{state.notes}</p> : null}
       {state.message ? <p className="update-card__error">{state.message}</p> : null}
+      {applyError ? (
+        <p className="update-card__error" role="alert">
+          {applyError}
+        </p>
+      ) : null}
 
       {state.status === 'downloading' ? (
         <progress max={100} value={state.progress ?? 0}>
@@ -98,7 +140,12 @@ export function UpdateCard({ versionInfo, backend, autoCheck = true }: UpdateCar
         {state.status === 'ready' ? (
           <Button
             variant="primary"
-            onClick={() => void controller.applyAndRestart().catch(() => {})}
+            onClick={() => {
+              setApplyError(null);
+              void controller.applyAndRestart().catch((err: unknown) => {
+                setApplyError(err instanceof Error ? err.message : String(err));
+              });
+            }}
           >
             重启并安装
           </Button>

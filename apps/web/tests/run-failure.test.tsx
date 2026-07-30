@@ -192,19 +192,27 @@ describe('重试', () => {
     expect(await screen.findByText(/没有经过任何审批点/u)).toBeTruthy();
   });
 
-  it('四个按钮的顺序照图纸', async () => {
+  it('失败横幅只留失败专属的两个入口', async () => {
     await openFailedRun();
     const actions = document.querySelector('.runs__failed-actions');
     const labels = [...(actions?.querySelectorAll('button') ?? [])].map((b) =>
       b.textContent?.trim(),
     );
 
-    expect(labels).toEqual([
-      '从失败节点重试',
-      '回到最近审批点改选择',
-      '用相同参数重跑',
-      '导出诊断包',
-    ]);
+    // 图纸原本把四个都堆在横幅里。但「用相同参数重跑」与「导出诊断包」
+    // 对任何一次运行都有意义 —— 一次「成功但结果不对」的运行想换参数再跑、
+    // 想把证据发给别人，此前界面上没有任何入口，只能回编辑器重填启动表单。
+    // 这两个已提到详情头那一行（见下一条用例）。
+    expect(labels).toEqual(['从失败节点重试', '回到最近审批点改选择']);
+  });
+
+  it('重跑与导出诊断包提到详情头 —— 不再只在失败时才有', async () => {
+    await openFailedRun();
+    const head = document.querySelector('.runs__detail-title');
+    const labels = [...(head?.querySelectorAll('button') ?? [])].map((b) => b.textContent?.trim());
+
+    expect(labels).toContain('用相同参数重跑');
+    expect(labels).toContain('导出诊断包');
   });
 
   it('成功的运行不给重试按钮 —— 那没有意义', async () => {
