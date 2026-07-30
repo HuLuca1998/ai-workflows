@@ -101,3 +101,54 @@ describe('模型的启用状态色', () => {
     expect(disabled!.body).toMatch(/--color-status-failed/u);
   });
 });
+
+/**
+ * neutral-700 在 bg 上只有 2.69:1，在 surface 上 2.49:1 ——
+ * 低于 WCAG 对文字的 4.5:1，也低于对图形元素的 3:1。
+ *
+ * 规范 §7 本身没说清这一条（VISUAL-SPEC 的 A-1/A-2 记着这个缺陷），
+ * 所以这里定规矩：它只能用在**看不清也没关系**的地方 ——
+ * 禁用态（规范明确允许降对比）与纯装饰（分隔符、空态大图标）。
+ * 承载信息的文字一律 neutral-500 以上。
+ */
+describe('最低一档中性色的用法', () => {
+  /**
+   * 允许用 neutral-700 的选择器。每一条都要能回答「看不清为什么没关系」。
+   */
+  const 白名单: { 匹配: RegExp; 理由: string }[] = [
+    { 匹配: /:disabled|\[aria-disabled|\[disabled\]/u, 理由: '禁用态，规范 §5.4 明确允许降对比' },
+    { 匹配: /\.title-bar__slash/u, 理由: '面包屑里的「/」，纯分隔符，不承载信息' },
+    { 匹配: /\.empty i\b/u, 理由: '空态的 32px 大图标，旁边就是同样内容的文字' },
+    { 匹配: /\.editor__status-dot/u, 理由: '状态圆点的「无状态」态，本来就是「这里没东西」' },
+  ];
+
+  it('只出现在禁用态与纯装饰上', () => {
+    const 违规 = parseRules(CSS)
+      // 前面不能是连字符 —— border-color 是描边不是文字，2.5:1 的边框可以接受
+      .filter((entry) => /(?<![-\w])color:\s*var\(--color-neutral-700\)/u.test(entry.body))
+      .filter((entry) => !白名单.some((allow) => allow.匹配.test(entry.selector)))
+      .map((entry) => entry.selector);
+    expect(
+      违规,
+      `这些地方用了对比度只有 2.5:1 的 neutral-700：${违规.join(' / ')}。` +
+        '承载信息的文字要 neutral-500 以上；确实是装饰的话加进白名单并写明理由',
+    ).toEqual([]);
+  });
+
+  it('不会把 border-color 报成文字色', () => {
+    const 对的 = `.x:hover { border-color: var(--color-neutral-700); }`;
+    expect(
+      parseRules(对的).filter((entry) =>
+        /(?<![-\w])color:\s*var\(--color-neutral-700\)/u.test(entry.body),
+      ),
+    ).toEqual([]);
+  });
+
+  it('这条守卫自己会红', () => {
+    const 假的 = `.some__label { color: var(--color-neutral-700); }`;
+    const 命中 = parseRules(假的)
+      .filter((entry) => /(?<![-\w])color:\s*var\(--color-neutral-700\)/u.test(entry.body))
+      .filter((entry) => !白名单.some((allow) => allow.匹配.test(entry.selector)));
+    expect(命中).toHaveLength(1);
+  });
+});

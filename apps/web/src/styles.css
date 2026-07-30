@@ -4108,7 +4108,9 @@ fieldset.launch__field {
 
 .prompts__item-ver {
   font-size: 10.5px;
-  color: var(--color-neutral-700);
+  /* 10.5px 的版本号用 neutral-700 是 2.49:1 —— 那是「看得见但读不出来」。
+     它承载信息（用户靠它认出「这条是不是我刚存的那版」），要 4.5:1 以上 */
+  color: var(--color-neutral-500);
 }
 
 /* 详情区自己滚：右边的长文不该带着左栏列表一起跑 */
