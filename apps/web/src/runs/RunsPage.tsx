@@ -10,6 +10,9 @@ import { coreClient } from '../data/workspace.js';
 import { ConversationView } from './ConversationView.js';
 import { NodeDetail } from './NodeDetail.js';
 import { type RunEvent, type RunFilter, type RunSummary, useRuns } from './runsStore.js';
+import { toneOfEvent } from './eventTone.js';
+import { relativeTime, runDuration } from './formatTime.js';
+import { CopyButton } from '../layout/CopyButton.js';
 
 /**
  * 执行记录 —— 严格照图纸「03 执行记录」。
@@ -53,7 +56,12 @@ export function RunsPage() {
   const rerunning = useAsyncAction();
   /* 取消运行不可撤销，且后端不幂等（连点两次就是两条命令）—— 要中间态 + 确认 */
   const cancelling = useAsyncAction();
-  const [confirmCancel, setConfirmCancel] = useState(false);
+  /*
+   * 存的是「正在确认哪一条运行」而不是布尔：布尔会跨运行残留 ——
+   * 在 A 上点出确认态、切到 B，按钮还停在「确认取消运行」，
+   * 用户在 B 上点的第一下就直接把 B 杀了。
+   */
+  const [confirmCancel, setConfirmCancel] = useState<string | null>(null);
   // tab 从 URL 读一次初值：审批横幅的「查看 Diff」带着 &tab=artifacts 过来，
   // 而在此之前这里是个纯 useState —— 那个参数一路没人读，
   // 用户点「查看 Diff」落到的是事件流
@@ -73,6 +81,8 @@ export function RunsPage() {
   /** 选中的节点；null 表示看整条运行。图纸的节点进度栏每行都可点。 */
   const [selectedNode, setSelectedNode] = useState<string | null>(null);
   const [exportError, setExportError] = useState<string | null>(null);
+  /* 每点一次后端真出一个包 —— 无中间态时用户等不到反馈就会再点 */
+  const exporting = useAsyncAction();
 
   const exportDiagnostics = async (runId: string) => {
     setDiagnostics(null);
@@ -84,6 +94,17 @@ export function RunsPage() {
       setExportError(err instanceof Error ? err.message : String(err));
     }
   };
+  /*
+   * 相对时间要自己走。活跃运行靠 1.2s 轮询顺带重渲染，历史运行不轮询 ——
+   * 不给一个时钟的话，「3 分钟前」会一直停在打开页面那一刻。
+   * 30s 一跳：显示精度到分钟，再密就是白烧渲染。
+   */
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), 30_000);
+    return () => clearInterval(timer);
+  }, []);
+
   const { active, past } = runs.grouped();
   const selected = runs.selected();
   const progress = runs.progress();
@@ -184,6 +205,7 @@ export function RunsPage() {
               run={run}
               selected={run.id === runs.selectedId}
               onSelect={() => void runs.select(run.id)}
+              now={now}
             />
           ))}
 
@@ -194,6 +216,7 @@ export function RunsPage() {
               run={run}
               selected={run.id === runs.selectedId}
               onSelect={() => void runs.select(run.id)}
+              now={now}
             />
           ))}
         </div>
@@ -320,9 +343,10 @@ export function RunsPage() {
                 <button
                   type="button"
                   className="runs__action"
-                  onClick={() => void exportDiagnostics(selected.id)}
+                  disabled={exporting.running}
+                  onClick={() => exporting.run(() => exportDiagnostics(selected.id))}
                 >
-                  导出诊断包
+                  {exporting.running ? '导出中…' : '导出诊断包'}
                 </button>
                 {isActive(selected.status) ? (
                   <button
@@ -332,16 +356,20 @@ export function RunsPage() {
                     onClick={() => {
                       // 取消会杀掉一条正在跑的运行 —— 不可撤销，要确认。
                       // 而且后端不幂等，连点两次就是两条命令。
-                      if (!confirmCancel) {
-                        setConfirmCancel(true);
+                      if (confirmCancel !== selected.id) {
+                        setConfirmCancel(selected.id);
                         return;
                       }
-                      setConfirmCancel(false);
+                      setConfirmCancel(null);
                       cancelling.run(() => runs.cancel(selected.id));
                     }}
-                    data-danger={confirmCancel ? 'true' : undefined}
+                    data-danger={confirmCancel === selected.id ? 'true' : undefined}
                   >
-                    {cancelling.running ? '取消中…' : confirmCancel ? '确认取消运行' : '取消运行'}
+                    {cancelling.running
+                      ? '取消中…'
+                      : confirmCancel === selected.id
+                        ? '确认取消运行'
+                        : '取消运行'}
                   </button>
                 ) : null}
               </div>
@@ -368,6 +396,12 @@ export function RunsPage() {
                   <span>
                     <i className="ph ph-folder-open" aria-hidden="true" />
                     {selected.workdir}
+                    <CopyButton
+                      value={selected.workdir}
+                      label=""
+                      className="runs__inline-copy"
+                      ariaLabel="复制工作目录路径"
+                    />
                   </span>
                 ) : null}
               </div>
@@ -427,6 +461,12 @@ export function RunsPage() {
                   <p className="runs__diagnostics" role="status">
                     <i className="ph ph-file-arrow-down" aria-hidden="true" />
                     已导出到 {diagnostics}
+                    <CopyButton
+                      value={diagnostics}
+                      label=""
+                      className="runs__inline-copy"
+                      ariaLabel="复制诊断包路径"
+                    />
                     {/* 用户要把它发给别人，得知道能不能发 */}
                     <span className="runs__diagnostics-note">
                       · 内容已过脱敏器，Secret 只以 keychain:// 引用出现
@@ -438,10 +478,16 @@ export function RunsPage() {
 
             {selected.status === 'waiting_approval' ? (
               <ApprovalPanel
+                /*
+                 * key 让面板跟着「哪条运行的哪个节点」重挂 ——
+                 * 里面的「确认拒绝」是组件内状态，不重挂就会跨审批残留：
+                 * 在上一条审批点出确认态、切到下一条，第一下就直接拒了。
+                 */
+                key={`${selected.id}:${pendingApprovalNode(runs.events) ?? ''}`}
                 nodeId={pendingApprovalNode(runs.events) ?? ''}
                 summary={pendingApprovalSummary(runs.events)}
                 onDecide={(decision) =>
-                  void runs.decide(pendingApprovalNode(runs.events) ?? '', decision)
+                  runs.decide(pendingApprovalNode(runs.events) ?? '', decision)
                 }
               />
             ) : null}
@@ -540,14 +586,18 @@ function RunItem({
   run,
   selected,
   onSelect,
+  now,
 }: {
   run: RunSummary;
   selected: boolean;
   onSelect: () => void;
+  /** 由页面统一给一个时刻，避免每行各取一次 Date.now() 导致同屏时间不一致 */
+  now: number;
 }) {
   const params = Object.entries(run.inputs)
     .map(([key, value]) => `${key}=${String(value)}`)
     .join(' · ');
+  const duration = runDuration(run.startedAt, run.endedAt, now);
 
   return (
     <button
@@ -566,7 +616,15 @@ function RunItem({
       {params ? <span className="runs__item-params">{params}</span> : null}
       <span className="runs__item-foot">
         <span className="runs__item-node">{run.currentNode ?? ''}</span>
-        <span>{formatTime(run.startedAt)}</span>
+        {/*
+         * 绝对时刻回答不了「刚才那条是哪个」「这条跑了多久」——
+         * 在 20 条运行里找刚起的那条，只能逐条读年月日时分秒。
+         * 超过一天的相对时间没意义，那时退回绝对日期。
+         */}
+        <span title={formatTime(run.startedAt)}>
+          {relativeTime(run.startedAt, now) || formatTime(run.startedAt)}
+        </span>
+        {duration ? <span className="runs__item-duration">· {duration}</span> : null}
       </span>
     </button>
   );
@@ -595,7 +653,16 @@ function EventList({
       ) : null}
       <ul className="runs__events">
         {events.map((event) => (
-          <li key={event.id} className="runs__event" data-kind={category(event.type)}>
+          <li
+            key={event.id}
+            className="runs__event"
+            data-kind={category(event.type)}
+            /*
+             * 语气按结果分，不按前缀 —— 此前 node.failed 与 node.succeeded
+             * 在同一条流里长得一模一样，几百条事件里找不出「哪一步崩的」。
+             */
+            data-tone={toneOfEvent(event.type, event.summary)}
+          >
             <span className="runs__event-rail" aria-hidden="true" />
             <span className="runs__event-head">
               <span className="runs__event-time">{formatClock(event.ts)}</span>
@@ -695,6 +762,14 @@ function ArtifactList({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [openInitially]);
 
+  /*
+   * 产物是边跑边产的，而这里此前只在挂载时拉一次 —— 用户看到的永远是
+   * 打开那一刻的快照，后面产的一个都不出现，界面上还没有刷新入口。
+   *
+   * 不做自动轮询：产物接口要遍历运行目录，跑一条 AI 密集的运行时
+   * 每 1.2 秒扫一遍磁盘不划算；给一个明确的刷新按钮就够了。
+   */
+  const [reloadKey, setReloadKey] = useState(0);
   useEffect(() => {
     let cancelled = false;
     void coreClient
@@ -711,7 +786,7 @@ function ArtifactList({
     return () => {
       cancelled = true;
     };
-  }, [runId]);
+  }, [runId, reloadKey]);
 
   if (error) {
     return (
@@ -724,6 +799,16 @@ function ArtifactList({
 
   return (
     <>
+      <div className="runs__artifacts-head">
+        <button
+          type="button"
+          className="runs__action runs__action--small"
+          onClick={() => setReloadKey((n) => n + 1)}
+        >
+          <i className="ph ph-arrows-clockwise" aria-hidden="true" />
+          刷新产物
+        </button>
+      </div>
       {items.length === 0 ? (
         <p className="runs__empty">这次运行还没有产物。脚本的输出与生成的文件会出现在这里。</p>
       ) : (
@@ -778,6 +863,8 @@ function ArtifactList({
         <p className="runs__redact">
           <i className="ph ph-folder-open" aria-hidden="true" />
           {root}
+          {/* 这条路径用户要拿去终端里 cd 进去 —— 此前只能手选 */}
+          <CopyButton value={root} label="复制路径" className="runs__inline-copy" />
         </p>
       ) : null}
     </>
@@ -804,8 +891,17 @@ function ApprovalPanel({
 }: {
   nodeId: string;
   summary: string;
-  onDecide: (decision: string) => void;
+  onDecide: (decision: string) => Promise<unknown>;
 }) {
+  /*
+   * 两个按钮都要中间态：`approval.decide` 不幂等，而界面此前要等下一次
+   * 1.2s 轮询才有反应 —— 中间用户会再点一次，于是发出两条决定。
+   * 同一个文件里 resume/rewind/rerun 早就用上 useAsyncAction 了。
+   */
+  const deciding = useAsyncAction();
+  /** 拒绝不可撤销，先确认再发（§5.4：危险操作只用红色文字 + 确认）。 */
+  const [confirmReject, setConfirmReject] = useState(false);
+
   return (
     <div className="runs__approval">
       <p className="runs__approval-title">
@@ -816,12 +912,26 @@ function ApprovalPanel({
         <button
           type="button"
           className="runs__action runs__action--primary"
-          onClick={() => onDecide('approved')}
+          disabled={deciding.running}
+          onClick={() => deciding.run(() => onDecide('approved'))}
         >
-          批准
+          {deciding.running ? '批准中…' : '批准'}
         </button>
-        <button type="button" className="runs__action" onClick={() => onDecide('rejected')}>
-          拒绝
+        <button
+          type="button"
+          className="runs__action"
+          disabled={deciding.running}
+          data-danger={confirmReject ? 'true' : undefined}
+          onClick={() => {
+            if (!confirmReject) {
+              setConfirmReject(true);
+              return;
+            }
+            setConfirmReject(false);
+            deciding.run(() => onDecide('rejected'));
+          }}
+        >
+          {confirmReject ? '确认拒绝' : '拒绝'}
         </button>
       </div>
     </div>

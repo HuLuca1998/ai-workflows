@@ -2311,6 +2311,11 @@
   color: var(--color-neutral-600);
 }
 
+/* 时长是次要信息，比时刻再退一档 */
+.runs__item-duration {
+  color: var(--color-neutral-500);
+}
+
 .runs__item-node {
   flex: 1;
   min-width: 0;
@@ -2755,6 +2760,46 @@
 
 .runs__event[data-kind='节点'] .runs__event-rail {
   background: var(--color-accent-700);
+}
+
+/*
+ * 语气压过类别。类别回答「这是哪一类事件」，语气回答「它成了还是崩了」——
+ * 后者才是用户在几百条流里扫的东西，所以让它接管色条与摘要颜色。
+ * 中性一档不写规则，落回上面的类别色。
+ */
+.runs__event[data-tone='failed'] .runs__event-rail {
+  background: var(--color-status-failed);
+}
+
+.runs__event[data-tone='failed'] {
+  border-color: color-mix(in srgb, var(--color-status-failed) 34%, transparent);
+  background: var(--color-status-failed-bg);
+}
+
+.runs__event[data-tone='failed'] .runs__event-title {
+  color: var(--color-status-failed);
+}
+
+.runs__event[data-tone='warn'] .runs__event-rail {
+  background: var(--color-status-waiting);
+}
+
+.runs__event[data-tone='warn'] {
+  border-color: color-mix(in srgb, var(--color-status-waiting) 28%, transparent);
+}
+
+.runs__event[data-tone='succeeded'] .runs__event-rail {
+  background: var(--color-status-success);
+}
+
+.runs__event[data-tone='waiting'] .runs__event-rail {
+  background: var(--color-status-waiting);
+}
+
+/* 等待人来处理的那条要在流里跳出来 —— 全应用唯一需要人动手的状态 */
+.runs__event[data-tone='waiting'] {
+  border-color: color-mix(in srgb, var(--color-status-waiting) 34%, transparent);
+  background: var(--color-status-waiting-bg);
 }
 
 .runs__event-head {
@@ -6205,4 +6250,51 @@ fieldset.launch__field {
   color: var(--color-neutral-500);
   font-size: 10.5px;
   white-space: nowrap;
+}
+
+/* 产物列表顶部的刷新入口。产物是边跑边产的，快照会过时 */
+.runs__artifacts-head {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 10px;
+}
+
+.runs__action--small {
+  padding: 4px 10px;
+  font-size: 11.5px;
+  min-height: 28px;
+}
+
+/* 路径旁边的行内复制：只有图标，不占版面 */
+.runs__inline-copy {
+  border: 0;
+  background: none;
+  color: var(--color-neutral-500);
+  cursor: pointer;
+  padding: 4px 6px;
+  min-width: 28px;
+  min-height: 28px;
+  border-radius: 6px;
+  transition: var(--transition-state);
+}
+
+.runs__inline-copy:hover:not(:disabled) {
+  background: var(--overlay-hover);
+  color: var(--color-neutral-300);
+}
+
+.runs__inline-copy:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+/* 复制结果就地说一句，2 秒后收回 */
+.copy-feedback {
+  margin-left: 6px;
+  font-size: 11px;
+  color: var(--color-status-success);
+}
+
+.copy-feedback[data-state='failed'] {
+  color: var(--color-status-failed);
 }

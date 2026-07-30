@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { coreClient } from '../data/workspace.js';
 import { describeError } from '../data/describeError.js';
+import { CopyButton } from '../layout/CopyButton.js';
 
 /**
  * 运行环境健康 —— 严格照图纸「05 设置与环境」：五列表格。
@@ -188,15 +189,14 @@ export function EnvHealth() {
               </td>
               <td>
                 {item.installHint ? (
-                  <button
-                    type="button"
+                  // 此前是裸 clipboard 调用：成功没反馈、失败被吞、
+                  // 不安全上下文里那个可选链让按钮变成点了没反应的装饰
+                  <CopyButton
+                    value={item.installHint.command}
+                    label="复制"
                     className="env__copy"
-                    aria-label={`复制 ${item.label} 的安装命令`}
-                    onClick={() => void navigator.clipboard?.writeText(item.installHint!.command)}
-                  >
-                    <i className="ph ph-copy" aria-hidden="true" />
-                    复制
-                  </button>
+                    ariaLabel={`复制 ${item.label} 的安装命令`}
+                  />
                 ) : null}
               </td>
             </tr>

@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { coreClient } from '../data/workspace.js';
+import { CopyButton } from '../layout/CopyButton.js';
 
 /**
  * MCP 与集成 —— 图纸「05 设置与环境」左栏第五档。
@@ -134,15 +135,7 @@ export function McpIntegration() {
               <i className={revealed ? 'ph ph-eye-slash' : 'ph ph-eye'} aria-hidden="true" />
               {revealed ? '隐藏' : '显示'}
             </button>
-            <button
-              type="button"
-              className="env__copy"
-              onClick={() => void navigator.clipboard?.writeText(url)}
-              aria-label="复制接入地址"
-            >
-              <i className="ph ph-copy" aria-hidden="true" />
-              复制
-            </button>
+            <CopyButton value={url} label="复制" className="env__copy" ariaLabel="复制接入地址" />
             <span className="env__hint-source">
               地址里带着访问令牌 —— 它等于这台机器上这个应用的全部能力，别贴进截图或工单。
             </span>
