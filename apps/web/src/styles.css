@@ -5202,6 +5202,22 @@ fieldset.launch__field {
   border-color: var(--color-accent-700);
 }
 
+/* 只读态必须看得出来：cursor:text + 正常底色的框「看着能改点进去不能改」
+   是第 1 轮实测里最费解的一处。灰字、无底、默认光标，聚焦也不亮边 */
+.agents__editable[readonly],
+.agents__name-input[readonly] {
+  color: var(--color-neutral-400);
+  background: transparent;
+  cursor: default;
+}
+
+.agents__editable[readonly]:focus,
+.agents__name-input[readonly]:focus,
+.agents__name-input[readonly]:hover {
+  border-color: var(--color-divider);
+  background: transparent;
+}
+
 /* 名称直接就地编辑：图纸上它是标题，所以输入框平时不画边框，
    悬停才透出一层底，避免整屏突然多出一个表单框 */
 .agents__name-input {

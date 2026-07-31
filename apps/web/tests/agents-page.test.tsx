@@ -202,7 +202,7 @@ describe('复制与删除', () => {
     await user.click(await screen.findByRole('button', { name: /分析 Agent/u }));
 
     expect(screen.queryByRole('button', { name: '删除' })).toBeNull();
-    expect(screen.getByText(/内置角色不能删除/u)).toBeTruthy();
+    expect(screen.getByText(/内置角色是只读的/u)).toBeTruthy();
   });
 
   it('删除自建角色要先确认 —— 引用它的节点会失效', async () => {

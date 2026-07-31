@@ -576,7 +576,8 @@ export function AgentsPage() {
 
             {selected.builtin ? (
               <p className="models__warn" role="status">
-                内置角色不能删除。要改的话先复制一份 —— 副本是可编辑的。
+                内置角色是只读的：名称、目标、性格与指令都不能改，也不能删除。
+                要改的话先「复制」一份 —— 副本是可编辑的。
               </p>
             ) : null}
             {confirmDelete ? (
