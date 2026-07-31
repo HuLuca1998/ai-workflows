@@ -19,7 +19,7 @@ import { diffGraphs } from '../src/diff.js';
 import { CoreApiError } from '../src/errors.js';
 import { validateGraph } from '../src/graph.js';
 import { applyPatch } from '../src/patch.js';
-import { AskSpecSchema } from '../src/domain.js';
+import { ASK_KINDS, AskSpecSchema } from '../src/domain.js';
 import { RunEventSchema, RUN_EVENT_TYPES, RUN_EVENT_CATEGORIES } from '../src/events.js';
 import { WorkflowGraphSchema } from '../src/graph.js';
 import { NODE_TYPES, getNodeDefinition } from '../src/nodes/index.js';
@@ -48,6 +48,10 @@ const files: Record<string, unknown> = {
     nodeStatuses: NODE_STATUSES,
     patchOps: PATCH_OPS,
     methods: CORE_API_METHODS,
+    // 提问组件的白名单。`AskSpec.kind` 故意不用 enum（前向兼容），
+    // 于是 schema 里查不到合法值 —— Rust 侧的守卫从这里读，
+    // 保证工具描述与指南里列的 kind 不落后于契约
+    askKinds: ASK_KINDS,
   },
   /**
    * agent 提问的形状。MCP 的内建 `ask_user` 工具拿它当入参 schema ——

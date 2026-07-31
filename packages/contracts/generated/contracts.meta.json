@@ -188,5 +188,11 @@
     "run.diagnostics",
     "env.diagnostics",
     "env.install"
+  ],
+  "askKinds": [
+    "choice",
+    "multiChoice",
+    "form",
+    "confirm"
   ]
 }

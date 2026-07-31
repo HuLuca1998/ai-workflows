@@ -248,3 +248,64 @@ fn 挂起的提问有并发上限_超了直接说() {
         assert_eq!(result["structuredContent"]["outcome"], "no_answer");
     }
 }
+
+#[test]
+fn 契约的每种_kind_都写进了工具描述与指南() {
+    // kind 白名单有四份手抄：契约 ASK_KINDS（真源）、工具描述、
+    // build-and-run 指南、docs/MCP.md。前三份在代码里 —— 契约加了
+    // 第五种 kind 而这两处没跟上的话，agent 永远不知道它存在，
+    // 那个组件在生产里一次都不会被用到
+    let meta: serde_json::Value = serde_json::from_str(include_str!(
+        "../../../packages/contracts/generated/contracts.meta.json"
+    ))
+    .unwrap();
+    let kinds: Vec<&str> = meta["askKinds"]
+        .as_array()
+        .expect("contracts.meta.json 里没有 askKinds —— 生成脚本掉了这一项")
+        .iter()
+        .filter_map(|kind| kind.as_str())
+        .collect();
+    assert!(!kinds.is_empty());
+
+    let dir = tempfile::tempdir().unwrap();
+    let db = 建库(dir.path());
+    let store = Mutex::new(Store::open(&db).unwrap());
+    let supervisor = Supervisor::new(db.clone());
+    let ctx = McpContext {
+        store: &store,
+        supervisor: &supervisor,
+        data_dir: dir.path(),
+    };
+
+    let tools =
+        handle_message(&ctx, &json!({"jsonrpc":"2.0","id":1,"method":"tools/list"})).unwrap();
+    let description = tools["result"]["tools"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|tool| tool["name"] == "ask_user")
+        .and_then(|tool| tool["description"].as_str())
+        .unwrap()
+        .to_string();
+
+    let guide = handle_message(
+        &ctx,
+        &json!({"jsonrpc":"2.0","id":2,"method":"resources/read",
+                "params":{"uri":"aiwf://guide/build-and-run"}}),
+    )
+    .unwrap()["result"]["contents"][0]["text"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    for kind in kinds {
+        assert!(
+            description.contains(kind),
+            "工具描述里没有 kind「{kind}」—— agent 无从知道能用它"
+        );
+        assert!(
+            guide.contains(kind),
+            "build-and-run 指南里没有 kind「{kind}」"
+        );
+    }
+}
