@@ -36,7 +36,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - 配置字段能填能存能校验，而引擎从不读它（**填了不生效比报错更糟**）
 - 界面文案承诺了一件事，实现里没有对应代码
 
-拿不准就照 `apps/web/src/editor/NodeConfigDialog.tsx:269` 那个写法：
+拿不准就照 `apps/web/src/editor/NodeConfigDialog.tsx:332` 那个写法：
 **在界面上直说「引擎目前不读它，改了也不会生效」**。
 
 ### 三、接缝要有守卫
