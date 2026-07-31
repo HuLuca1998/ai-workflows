@@ -155,7 +155,7 @@ describe('对话视图', () => {
   });
 
   it('推理摘要与回答分开显示', () => {
-    render(
+    const { container } = render(
       <ConversationView
         events={[
           事件('reasoning.summary', { nodeId: 'analyze', summary: '先看 watcher 的顺序' }),
@@ -164,7 +164,12 @@ describe('对话视图', () => {
         hasAiNode
       />,
     );
-    expect(screen.getByText(/先看 watcher 的顺序/u)).toBeTruthy();
+    // 推理在折叠块里（在 DOM、默认收起），结论在折叠块外直接可读 ——
+    // getByText 不看可见性，所以折叠态要单独断言，别与「显示」混为一谈
+    const details = container.querySelector('details.conv__reasoning');
+    expect(details?.textContent).toContain('先看 watcher 的顺序');
+    expect(details?.hasAttribute('open')).toBe(false);
+    expect(screen.getByText('结论').closest('details')).toBeNull();
     // meta 行上的「推理」标签还在 —— 折叠态下它是唯一的身份提示
     expect(screen.getByText('推理', { selector: '.conv__tag' })).toBeTruthy();
   });

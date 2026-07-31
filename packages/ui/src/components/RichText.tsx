@@ -48,6 +48,11 @@ function parseBlocks(text: string): Block[] {
   let index = 0;
 
   while (index < lines.length) {
+    // 循环不变式：每一轮 index 必须前进。块判据将来再分岔
+    // （围栏那次就是：识别与段落 break 用了两个不等价的正则，
+    // 一行畸形围栏让 index 停在原地，无限推空段落直到内存耗尽），
+    // 这道兜底保证代价只是渲染难看，不是界面冻死
+    const startedAt = index;
     const line = lines[index] ?? '';
 
     if (line.trim() === '') {
@@ -55,7 +60,10 @@ function parseBlocks(text: string): Block[] {
       continue;
     }
 
-    const fence = /^```(\S*)\s*$/.exec(line);
+    // info string 允许带参数（```js title="a.js"）—— 只取第一个词当语言。
+    // 这个判据必须比段落 break 的 startsWith('```') 更宽：
+    // 任何以 ``` 开头的行都要进这个分支，两处不等价就是死循环
+    const fence = /^```(\S*)(?:\s.*)?$/.exec(line);
     if (fence) {
       const body: string[] = [];
       index += 1;
@@ -126,21 +134,38 @@ function parseBlocks(text: string): Block[] {
         UNORDERED_ITEM.test(current) ||
         ORDERED_ITEM.test(current) ||
         current.startsWith('>') ||
-        current.startsWith('```')
+        current.startsWith('```') ||
+        // 段落后面紧跟的表格要能断开 —— 「结果如下：」+ 表格
+        // 是最常见的写法，漏了它整块变成一坨竖线纯文本
+        (current.startsWith('|') &&
+          TABLE_DIVIDER.test(lines[index + 1] ?? '') &&
+          (lines[index + 1] ?? '').includes('-'))
       ) {
         break;
       }
       body.push(current);
       index += 1;
     }
-    blocks.push({ kind: 'paragraph', text: body.join('\n') });
+    if (body.length > 0) {
+      blocks.push({ kind: 'paragraph', text: body.join('\n') });
+    }
+
+    if (index === startedAt) {
+      // 兜底：没有任何分支消费这一行。按段落显示并强制前进
+      blocks.push({ kind: 'paragraph', text: line });
+      index += 1;
+    }
   }
 
   return blocks;
 }
 
-/** 链接只认这些开头。`javascript:` / `data:` 一律按原文显示。 */
-const SAFE_LINK = /^(https?:\/\/|\/|#|\.\.?\/)/i;
+/**
+ * 链接只认这些开头。`javascript:` / `data:` 一律按原文显示。
+ * 相对路径的 `/` 后面不许再来 `/` 或 `\` —— `//evil.example`
+ * 是协议相对 URL，会被浏览器解析成任意外站，不是站内路径。
+ */
+const SAFE_LINK = /^(https?:\/\/|#|\/(?![/\\])|\.\.?\/)/i;
 
 const INLINE = /(`[^`]+`|\*\*[^*]+\*\*|\*[^*]+\*|\[[^\]]+\]\([^)\s]+\))/g;
 
@@ -162,7 +187,7 @@ function parseInline(text: string): ReactNode[] {
       const [, label, href] = link;
       if (href && SAFE_LINK.test(href)) {
         return (
-          <a key={key} href={href} target="_blank" rel="noopener noreferrer">
+          <a key={key} href={href} target="_blank" rel="noopener noreferrer" title="在新窗口打开">
             {label}
           </a>
         );
@@ -178,7 +203,9 @@ function renderBlock(block: Block, at: number): ReactNode {
   const key = `${block.kind}-${at}`;
   switch (block.kind) {
     case 'heading':
-      return createElement(`h${block.level}`, { key }, parseInline(block.text));
+      // agent 的 `#` 不该在宿主页面里造出 <h1> —— 读屏用户的标题导航
+      // 会变成 agent 写的。整体降两级：# → h3，#### 封顶 h6
+      return createElement(`h${Math.min(block.level + 2, 6)}`, { key }, parseInline(block.text));
     case 'code':
       return (
         <pre key={key} {...(block.lang === '' ? {} : { 'data-lang': block.lang })}>
@@ -225,7 +252,23 @@ function renderBlock(block: Block, at: number): ReactNode {
   }
 }
 
+/**
+ * 超过它就不解析，整段按原文显示。行内正则对病态输入是二次的 ——
+ * 这个组件为对话摘要设计（存储层的摘要上限是 2000 字符），
+ * 几百 KB 的产物全文该走产物视图，不该拿它渲染。
+ */
+const MAX_CHARS = 20_000;
+
 export function RichText({ text }: RichTextProps) {
+  if (text.length > MAX_CHARS) {
+    return (
+      <div className="aiwf-richtext">
+        <pre>
+          <code>{text}</code>
+        </pre>
+      </div>
+    );
+  }
   const blocks = parseBlocks(text);
   if (blocks.length === 0) return null;
   return <div className="aiwf-richtext">{blocks.map(renderBlock)}</div>;

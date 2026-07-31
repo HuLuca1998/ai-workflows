@@ -324,7 +324,8 @@
 /* AI 输出的展示。行高与间距压得比正文紧：它出现在对话流里，
    一条消息常常整段 markdown，撑开了会把上下文挤出屏幕 */
 .aiwf-richtext {
-  font-size: 12.5px;
+  /* 与对话流的 .conv__text 同字号 —— 同一条流里两种字号会看出接缝 */
+  font-size: 13px;
   line-height: 1.65;
   color: var(--color-text);
   overflow-wrap: break-word;
@@ -334,20 +335,26 @@
   margin-top: var(--space-3);
 }
 
-.aiwf-richtext h1,
-.aiwf-richtext h2,
+/* 渲染出来的是 h3–h6（agent 的 # 整体降两级，不抢宿主页的标题层级） */
 .aiwf-richtext h3,
-.aiwf-richtext h4 {
+.aiwf-richtext h4,
+.aiwf-richtext h5,
+.aiwf-richtext h6 {
   font-family: var(--font-heading);
   font-weight: var(--font-heading-weight);
   font-size: 13px;
   margin-top: var(--space-6);
 }
 
-.aiwf-richtext > h1:first-child,
-.aiwf-richtext > h2:first-child,
+/* 一级（agent 的 #/##）比其余大半号 —— 全一样的话层级只对读屏成立 */
+.aiwf-richtext h3 {
+  font-size: 14px;
+}
+
 .aiwf-richtext > h3:first-child,
-.aiwf-richtext > h4:first-child {
+.aiwf-richtext > h4:first-child,
+.aiwf-richtext > h5:first-child,
+.aiwf-richtext > h6:first-child {
   margin-top: 0;
 }
 

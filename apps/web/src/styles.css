@@ -3166,18 +3166,17 @@
   padding: 14px;
 }
 
-.conv__turn[data-kind='reasoning'] .conv__text {
-  color: var(--color-neutral-500);
-  border-left: 2px solid var(--color-neutral-700);
-  padding-left: 10px;
-}
-
 /* 推理默认折叠：它是过程不是结论，摊开会把结论挤出屏幕 */
 .conv__reasoning {
   border-left: 2px solid var(--color-neutral-700);
   padding-left: 10px;
   color: var(--color-neutral-500);
   font-size: 12.5px;
+}
+
+/* RichText 自带 --color-text，会把推理提回正文亮度 —— 压回去 */
+.conv__reasoning .aiwf-richtext {
+  color: var(--color-neutral-500);
 }
 
 .conv__reasoning > summary {
