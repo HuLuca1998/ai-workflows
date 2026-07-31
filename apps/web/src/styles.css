@@ -3172,6 +3172,25 @@
   padding-left: 10px;
 }
 
+/* 推理默认折叠：它是过程不是结论，摊开会把结论挤出屏幕 */
+.conv__reasoning {
+  border-left: 2px solid var(--color-neutral-700);
+  padding-left: 10px;
+  color: var(--color-neutral-500);
+  font-size: 12.5px;
+}
+
+.conv__reasoning > summary {
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--color-neutral-400);
+  user-select: none;
+}
+
+.conv__reasoning[open] > summary {
+  margin-bottom: 6px;
+}
+
 .runs__redact {
   display: flex;
   align-items: center;

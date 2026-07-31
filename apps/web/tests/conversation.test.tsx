@@ -165,7 +165,8 @@ describe('对话视图', () => {
       />,
     );
     expect(screen.getByText(/先看 watcher 的顺序/u)).toBeTruthy();
-    expect(screen.getByText(/推理/u)).toBeTruthy();
+    // meta 行上的「推理」标签还在 —— 折叠态下它是唯一的身份提示
+    expect(screen.getByText('推理', { selector: '.conv__tag' })).toBeTruthy();
   });
 });
 
@@ -225,5 +226,81 @@ describe('按节点分段', () => {
       />,
     );
     expect(screen.queryAllByRole('separator')).toHaveLength(0);
+  });
+});
+
+describe('AI 输出的展示', () => {
+  it('agent 消息按 markdown 渲染 —— 代码是代码、表格是表格', () => {
+    // agent 的结论常常整段 markdown。按纯文本摊开的话，
+    // 一段带三个代码块的分析读起来是一坨符号
+    render(
+      <ConversationView
+        events={[
+          事件('conversation.agent_message', {
+            nodeId: 'analyze',
+            nodeLabel: '分析',
+            summary: ['结论是**热重载**没清缓存：', '```js', 'cache.clear()', '```'].join('\n'),
+          }),
+        ]}
+        hasAiNode
+      />,
+    );
+    expect(screen.getByText('热重载').tagName).toBe('STRONG');
+    expect(screen.getByText('cache.clear()').closest('pre')).not.toBeNull();
+  });
+
+  it('agent 消息里的 HTML 不进 DOM —— 展示组件不是渲染通道', () => {
+    const { container } = render(
+      <ConversationView
+        events={[
+          事件('conversation.agent_message', {
+            nodeId: 'a',
+            summary: '<img src=x onerror=alert(1)>',
+          }),
+        ]}
+        hasAiNode
+      />,
+    );
+    expect(container.querySelector('img')).toBeNull();
+    expect(container.textContent).toContain('<img');
+  });
+
+  it('推理默认折叠，标题写明是推理过程', () => {
+    // 推理是过程不是结论。默认摊开的话，它比结论还长，
+    // 用户翻三屏才找得到 agent 最后说了什么
+    const { container } = render(
+      <ConversationView
+        events={[
+          事件('reasoning.summary', {
+            nodeId: 'analyze',
+            nodeLabel: '分析',
+            summary: '先排除了配置问题，再看缓存层……',
+          }),
+          事件('conversation.agent_message', { nodeId: 'analyze', summary: '结论' }),
+        ]}
+        hasAiNode
+      />,
+    );
+    const details = container.querySelector('details.conv__reasoning');
+    expect(details).not.toBeNull();
+    expect(details!.hasAttribute('open')).toBe(false);
+    expect(details!.querySelector('summary')?.textContent).toContain('推理过程');
+    expect(details!.textContent).toContain('先排除了配置问题');
+  });
+
+  it('用户消息保持纯文本 —— 那是拼好的提示词，渲染会失真', () => {
+    render(
+      <ConversationView
+        events={[
+          事件('conversation.user_message', {
+            nodeId: 'a',
+            summary: '任务：修 **这个** bug',
+          }),
+        ]}
+        hasAiNode
+      />,
+    );
+    // 星号原样在 —— 用户要看到的是「我们到底发了什么」
+    expect(screen.getByText(/修 \*\*这个\*\* bug/u)).toBeTruthy();
   });
 });

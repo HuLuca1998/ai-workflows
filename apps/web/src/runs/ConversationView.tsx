@@ -1,4 +1,5 @@
 import { Fragment } from 'react';
+import { RichText } from '@aiwf/ui';
 
 import type { RunEvent } from './runsStore.js';
 
@@ -246,7 +247,24 @@ export function ConversationView({
                 {/* 摘要与署名一样时不重复显示：审批事件的 summary 常常
                   就是节点标题，渲染出来是「人工审批 / 人工审批」 */}
                 {turn.text && turn.text !== turn.who ? (
-                  <p className="conv__text">{turn.text}</p>
+                  turn.kind === 'agent' ? (
+                    // agent 的结论常常整段 markdown —— 代码渲染成代码、
+                    // 表格渲染成表格。RichText 不是渲染通道：HTML 按原文显示
+                    <div className="conv__text">
+                      <RichText text={turn.text} />
+                    </div>
+                  ) : turn.kind === 'reasoning' ? (
+                    // 推理是过程不是结论，默认折叠 —— 摊开的话它比结论还长，
+                    // 用户翻三屏才找得到 agent 最后说了什么
+                    <details className="conv__reasoning">
+                      <summary>推理过程</summary>
+                      <RichText text={turn.text} />
+                    </details>
+                  ) : (
+                    // 用户消息与审批卡保持纯文本：那是拼好的提示词与决定，
+                    // 用户要看到的是「我们到底发了什么」，渲染会失真
+                    <p className="conv__text">{turn.text}</p>
+                  )
                 ) : null}
                 {turn.decision ? <p className="conv__decision">{turn.decision}</p> : null}
                 {turn.tools ? (
