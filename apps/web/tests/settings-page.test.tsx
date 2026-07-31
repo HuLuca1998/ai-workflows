@@ -139,7 +139,9 @@ describe('审批三档', () => {
     });
 
     await user.click(
-      screen.getByRole('radio', { name: new RegExp(APPROVAL_MODE_LABELS.human_approval.name, 'u') }),
+      screen.getByRole('radio', {
+        name: new RegExp(APPROVAL_MODE_LABELS.human_approval.name, 'u'),
+      }),
     );
 
     await waitFor(() => {
@@ -182,9 +184,10 @@ describe('审批三档', () => {
     view();
     const region = await screen.findByRole('radiogroup', { name: '审批策略' });
     const 整块 = region.parentElement?.textContent ?? '';
-    // 点名了只读不拦与 push 要问 —— 那是这三档最容易被误解的两处
-    expect(整块).toMatch(/只读|gh issue view/u);
-    expect(整块).toMatch(/git push|无人值守/u);
+    // 点名这三档最容易被误解的两处：管的是「门由谁批」而不是
+    // 「哪些操作被拦」，以及没放门就一路跑到底
+    expect(整块).toMatch(/由谁批|审批.*节点/u);
+    expect(整块).toMatch(/一路跑到底|没放审批节点/u);
   });
 
   it('写失败时说明原因，并且不留一个假的选中态', async () => {

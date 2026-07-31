@@ -355,7 +355,10 @@ fn 是写请求(词: &[&str]) -> bool {
             }
         }
         // 带请求体的一律算写 —— GET 带 body 不是正常用法
-        if matches!(w, "-d" | "--data" | "--data-raw" | "--data-binary" | "-F" | "--form") {
+        if matches!(
+            w,
+            "-d" | "--data" | "--data-raw" | "--data-binary" | "-F" | "--form"
+        ) {
             return true;
         }
         i += 1;
@@ -367,9 +370,9 @@ fn 是外部写(词: &[&str]) -> bool {
     if 是写请求(词) {
         return true;
     }
-    外部写模式.iter().any(|模式| {
-        模式.len() <= 词.len() && 模式.iter().zip(词.iter()).all(|(m, w)| m == w)
-    })
+    外部写模式
+        .iter()
+        .any(|模式| 模式.len() <= 词.len() && 模式.iter().zip(词.iter()).all(|(m, w)| m == w))
 }
 
 /// 只读命令白名单。
@@ -431,7 +434,7 @@ const 只读命令: &[&[&str]] = &[
 ];
 
 fn 是只读命令(词: &[&str]) -> bool {
-    只读命令.iter().any(|模式| {
-        模式.len() <= 词.len() && 模式.iter().zip(词.iter()).all(|(m, w)| m == w)
-    })
+    只读命令
+        .iter()
+        .any(|模式| 模式.len() <= 词.len() && 模式.iter().zip(词.iter()).all(|(m, w)| m == w))
 }

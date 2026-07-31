@@ -105,8 +105,7 @@ describe.each(WORKFLOW_TEMPLATES.map((t) => t.id))('模板 %s 的变量引用', 
     for (const node of graph.nodes) {
       for (const ref of referencesIn(node.config)) {
         const [head] = ref.split('.');
-        const 认得 =
-          head === 'run' || head === 'input' || graph.nodes.some((n) => n.id === head);
+        const 认得 = head === 'run' || head === 'input' || graph.nodes.some((n) => n.id === head);
         expect(认得, `${node.id} 引用了 \${${ref}}，而 ${head} 不是任何命名空间`).toBe(true);
       }
     }
@@ -135,8 +134,10 @@ describe.each(WORKFLOW_TEMPLATES.map((t) => t.id))('模板 %s 的变量引用', 
           `${node.id} 深取了 \${${ref}}，而「${字段名}」的 format（${format ?? '无'}）` +
             `没有登记值形状 —— 在 复合字段的键 里补一条，否则拼错的子键没人拦`,
         ).toBeDefined();
-        expect(允许的, `${node.id} 引用了 \${${ref}}，而「${字段名}」没有「${子键}」这个键`)
-          .toContain(子键);
+        expect(
+          允许的,
+          `${node.id} 引用了 \${${ref}}，而「${字段名}」没有「${子键}」这个键`,
+        ).toContain(子键);
       }
     }
   });
@@ -148,8 +149,10 @@ describe.each(WORKFLOW_TEMPLATES.map((t) => t.id))('模板 %s 的变量引用', 
         const 字段名 = ref.slice('run.'.length);
         // `run.startedAt` 在契约的 injectedFields 里出现过，而
         // interp.rs 的 lookup 只实现了 `run.id` —— 引用它会是硬错误
-        expect(RUN_FIELDS, `${node.id} 引用了 \${${ref}}，而引擎只提供 ${RUN_FIELDS.join(' / ')}`)
-          .toContain(字段名);
+        expect(
+          RUN_FIELDS,
+          `${node.id} 引用了 \${${ref}}，而引擎只提供 ${RUN_FIELDS.join(' / ')}`,
+        ).toContain(字段名);
       }
     }
   });

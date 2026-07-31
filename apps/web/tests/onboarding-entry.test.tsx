@@ -1,6 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
-import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router';
 
 /**
@@ -24,7 +23,6 @@ vi.mock('../src/data/workspace.js', async (importOriginal) => ({
 const { createContractCall } = await import('./_contractClient.js');
 const { AppShell } = await import('../src/AppShell.js');
 const { OnboardingPage } = await import('../src/onboarding/OnboardingPage.js');
-const { ONBOARDING_SKIP_KEY } = await import('../src/onboarding/skipMark.js');
 
 const HEALTH = {
   ready: true,
@@ -92,7 +90,7 @@ describe('首次启动', () => {
         <AppShell />
       </MemoryRouter>,
     );
-    expect(await screen.findByText('环境检测与依赖补齐')).toBeTruthy();
+    expect(await screen.findByText('配置这台机器')).toBeTruthy();
   });
 
   it('配过了就不再拦人', async () => {
@@ -103,38 +101,45 @@ describe('首次启动', () => {
       </MemoryRouter>,
     );
     await waitFor(() => {
-      expect(screen.queryByText('环境检测与依赖补齐')).toBeNull();
+      expect(screen.queryByText('配置这台机器')).toBeNull();
     });
   });
 
-  it('跳过之后不再拦 —— 那个标记要有读者', async () => {
-    respond(freshWorkspace());
-    window.localStorage.setItem(ONBOARDING_SKIP_KEY, '1');
-    render(
-      <MemoryRouter initialEntries={['/']}>
-        <AppShell />
-      </MemoryRouter>,
-    );
-    await waitFor(() => {
-      expect(screen.queryByText('环境检测与依赖补齐')).toBeNull();
-    });
+  it('从任何一条路径进来都会被拦回配置屏', async () => {
+    // 上一版只在 `pathname === '/'` 时拦 —— 于是从托盘、通知、
+    // 深链进来的任何一条路径都绕过了它
+    for (const 入口 of ['/', '/runs', '/settings', '/editor/wf_1']) {
+      respond(freshWorkspace());
+      const { unmount } = render(
+        <MemoryRouter initialEntries={[入口]}>
+          <AppShell />
+        </MemoryRouter>,
+      );
+      expect(await screen.findByText('配置这台机器'), `${入口} 没被拦住`).toBeTruthy();
+      unmount();
+    }
   });
 });
 
 describe('首次配置这一屏', () => {
-  it('可以跳过 —— 用户不该被一屏检查困住', async () => {
+  it('没有跳过这个出口 —— 配完之前进不去', async () => {
+    // 用户要求：「引导完成之前不允许进入 app」。
+    // 上一版那个「跳过」只写了个 localStorage 就走人，
+    // 而顶栏仍写着「尚未授权工作目录」—— 按钮承诺的事没有发生
     respond(freshWorkspace());
-    const user = userEvent.setup();
     render(
       <MemoryRouter initialEntries={['/onboarding']}>
         <OnboardingPage />
       </MemoryRouter>,
     );
-    await user.click(await screen.findByRole('button', { name: /跳过/u }));
-    expect(window.localStorage.getItem(ONBOARDING_SKIP_KEY)).toBe('1');
+    await screen.findByRole('button', { name: /开始使用/u });
+    expect(screen.queryByRole('button', { name: /跳过/u })).toBeNull();
   });
 
-  it('步骤条不撒谎：ACP 探到了那一步才算完成', async () => {
+  it('步骤条不撒谎：判据就是那一块的真实状态', async () => {
+    // 上一版第 3、4 步**恒为灰**（条件只写到 index === 1）——
+    // ACP 探到了、目录也授权了，那两步照旧不亮。
+    // 步骤条在说假话比没有步骤条更糟
     respond(freshWorkspace());
     render(
       <MemoryRouter initialEntries={['/onboarding']}>
@@ -142,11 +147,18 @@ describe('首次配置这一屏', () => {
       </MemoryRouter>,
     );
     const steps = await screen.findByRole('list', { name: '配置步骤' });
+
     await waitFor(() => {
-      const acpStep = steps.children[2] as HTMLElement;
-      expect(acpStep.dataset['done'], 'ACP 已经探到 codex，这一步还是灰的').toBe('true');
+      // 工具都 ready，这一格该亮
+      expect(
+        (steps.children[2] as HTMLElement).dataset['done'],
+        '工具都探到了，这一步还是灰的',
+      ).toBe('true');
+      // ACP 探到 codex，这一格也该亮
+      expect(
+        (steps.children[3] as HTMLElement).dataset['done'],
+        'ACP 已经探到 codex，这一步还是灰的',
+      ).toBe('true');
     });
-    // 目录还没授权，第 4 步不能是已完成
-    expect((steps.children[3] as HTMLElement).dataset['done']).not.toBe('true');
   });
 });

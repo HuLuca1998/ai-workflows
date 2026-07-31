@@ -44,13 +44,13 @@ certificate leaf[subject.OU] = "TEAMID"` —— 换版本不换身份，授权�
 
 ## 一、通知
 
-| | |
-| ---- | ---- |
-| **谁要它** | `notify` 节点；运行完成 / 失败 / 等审批时提醒 |
-| **触发时机** | 第一次调用 `requestPermission()`，系统弹一次窗；用户拒绝后不再弹 |
-| **不给会怎样** | 通知静默丢弃。**必须报「未授权」而不是当成功** —— 这正是 DEBT.md B-1 那条坏账的形态 |
-| **怎么检测** | `tauri-plugin-notification` 的 `isPermissionGranted()`，返回 `granted` / `denied` / `default`（未询问） |
-| **怎么修** | 拒绝之后 App 无法再弹窗，只能给深链：`x-apple.systempreferences:com.apple.preference.notifications` |
+|                |                                                                                                         |
+| -------------- | ------------------------------------------------------------------------------------------------------- |
+| **谁要它**     | `notify` 节点；运行完成 / 失败 / 等审批时提醒                                                           |
+| **触发时机**   | 第一次调用 `requestPermission()`，系统弹一次窗；用户拒绝后不再弹                                        |
+| **不给会怎样** | 通知静默丢弃。**必须报「未授权」而不是当成功** —— 这正是 DEBT.md B-1 那条坏账的形态                     |
+| **怎么检测**   | `tauri-plugin-notification` 的 `isPermissionGranted()`，返回 `granted` / `denied` / `default`（未询问） |
+| **怎么修**     | 拒绝之后 App 无法再弹窗，只能给深链：`x-apple.systempreferences:com.apple.preference.notifications`     |
 
 `default`（未询问）与 `denied`（拒绝过）要分开显示。前者引导页点一下就能解决，
 后者只能去系统设置 —— 两者提示同一句话的话，用户会一直点那个不会再弹窗的按钮。
@@ -63,12 +63,12 @@ macOS 13+ 对这些位置有 TCC 保护，App 首次访问时弹窗：
 - iCloud Drive、外接卷、网络卷
 - 其他 App 的容器目录
 
-| | |
-| ---- | ---- |
-| **谁要它** | 用户选的工作目录；工作流里的本地 git 仓库路径；worktree（落在仓库旁的 `.aiwf-worktrees`） |
-| **触发时机** | 第一次读写该目录下的文件。**子进程（git / gh）触发的访问算在 App 头上** |
-| **不给会怎样** | `Operation not permitted`。而 git 报的错完全不提 TCC，用户只看到一句莫名其妙的权限拒绝 |
-| **怎么检测** | 在目标目录下写一个探针文件再删掉，捕获 `PermissionDenied`（EPERM 1，不是 EACCES 13） |
+|                |                                                                                           |
+| -------------- | ----------------------------------------------------------------------------------------- |
+| **谁要它**     | 用户选的工作目录；工作流里的本地 git 仓库路径；worktree（落在仓库旁的 `.aiwf-worktrees`） |
+| **触发时机**   | 第一次读写该目录下的文件。**子进程（git / gh）触发的访问算在 App 头上**                   |
+| **不给会怎样** | `Operation not permitted`。而 git 报的错完全不提 TCC，用户只看到一句莫名其妙的权限拒绝    |
+| **怎么检测**   | 在目标目录下写一个探针文件再删掉，捕获 `PermissionDenied`（EPERM 1，不是 EACCES 13）      |
 
 **用原生目录选择器本身就是一次授权**：`NSOpenPanel`（`tauri-plugin-dialog` 的
 `open({ directory: true })`）走 macOS 的 powerbox —— 用户在面板里选中的路径，
@@ -79,12 +79,12 @@ macOS 13+ 对这些位置有 TCC 保护，App 首次访问时弹窗：
 
 ## 三、全盘访问（可选）
 
-| | |
-| ---- | ---- |
-| **谁要它** | 没人**必须**要。给了就不用逐个目录弹窗 |
-| **不给会怎样** | 完全可用，只是每碰一个受保护目录弹一次 |
-| **怎么检测** | 尝试读 `~/Library/Application Support/com.apple.TCC/TCC.db`。读得到＝有全盘访问，`authorization denied`＝没有 |
-| **深链** | `x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles` |
+|                |                                                                                                               |
+| -------------- | ------------------------------------------------------------------------------------------------------------- |
+| **谁要它**     | 没人**必须**要。给了就不用逐个目录弹窗                                                                        |
+| **不给会怎样** | 完全可用，只是每碰一个受保护目录弹一次                                                                        |
+| **怎么检测**   | 尝试读 `~/Library/Application Support/com.apple.TCC/TCC.db`。读得到＝有全盘访问，`authorization denied`＝没有 |
+| **深链**       | `x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles`                                    |
 
 标成**可选**，别劝进。全盘访问是这台机器上权限最大的一档，
 为了少几次弹窗让用户交出它，不值。
@@ -105,11 +105,11 @@ macOS 13+ 对这些位置有 TCC 保护，App 首次访问时弹窗：
 
 ## 五、网络
 
-| 用途 | 需要权限吗 |
-| ---- | ---- |
+| 用途                             | 需要权限吗                                                                                         |
+| -------------------------------- | -------------------------------------------------------------------------------------------------- |
 | MCP Server 监听 `127.0.0.1:port` | **不需要**。Local Network 权限只在访问局域网设备、Bonjour/mDNS、多播广播时才触发，纯 loopback 不算 |
-| 自动更新拉 `github.com` | **不需要**。出站 HTTPS 不受 macOS 管控 |
-| ACP adapter 连各家 AI 服务 | **不需要**，同上 |
+| 自动更新拉 `github.com`          | **不需要**。出站 HTTPS 不受 macOS 管控                                                             |
+| ACP adapter 连各家 AI 服务       | **不需要**，同上                                                                                   |
 
 **如果哪天 MCP Server 改成绑 `0.0.0.0`**，就要加
 `NSLocalNetworkUsageDescription` 到 Info.plist，并且引导页要多一项 ——
@@ -127,28 +127,28 @@ App 自己**目前不写 Keychain**（`Cargo.toml` 里没有 keyring 依赖）�
 
 写出来是为了防止后面有人「顺手」加进去 —— 每加一项都是一次弹窗和一份不信任。
 
-| 权限 | 为什么不需要 |
-| ---- | ---- |
-| 辅助功能（Accessibility） | 不控制其他 App 的界面 |
-| 屏幕录制 | 不截屏、不录屏 |
-| 麦克风 / 摄像头 | 没有音视频功能 |
-| 通讯录 / 日历 / 提醒事项 / 照片 | 不碰个人数据 |
-| Apple Events（自动化） | 不用 AppleScript 驱动别的 App |
-| 定位 | 不用位置 |
-| 登录项 / 开机自启 | 目前没有。要做的话走 `SMAppService`（`tauri-plugin-autostart`），是一项独立授权 |
+| 权限                            | 为什么不需要                                                                    |
+| ------------------------------- | ------------------------------------------------------------------------------- |
+| 辅助功能（Accessibility）       | 不控制其他 App 的界面                                                           |
+| 屏幕录制                        | 不截屏、不录屏                                                                  |
+| 麦克风 / 摄像头                 | 没有音视频功能                                                                  |
+| 通讯录 / 日历 / 提醒事项 / 照片 | 不碰个人数据                                                                    |
+| Apple Events（自动化）          | 不用 AppleScript 驱动别的 App                                                   |
+| 定位                            | 不用位置                                                                        |
+| 登录项 / 开机自启               | 目前没有。要做的话走 `SMAppService`（`tauri-plugin-autostart`），是一项独立授权 |
 
 ---
 
 ## 检测清单（引导页照这个实现）
 
-| 项 | 必需 | 检测方式 | 拒绝后的出路 |
-| ---- | ---- | ---- | ---- |
-| 通知 | 否（用了 `notify` 节点才必需） | `isPermissionGranted()` | 系统设置深链 |
-| 工作目录可写 | 是 | 目录下写探针文件再删 | 重新用原生选择器选一个 |
-| 全盘访问 | 否 | 读 `TCC.db` 是否成功 | 系统设置深链；不给也能用 |
-| git / node | 是 | `env.health` 已有 | 给一行安装命令 |
-| gh 已登录 | 否（GitHub 工作流才必需） | `gh auth token` | `gh auth login` |
-| ACP adapter | 否（AI 节点才必需） | `env.health` 已有 | 给一行安装命令 |
+| 项           | 必需                           | 检测方式                | 拒绝后的出路             |
+| ------------ | ------------------------------ | ----------------------- | ------------------------ |
+| 通知         | 否（用了 `notify` 节点才必需） | `isPermissionGranted()` | 系统设置深链             |
+| 工作目录可写 | 是                             | 目录下写探针文件再删    | 重新用原生选择器选一个   |
+| 全盘访问     | 否                             | 读 `TCC.db` 是否成功    | 系统设置深链；不给也能用 |
+| git / node   | 是                             | `env.health` 已有       | 给一行安装命令           |
+| gh 已登录    | 否（GitHub 工作流才必需）      | `gh auth token`         | `gh auth login`          |
+| ACP adapter  | 否（AI 节点才必需）            | `env.health` 已有       | 给一行安装命令           |
 
 「必需」那几项没过就**不放行进入应用** —— 这是产品决定，不是技术限制：
 带着一个写不进去的工作目录进主界面，第一次运行才发现，那时用户已经配了半条工作流。

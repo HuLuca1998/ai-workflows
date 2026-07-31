@@ -274,8 +274,8 @@ function PermissionsTab({ node }: { node: GraphNode }) {
 
       {definition.externalWrite ? (
         <p className="cfg__warn">
-          这个节点会写到这台机器之外。想在它之前停一下，就在画布上给它前面接一个「审批」节点
-          —— 引擎不会替你拦。
+          这个节点会写到这台机器之外。想在它之前停一下，就在画布上给它前面接一个「审批」节点 ——
+          引擎不会替你拦。
         </p>
       ) : null}
 

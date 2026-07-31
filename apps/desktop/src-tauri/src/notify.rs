@@ -45,9 +45,11 @@ impl Notifier for DesktopNotifier {
         match state {
             PermissionState::Granted => {}
             PermissionState::Denied => {
-                return Err("通知权限被拒绝了。到「系统设置 → 通知 → AI Workflows」里打开 \
+                return Err(
+                    "通知权限被拒绝了。到「系统设置 → 通知 → AI Workflows」里打开 \
                             —— App 自己没法再弹那个授权框"
-                    .to_string());
+                        .to_string(),
+                );
             }
             // 还没问过：现在问。首次运行到一个 notify 节点时走这里
             _ => {

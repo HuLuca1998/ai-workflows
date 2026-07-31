@@ -3,11 +3,11 @@ import { APPROVAL_MODES, APPROVAL_MODE_LABELS, migrateApprovalMode } from '@aiwf
 import { coreClient } from '../data/workspace.js';
 
 /**
- * 审批三档 —— 用户选的是**谁来批**，不是「哪一类操作要批」。
+ * 审批三档 —— **谁来批工作流里的那些门**。
  *
- * 这三档**引擎真的按它办事**（`crates/engine/src/risk.rs`）：
- * 风险由这一步会造成什么决定，不由节点属于哪种类型决定。
- * 界面能选而引擎不拦的话，那是假的安全感 —— 比没有更糟。
+ * 引擎真的按它办事（`crates/engine/src/risk.rs` 的 `approval_decider`）：
+ * `approval` 节点走到时按这一档决定挂人工还是交给 AI。
+ * 界面能选而引擎不认的话，那是假的安全感 —— 比没有更糟。
  *
  * 文案取自契约的 `APPROVAL_MODE_LABELS`，这里不再抄一份：
  * 设置页、引导页、运行页的审批卡片说的必须是同一件事，
@@ -86,13 +86,18 @@ export function PermissionPolicy() {
       {/* 说清对运行的实际影响。这里点名的每一件事都必须真的成立 ——
           承诺得比实际多，比不承诺更糟 */}
       <p className="permission__note">
-        判断的是**这一步会造成什么**，不是它属于哪种节点：一条只读的{' '}
-        <code>gh issue view</code> 三档都不拦，而一条 <code>git push</code> 只有在「无人值守」下
-        才不问你。脚本节点按内容判定，判不出来时按「会改工作区」算 —— 多问一次是麻烦，不问是把边界让出去了。
+        <strong>这一档管的是「工作流里的那些门由谁批」，不是「哪些操作会被拦」。</strong>
+        执行节点拿到的是最高权限；要不要停下来问，取决于工作流的作者有没有在那个位置放一个
+        「审批」节点 —— 通常在「探索完成 → 开始改代码」之间、「代码写完 → 开 PR」之间各一道。
       </p>
       <p className="permission__note">
-        静态判断看不出 <code>CMD=&quot;git push&quot;; $CMD</code> 这类写法。
-        「AI 审批」两档下 AI 拿到的是脚本原文，它认得出；要逐字精确的控制就选第一档。
+        推论要说清楚：<strong>一条没放审批节点的工作流会一路跑到底</strong>，包括推分支与建 PR。
+        跑一条陌生的工作流之前，先在画布上看一眼它有几道门 —— 运行前的依赖检查也会列出来。
+      </p>
+      <p className="permission__note">
+        交给 AI 批时，它拿到的是<strong>上游刚产出的东西</strong>（改了哪些文件、跑出什么结果），
+        并要给出放行或拒绝的理由，全程留档。它判不了的时候一律交回给你 —— adapter
+        连不上、超时、没给出明确决定，都算判不了。
       </p>
     </section>
   );

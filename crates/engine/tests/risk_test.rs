@@ -5,6 +5,8 @@
 //! 「差一点就降级但不该降」的反例 —— 只测「该降的降了」的话，
 //! 一个把什么都降成只读的实现也是全绿。
 
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+
 use aiwf_engine::risk::{
     ApprovalDecider, RiskLevel, approval_decider, base_risk, migrate_approval_mode, node_risk,
     script_risk,
@@ -57,7 +59,12 @@ fn 判定矩阵与契约逐格一致() {
 fn 认不出的档位一律回到人() {
     // 库里躺着上一版的档位名时走到这里。静默交给 AI 的话，
     // 用户以为自己设了一道要亲自批的门
-    for 旧值 in ["review_every_change", "workspace_safe", "trusted_workflow", ""] {
+    for 旧值 in [
+        "review_every_change",
+        "workspace_safe",
+        "trusted_workflow",
+        "",
+    ] {
         for node_decider in ["auto", "user", "ai"] {
             assert_eq!(
                 approval_decider(旧值, node_decider),
@@ -92,7 +99,10 @@ fn 上一版的档位按严格程度映射过来() {
     // 「全放行」的用户升级后突然每一步都被拦，而他没改过任何设置。
     //
     // 与契约的 migrateApprovalMode 逐条等价
-    assert_eq!(migrate_approval_mode("review_every_change"), "human_approval");
+    assert_eq!(
+        migrate_approval_mode("review_every_change"),
+        "human_approval"
+    );
     assert_eq!(migrate_approval_mode("workspace_safe"), "ai_assisted");
     assert_eq!(migrate_approval_mode("trusted_workflow"), "unattended");
 }

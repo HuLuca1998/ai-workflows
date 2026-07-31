@@ -5869,6 +5869,67 @@ fieldset.launch__field {
   color: var(--color-neutral-300);
 }
 
+/* 工作目录那一块：路径输入 + 原生选择按钮。
+   输入框要占满剩下的宽度 —— 路径通常很长，截断的话用户
+   看不清自己选的是哪个目录 */
+.onboarding__dir {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 14px;
+}
+
+.onboarding__dir-label {
+  flex: none;
+  font-size: 12px;
+  color: var(--color-neutral-300);
+}
+
+.onboarding__dir-input {
+  flex: 1;
+  min-width: 0;
+  padding: 6px 10px;
+  border: 1px solid var(--color-divider);
+  border-radius: 6px;
+  background: var(--color-surface-raised, var(--color-surface));
+  color: var(--color-neutral-100);
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 12px;
+}
+
+.onboarding__dir-input[aria-invalid='true'] {
+  border-color: var(--color-danger, #d9534f);
+}
+
+/* 探测通过时那一行。用与错误行相同的位置，
+   这样「可写」与「写不进去」在视觉上是同一个位置的两种状态 */
+.onboarding__dir-ok {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  padding: 0 14px 12px;
+  font-size: 12px;
+  color: var(--color-neutral-300);
+}
+
+.onboarding__dir-ok code {
+  font-size: 11.5px;
+}
+
+/* 「现在能写，但更新之后要重新授权」这类提醒。
+   比错误弱、比普通说明强 —— 它不阻塞，但用户现在不看，
+   下次更新后会撞上 */
+.onboarding__warn {
+  margin: 0;
+  padding: 10px 14px;
+  border-top: 1px solid color-mix(in srgb, var(--color-divider) 55%, transparent);
+  background: color-mix(in srgb, var(--color-warning, #c8912a) 8%, transparent);
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--color-neutral-200);
+}
+
 .onboarding__row {
   display: grid;
   grid-template-columns: 1.1fr 0.7fr 2fr 0.6fr;

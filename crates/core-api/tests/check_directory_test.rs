@@ -18,7 +18,11 @@ fn 能写的目录判为可用() {
 
     assert!(结果.exists);
     assert!(结果.writable, "临时目录写不进去？{:?}", 结果.message);
-    assert!(结果.message.is_none(), "可用时不该有提示：{:?}", 结果.message);
+    assert!(
+        结果.message.is_none(),
+        "可用时不该有提示：{:?}",
+        结果.message
+    );
 }
 
 #[test]
@@ -93,10 +97,18 @@ fn 认得出_git_仓库() {
     // 启动表单的「本地仓库路径」靠它 —— 填了一个不是仓库的目录，
     // 要等运行跑到 worktree 那一步才报错
     let dir = tempfile::tempdir().unwrap();
-    assert!(!check_directory(&dir.path().display().to_string()).unwrap().is_git_repo);
+    assert!(
+        !check_directory(&dir.path().display().to_string())
+            .unwrap()
+            .is_git_repo
+    );
 
     std::fs::create_dir(dir.path().join(".git")).unwrap();
-    assert!(check_directory(&dir.path().display().to_string()).unwrap().is_git_repo);
+    assert!(
+        check_directory(&dir.path().display().to_string())
+            .unwrap()
+            .is_git_repo
+    );
 }
 
 #[test]

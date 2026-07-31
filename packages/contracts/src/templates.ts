@@ -104,7 +104,19 @@ const ISSUE_FIX: WorkflowTemplate = {
       position: { x: 540, y: 34 },
       config: {
         agentProfileId: AGENT.analyst,
-        target: '${read_issue.success}',
+        /**
+         * 取 `.parsed`，不是整个 `.success`。
+         *
+         * 脚本节点的输出形状是
+         * `{stdout, stderr, parsed, parseError, truncated}`。引用整个对象
+         * 时，分析师收到的是一坨 JSON —— 里面 issue 正文出现**两次**
+         * （`stdout` 里一份带 `\n` 转义的，`parsed` 里一份），
+         * 而它得先自己判断该看哪一份。
+         *
+         * 实测：`crates/engine/tests/template_e2e_test.rs` 那条断言拿真实
+         * issue 跑出来的整个对象有 1.6KB，其中一半是重复的转义正文。
+         */
+        target: '${read_issue.success.parsed}',
         instruction: '定位根因，给出 2–3 个可选方案，写清每个方案的风险与验证方式。',
       },
     },
@@ -364,8 +376,16 @@ const ISSUE_FIX: WorkflowTemplate = {
      * 这一条比变量名写错那处更根本：那个报错至少停在第二个节点上，
      * 这个是安静地跑完然后什么都没发生。
      */
-    { op: 'setJoin', nodeId: 'approve_diff', join: { strategy: 'any', merge: 'namespaced', onPartialFailure: 'fail' } },
-    { op: 'setJoin', nodeId: 'push_pr', join: { strategy: 'any', merge: 'namespaced', onPartialFailure: 'fail' } },
+    {
+      op: 'setJoin',
+      nodeId: 'approve_diff',
+      join: { strategy: 'any', merge: 'namespaced', onPartialFailure: 'fail' },
+    },
+    {
+      op: 'setJoin',
+      nodeId: 'push_pr',
+      join: { strategy: 'any', merge: 'namespaced', onPartialFailure: 'fail' },
+    },
 
     /**
      * 所有「走不下去」的分支都收到同一个终点。
@@ -427,7 +447,11 @@ const ISSUE_FIX: WorkflowTemplate = {
       target: { nodeId: 'approve_diff', port: 'input' },
     },
     // 这些入边一条都不会同时到达 —— 必须是「任一到达即可」
-    { op: 'setJoin', nodeId: 'stopped', join: { strategy: 'any', merge: 'namespaced', onPartialFailure: 'fail' } },
+    {
+      op: 'setJoin',
+      nodeId: 'stopped',
+      join: { strategy: 'any', merge: 'namespaced', onPartialFailure: 'fail' },
+    },
     {
       op: 'connect',
       edgeId: 'e_push_notify',

@@ -263,3 +263,45 @@ pnpm test:e2e          # Playwright
 
 接入前先跑 `docs/acp/reference/probe.ts`：那份经验里 codex 侧
 只在旧版本验证过，「某能力不支持」的结论会过期。
+
+## 端到端：对着真实仓库跑
+
+`crates/engine/tests/template_e2e_test.rs` 拿**真的 gh、真的 git、
+真的 worktree** 跑内置模板，对着 `HuLuca1998/aiwf-e2e-fixture`
+的 issue #8（一个真实的编码任务：重试的指数退避没生效）。
+
+### 为什么不 mock 掉 gh
+
+要验的恰恰是「配置里写的那个引用，插值之后交给 gh 能不能用」。
+mock 掉就只剩下「插值函数会不会插值」，而那已经有单测了。
+
+用户实测的 `run_18c740d6394b3c70` 死在这里：模板写
+`gh issue view "$ISSUE"`，而引擎注入的环境变量叫 `AIWF_ISSUE` ——
+两个都是空串。当时所有测试都是绿的，因为**没有一条站在
+「配置里写的引用」与「引擎认得的引用」之间**。
+
+### AI 节点不在这条里
+
+跑它们要真实模型与配额，而且会与开发环境撞（CLAUDE.md 那条
+「测试与试验优先用 codex」说的就是这个）。AI 节点由
+`executor_test` 与 `approval_gate_test` 用 `tests/fixtures/acp-mock.mjs`
+覆盖 —— 那个 mock 说的是与真实 adapter 完全相同的协议。
+
+### 跳过要说出来
+
+没装 gh、没登录、没网络时**跳过而不是失败** —— 这条在 CI 与离线
+开发机上都跑不了，让它红只会教人忽略红灯。但跳过时 `eprintln!`
+一行 `[跳过] …`：静默通过的话，没人知道这条从来没跑过。
+
+### 怎么验证它是真的
+
+把用户那次的原始 bug 改回去，它必须变红：
+
+```bash
+# 读 Issue 改回 $ISSUE / $REPO
+# → 「读_issue_那一步真的读得到」FAILED
+# worktree 的 repoRoot 改回 ${input.repo.name}
+# → 「worktree_那一步在真实仓库上建得起来」FAILED
+```
+
+两条都验过。

@@ -280,11 +280,9 @@ fn 发不出去也要留事件_而且要能看出是没发() {
 fn 配置缺标题或正文时报错_不发一条空通知() {
     // 契约里两个都是 min(1) 的必填。发一条空通知比不发更糟：
     // 用户收到一个没有内容的横幅，不知道是哪条工作流发的
-    let outcome = executor()
-        .with_notifier(记录器::成功())
-        .execute(
-            &notify节点(serde_json::json!({"body": "只有正文"})),
-            &mut Scope::new("run_notify_8"),
-        );
+    let outcome = executor().with_notifier(记录器::成功()).execute(
+        &notify节点(serde_json::json!({"body": "只有正文"})),
+        &mut Scope::new("run_notify_8"),
+    );
     assert!(outcome.is_err() || matches!(outcome, Ok(NodeOutcome::Failed { .. })));
 }

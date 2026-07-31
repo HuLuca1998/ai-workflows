@@ -77,7 +77,7 @@
           "agentProfileId": "builtin:analyst",
           "instruction": "定位根因，给出 2–3 个可选方案，写清每个方案的风险与验证方式。",
           "turnLimit": 12,
-          "target": "${read_issue.success}"
+          "target": "${read_issue.success.parsed}"
         }
       },
       {

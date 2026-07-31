@@ -47,11 +47,18 @@ describe('Agent 新建 · 乐观行不能显示假的权限档', () => {
 });
 
 describe('首次引导 · 按钮名要与它真的做的事一致', () => {
-  it('主按钮不叫「安装」—— 它只展开命令清单', () => {
+  it('主按钮不叫「安装」—— 应用不替你装任何东西', () => {
     // 同一屏里两段说明都写着「应用不替你下载任何东西」，
-    // 而主按钮却写「确认并安装」，两者自相矛盾。
+    // 而主按钮却写「确认并安装」的话，两者自相矛盾
     expect(onboardingPage).not.toContain('确认并安装');
-    expect(onboardingPage).toContain('查看要执行的命令');
+    expect(onboardingPage).not.toContain('一键安装');
+  });
+
+  it('点不动的主按钮旁边要说清还差什么', () => {
+    // 必需项没齐时按钮是禁用的。不说原因的话，用户只看到一个灰按钮，
+    // 而他不知道该去做什么
+    expect(onboardingPage).toContain('先选一个能写入的工作目录');
+    expect(onboardingPage).toMatch(/还差 \$\{?missingRequired/u);
   });
 
   it('「应用不替你下载任何东西」这条产品原则仍在页面上', () => {

@@ -148,7 +148,10 @@ describe('AI 提议绑定工作流身份', () => {
 });
 
 describe('隐私模式下的首次引导', () => {
-  it('localStorage 存不住时也要能跳过，不能把人永久弹回引导页', async () => {
+  it('localStorage 存不住也不影响配置 —— 状态在后端，不在浏览器里', async () => {
+    // 上一版靠一个 localStorage 标记记「这次先不配」，隐私模式下
+    // 读写都抛，用户永远出不去。现在「配没配过」看后端的 envCheckedAt，
+    // 与浏览器存储无关 —— 这条守的是「别再把状态放回 localStorage」
     // 隐私模式：读写都抛
     Object.defineProperty(window, 'localStorage', {
       configurable: true,
@@ -170,22 +173,15 @@ describe('隐私模式下的首次引导', () => {
     });
     call.mockImplementation((m: string, i: unknown) => checked(m, i));
 
-    const user = userEvent.setup();
     render(
       <MemoryRouter initialEntries={['/']}>
         <AppShell />
       </MemoryRouter>,
     );
 
-    await screen.findByText('环境检测与依赖补齐');
-    await user.click(screen.getByRole('button', { name: /先跳过/u }));
-
-    await waitFor(() => {
-      expect(
-        screen.queryByText('环境检测与依赖补齐'),
-        '跳过之后又被弹了回来 —— 隐私模式下用户永远出不去',
-      ).toBeNull();
-    });
+    // 页面渲染得出来，且没有因为 localStorage 抛异常而崩
+    await screen.findByText('配置这台机器');
+    expect(screen.getByRole('button', { name: /开始使用/u })).toBeTruthy();
   });
 });
 

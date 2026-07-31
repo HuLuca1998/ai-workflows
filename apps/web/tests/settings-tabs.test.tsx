@@ -77,12 +77,12 @@ describe('分档顺序按「什么时候会用到」排', () => {
 });
 
 describe('首次配置这一档', () => {
-  it('点开就是环境检测与依赖补齐，不是占位', async () => {
+  it('点开就是真的配置界面，不是占位', async () => {
     const user = userEvent.setup();
     view();
     await user.click(await screen.findByRole('tab', { name: '首次配置' }));
 
-    expect(await screen.findByText(/环境检测与依赖补齐/u)).toBeInTheDocument();
+    expect(await screen.findByText(/配置这台机器/u)).toBeInTheDocument();
   });
 });
 

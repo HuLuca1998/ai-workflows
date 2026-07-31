@@ -111,7 +111,14 @@ pub struct DirectoryCheck {
 /// 现在写得进去不代表以后还行：ad-hoc 签名下 App 一更新，cdhash 变了，
 /// 上一版拿到的授权就不再适用（docs/MACOS-PERMISSIONS.md）。
 /// 界面要能提前说这句话，而不是等用户下次跑工作流时撞上 EPERM。
-const TCC_保护的子目录: &[&str] = &["Documents", "Desktop", "Downloads", "Movies", "Music", "Pictures"];
+const TCC_保护的子目录: &[&str] = &[
+    "Documents",
+    "Desktop",
+    "Downloads",
+    "Movies",
+    "Music",
+    "Pictures",
+];
 
 /// 这个目录能不能用。
 ///

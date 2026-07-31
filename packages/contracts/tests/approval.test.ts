@@ -8,7 +8,6 @@ import {
   baseRiskOf,
   type ApprovalMode,
   type NodeDecider,
-  type RiskLevel,
 } from '../src/approval.js';
 import { migrateApprovalMode } from '../src/capabilities.js';
 import { NODE_TYPES, getNodeDefinition } from '../src/nodes/index.js';

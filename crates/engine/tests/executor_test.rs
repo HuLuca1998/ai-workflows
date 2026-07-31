@@ -850,8 +850,8 @@ fn 没有记忆时提示词里不留空段() {
 #[test]
 fn 非_ai_节点不注入记忆() {
     // 脚本节点拿记忆没有意义，而拼进环境变量反而会泄露
-    let executor = 执行器(workdir())
-        .with_memories(&[("style.commit".to_string(), "用中文".to_string())]);
+    let executor =
+        执行器(workdir()).with_memories(&[("style.commit".to_string(), "用中文".to_string())]);
 
     let node = node(
         "sh",
@@ -871,10 +871,10 @@ fn 非_ai_节点不注入记忆() {
 mod 审批档改变行为 {
     #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
-    use super::{node, workdir};
+    use super::node;
+    use aiwf_engine::executor::NodeExecutor;
     use aiwf_engine::interp::Scope;
     use aiwf_engine::runner::NodeOutcome;
-    use aiwf_engine::executor::NodeExecutor;
 
     fn 写文件节点() -> aiwf_engine::graph::GraphNode {
         node(
@@ -903,7 +903,11 @@ mod 审批档改变行为 {
     fn 没设过档位时按最严的一档办() {
         // 默认放宽等于替用户做了一个他不知道自己做过的决定
         let dir = tempfile::tempdir().unwrap();
-        let 门 = node("gate", "approval", serde_json::json!({"title": "确认", "interaction": "confirm"}));
+        let 门 = node(
+            "gate",
+            "approval",
+            serde_json::json!({"title": "确认", "interaction": "confirm"}),
+        );
         let outcome = NodeExecutor::new(dir.path().to_path_buf())
             .execute(&门, &mut Scope::new("run_perm"))
             .unwrap();
@@ -919,7 +923,11 @@ mod 审批档改变行为 {
         // 正常路径上读取处会先跑一次迁移（risk::migrate_approval_mode），
         // 这一条守的是**迁移也没接上**时的兜底
         let dir = tempfile::tempdir().unwrap();
-        let 门 = node("gate", "approval", serde_json::json!({"title": "确认", "interaction": "confirm"}));
+        let 门 = node(
+            "gate",
+            "approval",
+            serde_json::json!({"title": "确认", "interaction": "confirm"}),
+        );
         for 旧值 in ["review_every_change", "workspace_safe", "trusted_workflow"] {
             let outcome = NodeExecutor::new(dir.path().to_path_buf())
                 .with_permission_preset(旧值)
@@ -932,7 +940,6 @@ mod 审批档改变行为 {
         }
     }
 }
-
 
 /// 角色声明的能力**不再由引擎强制**，而是写进提示词。
 ///
@@ -1039,7 +1046,6 @@ mod 角色的能力声明进提示词 {
         );
     }
 }
-
 
 // ── Agent 角色真的生效（M3 出口标准）────────────────────────────────────────
 //
@@ -1863,8 +1869,8 @@ fn worktree_节点记下分支与路径() {
 mod 分析对象 {
     #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
-    use super::{mock_acp, node, workdir, 收到的提示词, 执行器};
-    use aiwf_engine::executor::NodeExecutor;
+    use super::{mock_acp, node, workdir, 执行器, 收到的提示词};
+
     use aiwf_engine::interp::Scope;
     use aiwf_engine::runner::NodeOutcome;
 
@@ -2102,7 +2108,7 @@ mod 这一轮怎么结束的要算数 {
     #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
     use super::{node, workdir, 内置角色, 执行器};
-    use aiwf_engine::executor::{NodeEvent, NodeExecutor};
+    use aiwf_engine::executor::NodeEvent;
     use aiwf_engine::interp::Scope;
     use aiwf_engine::runner::NodeOutcome;
 
@@ -2196,4 +2202,3 @@ mod 这一轮怎么结束的要算数 {
         );
     }
 }
-

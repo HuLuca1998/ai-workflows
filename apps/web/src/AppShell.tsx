@@ -6,7 +6,6 @@ import { useTrayNavigation } from './layout/useTrayNavigation.js';
 import { SupervisorDrawer } from './supervisor/SupervisorDrawer.js';
 import { useEditor } from './editor/editorStore.js';
 import { useLocation, useNavigate } from 'react-router';
-import { isOnboardingSkipped } from './onboarding/skipMark.js';
 import { useRuns } from './runs/runsStore.js';
 import { TitleBar } from './layout/TitleBar.js';
 import { McpConfirmCard } from './mcp/McpConfirmCard.js';
@@ -42,24 +41,28 @@ export function AppShell() {
   useTrayNavigation();
 
   /*
-   * 首次启动把用户带到首次配置那一屏。
+   * 没配过就哪儿都去不了。
    *
-   * 在这之前，`/onboarding` 只是设置页里的一档和一条谁都不会手输的路由 ——
-   * 装完第一次打开落在一个空的概览页上，没有任何东西告诉他要先配环境。
+   * **这一版把拦截改硬了。** 之前有两个口子：
    *
-   * 「配没配过」看后端的 envCheckedAt（权威、换台机器也认），
-   * 不看 localStorage —— 那个只记「这次先不配」的一次性偏好。
-   * settings 还没读回来时 configured 与 skipped 都不成立，
-   * 但 `settings.workdir === undefined` 也可能只是没加载完 ——
-   * 所以要等第一次读取有结果（loaded）再决定拦不拦。
+   * 1. `location.pathname !== '/'` 时不拦 —— 于是从托盘、通知、
+   *    深链进来的任何一条路径都绕过了它
+   * 2. `isOnboardingSkipped()` —— 一个 localStorage 标记就能永久跳过
+   *
+   * 现在只放行 `/onboarding` 本身，其余一律重定向。带着一个写不进去的
+   * 工作目录进主界面，第一次运行才发现，那时用户已经配了半条工作流。
+   *
+   * 「配没配过」看后端的 envCheckedAt（权威、换台机器也认）。
+   * settings 还没读回来时它与「真的没配过」长得一样，
+   * 所以要等第一次读取有结果（loaded）再决定拦不拦 ——
+   * 否则每次冷启动都会闪一下配置屏。
    */
   const navigate = useNavigate();
   const location = useLocation();
   useEffect(() => {
     if (!loaded) return;
     if (settings.envCheckedAt) return;
-    if (isOnboardingSkipped()) return;
-    if (location.pathname !== '/') return;
+    if (location.pathname === '/onboarding') return;
     navigate('/onboarding', { replace: true });
   }, [loaded, settings.envCheckedAt, location.pathname, navigate]);
 

@@ -94,8 +94,6 @@ describe('设置配过之后界面跟着变', () => {
     expect(await screen.findByText(APPROVAL_MODE_LABELS.ai_assisted.name)).toBeTruthy();
   });
 
-
-
   it('三档的文案都照图纸', async () => {
     for (const [id, 文案] of APPROVAL_MODES.map(
       (mode) => [mode, APPROVAL_MODE_LABELS[mode].name] as const,

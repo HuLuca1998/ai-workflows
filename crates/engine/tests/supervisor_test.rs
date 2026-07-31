@@ -55,7 +55,12 @@ fn wait_until<F: Fn() -> bool>(check: F, limit: Duration) -> bool {
 ///
 /// 放行而不是把档位调松：新三档里最松的一档（无人值守）也要 AI 表态，
 /// 那会去起一个 adapter 进程 —— 单测里连真实模型是另一种坏法。
-fn 批到底(supervisor: &Supervisor, store: &Store, run_id: &str, limit: Duration) -> Option<String> {
+fn 批到底(
+    supervisor: &Supervisor,
+    store: &Store,
+    run_id: &str,
+    limit: Duration,
+) -> Option<String> {
     let deadline = Instant::now() + limit;
     while Instant::now() < deadline {
         let status = store.run_status(run_id).unwrap();

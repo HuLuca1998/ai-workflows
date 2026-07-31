@@ -342,7 +342,9 @@ fn 上游什么都没产出时明说_而不是给一段空白() {
     let executor = NodeExecutor::new(workdir())
         .with_permission_preset("unattended")
         .with_acp_command(&command, &args);
-    executor.execute(&门(None), &mut Scope::new("run_g15")).unwrap();
+    executor
+        .execute(&门(None), &mut Scope::new("run_g15"))
+        .unwrap();
 
     let 提示词 = executor.last_gate_prompt().unwrap();
     assert!(

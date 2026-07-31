@@ -202,7 +202,9 @@ const 审批超时: Duration = Duration::from_secs(120);
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum AiVerdict {
     Approved,
-    Rejected { reason: String },
+    Rejected {
+        reason: String,
+    },
     /// 没给出明确决定 —— 升级给人。
     CannotDecide,
 }
@@ -221,7 +223,10 @@ fn 上游产出(scope: &Scope) -> String {
     const 每项上限: usize = 8_000;
 
     let snapshot = scope.snapshot();
-    let Some(outputs) = snapshot.get("outputs").and_then(serde_json::Value::as_object) else {
+    let Some(outputs) = snapshot
+        .get("outputs")
+        .and_then(serde_json::Value::as_object)
+    else {
         return String::new();
     };
 
@@ -517,7 +522,6 @@ impl NodeExecutor {
             level("network"),
         ))
     }
-
 
     /// 这次运行按哪一档权限执行。
     ///

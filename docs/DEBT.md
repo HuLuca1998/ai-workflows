@@ -30,54 +30,6 @@
 
 ## 一、坏账
 
-### B-1 · `notify` 节点假装成功
-
-**位置**：`crates/engine/src/executor.rs:461`
-
-```rust
-"entry" | "end" | "notify" => Ok(NodeOutcome::Succeeded { port: "success" }),
-```
-
-`notify` 和 `entry` / `end` 归在同一档 —— 什么都不做，直接返回成功。
-
-而它的契约定义（`packages/contracts/src/nodes/definitions.ts`）承诺的是
-「macOS 系统通知，点击可跳回运行」，带 6 个配置字段
-（`title` / `subtitle` / `body` / `on` / `clickAction` / `onFailure`）
-与 `success` / `failed` 两个端口。
-
-**三层掩护**：
-
-| 掩护                                    | 说明                                                                                              |
-| --------------------------------------- | ------------------------------------------------------------------------------------------------- |
-| `preflight.rs:46` 的 `IMPLEMENTED` 清单 | 它在里面，所以 **Dry Run 也不报**。用户拿不到任何警告                                             |
-| `executor_test.rs:211` 一条绿着的测试   | 名字叫「通知节点在无桌面环境下也不应崩溃」，注释写「实际发送在 Tauri 壳里做，引擎只负责记录意图」 |
-| ROADMAP 里「通知与恢复」列为已完成      | 该范围整体记为 ✅                                                                                 |
-
-测试注释说的那两件事都不成立：**壳里没有实现，引擎也没记任何意图**。
-
-**验证**：
-
-```bash
-rg -n 'notification|notify' apps/desktop/src-tauri/src/ apps/desktop/src-tauri/capabilities/ apps/desktop/src-tauri/Cargo.toml
-# 零命中：无 tauri-plugin-notification 依赖、无 capability、无消费方
-```
-
-**影响放大的地方**：内置模板 `github-issue-fix` 里就有一个 `notify` 节点，
-而「一键初始化」种下的示例工作流用的就是这个模板。**用户第一条能跑的工作流，
-最后一个节点是绿的、什么也不会发生。**
-
-它同时违反 `executor.rs` 第 3 行自己写下的铁律：
-
-> 一条铁律：**没实现的节点类型明确报「尚未实现」，绝不假装成功**。
-
-**还清的判据**：二选一。
-真做 —— 接 `tauri-plugin-notification`、capabilities 逐条授权、`clickAction` 能跳回运行、
-发 `system.notification_sent` 事件（见 B-2）；
-或诚实降级 —— 把 `notify` 移出 `IMPLEMENTED`，让 Dry Run 说话，
-并把那条测试改成断言「报未实现」而不是「不崩溃」。
-
----
-
 ### B-2 · 50 个事件类型，23 个从未被发射
 
 **这是本次盘点最大的一条。**
@@ -620,3 +572,39 @@ rg -c 'tools/call' crates/mcp/tests/http_test.rs   # 6
 - `packages/ui` 与 `packages/client-core` 的内部债（这次集中在契约↔引擎的落差）
 - 存储层的约束覆盖（20 张表、188 项测试，但没有逐表核对过约束是否真的生效）
 - 前端 61 个 `useEffect` 的副作用正确性
+
+---
+
+## 这一轮新发现、已修的
+
+2026-07-31。用户报「本地跑一个工作流完全执行不通」，从
+`run_18c740d6394b3c70`（19 条事件，4.3 秒失败）查下来，
+内置模板 `github-issue-fix` 有**四处断链**，而它们全都不在任何账本上：
+
+| 断链                                                                     | 症状                                             | 为什么没人发现                                                              |
+| ------------------------------------------------------------------------ | ------------------------------------------------ | --------------------------------------------------------------------------- |
+| 脚本写 `$ISSUE` / `$REPO`，引擎注入的是 `AIWF_*`                         | 两个空串，`gh` 报 `invalid issue format: ""`     | 模板只被「能搭出、校验通过、发布 v1」测过，**没有一条测试跑过它的执行路径** |
+| `worktree` 的 `repoRoot` 填 `${input.repo.name}`（GitHub 的 owner/repo） | git 去找一个叫 `owner/repo` 的相对目录           | 同上                                                                        |
+| `decide` 的 `auto_decided` 端口没有下游                                  | 走那一支就安静地结束，PR 没建                    | 图校验只查「连线的端口存在」，不查「端口有没有下游」                        |
+| `approve_diff` 两条互斥入边 + 默认汇聚是「等全部」                       | **它永远执行不到**，从它往后整条尾巴一次都跑不到 | 这条最隐蔽：前两条至少会报错，它是跑完然后什么都没发生                      |
+
+四条都修了，并且各配了会红的守卫：
+
+- `packages/contracts/tests/template-references.test.ts` —— 变量引用能不能解析
+  （命名空间、input 字段与子键、上游可达性、端口存在、裸环境变量）
+- `packages/contracts/tests/templates.test.ts` 新增两条 —— 端口有没有下游、
+  互斥入边有没有声明汇聚策略
+- `crates/engine/tests/template_e2e_test.rs` —— 拿**真的 gh、真的 git、
+  真的 worktree** 对着 `HuLuca1998/aiwf-e2e-fixture` 的 issue #8 跑
+
+每一条都做过元测试：把原始 bug 改回去，对应的测试变红。
+
+### 顺带修掉的两条既有坑
+
+- `runner_test` 与 `supervisor_test` 会**真的拉起 claude / codex adapter**
+  （`Runner` 没有 mock 注入口，而测试里的 runtime 写的是真实值）。
+  跑一次全量测试就在 `ps` 里留下一串 adapter 进程，用的是开发者自己的
+  登录态与配额 —— CLAUDE.md 那条「测试与试验不要用 claude 的 adapter」
+  说的就是这个。改成 `provider.api`（合法但没有 adapter）
+- `scripts/scan-secrets.mjs` 的白名单指向 `docs/reference/acp/`，
+  而那个目录已经移到 `docs/acp/`
