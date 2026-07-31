@@ -568,6 +568,10 @@ fn 挂角色的图(agent_id: &str) -> String {
 }
 
 fn 建一个分析师(store: &Store) -> String {
+    建一个分析师_用模型(store, "model:codex")
+}
+
+fn 建一个分析师_用模型(store: &Store, model_ref: &str) -> String {
     store
         .create_builtin_agent(&aiwf_store::NewAgent {
             name: "分析师".to_string(),
@@ -580,7 +584,7 @@ fn 建一个分析师(store: &Store) -> String {
             // `Runner` 没有 mock 注入口，跑一次全量测试就在 `ps` 里
             // 留下一串 adapter 进程，用的是开发者自己的登录态与配额
             runtime: "acp.codex".to_string(),
-            model_ref: "model:codex".to_string(),
+            model_ref: model_ref.to_string(),
             fallback_model_ref: None,
             tools: vec![],
             capabilities_json:
@@ -617,7 +621,21 @@ fn 运行记录说得清这一步用了哪个角色与模型() {
     store
         .set_workspace_setting("permissionPreset", "human_approval")
         .unwrap();
-    let agent = 建一个分析师(&store);
+    // 「模型」页登记一条：这条测试同时守着 runner → 执行器的模型目录
+    // 管道 —— 库里的登记条目要一路走到事件文案里，而不是引用原样照抄
+    let model = store
+        .create_model(&aiwf_store::NewModel {
+            name: "Codex 高档".to_string(),
+            runtime: "acp.codex".to_string(),
+            model_id: "gpt-5-codex".to_string(),
+            effort: "high".to_string(),
+            context_window: 200_000,
+            capabilities: vec![],
+            credential_ref: None,
+            enabled: true,
+        })
+        .unwrap();
+    let agent = 建一个分析师_用模型(&store, &model);
     let workflow = store
         .create_workflow_with_graph("测试流程", None, &挂角色的图(&agent))
         .unwrap();
@@ -635,7 +653,9 @@ fn 运行记录说得清这一步用了哪个角色与模型() {
         .expect("AI 节点该留一条 system.model_resolved");
 
     assert_eq!(解析.node_id.as_deref(), Some("think"));
-    for 片段 in ["分析师", agent.as_str(), "model:codex", "acp.codex", "cwd "] {
+    // gpt-5-codex 是登记条目解析出来的 —— 事件里写的是实际交给 adapter
+    // 的名字与推理档，不是 model:xxx 这种没人读得懂的内部引用
+    for 片段 in ["分析师", agent.as_str(), "gpt-5-codex", "推理 high", "acp.codex", "cwd "] {
         assert!(
             解析.summary.contains(片段),
             "「{片段}」没写进事件：{}",

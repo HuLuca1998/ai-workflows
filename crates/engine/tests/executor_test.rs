@@ -528,6 +528,7 @@ fn 内置角色() -> Vec<aiwf_engine::executor::AgentProfile> {
             // 测的是别的东西，不该被 runtime 的归属搅进来
             runtime: String::new(),
             model_ref: "model:codex".to_string(),
+            fallback_model_ref: String::new(),
             output_contract: String::new(),
             capabilities_json: r#"{"file":"read-write","command":"any","network":"any","memory":"read-write","secret":[]}"#.to_string(),
             timeout_ms: 900_000,
@@ -966,6 +967,7 @@ mod 角色的能力声明进提示词 {
             persona: String::new(),
             runtime: "acp.codex".to_string(),
             model_ref: "model:codex".to_string(),
+            fallback_model_ref: String::new(),
             output_contract: String::new(),
             capabilities_json: caps.to_string(),
             timeout_ms: 900_000,
@@ -1066,6 +1068,7 @@ fn 角色(id: &str) -> aiwf_engine::executor::AgentProfile {
         persona: "挑毛病，但每条都要能落到具体某一行".to_string(),
         runtime: "acp.claude".to_string(),
         model_ref: "model:codex".to_string(),
+            fallback_model_ref: String::new(),
         output_contract: "问题清单：严重度、文件与行、复现方式".to_string(),
         capabilities_json:
             r#"{"file":"read","command":"none","network":"none","memory":"read","secret":[]}"#
@@ -1182,7 +1185,9 @@ fn 解析结果记在执行器上_供上层写可解释性事件() {
     let 一条 = &记录[0];
     assert_eq!(一条.node_id, "review");
     assert_eq!(一条.agent_profile_id, "builtin:reviewer");
-    assert_eq!(一条.model_ref, "model:codex");
+    // 模型页空着（没 with_models）：角色的 model:codex 无从解析，
+    // 记录里写实话「agent 默认」—— 写一个没生效的引用才是误导
+    assert_eq!(一条.model_ref, "agent 默认");
     assert_eq!(一条.runtime, "acp.claude");
 }
 
@@ -2062,6 +2067,7 @@ mod 审批档说的话要算数 {
             persona: String::new(),
             runtime: "acp.codex".to_string(),
             model_ref: "model:codex".to_string(),
+            fallback_model_ref: String::new(),
             output_contract: String::new(),
             capabilities_json:
                 r#"{"file":"read","command":"none","network":"none","memory":"read","secret":[]}"#
@@ -2297,5 +2303,235 @@ mod 实时帧 {
         executor
             .execute(&ai_节点(), &mut scope)
             .expect("没有 sink 也该跑得完");
+    }
+}
+
+/// 模型选择：节点的 `modelPolicy` 与角色的 `model_ref` 要真的生效。
+///
+/// 这两个字段在界面上能填、能存、能过校验，而引擎长期一个都不读 ——
+/// `with_model` 的管道铺好了，没有任何生产代码喂值。
+/// 「填了不生效比报错更糟」（CLAUDE.md 第二条纪律）。
+mod 模型选择 {
+    use super::*;
+    use aiwf_engine::executor::ModelEntry;
+
+    /// 「模型」页登记的目录。与 mock adapter 的候选（mock-model-a/b/c）对齐。
+    fn 模型目录() -> Vec<ModelEntry> {
+        vec![
+            ModelEntry {
+                id: "model:fast".to_string(),
+                name: "快的".to_string(),
+                runtime: "acp.claude".to_string(),
+                model_id: "mock-model-a".to_string(),
+                effort: "low".to_string(),
+            },
+            ModelEntry {
+                id: "model:mid".to_string(),
+                name: "中的".to_string(),
+                runtime: "acp.claude".to_string(),
+                model_id: "mock-model-b".to_string(),
+                effort: "medium".to_string(),
+            },
+            ModelEntry {
+                id: "model:best".to_string(),
+                name: "好的".to_string(),
+                runtime: "acp.claude".to_string(),
+                model_id: "mock-model-c".to_string(),
+                effort: "high".to_string(),
+            },
+            // 别的 runtime 的条目，不该被 claude 节点选中
+            ModelEntry {
+                id: "model:other".to_string(),
+                name: "别家的".to_string(),
+                runtime: "acp.codex".to_string(),
+                model_id: "gpt-x".to_string(),
+                effort: "high".to_string(),
+            },
+        ]
+    }
+
+    fn 带策略的节点(policy: serde_json::Value) -> GraphNode {
+        node(
+            "analyze",
+            "ai.analyze",
+            serde_json::json!({
+                "instruction": "看看这段代码",
+                "runtime": "acp.claude",
+                "modelPolicy": policy,
+                "outputSchema": {}
+            }),
+        )
+    }
+
+    fn 挑模型的角色(model_ref: &str, fallback: &str) -> Vec<aiwf_engine::executor::AgentProfile> {
+        vec![aiwf_engine::executor::AgentProfile {
+            id: "prof:选型".to_string(),
+            name: "选型".to_string(),
+            role: String::new(),
+            goal: String::new(),
+            persona: String::new(),
+            runtime: String::new(),
+            model_ref: model_ref.to_string(),
+            fallback_model_ref: fallback.to_string(),
+            output_contract: String::new(),
+            capabilities_json: r#"{"file":"read-write","command":"any","network":"any","memory":"read-write","secret":[]}"#.to_string(),
+            timeout_ms: 900_000,
+        }]
+    }
+
+    fn 挂角色的节点(policy: Option<serde_json::Value>) -> GraphNode {
+        let mut config = serde_json::json!({
+            "instruction": "看看",
+            "runtime": "acp.claude",
+            "agentProfileId": "prof:选型",
+            "outputSchema": {}
+        });
+        if let Some(policy) = policy {
+            config["modelPolicy"] = policy;
+        }
+        node("analyze", "ai.analyze", config)
+    }
+
+    #[test]
+    fn 钉住的模型解析成它登记的_model_id_与推理档() {
+        let executor = 执行器(ai_dir("pin")).with_models(&模型目录());
+        let scope = Scope::new("run_pin");
+
+        let 解析 = executor
+            .resolution_for(&带策略的节点(serde_json::json!({ "modelId": "model:mid" })), &scope)
+            .expect("AI 节点该有解析");
+        assert_eq!(解析.model_ref, "mock-model-b", "钉住的没生效：{解析:?}");
+        assert_eq!(解析.effort, "medium");
+    }
+
+    #[test]
+    fn 质量档选_effort_最高的_快速档选最低的() {
+        let executor = 执行器(ai_dir("tier")).with_models(&模型目录());
+        let scope = Scope::new("run_tier");
+
+        let 质量 = executor
+            .resolution_for(&带策略的节点(serde_json::json!("quality")), &scope)
+            .unwrap();
+        assert_eq!(质量.model_ref, "mock-model-c");
+
+        let 快速 = executor
+            .resolution_for(&带策略的节点(serde_json::json!("fast")), &scope)
+            .unwrap();
+        assert_eq!(快速.model_ref, "mock-model-a");
+
+        let 均衡 = executor
+            .resolution_for(&带策略的节点(serde_json::json!("balanced")), &scope)
+            .unwrap();
+        assert_eq!(均衡.model_ref, "mock-model-b", "均衡档该优先 medium");
+    }
+
+    #[test]
+    fn 档位只在同_runtime_的候选里挑() {
+        // 目录里 effort 最高的是 codex 的 gpt-x —— claude 节点不能选它：
+        // 交给 adapter 一个它不认识的名字，等于替用户把模型换掉
+        let executor = 执行器(ai_dir("tier_rt")).with_models(&模型目录());
+        let scope = Scope::new("run_tier_rt");
+
+        let 解析 = executor
+            .resolution_for(&带策略的节点(serde_json::json!("quality")), &scope)
+            .unwrap();
+        assert_eq!(解析.model_ref, "mock-model-c", "选到别的 runtime 的条目了");
+    }
+
+    #[test]
+    fn 钉住的不可用时降级并退回角色默认() {
+        let executor = with_mock_adapter(ai_dir("pin_gone"))
+            .with_models(&模型目录())
+            .with_agent_profiles(&挑模型的角色("model:mid", ""));
+        let 节点 = 挂角色的节点(Some(serde_json::json!({ "modelId": "model:没登记" })));
+
+        // 纯函数先答：退回角色的 model:mid
+        let scope = Scope::new("run_pin_gone");
+        let 解析 = executor.resolution_for(&节点, &scope).unwrap();
+        assert_eq!(解析.model_ref, "mock-model-b", "没退回角色默认：{解析:?}");
+
+        // 执行时要把「要的给不了」说出来
+        let sink = 收集器::default();
+        let mut scope = Scope::new("run_pin_gone");
+        let outcome = executor
+            .execute_with_sink(&节点, &mut scope, &|event| {
+                if let Ok(mut list) = sink.0.lock() {
+                    list.push(event);
+                }
+            })
+            .expect("执行");
+        assert!(
+            matches!(outcome, NodeOutcome::Succeeded { .. }),
+            "模型解析不到不该让节点失败：{outcome:?}"
+        );
+        let 降级 = sink.某类("system.model_downgraded");
+        assert_eq!(降级.len(), 1, "钉住的模型不可用却没报降级");
+        assert!(
+            降级[0].summary.contains("model:没登记"),
+            "降级事件要说清是哪个：{}",
+            降级[0].summary
+        );
+    }
+
+    #[test]
+    fn 角色主选不可用走后备_并报降级() {
+        let executor = with_mock_adapter(ai_dir("fallback"))
+            .with_models(&模型目录())
+            .with_agent_profiles(&挑模型的角色("model:没了", "model:fast"));
+        let 节点 = 挂角色的节点(None);
+
+        let scope = Scope::new("run_fallback");
+        let 解析 = executor.resolution_for(&节点, &scope).unwrap();
+        assert_eq!(解析.model_ref, "mock-model-a", "后备没生效：{解析:?}");
+
+        let sink = 收集器::default();
+        let mut scope = Scope::new("run_fallback");
+        executor
+            .execute_with_sink(&节点, &mut scope, &|event| {
+                if let Ok(mut list) = sink.0.lock() {
+                    list.push(event);
+                }
+            })
+            .expect("执行");
+        let 降级 = sink.某类("system.model_downgraded");
+        assert_eq!(降级.len(), 1, "主选不可用却没报降级");
+        assert!(
+            降级[0].summary.contains("model:没了"),
+            "要说清主选是哪个：{}",
+            降级[0].summary
+        );
+    }
+
+    #[test]
+    fn 模型页空着不算降级() {
+        // 全新安装的机器上模型页是空的。每个 AI 节点都报一条降级是误导 ——
+        // 那不是降级，是根本没登记过。agent 用自己的默认，与今天行为一致
+        let executor = with_mock_adapter(ai_dir("no_catalog"))
+            .with_agent_profiles(&挑模型的角色("model:mid", ""));
+        let 节点 = 挂角色的节点(Some(serde_json::json!({ "modelId": "model:mid" })));
+
+        let sink = 收集器::default();
+        let mut scope = Scope::new("run_no_catalog");
+        executor
+            .execute_with_sink(&节点, &mut scope, &|event| {
+                if let Ok(mut list) = sink.0.lock() {
+                    list.push(event);
+                }
+            })
+            .expect("执行");
+        assert!(
+            sink.某类("system.model_downgraded").is_empty(),
+            "模型页空着不该报降级"
+        );
+    }
+
+    #[test]
+    fn 没配策略也没角色默认时不设模型() {
+        let executor = 执行器(ai_dir("none")).with_models(&模型目录());
+        let scope = Scope::new("run_none");
+
+        let 解析 = executor.resolution_for(&ai_节点(), &scope).unwrap();
+        assert_eq!(解析.model_ref, "agent 默认", "没配就该明说用 agent 默认");
+        assert_eq!(解析.effort, "");
     }
 }

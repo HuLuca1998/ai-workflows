@@ -88,6 +88,7 @@ pub fn agent_profiles_for_graph(
                 persona: row.persona,
                 runtime: row.runtime,
                 model_ref: row.model_ref,
+                fallback_model_ref: row.fallback_model_ref.unwrap_or_default(),
                 output_contract: row.output_contract,
                 capabilities_json: row.capabilities_json,
                 timeout_ms: row.timeout_ms,
@@ -329,15 +330,19 @@ impl Runner {
                     .resolution_for(node, scope)
                     .into_iter()
                     .map(|item| {
+                        // 推理档拼在模型后面：「mock-model-b · 推理 medium」。
+                        // 没指定就不写 —— 写「推理 」半句话比不写糟
+                        let model = if item.effort.is_empty() {
+                            item.model_ref.clone()
+                        } else {
+                            format!("{} · 推理 {}", item.model_ref, item.effort)
+                        };
                         let who = if item.agent_profile_id.is_empty() {
-                            format!("runtime {} · 没挂 Agent 角色", item.runtime)
+                            format!("runtime {} · 没挂 Agent 角色 · 模型 {model}", item.runtime)
                         } else {
                             format!(
-                                "Agent 角色「{}」（{}）· 模型 {} · runtime {}",
-                                item.agent_name,
-                                item.agent_profile_id,
-                                item.model_ref,
-                                item.runtime
+                                "Agent 角色「{}」（{}）· 模型 {model} · runtime {}",
+                                item.agent_name, item.agent_profile_id, item.runtime
                             )
                         };
                         // cwd 也写进去：图纸承诺「Fix Agent 的 cwd 固定为 worktree，
@@ -602,12 +607,29 @@ impl Runner {
         // 会拿到不一样的人设，而运行记录上看不出这件事发生过。
         let profiles = self.agent_profiles_for(store, run_id)?;
 
+        // 「模型」页登记且启用的条目，一次性查好交给执行器 ——
+        // 节点的 modelPolicy 与角色的 model_ref 靠它解析。
+        // 查不到按空目录办：那时执行器不解析也不报降级，agent 用默认
+        let models: Vec<crate::executor::ModelEntry> = store
+            .list_models(true)
+            .unwrap_or_default()
+            .into_iter()
+            .map(|row| crate::executor::ModelEntry {
+                id: row.id,
+                name: row.name,
+                runtime: row.runtime,
+                model_id: row.model_id,
+                effort: row.effort,
+            })
+            .collect();
+
         let mut executor = NodeExecutor::new(workdir)
             .with_run_id(run_id)
             .with_memories(&memories)
             .with_permission_preset(&preset)
             .with_approved_nodes(&approved)
-            .with_agent_profiles(&profiles);
+            .with_agent_profiles(&profiles)
+            .with_models(&models);
 
         // 通知发送器从外壳一路传下来。没有它时 `notify` 节点
         // 明确报「这个环境发不了」—— 那正是 B-1 要修的

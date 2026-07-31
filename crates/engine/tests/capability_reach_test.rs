@@ -60,6 +60,7 @@ fn 角色() -> AgentProfile {
         persona: String::new(),
         runtime: "acp.codex".to_string(),
         model_ref: "model:codex".to_string(),
+        fallback_model_ref: String::new(),
         output_contract: String::new(),
         capabilities_json:
             r#"{"file":"read","command":"declared","network":"none","memory":"read","secret":[]}"#

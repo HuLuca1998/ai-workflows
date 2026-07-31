@@ -451,6 +451,7 @@ fn 角色(runtime: &str) -> aiwf_engine::executor::AgentProfile {
         persona: String::new(),
         runtime: runtime.to_string(),
         model_ref: "model:codex".to_string(),
+        fallback_model_ref: String::new(),
         output_contract: String::new(),
         capabilities_json:
             r#"{"file":"read","command":"none","network":"none","memory":"read","secret":[]}"#

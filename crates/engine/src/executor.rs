@@ -101,6 +101,9 @@ pub struct NodeExecutor {
     capabilities: Option<serde_json::Value>,
     /// 这张图里用到的 Agent 角色，按 id 索引。
     agent_profiles: Vec<AgentProfile>,
+    /// 「模型」页登记且启用的条目。空 = 模型页空着（全新安装），
+    /// 那时不做任何解析也不报降级 —— 没有目录，谈不上「要的给不了」。
+    models: Vec<ModelEntry>,
     /// 每个 AI 节点实际用了什么。上层据此写可解释性事件。
     resolutions: std::sync::Mutex<Vec<Resolution>>,
 }
@@ -146,11 +149,32 @@ pub struct AgentProfile {
     pub persona: String,
     pub runtime: String,
     pub model_ref: String,
+    /// 主选模型不可用时的后备。空 = 没配。
+    /// 「模型失效就不设置，用系统默认的」那条链在它之后。
+    pub fallback_model_ref: String,
     pub output_contract: String,
     /// 引擎强制的能力声明（JSON）。图纸「05 Agent 角色」写着
     /// 「权限（引擎强制，Prompt 无法越权）」——就靠它。
     pub capabilities_json: String,
     pub timeout_ms: i64,
+}
+
+/// 「模型」页登记的一个可用条目。
+///
+/// runner 从库里查好交进来（只传启用的）—— 执行器不碰数据库，
+/// 与 [`AgentProfile`] 同一条理由。
+#[derive(Debug, Clone)]
+pub struct ModelEntry {
+    /// 登记条目的 id（`model:xxx`）。`modelPolicy.modelId` 与
+    /// 角色的 `model_ref` 引用的都是它。
+    pub id: String,
+    pub name: String,
+    pub runtime: String,
+    /// 交给 adapter 的那个名字（`claude-sonnet-4-5`）。
+    /// 值必须在 agent 报的候选里 —— 不在的话 adapter 会拒，走降级。
+    pub model_id: String,
+    /// minimal / low / medium / high。
+    pub effort: String,
 }
 
 /// 一个 AI 节点实际用了什么。上层据此写 `system.model_resolved`。
@@ -162,7 +186,11 @@ pub struct Resolution {
     pub node_id: String,
     pub agent_profile_id: String,
     pub agent_name: String,
+    /// 实际交给 adapter 的模型名；没配就是 `agent 默认`。
+    /// 写「没配」的实话，比留一个空串让读记录的人猜强。
     pub model_ref: String,
+    /// 实际交给 adapter 的推理档。空 = 未指定。
+    pub effort: String,
     pub runtime: String,
     /// Agent 真正跑在哪个目录里。
     ///
@@ -191,6 +219,59 @@ pub struct NodeEvent {
 
 /// 事件回调。不关心事件去哪 —— 测试收进一个 Vec，运行时写进事件表。
 pub type EventSink<'a> = dyn Fn(NodeEvent) + 'a;
+
+/// 一个 AI 节点最终交给 adapter 的模型。`None` = 不设，agent 用自己的默认。
+#[derive(Debug, Default)]
+struct ModelChoice {
+    model: Option<String>,
+    effort: Option<String>,
+    /// 解析过程里每一次「要的给不了」。执行时逐条写 `system.model_downgraded`。
+    downgraded: Vec<String>,
+}
+
+impl ModelChoice {
+    fn pick(mut self, entry: &ModelEntry) -> Self {
+        self.model = Some(entry.model_id.clone());
+        self.effort = Some(entry.effort.clone());
+        self
+    }
+}
+
+/// 推理档的序。认不出的值按 medium 算 —— 排序要的是稳定，不是精确。
+fn effort_rank(effort: &str) -> u8 {
+    match effort {
+        "minimal" => 0,
+        "low" => 1,
+        "high" => 3,
+        _ => 2,
+    }
+}
+
+/// 档位 → 候选里的哪一条。
+///
+/// fast 取推理档最低的、quality 取最高的、balanced 优先 medium
+/// （没有就取离 medium 最近的）。平手时取目录里靠前的 —— 目录顺序
+/// 由「模型」页决定，用户看得见，比这里再发明一套排序规则可解释。
+fn pick_tier<'a>(candidates: &[&'a ModelEntry], tier: &str) -> Option<&'a ModelEntry> {
+    match tier {
+        "fast" => candidates
+            .iter()
+            .min_by_key(|entry| effort_rank(&entry.effort))
+            .copied(),
+        // min_by_key 平手取第一个，max_by_key 取最后一个 ——
+        // 三个档都走 min_by_key，平手规则才一致
+        "quality" => candidates
+            .iter()
+            .min_by_key(|entry| std::cmp::Reverse(effort_rank(&entry.effort)))
+            .copied(),
+        "balanced" => candidates
+            .iter()
+            .min_by_key(|entry| (i32::from(effort_rank(&entry.effort)) - 2).abs())
+            .copied(),
+        // 认不出的档位选不出条目 —— 上层会记一条降级，不静默
+        _ => None,
+    }
+}
 
 /// 摘要的长度上限。
 ///
@@ -383,6 +464,7 @@ impl NodeExecutor {
             notifier: None,
             capabilities: None,
             agent_profiles: Vec::new(),
+            models: Vec::new(),
             resolutions: std::sync::Mutex::new(Vec::new()),
         }
     }
@@ -412,11 +494,21 @@ impl NodeExecutor {
             return None;
         }
         let profile = self.profile_for(node);
+        // 与执行时同一份解析 —— 事件里写一个、adapter 收到另一个，
+        // 可解释性就成了误导
+        let choice = self.resolve_model(node);
         Some(Resolution {
             node_id: node.id.clone(),
             agent_profile_id: profile.map(|p| p.id.clone()).unwrap_or_default(),
             agent_name: profile.map(|p| p.name.clone()).unwrap_or_default(),
-            model_ref: profile.map(|p| p.model_ref.clone()).unwrap_or_default(),
+            model_ref: choice
+                .model
+                .or_else(|| self.model.clone())
+                .unwrap_or_else(|| "agent 默认".to_string()),
+            effort: choice
+                .effort
+                .or_else(|| self.effort.clone())
+                .unwrap_or_default(),
             runtime: self.resolved_runtime(node),
             // 解析不出来时留空 —— 那时节点会当场失败，事件里
             // 写一个编出来的目录比留空糟
@@ -484,6 +576,77 @@ impl NodeExecutor {
     fn profile_for(&self, node: &GraphNode) -> Option<&AgentProfile> {
         let id = node.config.get("agentProfileId")?.as_str()?;
         self.agent_profiles.iter().find(|p| p.id == id)
+    }
+
+    /// 这个节点最终交给 adapter 的模型。
+    ///
+    /// 解析顺序：节点的 `modelPolicy`（钉住某条 / fast、balanced、quality）
+    /// → 角色的 `model_ref` → 角色的 `fallback_model_ref` → 不设。
+    /// 每一次「要的给不了」都记进 `downgraded`，执行时写
+    /// `system.model_downgraded` —— AgentsPage 上写着「降级发生时会写入
+    /// RunEvent，不会静默替换模型」，这句话就靠它。
+    fn resolve_model(&self, node: &GraphNode) -> ModelChoice {
+        let mut choice = ModelChoice::default();
+        // 模型页空着（全新安装）：不解析、不降级 —— 没有目录，
+        // 谈不上「要的给不了」；每个节点报一条降级是误导
+        if self.models.is_empty() {
+            return choice;
+        }
+
+        let runtime = self.resolved_runtime(node);
+        let candidates: Vec<&ModelEntry> = self
+            .models
+            .iter()
+            .filter(|entry| entry.runtime == runtime)
+            .collect();
+        let by_id = |id: &str| candidates.iter().find(|entry| entry.id == id).copied();
+
+        match node.config.get("modelPolicy") {
+            Some(serde_json::Value::String(tier)) => {
+                if let Some(entry) = pick_tier(&candidates, tier) {
+                    return choice.pick(entry);
+                }
+                choice.downgraded.push(format!(
+                    "模型策略「{tier}」在 runtime {runtime} 下选不出条目，退回角色默认"
+                ));
+            }
+            Some(serde_json::Value::Object(policy)) => {
+                if let Some(id) = policy.get("modelId").and_then(serde_json::Value::as_str) {
+                    if let Some(entry) = by_id(id) {
+                        return choice.pick(entry);
+                    }
+                    choice.downgraded.push(format!(
+                        "节点钉住的模型 {id} 不可用（未登记、未启用或 runtime 不符），退回角色默认"
+                    ));
+                }
+            }
+            _ => {}
+        }
+
+        let Some(profile) = self.profile_for(node) else {
+            return choice;
+        };
+        if profile.model_ref.is_empty() {
+            return choice;
+        }
+        if let Some(entry) = by_id(&profile.model_ref) {
+            return choice.pick(entry);
+        }
+        choice.downgraded.push(format!(
+            "角色「{}」的模型 {} 不可用（未登记、未启用或 runtime 不符）",
+            profile.name, profile.model_ref
+        ));
+        if profile.fallback_model_ref.is_empty() {
+            return choice;
+        }
+        if let Some(entry) = by_id(&profile.fallback_model_ref) {
+            return choice.pick(entry);
+        }
+        choice.downgraded.push(format!(
+            "后备模型 {} 也不可用，改用 agent 默认",
+            profile.fallback_model_ref
+        ));
+        choice
     }
 
     /// 这个节点最终跑在哪个 runtime 上。
@@ -798,10 +961,22 @@ impl NodeExecutor {
     ///
     /// 两个都是 `Option`：不给就是不设，用 agent 自己的默认 ——
     /// 「模型失效就不设置，用系统默认的」那条路要真的存在。
+    ///
+    /// 这是**运行级兜底**。节点级的选择走 `modelPolicy` 与角色的
+    /// `model_ref`（[`Self::with_models`] 给目录），解析得出的值优先。
     #[must_use]
     pub fn with_model(mut self, model: Option<String>, effort: Option<String>) -> Self {
         self.model = model;
         self.effort = effort;
+        self
+    }
+
+    /// 「模型」页登记且启用的条目。
+    ///
+    /// 不传（或空）= 模型页空着：不解析、不降级，agent 用自己的默认。
+    #[must_use]
+    pub fn with_models(mut self, models: &[ModelEntry]) -> Self {
+        self.models = models.to_vec();
         self
     }
 
@@ -1441,6 +1616,19 @@ impl NodeExecutor {
             .or_else(|| profile.and_then(|p| u64::try_from(p.timeout_ms).ok()))
             .unwrap_or(900_000);
 
+        // 节点的 modelPolicy 与角色的 model_ref 在这里生效。
+        // 解析期的每一次「要的给不了」先说出来 —— adapter 拒掉的那种
+        // 降级在 open_session 之后另有一段，两种都不静默
+        let model_choice = self.resolve_model(node);
+        for message in &model_choice.downgraded {
+            sink(NodeEvent {
+                kind: "system.model_downgraded",
+                node_id: node.id.clone(),
+                summary: message.clone(),
+                payload_ref: None,
+            });
+        }
+
         // 与审批者、主管 AI、连通性测试同一个入口。
         //
         // **MCP 从这里接上**：原先 AI 节点走的是不带 MCP 的 `new_session`，
@@ -1450,8 +1638,9 @@ impl NodeExecutor {
         let opened = match crate::acp::open_session(&crate::acp::SessionSpec {
             runtime: runtime.to_string(),
             cwd: agent_cwd.clone(),
-            model: self.model.clone(),
-            effort: self.effort.clone(),
+            // 节点级解析优先，with_model 的运行级设置兜底
+            model: model_choice.model.or_else(|| self.model.clone()),
+            effort: model_choice.effort.or_else(|| self.effort.clone()),
             mode: None,
             mcp: self.mcp.clone(),
             timeout: Duration::from_millis(timeout_ms),
