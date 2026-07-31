@@ -516,3 +516,31 @@ fn 真实的_codex_能同步出模型清单() {
     // 快到不合理说明它根本没连上
     assert!(耗时.as_millis() > 50, "快得不像真的连上了：{耗时:?}");
 }
+
+mod 运行摘要的契约字段 {
+    use aiwf_store::Store;
+
+    #[test]
+    fn run_list_序列化出_versionId_draftRev_与解析后的_inputs() {
+        // 第 3 轮实测 P3 的根因:DTO 只发 inputsJson,客户端 Zod 用默认值
+        // 静默补齐(inputs 恒空、draftRev 恒缺),「用相同参数重跑」
+        // 拿着空参数和不存在的 rev 0 去跑,报「缺少入口节点」
+        let store = Store::open_in_memory().unwrap();
+        let wf = store.create_workflow("测试", None).unwrap();
+        let run = store
+            .create_run(&wf, None, Some(3), r#"{"issue":"7"}"#)
+            .unwrap();
+
+        let page = aiwf_core_api::run_list(&store, None, vec![], None, None, None).unwrap();
+        let json = serde_json::to_value(&page).unwrap();
+        let item = json["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|item| item["id"] == serde_json::json!(run))
+            .expect("刚建的运行要在列表里");
+
+        assert_eq!(item["draftRev"], serde_json::json!(3));
+        assert_eq!(item["inputs"]["issue"], serde_json::json!("7"));
+    }
+}

@@ -291,6 +291,14 @@ pub struct RunSummary {
     workflow_id: String,
     workflow_name: String,
     status: String,
+    // 契约要的是这三个;此前只发 inputsJson,客户端 Zod 用默认值静默补齐:
+    // inputs 恒 {}、draftRev 恒缺 ——「用相同参数重跑」于是拿着空参数
+    // 和不存在的 rev 0 去跑,报「缺少入口节点」(第 3 轮实测 P3)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    version_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    draft_rev: Option<i64>,
+    inputs: serde_json::Value,
     inputs_json: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     current_node: Option<String>,
@@ -599,6 +607,10 @@ impl From<aiwf_store::RunRow> for RunSummary {
             workflow_id: row.workflow_id,
             workflow_name: row.workflow_name,
             status: row.status,
+            version_id: row.version_id,
+            draft_rev: row.draft_rev,
+            inputs: serde_json::from_str(&row.inputs_json)
+                .unwrap_or_else(|_| serde_json::Value::Object(serde_json::Map::new())),
             inputs_json: row.inputs_json,
             current_node: row.current_node,
             workdir: row.workdir,

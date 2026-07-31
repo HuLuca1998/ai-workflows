@@ -284,7 +284,12 @@ export const useRuns = create<RunsState>((set, get) => ({
         workflowId: run.workflowId,
         // 沿用原运行的版本：不带的话会跑当前草稿，
         // 而草稿可能已经改过 —— 那就不是「相同参数」重跑了
-        ...(run.versionId ? { versionId: run.versionId } : { draftRev: run.draftRev ?? 0 }),
+        // rev 0 不存在 —— 兜底成 0 曾让重跑必失败(P3)。两个都缺就直说
+        ...(run.versionId
+          ? { versionId: run.versionId }
+          : typeof run.draftRev === 'number'
+            ? { draftRev: run.draftRev }
+            : null),
         inputs: run.inputs ?? {},
       })) as { runId: string };
       await get().load();
