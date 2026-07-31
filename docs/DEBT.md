@@ -117,42 +117,6 @@ ev({ type: 'node.queued', seq: 5, nodeId: 'n1', attempt: 1 }),
 
 ---
 
-### B-3 · 提示词库与执行路径是断开的
-
-**位置**：`crates/engine/src/executor.rs` 的 `run_ai`
-
-AI 节点执行时只读两个配置字段：`agentProfileId` 和 `instruction`。
-提示词拼接是「角色 → 记忆 → 指令」三段，**从不读 `prompt` 表**。
-
-**验证**：
-
-```bash
-rg -n 'pub fn with_' crates/engine/src/executor.rs
-# 有 with_agent_profiles / with_memories / with_capabilities…… 没有 with_prompts
-
-for f in promptId turnLimit outputContract modelPolicy; do
-  echo -n "$f: "; rg -c "\"$f\"" crates/engine/src | awk -F: '{s+=$2} END{print s+0}'
-done
-# 全部 0
-```
-
-而契约对 `promptId` 的描述是「提示词\n**留空则用该节点类型的内建提示词**」——
-这句话暗示「填了就用填的那个」。实际上填了也不用。
-
-**掩护它的是什么**：整个「提示词库」屏做完了而且做得很细
-（分段可见可改、变量表、版本历史带「时间 · 谁改的」、「插入变量」后光标定位、
-存储层拒收空分段），当时列为已交付并专门记了三条改进。
-**一屏做得越完整，越没有人会去问「它有出口吗」。**
-
-出口标准写着「提示词与模型在运行记录中可追溯到具体版本」：
-模型那一半有 `system.model_resolved`（`runner.rs:311`），提示词那一半零。
-
-**还清的判据**：`NodeExecutor` 加 `with_prompts`，`run_ai` 读 `promptId` 并解析到具体版本，
-执行前发 `system.prompt_resolved` 带 promptId + version。
-一条端到端测试：节点指定提示词 → 运行 → 事件流里能读到用的是哪一版。
-
----
-
 ### B-5 · 42 个配置字段静默忽略：填了不报错，也不生效
 
 用户在配置弹层里填了，保存成功，校验通过，运行时被无视。
@@ -175,7 +139,7 @@ done
 | -------------- | --------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------- |
 | `script.shell` | `env`、`secretEnv`、`successExitCodes`、`outputLimitBytes`、`workdir` | 环境变量只给 `scope.env_vars()`；退出码硬编码 `!=0` 判失败；输出上限硬编码；工作目录用运行级的 |
 | `approval`     | `bodyMarkdown`、`interaction`、`waitStrategy`、`reminderAfterMs`      | 全仓零命中（连界面都不读）                                                                     |
-| `ai.*`         | `promptId`、`turnLimit`、`outputContract`                             | 见 B-3                                                                                         |
+| `ai.*`         | `turnLimit`、`outputContract`                                         | 不强制/不校验（`promptId` 已接上，B-3 还清）                                                   |
 | `git.worktree` | `parentDir`、`fetch`、`conflictPolicy`                                | 位置固定/不 fetch/冲突策略不生效（`cleanupPolicy` 已生效）                                     |
 | `entry`        | `trigger`、`injectedFields`                                           | 只有 `inputSchema` 与 `workdirSource` 生效                                                     |
 | `end`          | `artifacts`                                                           | 零命中                                                                                         |
@@ -472,7 +436,6 @@ MCP / `workflow_patch` 路径可以写对象形态，所以这不是「填了不
 | ---- | ----------------------- | --------------------------------------------------------------------------------------- |
 | 4    | **B-5** 守卫的后半      | 白名单字段要在配置弹层上标「引擎目前不读它」，并逐个接上（三条接缝守卫已齐）            |
 | 5    | **B-2** 事件发射        | 违反的是架构第一原则。界面明确承诺的 `node.cancelled` 先补（`model_downgraded` 已还清） |
-| 6    | **B-3** 提示词          | 一整屏功能没有出口；出口标准只兑现一半                                                  |
 | 7    | **L-1** 吞错            | 概率低但后果不可逆（事件流缺档 = 无法重建）                                             |
 | 8    | O-3 WKWebView           | 用户唯一的真实体感反馈至今没有定论                                                      |
 | 9    | O-1 节点类型            | 表达力，不是正确性                                                                      |
