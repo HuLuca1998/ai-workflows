@@ -365,7 +365,10 @@ fn 变量被重复加引号时_dry_run_就拦下() {
     let detail = 找检查(&report, "引号").expect("该有一条引号检查");
     // 要用用户起的名字,不是内部 id —— 用户给节点起名「跑一下」,
     // 提示里写 `sh` 他对不上号(第 2 轮实测 P13)
-    assert!(detail.contains("跑一下"), "要用节点标题说清是哪个节点：{detail}");
+    assert!(
+        detail.contains("跑一下"),
+        "要用节点标题说清是哪个节点：{detail}"
+    );
     assert!(detail.contains("input.issue"), "要说清是哪个变量：{detail}");
     assert!(!report.ok, "这条该让 Dry Run 不通过");
 }
@@ -643,4 +646,60 @@ fn 角色引用齐全时检查通过_无引用时不列条目() {
         .find(|c| c.label.contains("Agent 角色"))
         .expect("有引用就要有检查项");
     assert_eq!(check.status, CheckStatus::Passed);
+}
+
+#[test]
+fn 只当审批者的角色也会被加载_不被误报不存在() {
+    // codex 复核抓到的接缝:check_agent_profiles 查 deciderAgentProfileId,
+    // 而加载器只收 agentProfileId —— 一个真实存在、只当 AI 审批者的角色
+    // 会被 Dry Run 误报「不存在」,运行时 gate_runtime 也拿不到它
+    let store = aiwf_store::Store::open_in_memory().unwrap();
+    store
+        .create_agent(&aiwf_store::NewAgent {
+            name: "把关人".to_string(),
+            role: "审批".to_string(),
+            goal: String::new(),
+            persona: String::new(),
+            runtime: "acp.codex".to_string(),
+            model_ref: String::new(),
+            fallback_model_ref: None,
+            tools: Vec::new(),
+            capabilities_json: "{}".to_string(),
+            output_contract: String::new(),
+            turn_limit: 6,
+            timeout_ms: 60000,
+        })
+        .map(|id| {
+            let graph = graph(serde_json::json!({
+                "nodes": [
+                    {"id": "entry", "type": "entry", "title": "入口", "config": {}},
+                    {"id": "gate", "type": "approval", "title": "把关",
+                     "config": {"title": "确认", "decider": "agent", "deciderAgentProfileId": id}}
+                ],
+                "edges": [
+                    {"id": "e1", "source": {"nodeId": "entry", "port": "success"}, "target": {"nodeId": "gate", "port": "input"}}
+                ],
+                "groups": []
+            }));
+            let profiles = aiwf_engine::runner::agent_profiles_for_graph(&store, &graph).unwrap();
+            assert_eq!(profiles.len(), 1, "审批者角色要被加载");
+
+            let report = aiwf_engine::preflight::dry_run_with_profiles(
+                &graph,
+                &std::env::temp_dir(),
+                &profiles,
+            );
+            let check = report
+                .checks
+                .iter()
+                .find(|c| c.label.contains("Agent 角色"))
+                .expect("有引用就有检查");
+            assert_eq!(
+                check.status,
+                CheckStatus::Passed,
+                "真实存在的审批者角色不该被误报:{}",
+                check.detail
+            );
+        })
+        .unwrap();
 }

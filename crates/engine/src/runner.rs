@@ -62,16 +62,21 @@ pub fn agent_profiles_for_graph(
 ) -> Result<Vec<crate::executor::AgentProfile>> {
     let mut ids: Vec<String> = Vec::new();
     for node in &graph.nodes {
-        let Some(id) = node
-            .config
-            .get("agentProfileId")
-            .and_then(serde_json::Value::as_str)
-            .filter(|id| !id.is_empty())
-        else {
-            continue;
-        };
-        if !ids.iter().any(|seen| seen == id) {
-            ids.push(id.to_string());
+        // deciderAgentProfileId 也要收：审批门的 AI 审批者按它查角色
+        // （executor 的 gate_runtime），漏了的话一个只当审批者的角色
+        // 运行时拿不到、Dry Run 还会误报「不存在」（codex 复核抓到的）
+        for field in ["agentProfileId", "deciderAgentProfileId"] {
+            let Some(id) = node
+                .config
+                .get(field)
+                .and_then(serde_json::Value::as_str)
+                .filter(|id| !id.is_empty())
+            else {
+                continue;
+            };
+            if !ids.iter().any(|seen| seen == id) {
+                ids.push(id.to_string());
+            }
         }
     }
 
