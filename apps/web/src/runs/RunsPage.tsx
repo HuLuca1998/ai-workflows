@@ -573,6 +573,13 @@ export function RunsPage() {
                     nodeType={runs.nodeTypes[selectedNode] ?? ''}
                     nodeLabel={nodeLabelOf(runs.events, selectedNode)}
                     events={runs.events.filter((event) => event.nodeId === selectedNode)}
+                    {...(selected ? { runId: selected.id } : {})}
+                    /* 这个节点开始了、还没结束 = 正在跑。
+                       只有这时才收实时帧 —— 跑完之后那段话已经落库成
+                       conversation.agent_message，再显示残留的帧会重复一次 */
+                    running={
+                      selected?.status === 'running' && nodeIsRunning(runs.events, selectedNode)
+                    }
                     onOpenArtifact={(relPath) => {
                       setJumpToArtifact(relPath);
                       setTab('artifacts');
@@ -1231,4 +1238,20 @@ function formatTime(iso: string | undefined): string {
 function formatClock(iso: string): string {
   const date = new Date(iso);
   return Number.isNaN(date.getTime()) ? iso : date.toLocaleTimeString('zh-CN', { hour12: false });
+}
+
+/**
+ * 这个节点是不是**正在跑**。
+ *
+ * 「运行是 running」不等于「这个节点在跑」：用户完全可能一边跑
+ * 一边翻看前面已经跑完的节点。那时收帧会把当前节点的话
+ * 显示到一个早就结束的节点下面。
+ */
+function nodeIsRunning(events: readonly RunEvent[], nodeId: string): boolean {
+  const mine = events.filter((event) => event.nodeId === nodeId);
+  const started = mine.some((event) => event.type === 'node.started');
+  const ended = mine.some((event) =>
+    ['node.succeeded', 'node.failed', 'node.skipped', 'node.cancelled'].includes(event.type),
+  );
+  return started && !ended;
 }

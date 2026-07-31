@@ -1,6 +1,7 @@
-import { useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 
 import { ConversationView } from './ConversationView.js';
+import { useStreamChunks, type StreamChunk } from '../supervisor/useStreamChunks.js';
 import type { RunEvent } from './runsStore.js';
 
 /**
@@ -25,6 +26,15 @@ export interface NodeDetailProps {
   nodeLabel: string;
   /** 这个节点的事件，已经按 nodeId 过滤过。 */
   events: readonly RunEvent[];
+  /** 这条运行的 id。实时帧按它分流 —— 不给就只看事件。 */
+  runId?: string;
+  /**
+   * 这个节点**正在跑**。
+   *
+   * 只在跑的时候收帧：跑完之后回答已经落库成
+   * `conversation.agent_message`，再显示残留的帧会让同一段话出现两次。
+   */
+  running?: boolean;
   onOpenArtifact?: (relPath: string) => void;
 }
 
@@ -65,6 +75,8 @@ export function NodeDetail({
   nodeType,
   nodeLabel,
   events,
+  runId,
+  running = false,
   onOpenArtifact,
 }: NodeDetailProps) {
   const ordered = [...events].sort((a, b) => a.seq - b.seq);
@@ -98,7 +110,13 @@ export function NodeDetail({
       ) : null}
 
       {nodeType.startsWith('ai.') ? (
-        <AiNode nodeId={nodeId} events={ordered} {...(onOpenArtifact ? { onOpenArtifact } : {})} />
+        <AiNode
+          nodeId={nodeId}
+          events={ordered}
+          {...(runId ? { runId } : {})}
+          running={running}
+          {...(onOpenArtifact ? { onOpenArtifact } : {})}
+        />
       ) : nodeType.startsWith('script.') ? (
         <ScriptNode events={ordered} {...(onOpenArtifact ? { onOpenArtifact } : {})} />
       ) : nodeType === 'git.worktree' ? (
@@ -117,10 +135,14 @@ export function NodeDetail({
 function AiNode({
   nodeId,
   events,
+  runId,
+  running = false,
   onOpenArtifact,
 }: {
   nodeId: string;
   events: readonly RunEvent[];
+  runId?: string;
+  running?: boolean;
   onOpenArtifact?: (relPath: string) => void;
 }) {
   const resolved = events.find((event) => event.type === 'system.model_resolved');
@@ -129,6 +151,40 @@ function AiNode({
   );
   // 对话那一栏不再重复渲染工具活动 —— 它有自己一栏了
   const conversationEvents = events.filter((event) => !event.type.startsWith('tool.'));
+
+  /*
+   * 正在说的那段话。
+   *
+   * 一个跑五分钟的 AI 节点，在这之前对话栏一直是空的 —— agent 说的话
+   * 要等节点结束、`conversation.agent_message` 落库之后才一次性出现。
+   * 用户没法判断它是在想还是已经卡死。
+   *
+   * **只在 running 时收**：跑完之后那段话已经在事件里了，
+   * 再显示残留的帧会让同一段话出现两次。
+   */
+  const [live, setLive] = useState('');
+  const [liveTool, setLiveTool] = useState<string | null>(null);
+
+  const onChunk = useCallback(
+    (chunk: StreamChunk) => {
+      // 同一次运行里可能有好几个 AI 节点在跑 —— 只收自己的
+      if (chunk.nodeId !== nodeId) return;
+      if (chunk.kind === 'text') setLive((now) => now + chunk.text);
+      else if (chunk.kind === 'toolCall') {
+        setLiveTool(chunk.status === 'completed' ? null : chunk.title);
+      }
+    },
+    [nodeId],
+  );
+  useStreamChunks(running && Boolean(runId), onChunk, runId ?? null);
+
+  // 节点一结束就把帧丢掉：那段话已经落库了
+  useEffect(() => {
+    if (!running) {
+      setLive('');
+      setLiveTool(null);
+    }
+  }, [running]);
 
   return (
     <>
@@ -148,6 +204,20 @@ function AiNode({
           singleNode
           {...(onOpenArtifact ? { onOpenArtifact } : {})}
         />
+        {/* 正在说的那段。落库之后它会被上面那个视图接管，
+            所以这里只在 running 时有内容 */}
+        {live ? (
+          <p className="ndetail__live">
+            {live}
+            <span className="supervisor__caret" />
+          </p>
+        ) : null}
+        {liveTool ? (
+          <p className="ndetail__live-tool">
+            <i className="ph ph-wrench" aria-hidden="true" />
+            正在 {liveTool}
+          </p>
+        ) : null}
       </Section>
 
       {/* 工具调用单列一栏并**默认折起**。一次分析几十次调用，

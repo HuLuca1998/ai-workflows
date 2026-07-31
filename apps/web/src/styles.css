@@ -2903,6 +2903,26 @@
   color: var(--color-neutral-300);
 }
 
+/* 正在说的那段。落库之后由对话视图接管，所以它只在节点跑着时出现 */
+.ndetail__live {
+  margin: 8px 0 0;
+  font-size: 12.5px;
+  line-height: 1.7;
+  color: var(--color-neutral-300);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* 「正在 读取文件」——「正在想…」挂十几秒与卡死长得一样，这句不会 */
+.ndetail__live-tool {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin: 6px 0 0;
+  font-size: 11.5px;
+  color: var(--color-neutral-600);
+}
+
 .ndetail__note {
   margin: 0;
   font-size: 11.5px;
