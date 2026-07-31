@@ -32,6 +32,17 @@ describe('事件语气', () => {
     expect(toneOfEvent('script.exited', 'exit=2')).toBe('failed');
   });
 
+  it('内容型异常也算异常(第 9 轮实测 #5)', () => {
+    // 通知发不出去:类型是 notification_sent(中性),摘要说没能发出
+    expect(toneOfEvent('system.notification_sent', '通知没能发出（已归档）：这个环境发不了')).toBe(
+      'warn',
+    );
+    expect(toneOfEvent('system.notification_sent', '已发送通知')).not.toBe('warn');
+    // 节点走 failed 分支:类型是 node.succeeded,摘要含「走 failed 分支」
+    expect(toneOfEvent('node.succeeded', '通知我 完成 · 走 failed 分支')).toBe('warn');
+    expect(toneOfEvent('node.succeeded', '完成 · 走 success 分支')).not.toBe('warn');
+  });
+
   it('契约里每个事件类型都能算出语气，且只落在五档里', () => {
     const allowed = ['failed', 'warn', 'succeeded', 'waiting', 'neutral'];
     for (const type of RUN_EVENT_TYPES) {

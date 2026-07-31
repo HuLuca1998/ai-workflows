@@ -226,7 +226,11 @@ export function RunsPage() {
 
           {runs.items.length === 0 ? (
             <p className="runs__empty">
-              还没有运行记录。在工作流编辑器里点「运行」后，每一次执行都会出现在这里。
+              {/* 「筛过之后没有」与「一条都没有」是两回事:库里有 12 条却
+                  显示「还没有运行记录」会让人以为历史丢了(第 9 轮实测 #8) */}
+              {runs.filter !== 'all' || runs.query
+                ? '没有符合当前筛选的运行。'
+                : '还没有运行记录。在工作流编辑器里点「运行」后，每一次执行都会出现在这里。'}
             </p>
           ) : null}
 
@@ -428,6 +432,13 @@ export function RunsPage() {
                 <span>
                   <i className="ph ph-hash" aria-hidden="true" />
                   {selected.id}
+                  {/* run_id 排查与 MCP 都认它,此前只有工作目录能复制(第 9 轮实测 #12) */}
+                  <CopyButton
+                    value={selected.id}
+                    label=""
+                    className="runs__inline-copy"
+                    ariaLabel="复制运行 id"
+                  />
                 </span>
                 {selected.workdir ? (
                   <span>
@@ -1076,7 +1087,7 @@ function ApprovalPanel({
 
 // ── 从事件推出界面需要的东西 ───────────────────────────────────────────────
 
-type NodeState = 'succeeded' | 'failed' | 'running' | 'waiting';
+type NodeState = 'succeeded' | 'failed' | 'running' | 'waiting' | 'warned';
 
 interface NodeRow {
   nodeId: string;
@@ -1097,8 +1108,13 @@ function nodeRows(events: readonly RunEvent[]): NodeRow[] {
   const rows = new Map<string, NodeRow>();
   for (const event of events) {
     if (!event.nodeId) continue;
-    const state = stateOf(event.type);
+    let state = stateOf(event.type);
     if (!state) continue;
+    // 「完成但走了 failed 分支」不是绿色的成功:节点确实结束了,
+    // 但它分叉到失败端口,一屏全绿会盖掉这件事(第 9 轮实测 #6)
+    if (state === 'succeeded' && /走 failed 分支/u.test(event.summary)) {
+      state = 'warned';
+    }
     rows.set(event.nodeId, {
       nodeId: event.nodeId,
       // 后来的事件可能带标题而先前那条没有，所以只在有值时覆盖
@@ -1203,6 +1219,8 @@ function nodeIcon(state: NodeState): string {
       return 'ph-check-circle';
     case 'failed':
       return 'ph-x-circle';
+    case 'warned':
+      return 'ph-warning-circle';
     case 'waiting':
       return 'ph-hand-palm';
     default:
@@ -1216,6 +1234,8 @@ function stateLabel(state: NodeState): string {
       return '完成';
     case 'failed':
       return '失败';
+    case 'warned':
+      return '完成 · 失败分支';
     case 'waiting':
       return '待审批';
     default:

@@ -2542,6 +2542,12 @@
   color: var(--color-status-failed);
 }
 
+/* 完成但走了失败分支:黄,不是绿(第 9 轮实测 #6) */
+.runs__node[data-state='warned'] i,
+.runs__node[data-state='warned'] .runs__node-state {
+  color: var(--color-status-waiting);
+}
+
 .runs__node-main {
   flex: 1;
   min-width: 0;

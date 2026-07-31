@@ -69,5 +69,15 @@ export function scriptExitTone(summary: string): EventTone {
 
 export function toneOfEvent(type: string, summary = ''): EventTone {
   if (type === 'script.exited') return scriptExitTone(summary);
+  // 内容型异常:类型本身是中性/成功,但摘要说明这一步没干成 ——
+  // 第 9 轮实测「只看异常」漏了两种:通知发不出去(notification_sent
+  // 却写「没能发出」),以及节点「走 failed 分支」(node.succeeded 却分叉到失败端口)。
+  // 这两种恰是排查时第一个要看的
+  if (type === 'system.notification_sent' && /没能|失败|发不了/u.test(summary)) {
+    return 'warn';
+  }
+  if (/走 failed 分支/u.test(summary)) {
+    return 'warn';
+  }
   return eventTone(type);
 }
