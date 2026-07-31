@@ -2975,7 +2975,7 @@ fn reject_secret_like(value: &str) -> Result<()> {
     // 「什么算密钥」就有了两个互不知道的答案
     if let Some(what) = secret_hit(value) {
         return Err(StoreError::Invalid(format!(
-            "内容里像是有{what}。记忆会被注入每一次 AI 调用，密钥请存进钥匙串后用 keychain:// 引用"
+            "内容里像是有 {what}。记忆会被注入每一次 AI 调用，密钥请存进钥匙串后用 keychain:// 引用"
         )));
     }
     Ok(())
