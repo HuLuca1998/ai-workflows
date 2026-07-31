@@ -2778,8 +2778,6 @@ pub fn model_test_with(
     id: String,
     找_adapter: impl FnOnce(&str) -> Option<String>,
 ) -> ApiResult<ModelTestResult> {
-    use aiwf_engine::acp::{AcpClient, env_to_remove};
-
     let model = store
         .get_model(&id)?
         .ok_or(aiwf_store::StoreError::NotFound {
@@ -2789,22 +2787,38 @@ pub fn model_test_with(
 
     let started = std::time::Instant::now();
     let 结果 = probe_runtime(&model.runtime, 找_adapter, |command| {
-        let mut client = AcpClient::connect(
-            command,
-            &[],
-            &env_to_remove(&model.runtime),
-            std::time::Duration::from_secs(30),
-        )
+        // 与另外三个 AI 调用点同一个入口。
+        //
+        // 这里**顺带回答了「这个 runtime 现在有哪些模型可选」** ——
+        // `session/new` 的 configOptions 里就带着，模型页的「同步」
+        // 要的正是它，不必再起一次 adapter。
+        let opened = aiwf_engine::acp::open_session(&aiwf_engine::acp::SessionSpec {
+            runtime: model.runtime.clone(),
+            cwd: std::env::temp_dir().display().to_string(),
+            model: None,
+            effort: None,
+            mode: None,
+            mcp: Vec::new(),
+            timeout: std::time::Duration::from_secs(30),
+            adapter_override: Some((command.to_string(), Vec::new())),
+        })
         .map_err(|error| format!("连不上 adapter：{error}"))?;
 
-        let session = client
-            .new_session(&std::env::temp_dir().display().to_string())
-            .map_err(|error| format!("握手成功但建会话失败：{error}"))?;
+        let 找 = |category: &str| {
+            opened
+                .session
+                .config_options
+                .iter()
+                .find(|o| o.category == category)
+        };
+        let 模型数 = 找("model").map_or(0, |o| o.options.len());
+        let 深度数 = 找("thought_level").map_or(0, |o| o.options.len());
 
+        // 说清「这个 runtime 能用什么」，而不只是「握上手了」——
+        // 用户点这个按钮想知道的是能不能干活
         Ok(format!(
-            "握手成功 · 协议 v{} · 会话已建立（{} 个权限档）",
-            client.protocol_version(),
-            session.modes.len()
+            "握手成功 · 协议 v{} · {模型数} 个模型 / {深度数} 档推理深度可选",
+            opened.client.protocol_version(),
         ))
     });
     let latency_ms = i64::try_from(started.elapsed().as_millis()).unwrap_or(i64::MAX);

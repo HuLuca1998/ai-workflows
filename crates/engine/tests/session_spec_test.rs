@@ -144,3 +144,64 @@ fn 不认识的_runtime_直接报错_而不是默默连上别的() {
         "错误信息要带上是哪个 runtime：{错}"
     );
 }
+
+/// **所有 AI 调用都得走 `open_session`。**
+///
+/// 这条守的是这次重构本身不被慢慢磨掉：四个调用点原先各写各的
+/// 「找 adapter → connect → new_session」，结果是模型、推理深度、
+/// 权限档那三格四处全空 —— 而每次想补一格都要改四个地方，于是一格都没补。
+///
+/// 绕过 `open_session` 直接 `AcpClient::connect` 的话，新加的调用点
+/// 又会少掉这三格，而且**不会有任何测试变红**（它自己那条路是通的）。
+#[test]
+fn 除了_acp_模块自己_没人直接建_acpclient() {
+    let 仓库根 = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .and_then(|p| p.parent())
+        .expect("仓库根");
+
+    let mut 违规 = Vec::new();
+    let 要扫的 = [
+        "crates/engine/src",
+        "crates/core-api/src",
+        "crates/mcp/src",
+        "crates/devserver/src",
+        "apps/desktop/src-tauri/src",
+    ];
+
+    for 目录 in 要扫的 {
+        let mut 待查 = vec![仓库根.join(目录)];
+        while let Some(路径) = 待查.pop() {
+            let Ok(条目) = std::fs::read_dir(&路径) else {
+                continue;
+            };
+            for 条目 in 条目.flatten() {
+                let p = 条目.path();
+                if p.is_dir() {
+                    待查.push(p);
+                    continue;
+                }
+                if p.extension().is_none_or(|e| e != "rs") {
+                    continue;
+                }
+                // acp.rs 是实现本身，它当然要建
+                if p.file_name().is_some_and(|n| n == "acp.rs") {
+                    continue;
+                }
+                let Ok(源码) = std::fs::read_to_string(&p) else {
+                    continue;
+                };
+                if 源码.contains("AcpClient::connect") {
+                    违规.push(p.display().to_string());
+                }
+            }
+        }
+    }
+
+    assert!(
+        违规.is_empty(),
+        "这些地方绕过 open_session 直接建了 ACP 客户端，\
+         于是模型 / 推理深度 / 权限档三格又会是空的：\n{}",
+        违规.join("\n")
+    );
+}
