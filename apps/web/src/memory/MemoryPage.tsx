@@ -4,6 +4,8 @@ import { describeError } from '../data/describeError.js';
 import { LIST_PAGE_SIZE } from '@aiwf/contracts';
 import { Pager } from '../layout/Pager.js';
 import { coreClient } from '../data/workspace.js';
+import { ListEmpty } from '../layout/ListEmpty.js';
+import { RichText } from '@aiwf/ui';
 
 /**
  * 记忆管理 —— 严格照图纸「04 记忆管理」。
@@ -84,6 +86,9 @@ export function MemoryPage() {
    * 都永远是 50 —— 用户拿不到第 51 条，也不知道自己拿不到。
    */
   const load = async (nextScope = scope, nextQuery = '', nextOffset = offset) => {
+    // 任何成功的重新加载都清掉旧错误 —— 「缺少参数」横幅曾在成功的
+    // 停用/启用之后仍然挂着,成功的操作看上去也像失败了(第 4 轮 #12)
+    setError(null);
     setOffset(nextOffset);
     try {
       const result = (await coreClient.call('memory.list', {
@@ -323,9 +328,9 @@ export function MemoryPage() {
           </div>
 
           {items !== null && saved.length === 0 ? (
-            <p className="runs__empty">
+            <ListEmpty query={search.value} noun="记忆" onClear={() => search.onChange('')}>
               还没有记忆。AI 在运行结束时会提议值得长期记住的事实，你确认后才会写进来。
-            </p>
+            </ListEmpty>
           ) : null}
 
           {saved.map((item) => (
@@ -349,7 +354,10 @@ export function MemoryPage() {
                 </p>
               </div>
               <div>
-                <p className="memory__value">{item.value}</p>
+                {/* 内置种子自己就带 markdown,裸文本会把 ** 原样亮出来(M7) */}
+                <div className="memory__value">
+                  <RichText text={item.value} />
+                </div>
                 <p className="memory__meta">
                   {item.source === 'ai_proposed' ? 'AI 提议' : item.createdBy} · v{item.ver}
                 </p>

@@ -149,11 +149,15 @@ describe('详情的四个 tab', () => {
     expect(screen.getByText('运行记录会引用当时的提示词版本，历史结果始终可解释。')).toBeTruthy();
   });
 
-  it('预览 tab 还没有真实运行上下文时说清在等什么', async () => {
+  it('预览 tab 如实说不能预览,并指到真发出去的字节', async () => {
+    // 老文案承诺「跑过一次后这里会显示」—— 实测跑过之后依然是空的(第 4 轮 #7)。
+    // 没兑现的承诺不挂着;指路到 prompt.md 产物(那是真的)
     const user = await open();
     await user.click(screen.getByRole('tab', { name: '预览' }));
-    // 用真实运行的上下文替换变量要等 M3 接上 ACP
-    expect(screen.getByRole('tabpanel').textContent).toMatch(/需要一次真实运行|等/u);
+    const panel = screen.getByRole('tabpanel');
+    expect(panel.textContent).toMatch(/还不能预览/u);
+    expect(panel.textContent).toMatch(/prompt\.md/u);
+    expect(panel.textContent).not.toMatch(/跑过一次后/u);
   });
 });
 
