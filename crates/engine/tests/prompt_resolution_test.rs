@@ -134,3 +134,87 @@ fn 指向不存在的提示词_节点明确失败() {
         failed.summary
     );
 }
+
+#[test]
+fn 库分段里的变量会被插值成真实内容() {
+    // 第 4 轮实测 #4:变量 tab 声明了来源与缺失策略,而 prompt.md 里
+    // 原样躺着 ${input.target} —— 模型收到一串它无法理解的字面量
+    let store = Store::open_in_memory().unwrap();
+    let prompt_id = store
+        .create_prompt(&aiwf_store::NewPrompt {
+            group: "analysis".to_string(),
+            name: "带变量的框架".to_string(),
+            sections_json: serde_json::json!([
+                {"title": "Task", "body": "分析主题:${input.topic}"}
+            ])
+            .to_string(),
+            vars_json: "[]".to_string(),
+        })
+        .unwrap();
+
+    let workdir = std::env::temp_dir().join("aiwf_prompt_res_test");
+    std::fs::create_dir_all(&workdir).unwrap();
+    store
+        .set_workspace_setting("permissionPreset", "human_approval")
+        .unwrap();
+    let workflow = store
+        .create_workflow_with_graph("插值", None, &flow_with_prompt(Some(&prompt_id)))
+        .unwrap();
+    let runner = Runner::new().with_acp_command("/usr/bin/false", &[]);
+    let run_id = runner
+        .start(
+            &store,
+            RunRequest {
+                workflow_id: workflow,
+                version_id: None,
+                draft_rev: Some(0),
+                inputs_json: r#"{"topic":"季度复盘"}"#.to_string(),
+                workdir: workdir.display().to_string(),
+            },
+        )
+        .unwrap();
+    let _ = runner.run_all(&store, &run_id).unwrap();
+
+    let prompt_md = workdir
+        .join(".aiwf-artifacts")
+        .join(&run_id)
+        .join("ai")
+        .join("prompt.md");
+    let content = std::fs::read_to_string(&prompt_md).expect("prompt.md 要存在");
+    assert!(
+        content.contains("分析主题:季度复盘"),
+        "变量要替换成真实内容:{content}"
+    );
+    assert!(
+        !content.contains("${input.topic}"),
+        "字面量不能发给模型:{content}"
+    );
+}
+
+#[test]
+fn 库分段引用了解析不了的变量_节点明确失败() {
+    let store = Store::open_in_memory().unwrap();
+    let prompt_id = store
+        .create_prompt(&aiwf_store::NewPrompt {
+            group: "analysis".to_string(),
+            name: "坏引用".to_string(),
+            sections_json: serde_json::json!([
+                {"title": "Task", "body": "看这个:${不存在的节点.success}"}
+            ])
+            .to_string(),
+            vars_json: "[]".to_string(),
+        })
+        .unwrap();
+
+    let run_id = run_flow(&store, &flow_with_prompt(Some(&prompt_id)));
+    let events = store.events(&run_id, 0, 200).unwrap();
+    let failed = events
+        .iter()
+        .find(|e| e.kind == "node.failed")
+        .expect("解析不了要明确失败,不能把字面量发给模型");
+    assert!(
+        failed.summary.contains("未定义的引用") || failed.summary.contains("不存在的节点"),
+        "失败原因要指到那个引用:{}",
+        failed.summary
+    );
+}

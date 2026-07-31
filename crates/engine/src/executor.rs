@@ -1691,9 +1691,24 @@ impl NodeExecutor {
         let instruction = if let Some(entry) = &library_prompt {
             let mut prompt = String::new();
             for (title, body) in &entry.sections {
-                if !body.trim().is_empty() {
-                    prompt.push_str(&format!("【{title}】\n{body}\n\n"));
+                if body.trim().is_empty() {
+                    continue;
                 }
+                // 分段过插值:变量 tab 里声明的 ${…} 要换成真实内容 ——
+                // 原样发出去的话模型收到的是一串它无法理解的字面量
+                // (第 4 轮实测 #4)。解析不了与指令同一待遇:明确失败
+                let body = match interpolate(body, scope) {
+                    Ok(text) => text,
+                    Err(error) => {
+                        return Ok(NodeOutcome::Failed {
+                            message: format!(
+                                "提示词「{}」的分段「{title}」解析失败:{error}",
+                                entry.name
+                            ),
+                        });
+                    }
+                };
+                prompt.push_str(&format!("【{title}】\n{body}\n\n"));
             }
             // 角色的能力边界仍然要带上 —— 它是角色页上逐项设的声明，
             // 不随提示词框架走
