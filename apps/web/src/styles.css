@@ -6097,14 +6097,14 @@ fieldset.launch__field {
   padding: 6px 10px;
   border: 1px solid var(--color-divider);
   border-radius: 6px;
-  background: var(--color-surface-raised, var(--color-surface));
+  background: var(--color-bg);
   color: var(--color-neutral-100);
   font-family: var(--font-mono, ui-monospace, monospace);
   font-size: 12px;
 }
 
 .onboarding__dir-input[aria-invalid='true'] {
-  border-color: var(--color-danger, #d9534f);
+  border-color: var(--color-status-failed);
 }
 
 /* 探测通过时那一行。用与错误行相同的位置，
@@ -6130,7 +6130,7 @@ fieldset.launch__field {
   margin: 0;
   padding: 10px 14px;
   border-top: 1px solid color-mix(in srgb, var(--color-divider) 55%, transparent);
-  background: color-mix(in srgb, var(--color-warning, #c8912a) 8%, transparent);
+  background: color-mix(in srgb, var(--color-status-waiting) 8%, transparent);
   font-size: 12px;
   line-height: 1.6;
   color: var(--color-neutral-200);
