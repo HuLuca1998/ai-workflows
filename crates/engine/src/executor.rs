@@ -101,6 +101,7 @@ pub struct NodeExecutor {
     capabilities: Option<serde_json::Value>,
     /// 这张图里用到的 Agent 角色，按 id 索引。
     agent_profiles: Vec<AgentProfile>,
+    prompts: Vec<PromptEntry>,
     /// 「模型」页登记且启用的条目。空 = 模型页空着（全新安装），
     /// 那时不做任何解析也不报降级 —— 没有目录，谈不上「要的给不了」。
     models: Vec<ModelEntry>,
@@ -140,6 +141,17 @@ pub fn resolve_runtime(node: &GraphNode, profiles: &[AgentProfile]) -> String {
 ///
 /// **执行器不碰数据库** —— 上层查好了传进来。这样它既能单测，
 /// 也不会在执行中途因为角色被改而拿到前后不一致的两份。
+/// 提示词库的一条（B-3）。运行开始时随角色一起查好交给执行器 ——
+/// 执行器不碰数据库，中途被改也不会拿到前后不一致的两份。
+#[derive(Debug, Clone)]
+pub struct PromptEntry {
+    pub id: String,
+    pub name: String,
+    pub ver: i64,
+    /// 框架分段（标题, 正文），有序。
+    pub sections: Vec<(String, String)>,
+}
+
 #[derive(Debug, Clone)]
 pub struct AgentProfile {
     pub id: String,
@@ -502,6 +514,7 @@ impl NodeExecutor {
             notifier: None,
             capabilities: None,
             agent_profiles: Vec::new(),
+            prompts: Vec::new(),
             models: Vec::new(),
             resolutions: std::sync::Mutex::new(Vec::new()),
         }
@@ -516,6 +529,15 @@ impl NodeExecutor {
     #[must_use]
     pub fn with_agent_profiles(mut self, profiles: &[AgentProfile]) -> Self {
         self.agent_profiles = profiles.to_vec();
+        self
+    }
+
+    /// 图里引用到的提示词（B-3）。节点写了 promptId 而这里查不到是硬错误 ——
+    /// 静默退回内建框架的话，用户在库里挑的那份一个字都没到模型面前，
+    /// 而界面上显示的是他挑的名字。
+    #[must_use]
+    pub fn with_prompts(mut self, prompts: &[PromptEntry]) -> Self {
+        self.prompts = prompts.to_vec();
         self
     }
 
@@ -1627,45 +1649,103 @@ impl NodeExecutor {
             }
         };
 
-        // 角色拼在最前面，节点的指令留在最后。
-        //
-        // 顺序是有讲究的：角色说的是「你是谁、你怎么做事、交出什么形状」，
-        // 那是**这一整类任务**都成立的；指令是「这一次要干什么」。
-        // 把指令埋在中间的话，多轮下来模型容易把它当成背景说明。
-        let instruction = match profile {
-            None => instruction,
-            Some(profile) => {
-                let mut prompt = String::new();
-                if !profile.role.is_empty() || !profile.name.is_empty() {
-                    prompt.push_str(&format!("你的角色：{}（{}）\n", profile.name, profile.role));
+        // 提示词库（B-3）：节点指定了 promptId 就用库里那份做框架，
+        // 替掉下面由角色拼出来的内建框架；查不到是硬错误 ——
+        // 静默退回内建的话，用户挑的那份一个字都没到模型面前。
+        let library_prompt = match node
+            .config
+            .get("promptId")
+            .and_then(serde_json::Value::as_str)
+            .map(str::trim)
+            .filter(|id| !id.is_empty())
+        {
+            None => None,
+            Some(id) => match self.prompts.iter().find(|entry| entry.id == id) {
+                Some(entry) => Some(entry.clone()),
+                None => {
+                    return Ok(NodeOutcome::Failed {
+                        message: format!(
+                            "找不到提示词 {id}。在「提示词库」页确认它还在，\
+                             或清空节点的「提示词」字段改用内建框架"
+                        ),
+                    });
                 }
-                if !profile.goal.is_empty() {
-                    prompt.push_str(&format!("你的目标：{}\n", profile.goal));
+            },
+        };
+
+        // 「这次用了哪份提示词的哪一版」在拉起 adapter 之前就写下 ——
+        // 出口标准「提示词与模型在运行记录中可追溯到具体版本」的
+        // 提示词那一半（模型那一半是 system.model_resolved）
+        sink(NodeEvent {
+            kind: "system.prompt_resolved",
+            node_id: node.id.clone(),
+            summary: match &library_prompt {
+                Some(entry) => {
+                    format!("提示词：库「{}」v{}（{}）", entry.name, entry.ver, entry.id)
                 }
-                if !profile.persona.is_empty() {
-                    prompt.push_str(&format!("你的做事方式：{}\n", profile.persona));
+                None => "提示词：内建框架（角色 + 记忆 + 指令）".to_string(),
+            },
+            payload_ref: None,
+        });
+
+        let instruction = if let Some(entry) = &library_prompt {
+            let mut prompt = String::new();
+            for (title, body) in &entry.sections {
+                if !body.trim().is_empty() {
+                    prompt.push_str(&format!("【{title}】\n{body}\n\n"));
                 }
-                if !profile.output_contract.is_empty() {
-                    prompt.push_str(&format!(
-                        "交出来的东西要是这个形状：{}\n",
-                        profile.output_contract
-                    ));
+            }
+            // 角色的能力边界仍然要带上 —— 它是角色页上逐项设的声明，
+            // 不随提示词框架走
+            if let Some(note) = self.capability_note(node) {
+                prompt.push_str(&note);
+                prompt.push('\n');
+                prompt.push('\n');
+            }
+            prompt.push_str(&instruction);
+            prompt
+        } else {
+            // 内建框架：角色拼在最前面，节点的指令留在最后。
+            //
+            // 顺序是有讲究的：角色说的是「你是谁、你怎么做事、交出什么形状」，
+            // 那是**这一整类任务**都成立的；指令是「这一次要干什么」。
+            // 把指令埋在中间的话，多轮下来模型容易把它当成背景说明。
+            match profile {
+                None => instruction,
+                Some(profile) => {
+                    let mut prompt = String::new();
+                    if !profile.role.is_empty() || !profile.name.is_empty() {
+                        prompt
+                            .push_str(&format!("你的角色：{}（{}）\n", profile.name, profile.role));
+                    }
+                    if !profile.goal.is_empty() {
+                        prompt.push_str(&format!("你的目标：{}\n", profile.goal));
+                    }
+                    if !profile.persona.is_empty() {
+                        prompt.push_str(&format!("你的做事方式：{}\n", profile.persona));
+                    }
+                    if !profile.output_contract.is_empty() {
+                        prompt.push_str(&format!(
+                            "交出来的东西要是这个形状：{}\n",
+                            profile.output_contract
+                        ));
+                    }
+                    // 角色声明的边界写进提示词。
+                    //
+                    // 引擎不再逐项强制它（权限由流程管，见 risk.rs 头部）——
+                    // 但那不等于这几个字段可以不生效。**填了不生效比报错更糟**：
+                    // 用户在角色页上逐项设过它们，一个字都没到过模型面前的话，
+                    // 那一屏就是装饰
+                    if let Some(note) = self.capability_note(node) {
+                        prompt.push_str(&note);
+                        prompt.push('\n');
+                    }
+                    if !prompt.is_empty() {
+                        prompt.push('\n');
+                    }
+                    prompt.push_str(&instruction);
+                    prompt
                 }
-                // 角色声明的边界写进提示词。
-                //
-                // 引擎不再逐项强制它（权限由流程管，见 risk.rs 头部）——
-                // 但那不等于这几个字段可以不生效。**填了不生效比报错更糟**：
-                // 用户在角色页上逐项设过它们，一个字都没到过模型面前的话，
-                // 那一屏就是装饰
-                if let Some(note) = self.capability_note(node) {
-                    prompt.push_str(&note);
-                    prompt.push('\n');
-                }
-                if !prompt.is_empty() {
-                    prompt.push('\n');
-                }
-                prompt.push_str(&instruction);
-                prompt
             }
         };
 
@@ -1727,6 +1807,21 @@ impl NodeExecutor {
             });
         }
 
+        // 发出去的提示词进对话流 —— 那是「往返」的另一半。
+        //
+        // 挪在 open_session **之前**：连不上 adapter 的那次失败,
+        // 「本来要问什么」也该有记录 —— 排查连接问题时它就是现场。
+        //
+        // 只记 agent 的回答不叫往返：用户看到一个出乎意料的结论时，
+        // 第一个要问的是「我们到底问了它什么」，而那份提示词里拼着
+        // 角色的人设、注入的记忆、上游节点的输出，都不是他手写的。
+        sink(NodeEvent {
+            kind: "conversation.user_message",
+            node_id: node.id.clone(),
+            summary: summarize(&instruction),
+            payload_ref: self.save_output(&node.id, "prompt.md", &instruction, sink),
+        });
+
         // 与审批者、主管 AI、连通性测试同一个入口。
         //
         // **MCP 从这里接上**：原先 AI 节点走的是不带 MCP 的 `new_session`，
@@ -1771,18 +1866,6 @@ impl NodeExecutor {
                 payload_ref: None,
             });
         }
-
-        // 发出去的提示词进对话流 —— 那是「往返」的另一半。
-        //
-        // 只记 agent 的回答不叫往返：用户看到一个出乎意料的结论时，
-        // 第一个要问的是「我们到底问了它什么」，而那份提示词里拼着
-        // 角色的人设、注入的记忆、上游节点的输出，都不是他手写的。
-        sink(NodeEvent {
-            kind: "conversation.user_message",
-            node_id: node.id.clone(),
-            summary: summarize(&instruction),
-            payload_ref: self.save_output(&node.id, "prompt.md", &instruction, sink),
-        });
 
         let mut text = String::new();
         let mut reasoning = String::new();

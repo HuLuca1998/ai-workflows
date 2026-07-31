@@ -46,7 +46,6 @@ const NOT_YET_EMITTED: &[(&str, &str)] = &[
         "system.memory_written",
         "记忆写入只有用户/MCP 的 CRUD 路径，没有运行上下文可挂 —— 运行中写记忆的机制未实现",
     ),
-    ("system.prompt_resolved", "提示词库还没接上执行路径（B-3）"),
     (
         "system.permission_granted",
         "权限档在拦但不留痕 —— 待补发射点",

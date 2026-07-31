@@ -103,6 +103,52 @@ pub fn agent_profiles_for_graph(
     Ok(profiles)
 }
 
+/// 一张图引用到的提示词，从库里查好（B-3）。查不到的跳过 ——
+/// 执行器会在跑到那个节点时报「找不到提示词 X」，比这里静默有用。
+pub fn prompts_for_graph(
+    store: &Store,
+    graph: &crate::graph::WorkflowGraph,
+) -> Result<Vec<crate::executor::PromptEntry>> {
+    let mut ids: Vec<String> = Vec::new();
+    for node in &graph.nodes {
+        if let Some(id) = node
+            .config
+            .get("promptId")
+            .and_then(serde_json::Value::as_str)
+            .map(str::trim)
+            .filter(|id| !id.is_empty())
+        {
+            if !ids.iter().any(|seen| seen == id) {
+                ids.push(id.to_string());
+            }
+        }
+    }
+
+    let mut prompts = Vec::new();
+    for id in ids {
+        if let Some(row) = store.get_prompt(&id)? {
+            let sections: Vec<(String, String)> =
+                serde_json::from_str::<Vec<serde_json::Value>>(&row.sections_json)
+                    .unwrap_or_default()
+                    .into_iter()
+                    .filter_map(|section| {
+                        Some((
+                            section.get("title")?.as_str()?.to_string(),
+                            section.get("body")?.as_str()?.to_string(),
+                        ))
+                    })
+                    .collect();
+            prompts.push(crate::executor::PromptEntry {
+                id: row.id,
+                name: row.name,
+                ver: row.ver,
+                sections,
+            });
+        }
+    }
+    Ok(prompts)
+}
+
 impl RunError {
     /// 接下来该干什么。
     ///
@@ -612,6 +658,10 @@ impl Runner {
         // 会拿到不一样的人设，而运行记录上看不出这件事发生过。
         let profiles = self.agent_profiles_for(store, run_id)?;
 
+        // 图里引用到的提示词，一次性查好交给执行器（B-3）——
+        // 与角色同一条理由：执行器不碰数据库
+        let prompts = self.prompts_for(store, run_id)?;
+
         // 「模型」页的**全量**目录（含停用的），一次性查好交给执行器 ——
         // 节点的 modelPolicy 与角色的 model_ref 靠它解析，
         // 而「已停用」与「未登记」要区分：前者是用户的显式动作。
@@ -640,6 +690,7 @@ impl Runner {
             .with_permission_preset(&preset)
             .with_approved_nodes(&approved)
             .with_agent_profiles(&profiles)
+            .with_prompts(&prompts)
             .with_models(&models);
 
         // 通知发送器从外壳一路传下来。没有它时 `notify` 节点
@@ -1102,6 +1153,15 @@ impl Runner {
     ) -> Result<Vec<crate::executor::AgentProfile>> {
         let (graph, _) = self.load_plan(store, run_id)?;
         agent_profiles_for_graph(store, &graph)
+    }
+
+    fn prompts_for(
+        &self,
+        store: &Store,
+        run_id: &str,
+    ) -> Result<Vec<crate::executor::PromptEntry>> {
+        let (graph, _) = self.load_plan(store, run_id)?;
+        prompts_for_graph(store, &graph)
     }
 
     fn emit(
