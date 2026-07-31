@@ -6,7 +6,8 @@
 //! 协议版本按客户端要的回。写死一个版本的话，装着旧版 Claude Code
 //! 的机器会在握手时就断开，而症状是「加了 server 但工具列表是空的」。
 
-use std::sync::Mutex;
+use std::sync::{Mutex, OnceLock};
+use std::time::{Duration, Instant};
 
 use aiwf_engine::supervisor::Supervisor;
 use aiwf_store::Store;
@@ -110,7 +111,7 @@ fn initialize(params: &Value) -> Value {
 }
 
 fn tools_list() -> Vec<Value> {
-    catalog::tools()
+    let mut tools: Vec<Value> = catalog::tools()
         .iter()
         .map(|tool| {
             json!({
@@ -129,7 +130,61 @@ fn tools_list() -> Vec<Value> {
                 },
             })
         })
-        .collect()
+        .collect();
+    tools.push(ask_user_entry());
+    tools
+}
+
+/// 内建工具：agent 向用户提问，挂起等回答。
+///
+/// **不在契约派生清单里** —— 它不是某个 Core API 命令的镜像：
+/// `dispatch` 从进门就持库锁到返回，一个要挂着等用户回答的调用放进去，
+/// 用户提交答案的那条 `mcp_answer_ask` 会被同一把锁挡在门外，死锁到超时。
+/// 所以由这一层特判：入队、放锁、轮询，答案原样带回。
+pub const ASK_USER_TOOL: &str = "ask_user";
+
+/// 队列的 TTL 是三分钟（`CONFIRM_TTL_SECS`），过期由每次轮询顺手清理。
+/// 这里的上限只是兜底 —— 万一过期机制没把它标掉，也不能永远挂着。
+const ASK_WAIT_MAX: Duration = Duration::from_secs(190);
+const ASK_POLL_INTERVAL: Duration = Duration::from_millis(500);
+
+fn ask_user_entry() -> Value {
+    json!({
+        "name": ASK_USER_TOOL,
+        "title": "向用户提问",
+        "description": "向正在用这个应用的用户提一个问题，等他回答后把选择原样带回。\
+            kind 四种：choice（选一个）/ multiChoice（选几个）/ form（补几段输入，用 fields 声明）/ \
+            confirm（是/否，答案是 selected: yes|no）。这次调用会挂起直到用户回答，最长三分钟。\
+            outcome 为 declined 表示用户拒绝回答 —— 别换个说法再问同一件事；\
+            no_answer 表示没人在电脑前，按你的最优判断继续或稍后再问。",
+        "inputSchema": ask_spec_schema(),
+        "annotations": {
+            "title": "向用户提问",
+            // 它不改用户的数据，但一次调用会打断用户。标成只读/幂等的话，
+            // 客户端会把失败的调用自动重试 —— 用户被同一个问题反复砸
+            "readOnlyHint": false,
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": false,
+        },
+    })
+}
+
+/// 入参 schema 直接用契约生成物 —— 手写第二份的结局是漂移，
+/// 而漂移的样子是「schema 说有的字段，界面渲染不出来」。
+fn ask_spec_schema() -> &'static Value {
+    static SCHEMA: OnceLock<Value> = OnceLock::new();
+    SCHEMA.get_or_init(|| {
+        let mut schema: Value = serde_json::from_str(include_str!(
+            "../../../packages/contracts/generated/ask-spec.schema.json"
+        ))
+        .unwrap_or_else(|_| json!({ "type": "object", "properties": {} }));
+        // `$schema` 留着会让部分客户端拒绝加载整份清单
+        if let Some(object) = schema.as_object_mut() {
+            object.remove("$schema");
+        }
+        schema
+    })
 }
 
 /// 调一个工具。
@@ -143,6 +198,11 @@ fn call_tool(ctx: &McpContext<'_>, params: &Value) -> Value {
         .get("arguments")
         .cloned()
         .unwrap_or_else(|| json!({}));
+
+    // 内建工具在契约清单之外，先于它分派
+    if name == ASK_USER_TOOL {
+        return ask_user(ctx, &input);
+    }
 
     let Some(tool) = catalog::tool(name) else {
         return error_result(if catalog::DELIBERATELY_HIDDEN.contains(&name) {
@@ -206,6 +266,90 @@ fn call_tool(ctx: &McpContext<'_>, params: &Value) -> Value {
             error_result(format!("[{}] {message}", error.code))
         }
     }
+}
+
+/// 向用户提问，挂起到有答案。
+///
+/// 等待期间**不持库锁** —— 用户提交答案的那条调用要拿同一把锁。
+/// 入队与每次轮询各自短暂拿锁，中间放开。
+fn ask_user(ctx: &McpContext<'_>, input: &Value) -> Value {
+    let id = {
+        let Ok(store) = ctx.store.lock() else {
+            return error_result("数据库锁已损坏，需要重启应用".to_string());
+        };
+        match aiwf_core_api::mcp_ask_user(&store, input.to_string()) {
+            Ok(id) => id,
+            Err(error) => return error_result(format!("[{}] {}", error.code, error.message)),
+        }
+    };
+
+    let deadline = Instant::now() + ASK_WAIT_MAX;
+    loop {
+        std::thread::sleep(ASK_POLL_INTERVAL);
+
+        let result = {
+            let Ok(store) = ctx.store.lock() else {
+                return error_result("数据库锁已损坏，需要重启应用".to_string());
+            };
+            // 每次轮询顺手清理过期 —— TTL 到了它会把这条标成 expired
+            aiwf_core_api::mcp_ask_result(&store, id.clone())
+        };
+
+        let result = match result {
+            Ok(result) => result,
+            Err(error) => return error_result(format!("[{}] {}", error.code, error.message)),
+        };
+
+        match result.status.as_str() {
+            "pending" => {}
+            // 回答与拒绝都不是错误（isError 会让部分客户端中断对话）——
+            // 它们是用户的决定，agent 要读着它接着干活
+            "approved" => {
+                let answer = result
+                    .answer_json
+                    .as_deref()
+                    .and_then(|text| serde_json::from_str::<Value>(text).ok())
+                    .unwrap_or(Value::Null);
+                return ask_outcome(json!({
+                    "outcome": "answered",
+                    "answer": answer,
+                }));
+            }
+            "rejected" => {
+                // 刻意不带 answer 字段：空对象会被 agent 当成「用户什么都没选」，
+                // 而那与「用户拒绝回答」是两件事
+                return ask_outcome(json!({
+                    "outcome": "declined",
+                    "note": "用户拒绝回答这个问题。别换个说法再问同一件事 —— 按你的最优判断继续",
+                }));
+            }
+            // expired 与任何认不出的状态都按「没人回答」处理：
+            // 猜一个具体含义再据此行动，比承认不知道更糟
+            _ => {
+                return ask_outcome(json!({
+                    "outcome": "no_answer",
+                    "note": "三分钟没人回答，可能用户不在电脑前。按你的最优判断继续，或稍后再问",
+                }));
+            }
+        }
+
+        if Instant::now() >= deadline {
+            return ask_outcome(json!({
+                "outcome": "no_answer",
+                "note": "等待超时，没有等到回答。按你的最优判断继续，或稍后再问",
+            }));
+        }
+    }
+}
+
+/// 提问的结果。与普通工具一样给两份：文本给只读 text 的客户端，
+/// `structuredContent` 给认结构的。
+fn ask_outcome(value: Value) -> Value {
+    json!({
+        "content": [{ "type": "text", "text": pretty(&value) }],
+        "structuredContent": value,
+        "isError": false,
+    })
 }
 
 /// 用户是不是已经批准过同样的调用了。认领到就消费掉那条批准。
