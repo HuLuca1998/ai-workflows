@@ -42,7 +42,10 @@ const NOT_YET_EMITTED: &[(&str, &str)] = &[
     ),
     ("approval.reminded", "reminderAfterMs 字段未实现（B-5）"),
     ("approval.expired", "waitStrategy 字段未实现（B-5）"),
-    ("system.memory_written", "记忆提议写入已实现 —— 待补发射点"),
+    (
+        "system.memory_written",
+        "记忆写入只有用户/MCP 的 CRUD 路径，没有运行上下文可挂 —— 运行中写记忆的机制未实现",
+    ),
     ("system.prompt_resolved", "提示词库还没接上执行路径（B-3）"),
     (
         "system.permission_granted",
