@@ -301,7 +301,7 @@ describe('筛选与搜索交给后端', () => {
     const setFilter = vi.fn(async () => {});
     useWorkspace.setState({ setFilter } as never);
     view();
-    await screen.findByLabelText('搜索工作流');
+    await screen.findByLabelText('搜索工作流、运行或产物');
 
     const input = screen.getByLabelText('搜索工作流、运行或产物') as HTMLInputElement;
     fireEvent.change(input, { target: { value: 'worktree' } });
@@ -317,7 +317,7 @@ describe('筛选与搜索交给后端', () => {
     const setFilter = vi.fn(async () => {});
     useWorkspace.setState({ setFilter } as never);
     view();
-    await screen.findByLabelText('搜索工作流');
+    await screen.findByLabelText('搜索工作流、运行或产物');
 
     const input = screen.getByLabelText('搜索工作流、运行或产物');
     fireEvent.change(input, { target: { value: 'worktree' } });
