@@ -516,6 +516,24 @@ rg -c 'tools/call' crates/mcp/tests/http_test.rs   # 6
 
 ---
 
+### L-6 · `sync_models` 硬编码 effort，模型档位在同步目录上分不出档
+
+**位置**：`crates/store/src/lib.rs`（`sync_models`）
+
+节点的 `modelPolicy` 档位（fast / balanced / quality）按登记条目的
+`effort` 排序挑选（`executor.rs` 的 `pick_tier`）。而模型清单的唯一
+来源 `model.sync` 给每条新条目**硬编码 `effort='medium'`** —— 同步出来的
+目录里所有条目同档，三个档位全部落在按名字排序的第一条：
+用户选「快速」和「高质量」，拿到的是同一个模型。
+
+根因是维度错位：契约把 effort 当条目属性（「同一模型的不同推理档位
+登记为不同条目」），而 runtime 侧模型与推理档是两个独立配置项 ——
+sync 拿不到「每模型的 effort」，只能编一个。
+
+**还清的判据**：`sync_models` 按 runtime 报的 effort 选项展开条目
+（或换掉「effort 属于条目」的建模），配一条「用 sync 造出的目录跑
+`pick_tier`，三个档位选出三个不同条目」的测试。手工登记的目录不受影响。
+
 ## 三、欠账
 
 这些都记在账本上、有理由、不需要额外机制。列在这里是为了台账完整，

@@ -641,11 +641,15 @@ export function AgentsPage() {
                         {selected.modelRef}（已停用或已删除）
                       </option>
                     )}
-                    {(models ?? []).map((model) => (
-                      <option key={model.id} value={model.id}>
-                        {model.name}
-                      </option>
-                    ))}
+                    {/* 只列与角色同 runtime 的 —— 引擎解析时按 runtime 过滤候选，
+                        跨 runtime 的引用配了也是每次运行一条「runtime 不符」的降级 */}
+                    {(models ?? [])
+                      .filter((model) => !selected.runtime || model.runtime === selected.runtime)
+                      .map((model) => (
+                        <option key={model.id} value={model.id}>
+                          {model.name}
+                        </option>
+                      ))}
                   </select>
                 </div>
                 <div>
@@ -660,11 +664,13 @@ export function AgentsPage() {
                     }
                   >
                     <option value="">不降级</option>
-                    {(models ?? []).map((model) => (
-                      <option key={model.id} value={model.id}>
-                        {model.name}
-                      </option>
-                    ))}
+                    {(models ?? [])
+                      .filter((model) => !selected.runtime || model.runtime === selected.runtime)
+                      .map((model) => (
+                        <option key={model.id} value={model.id}>
+                          {model.name}
+                        </option>
+                      ))}
                   </select>
                 </div>
                 <div>

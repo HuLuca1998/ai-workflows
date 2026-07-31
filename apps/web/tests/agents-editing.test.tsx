@@ -81,6 +81,30 @@ async function open() {
 }
 
 describe('详情区可编辑', () => {
+  it('下拉只列与角色同 runtime 的模型 —— 跨 runtime 的引用引擎解析不了', async () => {
+    // 引擎按 runtime 过滤候选：配一个 codex 的模型给 claude 的角色，
+    // 每次运行都是一条「runtime 不符」的降级。下拉根本不该给这个选项
+    respond({
+      'model.list': () => ({
+        items: [
+          full({ id: 'model_1', name: 'Opus 5 · high' }),
+          { ...full({ id: 'model_x', name: '别家的' }), runtime: 'acp.codex' },
+        ],
+        total: 2,
+      }),
+    });
+    const user = userEvent.setup();
+    render(<AgentsPage />);
+    await user.click(await screen.findByText('分析 Agent'));
+
+    for (const label of ['模型', '降级模型']) {
+      const select = screen.getByLabelText(label) as HTMLSelectElement;
+      const names = Array.from(select.options).map((option) => option.textContent);
+      expect(names, label).not.toContain('别家的');
+      expect(names, label).toContain('Opus 5 · high');
+    }
+  });
+
   it('改模型后下拉保持新选择 —— 不弹回原值', async () => {
     const user = await open();
     const select = screen.getByLabelText('模型') as HTMLSelectElement;
