@@ -130,7 +130,9 @@ fn check_double_quoting(graph: &WorkflowGraph) -> Vec<Check> {
             continue;
         };
         for vars in quoted_placeholders(script) {
-            hit.push(format!("{}（{}）", node.id, vars));
+            // 用节点标题不用内部 id：用户起的名字叫「写入纪要文件」，
+            // 提示里写 `script_shell_4` 他对不上号（P13）
+            hit.push(format!("{}（{}）", node.title, vars));
         }
     }
 

@@ -363,7 +363,9 @@ fn 变量被重复加引号时_dry_run_就拦下() {
     );
 
     let detail = 找检查(&report, "引号").expect("该有一条引号检查");
-    assert!(detail.contains("sh"), "要说清是哪个节点：{detail}");
+    // 要用用户起的名字,不是内部 id —— 用户给节点起名「跑一下」,
+    // 提示里写 `sh` 他对不上号(第 2 轮实测 P13)
+    assert!(detail.contains("跑一下"), "要用节点标题说清是哪个节点：{detail}");
     assert!(detail.contains("input.issue"), "要说清是哪个变量：{detail}");
     assert!(!report.ok, "这条该让 Dry Run 不通过");
 }
