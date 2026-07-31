@@ -220,9 +220,16 @@ function EditorCanvas() {
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key !== 'a' || !(event.metaKey || event.ctrlKey)) return;
 
+      // 弹层开着时画布快捷键整体失效。第 2 轮实测的事故链：焦点落在
+      // 弹层内的按钮上按 ⌘A → 画布全选 → Backspace 清空整张画布，
+      // 而撤销是「待实现」。按 tagName 挡不住按钮和标签页
+      if (configNodeId) return;
+
       const target = event.target as HTMLElement | null;
       const tag = target?.tagName;
       if (tag === 'INPUT' || tag === 'TEXTAREA' || target?.isContentEditable) return;
+      // 任何模态（运行对话框、版本抽屉…）里的元素都不该触发画布全选
+      if (target?.closest?.('[role="dialog"]')) return;
 
       event.preventDefault();
       // 走 store 而不是 flow.setNodes：节点是受控的，
@@ -232,7 +239,7 @@ function EditorCanvas() {
 
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [setSelection]);
+  }, [setSelection, configNodeId]);
 
   const selectedIds = useMemo(() => new Set(selection), [selection]);
   const nodes = useMemo(
