@@ -201,6 +201,9 @@ pub struct RunEventRow {
     pub actor: String,
     pub summary: String,
     pub payload_ref: Option<String>,
+    /// 这条事件产出/指向的产物。写入时就有,读取曾把它丢了 ——
+    /// 前端产物投影只读这个字段,于是永远是空(codex 复核抓到的)
+    pub artifact_refs: Vec<String>,
     pub sensitivity: String,
 }
 
@@ -2512,7 +2515,7 @@ impl Store {
     pub fn events(&self, run_id: &str, from_seq: i64, limit: i64) -> Result<Vec<RunEventRow>> {
         let mut stmt = self.conn.prepare(
             "SELECT id, run_id, seq, ts, type, node_id, node_label, attempt, actor, summary,
-                    payload_ref, sensitivity
+                    payload_ref, artifact_refs, sensitivity
              FROM run_event WHERE run_id = ?1 AND seq > ?2 ORDER BY seq ASC LIMIT ?3",
         )?;
         let rows = stmt.query_map(params![run_id, from_seq, limit], |row| {
@@ -2528,7 +2531,11 @@ impl Store {
                 actor: row.get(8)?,
                 summary: row.get(9)?,
                 payload_ref: row.get(10)?,
-                sensitivity: row.get(11)?,
+                artifact_refs: row
+                    .get::<_, Option<String>>(11)?
+                    .and_then(|raw| serde_json::from_str(&raw).ok())
+                    .unwrap_or_default(),
+                sensitivity: row.get(12)?,
             })
         })?;
         Ok(rows.collect::<std::result::Result<Vec<_>, _>>()?)

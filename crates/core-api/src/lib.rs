@@ -326,6 +326,9 @@ pub struct RunEventDto {
     summary: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     payload_ref: Option<String>,
+    /// 契约的 artifactRefs 可选;空数组不发,老客户端不受影响
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    artifact_refs: Vec<String>,
     sensitivity: String,
     schema_ver: i64,
 }
@@ -833,6 +836,7 @@ pub fn run_events(
                 actor: row.actor,
                 summary: row.summary,
                 payload_ref: row.payload_ref,
+                artifact_refs: row.artifact_refs,
                 sensitivity: row.sensitivity,
                 // 事件的 schema 版本目前只有 1；契约要求这个字段必填
                 schema_ver: 1,

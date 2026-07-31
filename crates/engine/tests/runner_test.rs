@@ -1467,6 +1467,18 @@ fn 产物落盘时发_artifact_created_事件() {
             .all(|e| e.payload_ref.as_deref().is_some_and(|r| !r.is_empty())),
         "artifact.created 必须带 payload_ref,界面拿它读内容"
     );
+    // 前端产物投影只读 artifactRefs —— 读路径丢了它的话投影永远为空
+    assert!(
+        created
+            .iter()
+            .all(|e| !e.artifact_refs.is_empty()),
+        "artifact.created 的 artifact_refs 要能从读路径出来"
+    );
+    // 反例:普通脚本没截断,不得谎报 artifact.truncated(假测试复核要求的反向断言)
+    assert!(
+        events.iter().all(|e| e.kind != "artifact.truncated"),
+        "没截断不能谎报截断"
+    );
 }
 
 #[test]

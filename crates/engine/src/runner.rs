@@ -822,9 +822,10 @@ impl Runner {
             let _ = store.advance_run_status(run_id, "failed", Some(node_id))?;
             // 拒批也是一种「运行结束」：这条路不经过 run_until_pause 的收尾，
             // on_run_end 的清理承诺曾漏掉它（codex 复核抓到的）
-            if let (Ok(scope), Ok(workdir)) =
-                (self.restore_scope(store, run_id), self.workdir(store, run_id))
-            {
+            if let (Ok(scope), Ok(workdir)) = (
+                self.restore_scope(store, run_id),
+                self.workdir(store, run_id),
+            ) {
                 self.cleanup_worktrees(store, run_id, "failed", &scope, &workdir);
             }
         }
@@ -1171,8 +1172,15 @@ impl Runner {
             //
             // 只在读取点脱的话，数据库文件本身仍然带着明文走备份
             summary: truncate_to(&crate::redactor::redact_shared(summary)),
+            // artifact.* 事件的产物路径要同时进 artifactRefs：
+            // 前端的产物投影（EventStore.artifacts）只读那个字段，
+            // 只写 payload_ref 的话投影永远是空的（codex 复核抓到的）
+            artifact_refs: if kind.starts_with("artifact.") {
+                payload_ref.iter().cloned().collect()
+            } else {
+                vec![]
+            },
             payload_ref,
-            artifact_refs: vec![],
             parent_event_id: None,
             sensitivity: "internal".to_string(),
             schema_ver: 1,
