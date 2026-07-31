@@ -104,10 +104,6 @@ const 引擎不消费: Record<string, string> = {
   //
   // AI 四类共通的两条。promptId 那条是 DEBT B-3「提示词库与执行路径断开」：
   // 整屏提示词库做完了，而拼提示词的地方从不读 prompt 表
-  'ai.analyze.promptId': '欠账：提示词库没接执行路径（DEBT B-3）',
-  'ai.review.promptId': '欠账：提示词库没接执行路径（DEBT B-3）',
-  'ai.decide.promptId': '欠账：提示词库没接执行路径（DEBT B-3）',
-  'ai.execute.promptId': '欠账：提示词库没接执行路径（DEBT B-3）',
   // modelPolicy 四条接上了：executor 的 resolve_model 按
   // 钉住/档位 → 角色主选 → 后备 的顺序解析，降级发 system.model_downgraded
   'ai.analyze.turnLimit': '欠账：Turn 上限不被强制，agent 想跑多少轮就多少轮',

@@ -49,7 +49,7 @@ export const NAV_ITEMS: readonly NavItem[] = [
     path: '/prompts',
     label: '提示词库',
     icon: 'ph-quotes',
-    summary: '系统调用 AI 的每一处提示词都可见可改',
+    summary: '工作流 AI 节点的提示词框架，可选用可修改',
   },
   { path: '/models', label: '模型', icon: 'ph-cpu', summary: '统一登记可用模型' },
   /**

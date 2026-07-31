@@ -7,7 +7,7 @@ import userEvent from '@testing-library/user-event';
  *
  * 要压住的产品规则：
  * 1. 这里收着系统调用 AI 的各处提示词 —— 内置条目不能删，只能复制
- * 2. 执行路径尚未接上，界面必须如实说明（纪律二：绝不假装成功）
+ * 2. 执行路径已接上（B-3 已还清），文案要跟着事实走 —— 不夸大也不再自贬
  * 3.「Secret 只能以引用形式出现，预览与日志中永不展开明文」
  * 4.「运行记录会引用当时的提示词版本，历史结果始终可解释」
  */
@@ -80,11 +80,12 @@ describe('列表', () => {
     });
   });
 
-  it('底部常驻的说明如实交代「执行路径尚未接上」', async () => {
+  it('底部说明与事实一致:选了提示词的节点运行时真的用它', async () => {
+    // B-3 已还清:run_ai 读 promptId 并发 system.prompt_resolved。
+    // 「执行路径尚未接上」那句老实话已经过时,留着反而是新的假话
     view();
-    expect(
-      await screen.findByText(/执行路径尚未接上 —— 运行时用的仍是引擎内建的那一份/u),
-    ).toBeTruthy();
+    expect(await screen.findByText(/system\.prompt_resolved/u)).toBeTruthy();
+    expect(screen.queryByText(/执行路径尚未接上/u)).toBeNull();
   });
 
   it('一条都没有时说明这里会出现什么', async () => {
@@ -116,13 +117,14 @@ describe('详情的四个 tab', () => {
     expect(panel.textContent).toContain('Task');
   });
 
-  // DEBT.md B-3：run_ai 只读 agentProfileId + instruction，promptId 在
-  // crates/engine/src 里出现 0 次。界面不能承诺「保存后新运行生效」。
-  it('提示条如实说明引擎目前不读提示词库，且内置条目不谎称可改', async () => {
-    // 第 1 轮实测：内置详情页 0 个可编辑控件，「可见可改」那半句是错的
+  it('提示条与事实一致:内置只读要复制,自定义保存新版本即生效', async () => {
+    // 第 1 轮实测:内置详情页 0 个可编辑控件,「可见可改」曾是错的;
+    // B-3 还清后「引擎不读它」也过时了 —— 两个方向的假话都不留
+    // 默认 mock 是自定义条目 —— 提示「保存新版本即生效」
     await open();
-    expect(screen.getByText(/引擎目前不读提示词库/)).toBeTruthy();
+    expect(screen.getByText(/保存新版本后，选了这条提示词的节点下次运行即生效/)).toBeTruthy();
     expect(screen.queryByText(/可见可改/)).toBeNull();
+    expect(screen.queryByText(/引擎目前不读提示词库/)).toBeNull();
   });
 
   it('变量 tab 列出来源与缺失时的行为', async () => {

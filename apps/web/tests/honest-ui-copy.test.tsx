@@ -21,15 +21,13 @@ const agentsPage = read('apps/web/src/agents/AgentsPage.tsx');
 const onboardingPage = read('apps/web/src/onboarding/OnboardingPage.tsx');
 const updateCard = read('apps/web/src/updater/UpdateCard.tsx');
 
-describe('提示词库 · 执行路径没接上就不能说「会生效」', () => {
-  it('不承诺「保存后新运行生效」—— 引擎里 promptId 出现 0 次', () => {
-    // DEBT.md B-3：run_ai 只读 agentProfileId + instruction。
-    // 接上 with_prompts 之后再把这条断言反过来。
-    expect(promptsPage).not.toContain('保存后新运行生效');
-  });
-
-  it('如实说明引擎目前不读它', () => {
-    expect(promptsPage).toContain('引擎目前不读提示词库');
+describe('提示词库 · 文案跟着事实走', () => {
+  it('B-3 已接上:不再自称「引擎不读」,也说清追溯靠什么', () => {
+    // run_ai 现在读 promptId、发 system.prompt_resolved(B-3 已还清)。
+    // 老实话过时之后留着就是新的假话
+    expect(promptsPage).not.toContain('引擎目前不读提示词库');
+    expect(promptsPage).not.toContain('执行路径尚未接上');
+    expect(promptsPage).toContain('system.prompt_resolved');
   });
 });
 
