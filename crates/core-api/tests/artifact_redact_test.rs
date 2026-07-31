@@ -109,3 +109,53 @@ mod 读取点也要用共享脱敏器 {
         );
     }
 }
+
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+mod 事件流读取脱敏 {
+    use aiwf_store::{NewRunEvent, Store};
+
+    #[test]
+    fn 历史事件里的明文密钥在读取时被挡住_第9轮实测() {
+        // 写入前脱敏(emit_full)会漏掉规则加进来之前写下的历史事件。
+        // 读取路径再兜一道 —— 页脚承诺「界面不提供绕过查看」
+        let dir = tempfile::tempdir().unwrap();
+        let db = dir.path().join("aiwf.sqlite");
+        let store = Store::open(&db).unwrap();
+        let wf = store.create_workflow("测试", None).unwrap();
+        let run = store.create_run_for_test(&wf).unwrap();
+        // 直接写一条带明文 sec- 密钥的事件(绕过 emit_full,模拟历史数据)
+        store
+            .append_event(&NewRunEvent {
+                run_id: run.clone(),
+                kind: "conversation.agent_message".to_string(),
+                node_id: None,
+                node_label: None,
+                attempt: None,
+                actor: "agent".to_string(),
+                status: None,
+                summary: "502: url https://x/sec-T00LEAKabcdef1234567890/v1".to_string(),
+                payload_ref: None,
+                artifact_refs: vec![],
+                parent_event_id: None,
+                sensitivity: "internal".to_string(),
+                schema_ver: 1,
+            })
+            .unwrap();
+
+        let store2 = std::sync::Mutex::new(Store::open(&db).unwrap());
+        let supervisor = aiwf_engine::supervisor::Supervisor::new(db.clone());
+        let page = aiwf_core_api::dispatch::dispatch(
+            "run_events",
+            &serde_json::json!({"runId": run, "fromSeq": 0, "limit": 50}),
+            &store2,
+            &supervisor,
+            dir.path(),
+        )
+        .unwrap();
+        let json = serde_json::to_string(&page).unwrap();
+        assert!(
+            !json.contains("sec-T00LEAKabcdef1234567890"),
+            "读取路径要挡住历史明文:{json}"
+        );
+    }
+}

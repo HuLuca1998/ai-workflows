@@ -887,7 +887,11 @@ pub fn run_events(
                 node_label: row.node_label,
                 attempt: row.attempt,
                 actor: row.actor,
-                summary: row.summary,
+                // 读取时再脱一道:写入前已脱敏(emit_full),但脱敏规则会补
+                // 新形态(如 sec- 前缀是后加的),规则加之前写下的历史事件
+                // 仍带明文。页脚承诺「界面不提供绕过查看」,这里兜住它
+                // (第 9 轮实测 #1:历史事件泄漏 sec- 明文)
+                summary: aiwf_engine::redactor::redact_shared(&row.summary),
                 payload_ref: row.payload_ref,
                 artifact_refs: row.artifact_refs,
                 sensitivity: row.sensitivity,
