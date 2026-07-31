@@ -147,7 +147,7 @@ describe('有未保存改动时复制', () => {
     await user.clear(name);
     await user.type(name, '改过的');
 
-    const copy = screen.getByRole('button', { name: /复制/u });
+    const copy = screen.getByRole('button', { name: '复制' });
     expect(copy.title).toContain('已保存');
   });
 });

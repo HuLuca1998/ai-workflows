@@ -5589,6 +5589,12 @@ fieldset.launch__field {
   font-size: 12px;
 }
 
+/* 详情副标题里的 id:小号等宽,别抢正文 */
+.agents__id {
+  font-size: 10.5px;
+  color: var(--color-neutral-600);
+}
+
 /* 左栏顶部的搜索框（图纸「05 Agent 角色」） */
 .agents__search {
   margin: 0 8px 8px;

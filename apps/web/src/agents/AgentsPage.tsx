@@ -8,6 +8,7 @@ import { Pager } from '../layout/Pager.js';
 import { coreClient } from '../data/workspace.js';
 import { ListEmpty } from '../layout/ListEmpty.js';
 import { useFocusOnce } from '../hooks/useFocusOnce.js';
+import { CopyButton } from '../layout/CopyButton.js';
 
 /**
  * Agent 角色 —— 严格照图纸「05 Agent 角色」：250px 左栏 + 详情区四块。
@@ -499,7 +500,11 @@ export function AgentsPage() {
                 />
                 <p className="models__detail-sub">
                   {selected.role} · v{selected.ver} ·{' '}
-                  {RUNTIME_LABELS[selected.runtime as never] ?? selected.runtime}
+                  {RUNTIME_LABELS[selected.runtime as never] ?? selected.runtime} ·{' '}
+                  {/* id 露出来:节点配置、MCP、排查都认 id 不认名字 ——
+                      此前全应用无处可查(第 5 轮实测 P5) */}
+                  <code className="agents__id">{selected.id}</code>
+                  <CopyButton value={selected.id} label="" ariaLabel="复制角色 id" className="env__copy" />
                 </p>
               </div>
               <span className="runs__grow" />

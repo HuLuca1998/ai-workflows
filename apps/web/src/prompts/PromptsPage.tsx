@@ -7,6 +7,7 @@ import { Pager } from '../layout/Pager.js';
 import { coreClient } from '../data/workspace.js';
 import { ListEmpty } from '../layout/ListEmpty.js';
 import { useFocusOnce } from '../hooks/useFocusOnce.js';
+import { CopyButton } from '../layout/CopyButton.js';
 
 /**
  * 提示词库 —— 严格照图纸「06 提示词库」：266px 左栏 + 详情四个 tab。
@@ -314,7 +315,9 @@ export function PromptsPage() {
               <div>
                 <h4>{selected.name}</h4>
                 <p className="models__detail-sub">
-                  {selected.group} · v{selected.ver}
+                  {selected.group} · v{selected.ver} ·{' '}
+                  <code className="agents__id">{selected.id}</code>
+                  <CopyButton value={selected.id} label="" ariaLabel="复制提示词 id" className="env__copy" />
                 </p>
               </div>
               <span className="runs__grow" />
