@@ -101,6 +101,13 @@ export const RUN_EVENT_TYPES = [
    */
   'system.output_truncated',
   'system.audit',
+  /**
+   * 运行结束时引擎按 `cleanupPolicy` 移除了 worktree。
+   *
+   * 删的是用户磁盘上的目录，必须留痕 —— 事后要能回答
+   * 「那个 worktree 哪去了」。分支不删：提交在分支上。
+   */
+  'system.worktree_cleaned',
 ] as const;
 export type RunEventType = (typeof RUN_EVENT_TYPES)[number];
 

@@ -62,7 +62,8 @@
     "system.redaction_applied",
     "system.session_rebuilt",
     "system.output_truncated",
-    "system.audit"
+    "system.audit",
+    "system.worktree_cleaned"
   ],
   "nodeTypes": [
     "ai.analyze",
