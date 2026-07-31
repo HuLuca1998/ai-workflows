@@ -499,6 +499,198 @@ const SCENARIOS = {
     rmSync(cwd, { recursive: true, force: true });
     return out;
   },
+
+  /**
+   * 模型怎么选、能不能设、设了生不生效。
+   *
+   * 这个场景**会产生真实模型调用**（要验「设了之后跑的是不是那个」，
+   * 只能真跑一轮）。claude 侧三轮实测花了 $0.49。
+   *
+   * 三件事按顺序验：
+   *
+   * 1. **清单从哪来** —— `models.availableModels` 只有 codex 有，
+   *    `configOptions` 两端都有。按 `category` 取而不是按 `id`：
+   *    id 两端不一样（`reasoning_effort` vs `effort`），category 一样
+   * 2. **`session/new` 带 model 参数会怎样** —— 两端都**静默忽略**：
+   *    不报错、不采纳。这是最坏的一种「不支持」，照直觉实现会全绿而从不生效
+   * 3. **`set_config_option` 设了生不生效** —— 响应回全量 configOptions
+   *    可当场回读；再配一条「设不存在的值」的对照，证明 agent 真的在校验
+   *
+   * 候选值一律从 agent 给的 options 里取，**不硬编码** ——
+   * 本地 CLI 一升级模型清单就会变，写死的候选到那天会静默失效。
+   */
+  async model(runtime, rec) {
+    const probe = async (conn, method, params, timeoutMs = 30_000) => {
+      try {
+        return { ok: true, result: await conn.request(method, params, timeoutMs) };
+      } catch (e) {
+        return { ok: false, error: e.message.slice(0, 300) };
+      }
+    };
+    /** configOptions 按 category 取 —— id 两端不一样，category 一样。 */
+    const 按类取 = (session, category) =>
+      (session.configOptions ?? []).find((o) => o.category === category);
+
+    const conn = new Conn(runtime, rec);
+    await conn.initialize();
+    const cwds = [];
+    const 新目录 = () => {
+      const d = freshCwd();
+      cwds.push(d);
+      return d;
+    };
+
+    // ── 1. 清单从哪来 ────────────────────────────────────────────────────
+    const 基准 = await conn.newSession(新目录());
+    const 模型项 = 按类取(基准, 'model');
+    const 强度项 = 按类取(基准, 'thought_level');
+    rec.note('模型清单的两个来源', {
+      'models.availableModels': 基准.models ?? null,
+      'configOptions[category=model]': 模型项 ?? null,
+      'configOptions[category=thought_level]': 强度项 ?? null,
+    });
+
+    // ── 2. session/new 里塞 model：认不认 ────────────────────────────────
+    //
+    // 挑一个**与当前值不同**的候选，不然「采纳了」与「忽略了」长得一样
+    const 别的模型 = 模型项?.options?.find((o) => o.value !== 模型项.currentValue)?.value;
+    rec.note('试着在 session/new 里直接指定模型', { 想要的: 别的模型 });
+    const 带model = await probe(conn, 'session/new', {
+      cwd: 新目录(),
+      mcpServers: [],
+      model: 别的模型,
+    });
+    const 建完的值 = 带model.ok ? 按类取(带model.result, 'model')?.currentValue : null;
+
+    // ── 3. set_config_option：设、回读、设假值 ───────────────────────────
+    const { sessionId } = 基准;
+    const 设模型 = 别的模型
+      ? await probe(conn, 'session/set_config_option', {
+          sessionId,
+          // 参数名是 configId 不是 optionId —— 写错时 agent 回的是
+          // 「configId: expected string, received undefined」
+          configId: 模型项.id,
+          value: 别的模型,
+        })
+      : { ok: false, error: '没有第二个模型可选' };
+
+    const 别的强度 = 强度项?.options?.find((o) => o.value !== 强度项.currentValue)?.value;
+    const 设强度 = 别的强度
+      ? await probe(conn, 'session/set_config_option', {
+          sessionId,
+          configId: 强度项.id,
+          value: 别的强度,
+        })
+      : { ok: false, error: '没有第二个强度档可选' };
+
+    // 对照：一个一定不存在的值。被拒 = agent 真的在校验，
+    // 那意味着**校验不必我们自己做**
+    const 设假值 = await probe(conn, 'session/set_config_option', {
+      sessionId,
+      configId: 模型项?.id ?? 'model',
+      value: '这个模型一定不存在-aiwf-probe',
+    });
+
+    // ── 4. 设了之后跑的是不是那个 ───────────────────────────────────────
+    //
+    // 回读只证明 agent **记住了**，要证明它**照做了**得真跑一轮。
+    // 两端的证据形状不同：codex 在 `_meta.quota.model_usage[].model` 里
+    // 自报模型名，claude 没有这个字段，只能看 usage_update 的上下文窗口
+    let 跑一轮 = null;
+    if (设模型.ok) {
+      const usage通知 = [];
+      const 原 = conn.onUpdate;
+      conn.onUpdate = (p) => {
+        if (p?.update?.sessionUpdate === 'usage_update') usage通知.push(p.update);
+      };
+      const r = await probe(
+        conn,
+        'session/prompt',
+        { sessionId, prompt: [{ type: 'text', text: '只回答一个字：好' }] },
+        120_000,
+      );
+      conn.onUpdate = 原;
+      跑一轮 = {
+        设成的模型: 别的模型,
+        'codex 侧的自报（_meta.quota.model_usage）':
+          (r.result?._meta?.quota?.model_usage ?? []).map((m) => m.model).join(',') ||
+          '没有这个字段',
+        usage: r.result?.usage ?? null,
+        'claude 侧的旁证（usage_update.size）': usage通知.at(-1)?.size ?? null,
+        stopReason: r.result?.stopReason ?? r.error,
+      };
+    }
+
+    // ── 5. codex 有 session/set_model，claude 没有 ──────────────────────
+    //
+    // **必须放在 prompt 之后**：它与 set_config_option 写的是同一个状态，
+    // 后调的覆盖先调的。放在前面的话，上面那一轮验的就不是我们设的模型了 ——
+    // 这是这个探针自己踩过的坑：设 terra、回读 terra，agent 却报用了 sol，
+    // 因为中间这一行把它设回 availableModels[0] 了
+    const set_model = await probe(
+      conn,
+      'session/set_model',
+      { sessionId, modelId: 基准.models?.availableModels?.[0]?.modelId ?? 'x' },
+      15_000,
+    );
+    const set_model之后 = set_model.ok
+      ? await probe(conn, 'session/set_config_option', {
+          sessionId,
+          configId: 模型项?.id ?? 'model',
+          value: 模型项?.currentValue,
+        })
+      : null;
+
+    // ── 6. 会话级还是进程级 ─────────────────────────────────────────────
+    const 再建 = await conn.newSession(新目录());
+
+    conn.kill();
+    for (const d of cwds) rmSync(d, { recursive: true, force: true });
+
+    return {
+      清单来源: {
+        'models.availableModels': 基准.models
+          ? `${基准.models.availableModels.length} 个 · current=${基准.models.currentModelId}`
+          : '没有这个字段',
+        'configOptions[model]': 模型项
+          ? `id=${模型项.id} · ${模型项.options.length} 个 · current=${模型项.currentValue}`
+          : '没有',
+        'configOptions[thought_level]': 强度项
+          ? `id=${强度项.id} · ${强度项.options.length} 个 · current=${强度项.currentValue}`
+          : '没有',
+      },
+      'session/new 带 model': 带model.ok
+        ? {
+            报错了吗: '没报错',
+            想要的: 别的模型,
+            建完的: 建完的值,
+            被采纳了吗: 建完的值 === 别的模型,
+          }
+        : { 报错: 带model.error },
+      set_config_option: {
+        设模型: 设模型.ok
+          ? `成功 · 回读 ${按类取(设模型.result, 'model')?.currentValue}`
+          : 设模型.error,
+        设强度: 设强度.ok
+          ? `成功 · 回读 ${按类取(设强度.result, 'thought_level')?.currentValue}`
+          : 设强度.error,
+        设一个不存在的值: 设假值.ok ? `静默接受（危险）` : `被拒：${设假值.error}`,
+      },
+      'session/set_model': set_model.ok
+        ? `支持 · 它与 set_config_option 写同一个状态（设完再读 model=${
+            set_model之后?.ok
+              ? 按类取(set_model之后.result, 'model')?.currentValue
+              : '读不到'
+          }）`
+        : set_model.error,
+      设了之后真的用了吗: 跑一轮,
+      新会话的默认值: {
+        model: 按类取(再建, 'model')?.currentValue,
+        与第一条一致: 按类取(再建, 'model')?.currentValue === 模型项?.currentValue,
+        说明: '一致 = 配置是会话级的，不会漏给下一条会话',
+      },
+    };
+  },
 };
 
 // ── 入口 ──────────────────────────────────────────────────────────────────
