@@ -558,6 +558,31 @@ impl Runner {
                     "engine",
                     &format!("{} 等待人工决定", node.title),
                 )?;
+                // 审批人要知道自己在批什么：门的标题 + bodyMarkdown（插值后）。
+                // 只发节点标题的话，卡片上就一句「人工确认」——
+                // 上游是段报错时，不翻对话流就直接批了（第 3 轮实测 P10）。
+                // bodyMarkdown 里的 ${…} 解析成真实内容；解析不了保留原文
+                // （审批人看到 `${x}` 至少知道引用断了，比整段消失强）
+                let approval_summary = {
+                    let heading = node
+                        .config
+                        .get("title")
+                        .and_then(serde_json::Value::as_str)
+                        .filter(|text| !text.trim().is_empty())
+                        .unwrap_or(&node.title);
+                    let body = node
+                        .config
+                        .get("bodyMarkdown")
+                        .and_then(serde_json::Value::as_str)
+                        .unwrap_or("");
+                    let body = crate::interp::interpolate(body, scope)
+                        .unwrap_or_else(|_| body.to_string());
+                    if body.trim().is_empty() {
+                        heading.to_string()
+                    } else {
+                        format!("{heading}\n\n{body}")
+                    }
+                };
                 self.emit_node(
                     store,
                     run_id,
@@ -565,7 +590,7 @@ impl Runner {
                     &node_id,
                     &node.title,
                     "engine",
-                    &node.title,
+                    &approval_summary,
                 )?;
 
                 // 检查点必须在挂起时落下：杀掉应用后靠它回到同一位置

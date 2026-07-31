@@ -1469,9 +1469,7 @@ fn 产物落盘时发_artifact_created_事件() {
     );
     // 前端产物投影只读 artifactRefs —— 读路径丢了它的话投影永远为空
     assert!(
-        created
-            .iter()
-            .all(|e| !e.artifact_refs.is_empty()),
+        created.iter().all(|e| !e.artifact_refs.is_empty()),
         "artifact.created 的 artifact_refs 要能从读路径出来"
     );
     // 反例:普通脚本没截断,不得谎报 artifact.truncated(假测试复核要求的反向断言)
@@ -1521,5 +1519,48 @@ fn 输出被截断时发_artifact_truncated_事件() {
             .is_some_and(|r| r.contains("stdout")),
         "要指明截断的是哪份产物:{:?}",
         truncated[0].payload_ref
+    );
+}
+
+#[test]
+fn 审批请求带上门里写的说明_审批人才知道在批什么() {
+    // 第 3 轮实测 P10:审批卡只有标题,「请确认站会纪要可以发出」这类
+    // 说明与上游产出都看不到 —— 上游是段 502 报错时,不翻对话就直接批了。
+    // bodyMarkdown 此前全仓零消费(B-5 表里躺着)
+    let graph = serde_json::json!({
+        "nodes": [
+            {"id": "entry", "type": "entry", "title": "入口", "config": {}},
+            {"id": "produce", "type": "script.shell", "title": "产出",
+             "config": {"interpreter": "bash", "script": "echo 今天的纪要内容", "timeoutMs": 5000}},
+            {"id": "gate", "type": "approval", "title": "人工确认",
+             "config": {"title": "确认纪要", "bodyMarkdown": "请确认可以发出:\n${produce.success.stdout}"}}
+        ],
+        "edges": [
+            {"id": "e1", "source": {"nodeId": "entry", "port": "success"}, "target": {"nodeId": "produce", "port": "input"}},
+            {"id": "e2", "source": {"nodeId": "produce", "port": "success"}, "target": {"nodeId": "gate", "port": "input"}}
+        ],
+        "groups": []
+    })
+    .to_string();
+
+    let (store, workflow) = setup(&graph);
+    let runner = Runner::new();
+    let run_id = runner.start(&store, request(&workflow)).unwrap();
+    assert_eq!(runner.run_all(&store, &run_id).unwrap(), "waiting_approval");
+
+    let events = store.events(&run_id, 0, 200).unwrap();
+    let requested = events
+        .iter()
+        .find(|e| e.kind == "approval.requested")
+        .expect("要有审批请求事件");
+    assert!(
+        requested.summary.contains("请确认可以发出"),
+        "门里写的说明要进事件:{}",
+        requested.summary
+    );
+    assert!(
+        requested.summary.contains("今天的纪要内容"),
+        "上游产出的引用要插值成真实内容:{}",
+        requested.summary
     );
 }
