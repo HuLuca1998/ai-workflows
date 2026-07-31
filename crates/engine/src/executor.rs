@@ -866,7 +866,7 @@ impl NodeExecutor {
             kind: "approval.requested",
             node_id: node.id.clone(),
             summary: format!("交给 AI 审批：{}", node.title),
-            payload_ref: self.save_output(&node.id, "approval-prompt.md", &prompt),
+            payload_ref: self.save_output(&node.id, "approval-prompt.md", &prompt, sink),
         });
 
         // 审批者用这次运行的默认工作目录。它只读，不该进 worktree
@@ -898,7 +898,7 @@ impl NodeExecutor {
             kind: "approval.decided",
             node_id: node.id.clone(),
             summary: format!("{verdict_line} · {}", summarize(&answer)),
-            payload_ref: self.save_output(&node.id, "approval.md", &answer),
+            payload_ref: self.save_output(&node.id, "approval.md", &answer, sink),
         });
 
         verdict
@@ -1249,7 +1249,7 @@ impl NodeExecutor {
             kind: "script.started",
             node_id: node.id.clone(),
             summary: format!("{interpreter} · {}", summarize(&script)),
-            payload_ref: self.save_output(&node.id, "command.sh", &script),
+            payload_ref: self.save_output(&node.id, "command.sh", &script, sink),
         });
 
         let outcome = run_script(ScriptRequest {
@@ -1283,8 +1283,8 @@ impl NodeExecutor {
                 // 落产物必须在判断成败**之前**：脚本失败时最需要看日志，
                 // 而失败分支提前 return 的话，恰恰是这时候没有日志可看。
                 // 事件同理 —— 下面这三条也在成败判断之前发
-                let out_ref = self.save_output(&node.id, "stdout.log", &stdout);
-                let err_ref = self.save_output(&node.id, "stderr.log", &stderr);
+                let out_ref = self.save_output(&node.id, "stdout.log", &stdout, sink);
+                let err_ref = self.save_output(&node.id, "stderr.log", &stderr, sink);
 
                 if !stdout.trim().is_empty() {
                     sink(NodeEvent {
@@ -1441,11 +1441,18 @@ impl NodeExecutor {
     /// 相对路径就是 `run.artifacts` 给界面的那个 `relPath`，也是事件里
     /// `payload_ref` 该写的值 —— 界面拿它去调 `run.artifactContent`。
     /// 原先这里把返回值丢了，于是事件想指向产物也指不了。
-    fn save_output(&self, node_id: &str, name: &str, content: &str) -> Option<String> {
+    fn save_output(
+        &self,
+        node_id: &str,
+        name: &str,
+        content: &str,
+        sink: &EventSink<'_>,
+    ) -> Option<String> {
         if content.is_empty() {
             return None;
         }
-        self.artifacts
+        let saved = self
+            .artifacts
             .save(
                 &self.run_id,
                 node_id,
@@ -1453,8 +1460,17 @@ impl NodeExecutor {
                 name,
                 content.as_bytes(),
             )
-            .ok()
-            .map(|_| format!("{node_id}/{name}"))
+            .ok()?;
+        let rel = format!("{node_id}/{name}");
+        // 落盘成功即发 —— 「产物视图」的投影以它为源（B-2）。
+        // 发在引用它的事件之前：产物先存在，再被指向
+        sink(NodeEvent {
+            kind: "artifact.created",
+            node_id: node_id.to_string(),
+            summary: format!("产物 {rel} · {} 字节", saved.bytes),
+            payload_ref: Some(rel.clone()),
+        });
+        Some(rel)
     }
 
     /// 跑一个 AI 节点：起 adapter → 建会话 → 发提示词 → 收流式回答。
@@ -1716,7 +1732,7 @@ impl NodeExecutor {
             kind: "conversation.user_message",
             node_id: node.id.clone(),
             summary: summarize(&instruction),
-            payload_ref: self.save_output(&node.id, "prompt.md", &instruction),
+            payload_ref: self.save_output(&node.id, "prompt.md", &instruction, sink),
         });
 
         let mut text = String::new();
@@ -1837,11 +1853,11 @@ impl NodeExecutor {
             }
             Ok(stop) => {
                 // 回答落产物：几十 KB 的分析不该进事件表
-                let answer_ref = self.save_output(&node.id, "agent.md", &text);
+                let answer_ref = self.save_output(&node.id, "agent.md", &text, sink);
                 let reasoning_ref = if reasoning.is_empty() {
                     None
                 } else {
-                    self.save_output(&node.id, "reasoning.md", &reasoning)
+                    self.save_output(&node.id, "reasoning.md", &reasoning, sink)
                 };
 
                 // 推理在回答之前发：它是「怎么想的」，读起来在结论之前

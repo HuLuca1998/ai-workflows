@@ -28,7 +28,10 @@ const NOT_YET_EMITTED: &[(&str, &str)] = &[
         "node.retried",
         "重试机制未实现（run.retryNode 也不在 COMMANDS，见 L-4）",
     ),
-    ("node.skipped", "调度器跳过不可达分支但不留痕 —— 待补发射点"),
+    (
+        "node.skipped",
+        "分支不取的下游没有 skipped 语义：它们只是永远不就绪（与 node.queued 同因）",
+    ),
     (
         "node.cancelled",
         "待补发射点，且界面已承诺（NodeConfigDialog「先停子进程再写 node.cancelled」）—— B-2 优先级最高的一条",
@@ -39,7 +42,6 @@ const NOT_YET_EMITTED: &[(&str, &str)] = &[
     ),
     ("approval.reminded", "reminderAfterMs 字段未实现（B-5）"),
     ("approval.expired", "waitStrategy 字段未实现（B-5）"),
-    ("artifact.created", "产物真的在落盘 —— 待补发射点"),
     ("artifact.truncated", "截断真的在做 —— 待补发射点"),
     ("system.memory_written", "记忆提议写入已实现 —— 待补发射点"),
     ("system.prompt_resolved", "提示词库还没接上执行路径（B-3）"),

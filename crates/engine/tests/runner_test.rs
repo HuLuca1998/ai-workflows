@@ -1429,3 +1429,42 @@ fn 每次落检查点都在事件流留痕() {
         "两个节点各落一次检查点,事件流里应当至少两条留痕,实际 {checkpoints}"
     );
 }
+
+#[test]
+fn 产物落盘时发_artifact_created_事件() {
+    // B-2:产物真的在落盘,而「产物视图」这个投影没有源事件 ——
+    // 界面只能靠 run.artifacts 全量拉,事件流里看不到产物何时出现
+    let graph = serde_json::json!({
+        "nodes": [
+            {"id": "entry", "type": "entry", "title": "入口", "config": {}},
+            {"id": "a", "type": "script.shell", "title": "产出",
+             "config": {"interpreter": "bash", "script": "echo 产物内容", "timeoutMs": 5000}}
+        ],
+        "edges": [
+            {"id": "e1", "source": {"nodeId": "entry", "port": "success"}, "target": {"nodeId": "a", "port": "input"}}
+        ],
+        "groups": []
+    })
+    .to_string();
+
+    let (store, workflow) = setup(&graph);
+    let runner = Runner::new();
+    let run_id = runner.start(&store, request(&workflow)).unwrap();
+    assert_eq!(runner.run_all(&store, &run_id).unwrap(), "succeeded");
+
+    let events = store.events(&run_id, 0, 300).unwrap();
+    let created: Vec<_> = events
+        .iter()
+        .filter(|e| e.kind == "artifact.created")
+        .collect();
+    assert!(
+        !created.is_empty(),
+        "脚本写了 stdout.log,事件流里要有 artifact.created"
+    );
+    assert!(
+        created
+            .iter()
+            .all(|e| e.payload_ref.as_deref().is_some_and(|r| !r.is_empty())),
+        "artifact.created 必须带 payload_ref,界面拿它读内容"
+    );
+}
