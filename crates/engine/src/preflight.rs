@@ -88,6 +88,7 @@ pub fn dry_run_with_profiles(
     checks.extend(check_interpreters(graph));
     checks.extend(check_git(graph));
     checks.extend(check_acp(graph, profiles));
+    checks.extend(check_agent_profiles(graph, profiles));
     checks.extend(check_unimplemented(graph));
     checks.extend(check_double_quoting(graph));
 
@@ -359,6 +360,59 @@ fn check_acp(graph: &WorkflowGraph, profiles: &[crate::executor::AgentProfile]) 
             },
         })
         .collect()
+}
+
+/// 节点声明的 Agent 角色引用必须解析得到。
+///
+/// 配置表单是自由文本（Q-1 同族的表达力问题），填一个不存在的角色
+/// 保存 ✓ 发布 ✓ —— 此前 Dry Run 也 ✓，直到真跑到那个节点才报
+/// 「找不到 Agent 角色」。加载器（`agent_profiles_for_graph`）对查不到的
+/// 引用静默跳过，这里抓的就是「声明了但没装进来」的落差。
+fn check_agent_profiles(
+    graph: &WorkflowGraph,
+    profiles: &[crate::executor::AgentProfile],
+) -> Vec<Check> {
+    let mut declared: Vec<(String, String)> = Vec::new();
+    for node in &graph.nodes {
+        for field in ["agentProfileId", "deciderAgentProfileId"] {
+            if let Some(id) = node
+                .config
+                .get(field)
+                .and_then(serde_json::Value::as_str)
+                .filter(|id| !id.is_empty())
+            {
+                declared.push((id.to_string(), node.title.clone()));
+            }
+        }
+    }
+    if declared.is_empty() {
+        return Vec::new();
+    }
+
+    let missing: Vec<&(String, String)> = declared
+        .iter()
+        .filter(|(id, _)| !profiles.iter().any(|p| &p.id == id))
+        .collect();
+
+    if missing.is_empty() {
+        vec![Check {
+            label: "Agent 角色引用".to_string(),
+            status: CheckStatus::Passed,
+            detail: format!("{} 处引用全部存在", declared.len()),
+        }]
+    } else {
+        vec![Check {
+            label: "Agent 角色引用".to_string(),
+            status: CheckStatus::Failed,
+            detail: missing
+                .iter()
+                .map(|(id, title)| {
+                    format!("节点「{title}」引用的角色 {id} 不存在 —— 在「Agent 角色」页确认它还在")
+                })
+                .collect::<Vec<_>>()
+                .join("；"),
+        }]
+    }
 }
 
 fn check_unimplemented(graph: &WorkflowGraph) -> Vec<Check> {

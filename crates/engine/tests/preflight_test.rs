@@ -561,3 +561,84 @@ fn dry_run_与执行器解出同一个_runtime() {
         );
     }
 }
+
+#[test]
+fn 引用不存在的_agent_角色在_dry_run_就报出来() {
+    // 第 2 轮实测:「Agent 角色」填 TEST-ROLE 这种不存在的角色,
+    // 保存 ✓ 发布 ✓ Dry Run「全部通过」✓ —— 直到真跑到那个节点才炸。
+    // 加载器查不到的引用不会进 profiles,Dry Run 必须抓住这个落差
+    let with_ghost = serde_json::json!({
+        "nodes": [
+            {"id": "entry", "type": "entry", "title": "入口", "config": {}},
+            {"id": "ai", "type": "ai.execute", "title": "修复",
+             "config": {"instruction": "修", "agentProfileId": "TEST-ROLE"}}
+        ],
+        "edges": [
+            {"id": "e1", "source": {"nodeId": "entry", "port": "success"}, "target": {"nodeId": "ai", "port": "input"}}
+        ],
+        "groups": []
+    });
+    let report = aiwf_engine::preflight::dry_run_with_profiles(
+        &graph(with_ghost),
+        &std::env::temp_dir(),
+        &[],
+    );
+
+    let check = report
+        .checks
+        .iter()
+        .find(|c| c.label.contains("Agent 角色"))
+        .expect("应当有 Agent 角色引用检查");
+    assert_eq!(check.status, CheckStatus::Failed);
+    assert!(
+        check.detail.contains("TEST-ROLE"),
+        "要说清是哪个引用坏了：{}",
+        check.detail
+    );
+    assert!(!report.ok);
+}
+
+#[test]
+fn 角色引用齐全时检查通过_无引用时不列条目() {
+    let no_ref = dry_run(&graph(minimal()), &std::env::temp_dir());
+    assert!(
+        !no_ref.checks.iter().any(|c| c.label.contains("Agent 角色")),
+        "没有引用就不列无关条目"
+    );
+
+    let with_ai = serde_json::json!({
+        "nodes": [
+            {"id": "entry", "type": "entry", "title": "入口", "config": {}},
+            {"id": "ai", "type": "ai.execute", "title": "修复",
+             "config": {"instruction": "修", "agentProfileId": "builtin:fixer"}}
+        ],
+        "edges": [
+            {"id": "e1", "source": {"nodeId": "entry", "port": "success"}, "target": {"nodeId": "ai", "port": "input"}}
+        ],
+        "groups": []
+    });
+    let profile = aiwf_engine::executor::AgentProfile {
+        id: "builtin:fixer".to_string(),
+        name: "修复者".to_string(),
+        role: "fixer".to_string(),
+        goal: String::new(),
+        persona: String::new(),
+        runtime: "acp.codex".to_string(),
+        model_ref: String::new(),
+        fallback_model_ref: String::new(),
+        output_contract: String::new(),
+        capabilities_json: "{}".to_string(),
+        timeout_ms: 0,
+    };
+    let report = aiwf_engine::preflight::dry_run_with_profiles(
+        &graph(with_ai),
+        &std::env::temp_dir(),
+        &[profile],
+    );
+    let check = report
+        .checks
+        .iter()
+        .find(|c| c.label.contains("Agent 角色"))
+        .expect("有引用就要有检查项");
+    assert_eq!(check.status, CheckStatus::Passed);
+}
