@@ -902,6 +902,11 @@
   color: var(--color-status-waiting);
 }
 
+/* 运行置灰的原因。比状态字略突出 —— 它是用户下一步动作的指引 */
+.editor-bar__hint {
+  color: var(--color-status-waiting);
+}
+
 .editor__body {
   display: flex;
   /* 吃掉工具栏之外的全部高度 —— 那片空白就是它没吃的部分 */

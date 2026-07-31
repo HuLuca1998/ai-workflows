@@ -108,6 +108,10 @@ export function EditorToolbar({
         {errorCount === 0
           ? `校验通过 · ${nodeCount} 节点 ${edgeCount} 连接`
           : `${errorCount} 个问题 · ${nodeCount} 节点 ${edgeCount} 连接`}
+        {/* 运行为什么灰着必须可见 —— 藏在 title 里的解释等于没有解释 */}
+        {dirty && errorCount === 0 ? (
+          <span className="editor-bar__hint">未保存 —— 保存草稿后才能运行</span>
+        ) : null}
       </span>
 
       <Button onClick={onToggleVersions}>
