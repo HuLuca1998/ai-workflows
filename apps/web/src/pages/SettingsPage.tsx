@@ -27,12 +27,12 @@ import { OnboardingPage } from '../onboarding/OnboardingPage.js';
 const TABS = [
   // 装机时走一遍，之后不再进 —— 但要找得到
   { key: 'setup', label: '首次配置' },
-  { key: 'general', label: '通用' },
-  { key: 'ai', label: 'AI 与 Agent' },
-  { key: 'git', label: 'Git 与 GitHub' },
+  // 通用 / AI 与 Agent / Git 与 GitHub / 通知 四档曾在这里 ——
+  // 全是「这一档还没有可配置的项」的空壳,连点四个会让人觉得
+  // 设置只搭了骨架(第 1 轮实测 S5,用户指示清理)。
+  // 哪档真有了可配置的项,连内容一起加回来
   { key: 'env', label: '运行环境与工具' },
   { key: 'mcp', label: 'MCP 与集成' },
-  { key: 'notify', label: '通知' },
   { key: 'security', label: '安全与隐私' },
   // 下面两档都是「少碰但要能找到」
   { key: 'adv', label: '高级' },

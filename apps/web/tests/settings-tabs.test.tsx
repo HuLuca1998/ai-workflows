@@ -54,7 +54,11 @@ describe('分档顺序按「什么时候会用到」排', () => {
     expect(labels.at(-1)).toBe('系统版本');
   });
 
-  it('中间保留图纸那八档，一项不少', async () => {
+  it('只列有内容的档 —— 空壳分节不出现', async () => {
+    // 第 1 轮实测 S5:通用 / AI 与 Agent / Git 与 GitHub / 通知
+    // 四档点进去都只有一句「这一档还没有可配置的项」——
+    // 连点四个空壳会让人觉得设置只搭了骨架(用户指示清理)。
+    // 等哪档真有可配置的项,再连内容一起加回来
     view();
     const nav = await screen.findByRole('tablist', { name: '设置分组' });
     const labels = within(nav)
@@ -63,12 +67,8 @@ describe('分档顺序按「什么时候会用到」排', () => {
 
     expect(labels).toEqual([
       '首次配置',
-      '通用',
-      'AI 与 Agent',
-      'Git 与 GitHub',
       '运行环境与工具',
       'MCP 与集成',
-      '通知',
       '安全与隐私',
       '高级',
       '系统版本',
