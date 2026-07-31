@@ -65,11 +65,19 @@ export function NodeConfigDialog({ node, graph, onClose, onSave }: NodeConfigDia
     ...(node.config as Record<string, unknown>),
   }));
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
+  // JSON 控件的解析错误。draft 里存的是上一次能解析的旧值，
+  // 不单独记的话「红字报错」与「保存放行」会同时成立（第 2 轮实测）
+  const [jsonErrors, setJsonErrors] = useState<Record<string, string>>({});
 
   const inCount = graph.edges.filter((e) => e.target.nodeId === node.id).length;
   const outCount = graph.edges.filter((e) => e.source.nodeId === node.id).length;
 
   const onSubmit = () => {
+    if (Object.keys(jsonErrors).length > 0) {
+      setFieldErrors((prev) => ({ ...prev, ...jsonErrors }));
+      setTab('配置');
+      return;
+    }
     const parsed = definition.configSchema.safeParse(draft);
     if (!parsed.success) {
       // 逐字段回显错误，而不是弹一句「保存失败」让人猜哪里不对。
@@ -172,6 +180,14 @@ export function NodeConfigDialog({ node, graph, onClose, onSave }: NodeConfigDia
                   value={draft[field.key]}
                   {...(fieldErrors[field.key] ? { error: fieldErrors[field.key] } : {})}
                   onChange={(next) => setDraft((prev) => ({ ...prev, [field.key]: next }))}
+                  onParseError={(parseError) =>
+                    setJsonErrors((prev) => {
+                      const next = { ...prev };
+                      if (parseError) next[field.key] = `JSON 无法解析：${parseError}`;
+                      else delete next[field.key];
+                      return next;
+                    })
+                  }
                 />
               ))}
             </div>

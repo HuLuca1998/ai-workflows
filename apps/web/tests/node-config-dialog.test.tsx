@@ -275,3 +275,34 @@ describe('JSON 字段的空值', () => {
     expect(screen.queryByText(/JSON 无法解析/u)).toBeNull();
   });
 });
+
+describe('JSON 字段解析失败时拦保存', () => {
+  const entryNode: GraphNode = {
+    id: 'entry',
+    type: 'entry',
+    title: '入口',
+    position: { x: 0, y: 0 },
+    config: { trigger: 'manual', inputSchema: { type: 'object' } },
+  };
+
+  it('坏 JSON 红字报错的同时,保存必须被拦下', () => {
+    // 第 2 轮实测:输入参数 Schema 填坏 JSON,红字报了错却不拦保存 ——
+    // 存进去的是上一次能解析的旧值,用户看到的和存下的不一致
+    const { onSave } = renderDialog(entryNode);
+    const box = screen.getByLabelText(/输入参数 Schema/u) as HTMLTextAreaElement;
+    fireEvent.change(box, { target: { value: '{ "type": ' } });
+    expect(screen.getByText(/JSON 无法解析/u)).toBeTruthy();
+
+    fireEvent.click(screen.getByRole('button', { name: '保存到草稿' }));
+    expect(onSave).not.toHaveBeenCalled();
+  });
+
+  it('改回合法 JSON 后能正常保存', () => {
+    const { onSave } = renderDialog(entryNode);
+    const box = screen.getByLabelText(/输入参数 Schema/u) as HTMLTextAreaElement;
+    fireEvent.change(box, { target: { value: '{ "type": ' } });
+    fireEvent.change(box, { target: { value: '{ "type": "object" }' } });
+    fireEvent.click(screen.getByRole('button', { name: '保存到草稿' }));
+    expect(onSave).toHaveBeenCalled();
+  });
+});

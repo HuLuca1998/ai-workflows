@@ -6,6 +6,11 @@ export interface SchemaFieldProps {
   value: unknown;
   error?: string;
   onChange: (next: unknown) => void;
+  /**
+   * JSON 控件的解析状态上报。不上报的话，「红字报错」与「保存放行」
+   * 会同时成立 —— 保存的是上一次能解析的旧值，用户看到的和存下的不一致。
+   */
+  onParseError?: (error: string | null) => void;
 }
 
 /**
@@ -14,7 +19,7 @@ export interface SchemaFieldProps {
  *
  * 布局照图纸的弹层字段：标签 11.5px · 控件行 34px · 提示 11.5px。
  */
-export function SchemaField({ field, value, error, onChange }: SchemaFieldProps) {
+export function SchemaField({ field, value, error, onChange, onParseError }: SchemaFieldProps) {
   const id = useId();
   const describedBy = [field.hint ? `${id}-hint` : null, error ? `${id}-err` : null]
     .filter(Boolean)
@@ -33,6 +38,7 @@ export function SchemaField({ field, value, error, onChange }: SchemaFieldProps)
         value={value}
         onChange={onChange}
         {...(describedBy ? { describedBy } : {})}
+        {...(onParseError ? { onParseError } : {})}
       />
 
       {field.hint ? (
@@ -55,12 +61,14 @@ function Control({
   value,
   onChange,
   describedBy,
+  onParseError,
 }: {
   id: string;
   field: FieldDescriptor;
   value: unknown;
   onChange: (next: unknown) => void;
   describedBy?: string | undefined;
+  onParseError?: ((error: string | null) => void) | undefined;
 }) {
   const common = {
     id,
@@ -132,7 +140,15 @@ function Control({
       );
 
     case 'json':
-      return <JsonControl id={id} value={value} onChange={onChange} describedBy={describedBy} />;
+      return (
+        <JsonControl
+          id={id}
+          value={value}
+          onChange={onChange}
+          describedBy={describedBy}
+          {...(onParseError ? { onParseError } : {})}
+        />
+      );
 
     default:
       return (
@@ -276,11 +292,13 @@ function JsonControl({
   value,
   onChange,
   describedBy,
+  onParseError,
 }: {
   id: string;
   value: unknown;
   onChange: (next: unknown) => void;
   describedBy?: string | undefined;
+  onParseError?: ((error: string | null) => void) | undefined;
 }) {
   // 未设置就显示空 —— stringify(null) 会在文本域里印出字符串「null」
   const [text, setText] = useState(() =>
@@ -302,13 +320,17 @@ function JsonControl({
           if (e.target.value.trim() === '') {
             onChange(undefined);
             setParseError(null);
+            onParseError?.(null);
             return;
           }
           try {
             onChange(JSON.parse(e.target.value));
             setParseError(null);
+            onParseError?.(null);
           } catch (error) {
-            setParseError(error instanceof Error ? error.message : String(error));
+            const message = error instanceof Error ? error.message : String(error);
+            setParseError(message);
+            onParseError?.(message);
           }
         }}
       />
