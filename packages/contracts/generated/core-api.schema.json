@@ -113,12 +113,7 @@
                 "properties": {
                   "kind": {
                     "type": "string",
-                    "enum": [
-                      "choice",
-                      "multiChoice",
-                      "form",
-                      "confirm"
-                    ]
+                    "minLength": 1
                   },
                   "title": {
                     "type": "string",

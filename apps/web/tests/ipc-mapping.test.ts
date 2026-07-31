@@ -299,3 +299,17 @@ describe('supervisor.ask 的入参不能在映射层掉字段', () => {
     expect('modelRef' in out, '没选模型不该带 modelRef').toBe(false);
   });
 });
+
+describe('mcp.answerAsk 的回答不能在 IPC 边界上被丢掉', () => {
+  it('嵌套的 answer 转成 JSON 字符串 —— Tauri 的参数必须扁平', () => {
+    const out = toIpcInput('mcp.answerAsk', {
+      id: 'mcpc_1',
+      answer: { selected: 'cache', selectedMany: [], fields: {} },
+    });
+    expect(out.id).toBe('mcpc_1');
+    expect(typeof out.answer, '嵌套对象直接传会在 IPC 边界上被静默丢掉，agent 拿到空回答').toBe(
+      'string',
+    );
+    expect(JSON.parse(out.answer as string)).toMatchObject({ selected: 'cache' });
+  });
+});

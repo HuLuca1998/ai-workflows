@@ -23,6 +23,7 @@ const COMMANDS: Partial<Record<CoreApiMethod, string>> = {
   'mcp.confirmStatus': 'mcp_confirm_status',
   'mcp.pendingConfirms': 'mcp_pending_confirms',
   'mcp.decideConfirm': 'mcp_decide_confirm',
+  'mcp.answerAsk': 'mcp_answer_ask',
   'mcp.status': 'mcp_status',
   'mcp.connect': 'mcp_connect',
   'workspace.settings': 'workspace_settings',
@@ -186,6 +187,12 @@ function shapeFor(method: CoreApiMethod, record: Record<string, unknown>): Recor
       // ver 和 run.list 的分页参数都这么丢过
       ...(record.changedBy ? { changedBy: record.changedBy } : {}),
     };
+  }
+
+  if (method === 'mcp.answerAsk') {
+    // answer 是嵌套对象，而 Tauri 的命令参数必须扁平 —— 转成 JSON 字符串。
+    // 不转的话它在 IPC 边界上被静默丢掉，agent 拿到一个空回答
+    return { id: record.id, answer: JSON.stringify(record.answer ?? {}) };
   }
 
   if (method === 'supervisor.ask') {
@@ -421,6 +428,7 @@ export function fromIpcResult(method: CoreApiMethod, raw: unknown): unknown {
 
     // 引擎返回 ()，契约要 { ok: true }
     case 'mcp.decideConfirm':
+    case 'mcp.answerAsk':
       return { ok: true };
 
     case 'prompt.versions': {

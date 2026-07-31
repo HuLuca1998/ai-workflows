@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { coreClient } from '../data/workspace.js';
+import { AskCard } from './AskCard.js';
+import type { AskSpec } from '@aiwf/contracts';
 
 /**
  * MCP 写操作的确认卡。
@@ -20,6 +22,13 @@ interface Pending {
   tool: string;
   inputJson: string;
   createdAt: string;
+  /**
+   * 这是一次「agent 在问你」而不是「写操作待确认」。
+   *
+   * 两者共用同一条队列（机制一样：TTL、过期、轮询），
+   * 但要渲染成两种卡 —— 确认给的是批准/拒绝，提问给的是选项或输入框。
+   */
+  ask?: AskSpec;
 }
 
 /** 多久看一眼信箱。用户按下批准到 MCP 那边生效，最坏是这个数 + 它的轮询间隔。 */
@@ -97,6 +106,46 @@ export function McpConfirmCard() {
       setDeciding(false);
     }
   };
+
+  /*
+   * 用户回答了提问。
+   *
+   * 与 `decide` 分开是因为**回答的形状不同**：那条只有是/否，
+   * 而这条要把用户选的东西带回给 agent —— agent 的那次工具调用
+   * 一直挂着等它，拿到之后接着往下做，不需要用户再复述一遍。
+   */
+  const answer = async (value: {
+    selected?: string;
+    selectedMany: string[];
+    fields: Record<string, string>;
+  }) => {
+    setDeciding(true);
+    try {
+      await coreClient.call('mcp.answerAsk', { id: pending.id, answer: value });
+      setPending(null);
+    } catch {
+      // 与 decide 同一条：留着卡片，用户能再按一次。
+      // 静默消失的话他会以为已经答过了
+    } finally {
+      setDeciding(false);
+    }
+  };
+
+  if (pending.ask) {
+    return (
+      <aside className="mcp-confirm" role="alertdialog" aria-label="AI 提问" ref={cardRef}>
+        <AskCard
+          spec={pending.ask}
+          raw={prettify(pending.inputJson)}
+          busy={deciding}
+          onAnswer={(value) => void answer(value)}
+          // 「不回答」走同一条 decideConfirm(false)：agent 拿到「被拒绝」，
+          // 而不是一个空答案 —— 空答案会被它当成「用户什么都没选」
+          onDecline={() => void decide(false)}
+        />
+      </aside>
+    );
+  }
 
   return (
     <aside className="mcp-confirm" role="alertdialog" aria-label="MCP 写入确认" ref={cardRef}>

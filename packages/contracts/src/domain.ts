@@ -232,7 +232,17 @@ export const AskFieldSchema = z.object({
 });
 
 export const AskSpecSchema = z.object({
-  kind: z.enum(ASK_KINDS),
+  /**
+   * 组件类型。合法值是 `ASK_KINDS`，但这里**故意不用 `z.enum`**。
+   *
+   * agent 是独立进程，版本可能比界面新。用枚举的话，一个界面还不认识的
+   * `kind` 会在 Core API 门口就被 Zod 拒掉 —— 于是那条提问根本到不了界面，
+   * 用户什么都看不到，而 agent 那边还挂着等回答。
+   *
+   * 白名单放在**界面层**：认得的渲染成组件，认不出的摊开原文，
+   * 而「不回答」这条路始终可用。
+   */
+  kind: z.string().min(1),
   /** 一句话说清在问什么。它是卡片的标题。 */
   title: z.string().min(1),
   /** 为什么问。用户凭它判断该选哪个。 */

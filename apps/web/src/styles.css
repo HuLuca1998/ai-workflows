@@ -4387,6 +4387,98 @@ fieldset.launch__field {
   color: var(--color-neutral-500);
 }
 
+/* ── Agent 提问：选一个 / 选几个 / 补一段 ───────────────────────────────── */
+
+.ask__options {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0 0 12px;
+}
+
+/* 整行可点。只让那个 12px 的圆点可点的话，对触控与手抖的用户都太苛刻 */
+.ask__option {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-divider);
+  cursor: pointer;
+}
+
+.ask__option:hover {
+  /* 规范 §2.5 把悬停定死在这一档：高于 6% 在暗场里会显得发白 */
+  background: rgba(233, 233, 237, 0.045);
+}
+
+/* 键盘焦点要看得见 —— 这张卡是 alertdialog，多半是用键盘走到这儿的 */
+.ask__option:focus-within {
+  border-color: var(--color-accent);
+}
+
+.ask__option input {
+  margin-top: 3px;
+  flex: none;
+}
+
+.ask__option-body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.ask__option-label {
+  font-size: 12.5px;
+  color: var(--color-text);
+}
+
+/* 选项之间的差别常常不在标题上，说明得跟着显示 */
+.ask__option-desc {
+  font-size: 11px;
+  line-height: 1.6;
+  color: var(--color-neutral-500);
+}
+
+.ask__fields {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 0 0 12px;
+}
+
+.ask__field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.ask__field-label {
+  font-size: 11.5px;
+  color: var(--color-neutral-500);
+}
+
+.ask__field input,
+.ask__field textarea {
+  padding: 7px 10px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-divider);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-size: 12.5px;
+  line-height: 1.6;
+  font-family: inherit;
+  resize: vertical;
+}
+
+/* 只加描边，**不动 outline** —— 规范 §5.4：全局 :focus-visible 环
+   是键盘用户唯一的位置线索，挂在类上的 outline:none 会逐条压掉它 */
+.ask__field input:focus-visible,
+.ask__field textarea:focus-visible {
+  border-color: var(--color-accent);
+}
+
 .mcp-confirm__actions {
   display: flex;
   justify-content: flex-end;
