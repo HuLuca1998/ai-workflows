@@ -325,7 +325,7 @@ describe('连点守卫(第 6 轮实测 #2)', () => {
   it('三连点开始运行只起一条', async () => {
     const user = userEvent.setup();
     let starts = 0;
-    call.mockImplementation((method: string, input: unknown) => {
+    call.mockImplementation((method: string) => {
       if (method === 'run.dryRun')
         return Promise.resolve({ ...REPORT, ok: true, failed: 0, checks: [] });
       if (method === 'run.start') {

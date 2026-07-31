@@ -57,7 +57,7 @@ export function RunsPage() {
     runs.setQuery(query);
     void runs.load();
   });
-  const [params] = useSearchParams();
+  const [params, setParams] = useSearchParams();
   // 失败页那三个入口都会真的起一条运行 —— 后端 run.start 不幂等，
   // 连点两次就是两条运行、两个执行线程、同一个 workdir
   const resuming = useAsyncAction();
@@ -143,6 +143,13 @@ export function RunsPage() {
 
   // 从编辑器点「运行」过来时带着 ?run=，直接展开那一次运行
   const requested = params.get('run');
+  // 选中一条就把它写进 URL:此前地址栏停在旧的 run,复制链接分享的是错的那条
+  const selectRun = (runId: string) => {
+    void runs.select(runId);
+    const next = new URLSearchParams(params);
+    next.set('run', runId);
+    setParams(next, { replace: true });
+  };
   useEffect(() => {
     void useRuns
       .getState()
@@ -234,7 +241,7 @@ export function RunsPage() {
               key={run.id}
               run={run}
               selected={run.id === runs.selectedId}
-              onSelect={() => void runs.select(run.id)}
+              onSelect={() => selectRun(run.id)}
               now={now}
             />
           ))}
@@ -245,7 +252,7 @@ export function RunsPage() {
               key={run.id}
               run={run}
               selected={run.id === runs.selectedId}
-              onSelect={() => void runs.select(run.id)}
+              onSelect={() => selectRun(run.id)}
               now={now}
             />
           ))}
