@@ -36,13 +36,15 @@ type IpcResult<T> = Result<T, ApiError>;
 ///
 /// **不落库**：它是「正在发生」的投影。断线、刷新、翻历史都靠
 /// 落库的那条消息恢复，所以丢帧不影响正确性。
-struct 窗口帧推送(tauri::AppHandle);
+struct WindowChunkSink(tauri::AppHandle);
 
-impl api::ChunkSink for 窗口帧推送 {
+impl api::ChunkSink for WindowChunkSink {
     fn push(&self, chunk: &api::StreamChunk) {
         // emit 失败就算了：窗口可能已经关了，而这一轮对话
         // 照样要跑完并落库 —— 为一帧推送中断整轮问答是本末倒置
-        let _ = self.0.emit("supervisor:chunk", chunk);
+        // 一个事件名服务两处：主管 AI 的帧不带 runId，
+        // AI 节点的带 —— 前端按它分流，不必认两套通道
+        let _ = self.0.emit("ai:chunk", chunk);
     }
 }
 
@@ -64,7 +66,7 @@ fn supervisor_ask(
         .supervisor_store
         .lock()
         .map_err(|_| ApiError::validation("存储锁已中毒，请重启应用"))?;
-    let 推送 = 窗口帧推送(app);
+    let sink = WindowChunkSink(app);
     api::supervisor_ask(
         &store,
         &state.data_dir,
@@ -73,7 +75,7 @@ fn supervisor_ask(
         session_id,
         model_ref,
         effort,
-        Some(&推送),
+        Some(&sink),
     )
 }
 
@@ -579,7 +581,7 @@ fn workspace_update_settings(
 fn workspace_reset_preview(state: State<'_, AppState>) -> IpcResult<api::ResetPreviewDto> {
     let data_dir = state.data_dir.clone();
     let store = lock(&state)?;
-    let workdir = 授权目录(&store);
+    let workdir = authorized_dir(&store);
     api::workspace_reset_preview(&store, &data_dir, workdir.as_deref())
 }
 
@@ -601,7 +603,7 @@ fn workspace_reset(
     }
     let data_dir = state.data_dir.clone();
     let mut store = lock(&state)?;
-    let workdir = 授权目录(&store);
+    let workdir = authorized_dir(&store);
     api::workspace_reset(
         &mut store,
         &data_dir,
@@ -614,7 +616,7 @@ fn workspace_reset(
 ///
 /// 读不到当「还没授权」：那种情况下产物目录本来就不存在，
 /// 让一键初始化因为读不到设置而整个失败没有道理。
-fn 授权目录(store: &Store) -> Option<std::path::PathBuf> {
+fn authorized_dir(store: &Store) -> Option<std::path::PathBuf> {
     store
         .workspace_settings()
         .ok()
@@ -952,9 +954,14 @@ pub fn run() {
                 // 通知发送器在这里接上。不接的话 `notify` 节点会
                 // 明确报「这个环境发不了系统通知」—— 那是真话，
                 // 但在桌面 App 里它不该是真的
-                supervisor: Supervisor::new(path).with_notifier(std::sync::Arc::new(
-                    notify::DesktopNotifier::new(app.handle().clone()),
-                )),
+                supervisor: Supervisor::new(path)
+                    .with_notifier(std::sync::Arc::new(notify::DesktopNotifier::new(
+                        app.handle().clone(),
+                    )))
+                    // AI 节点的实时帧。不接的话，一个跑五分钟的节点在
+                    // 运行面板上只有几条工具调用在动，agent 说的话要等
+                    // 节点结束才一次性出现
+                    .with_stream(std::sync::Arc::new(WindowChunkSink(app.handle().clone()))),
                 data_dir,
             });
             build_tray(app.handle())?;

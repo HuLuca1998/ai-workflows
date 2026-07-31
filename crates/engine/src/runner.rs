@@ -34,7 +34,7 @@ pub enum RunError {
     // `{expected:?}` 会把 Option 的 Debug 形态原样显示给用户 ——
     // 界面上出现的是字面的 `Some("n_review")`，而 None 那支
     // 更是一句病句：「当前等的是节点 None」
-    #[error("运行 {run_id} 当前等的{}，而你提交的是 {got}", 待审批的(.expected))]
+    #[error("运行 {run_id} 当前等的{}，而你提交的是 {got}", pending_approval(.expected))]
     NotPendingApproval {
         run_id: String,
         expected: Option<String>,
@@ -44,7 +44,7 @@ pub enum RunError {
     Executor(#[from] crate::executor::ExecutorError),
 }
 
-fn 待审批的(expected: &Option<String>) -> String {
+fn pending_approval(expected: &Option<String>) -> String {
     match expected {
         Some(node) => format!("是节点 {node} 的审批"),
         None => "根本不是审批".to_string(),
@@ -165,6 +165,8 @@ pub struct Runner {
     notifier: Option<std::sync::Arc<dyn crate::notify::Notifier>>,
     /// 用哪个 adapter 命令起 ACP。只有测试会设。
     acp_override: Option<(String, Vec<String>)>,
+    /// AI 节点的实时帧往哪推。None = 不推。
+    stream: Option<std::sync::Arc<dyn crate::acp::ChunkSink>>,
 }
 
 impl Runner {
@@ -172,6 +174,7 @@ impl Runner {
         Self {
             notifier: None,
             acp_override: None,
+            stream: None,
         }
     }
 
@@ -179,6 +182,17 @@ impl Runner {
     #[must_use]
     pub fn with_notifier(mut self, notifier: std::sync::Arc<dyn crate::notify::Notifier>) -> Self {
         self.notifier = Some(notifier);
+        self
+    }
+
+    /// AI 节点的实时帧往哪推。
+    ///
+    /// **必须跟进后台线程**：真正跑节点的是 `Supervisor::spawn` 起的那条，
+    /// 只给 `start` 那条路径上的 Runner 接上的话，一个 AI 节点都不会经过它 ——
+    /// notifier 踩过同一个坑，那条注释就写在旁边。
+    #[must_use]
+    pub fn with_stream(mut self, sink: std::sync::Arc<dyn crate::acp::ChunkSink>) -> Self {
+        self.stream = Some(sink);
         self
     }
 
@@ -315,7 +329,7 @@ impl Runner {
                     .resolution_for(node, scope)
                     .into_iter()
                     .map(|item| {
-                        let 谁 = if item.agent_profile_id.is_empty() {
+                        let who = if item.agent_profile_id.is_empty() {
                             format!("runtime {} · 没挂 Agent 角色", item.runtime)
                         } else {
                             format!(
@@ -330,9 +344,9 @@ impl Runner {
                         // 不会污染你当前分支」，而用户唯一能核对这句话的地方
                         // 就是运行记录
                         if item.workdir.is_empty() {
-                            谁
+                            who
                         } else {
-                            format!("{谁} · cwd {}", item.workdir)
+                            format!("{who} · cwd {}", item.workdir)
                         }
                     })
                     .collect()
@@ -418,7 +432,7 @@ impl Runner {
         // 写在**执行之前**。AI 节点连 adapter 可能挂上好几分钟，
         // 而排查「它卡在哪」的第一个问题就是「它到底想连哪个」；
         // 等节点跑完再写，那条信息永远来不及。
-        for 解析 in resolutions(node, scope) {
+        for resolutions in resolutions(node, scope) {
             self.emit_node(
                 store,
                 run_id,
@@ -426,7 +440,7 @@ impl Runner {
                 &node_id,
                 &node.title,
                 "engine",
-                &解析,
+                &resolutions,
             )?;
         }
 
@@ -606,6 +620,10 @@ impl Runner {
             executor = executor.with_acp_command(command, args);
         }
 
+        if let Some(sink) = &self.stream {
+            executor = executor.with_stream(sink.clone());
+        }
+
         // 「记忆注入可在事件中溯源」：在**取快照时**就写下，
         // 而不是等某个 AI 节点跑完 —— 那个节点可能失败、可能被取消，
         // 而「这次运行带着这些记忆」在它开始之前就已经成立了。
@@ -640,7 +658,7 @@ impl Runner {
             && self.has_ai_node(store, run_id)?
             && !self.event_written(store, run_id, "system.env_snapshot")?
         {
-            let 摘要 = profiles
+            let summarize = profiles
                 .iter()
                 .map(|p| {
                     format!(
@@ -656,7 +674,7 @@ impl Runner {
                 "system.env_snapshot",
                 None,
                 "engine",
-                &format!("这次运行用的 {} 个角色：\n{摘要}", profiles.len()),
+                &format!("这次运行用的 {} 个角色：\n{summarize}", profiles.len()),
             )?;
         }
 
@@ -1011,7 +1029,7 @@ impl Runner {
             // 「Secret 值在写入事件存储前已脱敏，界面不提供绕过查看」。
             //
             // 只在读取点脱的话，数据库文件本身仍然带着明文走备份
-            summary: 截到上限(&crate::redactor::redact_shared(summary)),
+            summary: truncate_to(&crate::redactor::redact_shared(summary)),
             payload_ref,
             artifact_refs: vec![],
             parent_event_id: None,
@@ -1134,13 +1152,13 @@ pub fn is_terminal(status: &str) -> bool {
 ///
 /// 所以在唯一的写入口兜一道。截断比丢事件好得多：前半段通常就够定位问题，
 /// 而丢掉整条之后连「它失败过」都无从得知。
-fn 截到上限(summary: &str) -> String {
-    let 上限 = aiwf_store::EVENT_SUMMARY_MAX;
-    if summary.chars().count() <= 上限 {
+fn truncate_to(summary: &str) -> String {
+    let limit = aiwf_store::EVENT_SUMMARY_MAX;
+    if summary.chars().count() <= limit {
         return summary.to_string();
     }
     // 留出省略提示的位置，并且**按字符切**不按字节 —— 中文按字节切会切出半个字
-    const 提示: &str = "…（超长已截断，全文见产物）";
-    let 保留 = 上限.saturating_sub(提示.chars().count());
-    format!("{}{提示}", summary.chars().take(保留).collect::<String>())
+    const HINT: &str = "…（超长已截断，全文见产物）";
+    let keep = limit.saturating_sub(HINT.chars().count());
+    format!("{}{HINT}", summary.chars().take(keep).collect::<String>())
 }

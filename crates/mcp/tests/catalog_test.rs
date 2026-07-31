@@ -20,6 +20,9 @@ const 本地专属: &[&str] = &[
     "mcp_status",
     "mcp_connect",
     "model_test",
+    // 会在这台机器上拉起 adapter 进程 —— 与 model_test 同一条理由。
+    // 开给远端等于让它反复起本机进程，而回报只是一份模型清单
+    "model_sync",
     "run_diagnostics",
     "env_diagnostics",
     // 探测本机文件系统。开给外部客户端的话，一个 Agent 能拿它

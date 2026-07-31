@@ -314,7 +314,7 @@ pub fn dispatch(
             input.get("envCheckedAt").and_then(|v| v.as_str()),
         )?),
         "workspace_reset_preview" => {
-            let workdir = 授权目录(&store);
+            let workdir = authorized_dir(&store);
             to_value(api::workspace_reset_preview(
                 &store,
                 data_dir,
@@ -329,7 +329,7 @@ pub fn dispatch(
                     "一键初始化需要显式确认：带上 confirm: true".to_string(),
                 ));
             }
-            let workdir = 授权目录(&store);
+            let workdir = authorized_dir(&store);
             to_value(api::workspace_reset(
                 &mut store,
                 data_dir,
@@ -467,7 +467,7 @@ fn boolean(input: &Value, key: &str) -> bool {
 ///
 /// 读不到一律当「还没授权」：那种情况下产物目录本来就不存在，
 /// 让一键初始化因为读不到设置而整个失败没有道理。
-fn 授权目录(store: &Store) -> Option<std::path::PathBuf> {
+fn authorized_dir(store: &Store) -> Option<std::path::PathBuf> {
     store
         .workspace_settings()
         .ok()

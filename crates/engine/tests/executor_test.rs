@@ -2241,3 +2241,61 @@ fn 模型被_agent_拒掉时发一条降级事件() {
         降级[0].summary
     );
 }
+
+/// AI 节点的实时帧真的推得出来。
+///
+/// 与事件流是两回事：事件落库、是事实来源；帧不落库、是「正在发生」的投影。
+/// 不推的话，一个跑五分钟的 AI 节点在运行面板上只有几条工具调用在动，
+/// 而 agent 说的话要等节点结束才一次性出现 —— 用户没法判断它是在想
+/// 还是已经卡死。
+mod 实时帧 {
+    #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+
+    use super::*;
+
+    /// 把帧收进 Vec。生产里是桌面壳 emit 成 Tauri 事件。
+    #[derive(Default)]
+    struct 收帧器(std::sync::Mutex<Vec<aiwf_engine::acp::StreamChunk>>);
+
+    impl aiwf_engine::acp::ChunkSink for 收帧器 {
+        fn push(&self, chunk: &aiwf_engine::acp::StreamChunk) {
+            if let Ok(mut list) = self.0.lock() {
+                list.push(chunk.clone());
+            }
+        }
+    }
+
+    #[test]
+    fn ai_节点边说边推帧_并且带上是哪个节点() {
+        let sink = std::sync::Arc::new(收帧器::default());
+        let executor = with_mock_adapter(ai_dir("stream")).with_stream(sink.clone());
+
+        let mut scope = Scope::new("run_stream");
+        executor
+            .execute(&ai_节点(), &mut scope)
+            .expect("跑 AI 节点");
+
+        let 帧 = sink.0.lock().unwrap().clone();
+        assert!(!帧.is_empty(), "一帧都没推出来");
+
+        // 文本帧要带节点 id：运行面板上同时可能有几个节点在跑，
+        // 不带的话这段话不知道该显示在哪一条下面
+        let 有文本 = 帧.iter().any(|chunk| {
+            matches!(
+                chunk,
+                aiwf_engine::acp::StreamChunk::Text { node_id: Some(id), .. } if id == "analyze"
+            )
+        });
+        assert!(有文本, "没有带节点 id 的文本帧：{帧:?}");
+    }
+
+    #[test]
+    fn 不设_sink_时什么都不推_也不报错() {
+        // 无头运行与测试都走这条 —— 推送是可选的增强，不是必需的路径
+        let executor = with_mock_adapter(ai_dir("nostream"));
+        let mut scope = Scope::new("run_nostream");
+        executor
+            .execute(&ai_节点(), &mut scope)
+            .expect("没有 sink 也该跑得完");
+    }
+}

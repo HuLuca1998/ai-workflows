@@ -53,24 +53,24 @@ pub struct DryRunDto {
 /// 目录名用「时刻 + 序号」而不是 run id：run id 由 `store.create_run_in`
 /// 分配，这一层还拿不到。运行详情页显示的是这里存下的完整路径，对得上是哪一次。
 fn resolve_run_workdir(workdir: Option<&str>, data_dir: &std::path::Path) -> std::path::PathBuf {
-    let 指定了 = workdir
+    let explicit = workdir
         .map(str::trim)
         .filter(|dir| !dir.is_empty())
         .is_some();
-    let 根 = resolve_workdir(workdir, data_dir);
-    if 指定了 {
+    let root = resolve_workdir(workdir, data_dir);
+    if explicit {
         // 显式指定通常是「跑在我这个仓库里」，再往下套一层就跑错地方了
-        return 根;
+        return root;
     }
 
-    static 序号: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-    let n = 序号.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-    let 时刻 = std::time::SystemTime::now()
+    static SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let n = SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let stamp = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map_or(0, |d| d.as_millis());
-    let 独立 = 根.join(format!("run-{时刻}-{n:04}"));
-    let _ = std::fs::create_dir_all(&独立);
-    独立
+    let isolated = root.join(format!("run-{stamp}-{n:04}"));
+    let _ = std::fs::create_dir_all(&isolated);
+    isolated
 }
 
 /// 解析工作目录的**根**：留空用应用的默认运行目录，`~` 要展开。
@@ -1219,21 +1219,23 @@ pub fn workspace_reset(
     // 或者一个 git push 发出去了 —— 他不会把这两件事联系起来。
     // 非终态由 RunStatus 派生，不在这里抄一份 —— 抄的那份会与状态机漂移，
     // 而漂移的方向恰好是「新加的活跃状态不在名单里」，也就是拦不住
-    let 活跃状态: Vec<String> = aiwf_engine::status::RunStatus::ALL
+    let active_statuses: Vec<String> = aiwf_engine::status::RunStatus::ALL
         .iter()
         .filter(|status| !status.is_terminal())
         .map(|status| status.as_str().to_string())
         .collect();
-    let 还在跑 = store.list_runs_paged(None, &活跃状态, None, 20, 0)?.0;
-    if !还在跑.is_empty() {
-        let 清单 = 还在跑
+    let running = store
+        .list_runs_paged(None, &active_statuses, None, 20, 0)?
+        .0;
+    if !running.is_empty() {
+        let names = running
             .iter()
             .map(|run| run.id.clone())
             .collect::<Vec<_>>()
             .join("、");
         return Err(ApiError::validation(format!(
-            "还有 {} 条运行没结束，先让它们停下来再清空：{清单}",
-            还在跑.len()
+            "还有 {} 条运行没结束，先让它们停下来再清空：{names}",
+            running.len()
         ))
         .with_hint("去执行记录里取消它们，或者等它们跑完。清空不会停掉正在执行的脚本"));
     }
@@ -1243,7 +1245,7 @@ pub fn workspace_reset(
     store.reset_workspace()?;
 
     let mut removed = Vec::new();
-    let mut 删掉 = |path: std::path::PathBuf| {
+    let mut remove = |path: std::path::PathBuf| {
         // 不存在就跳过：回报里只放真的删掉的
         if path.is_dir() && std::fs::remove_dir_all(&path).is_ok() {
             removed.push(path.display().to_string());
@@ -1251,10 +1253,10 @@ pub fn workspace_reset(
     };
 
     for kind in APP_DIRS {
-        删掉(data_dir.join(kind));
+        remove(data_dir.join(kind));
     }
     if include_artifacts && let Some(workdir) = workdir {
-        删掉(workdir.join(ARTIFACTS_DIR));
+        remove(workdir.join(ARTIFACTS_DIR));
     }
 
     Ok(ResetResultDto {
@@ -1534,7 +1536,7 @@ pub fn workflow_diff(
     from: String,
     to: String,
 ) -> ApiResult<aiwf_engine::patch::WorkflowDiff> {
-    let 取图 = |which: &str| -> ApiResult<serde_json::Value> {
+    let graph_of = |which: &str| -> ApiResult<serde_json::Value> {
         let text = if which == "draft" {
             let rev = store
                 .draft_revision(&id)?
@@ -1561,7 +1563,10 @@ pub fn workflow_diff(
             .map_err(|error| ApiError::validation(format!("{which} 的图不是合法 JSON：{error}")))
     };
 
-    Ok(aiwf_engine::diff::diff_graphs(&取图(&from)?, &取图(&to)?))
+    Ok(aiwf_engine::diff::diff_graphs(
+        &graph_of(&from)?,
+        &graph_of(&to)?,
+    ))
 }
 
 pub fn workflow_publish(store: &Store, id: String, rev: i64) -> ApiResult<PublishedDto> {
@@ -1571,16 +1576,16 @@ pub fn workflow_publish(store: &Store, id: String, rev: i64) -> ApiResult<Publis
     // 空图都能被发布成不可变版本 —— 拿到的是一个 config_hash 算在垃圾上的
     // 版本，而运行记录会永远引用它。`workflow_patch` 那套「结构化写入是
     // 唯一形态」的防线，被 create 从侧门绕过之后就落在这里
-    let 校验 = workflow_validate(store, id.clone(), Some(rev))?;
-    if !校验.ok {
-        let 问题 = 校验
+    let validation = workflow_validate(store, id.clone(), Some(rev))?;
+    if !validation.ok {
+        let issues = validation
             .issues
             .iter()
             .map(|issue| format!("{}（{}）", issue.message, issue.code))
             .collect::<Vec<_>>()
             .join("；");
         return Err(
-            ApiError::validation(format!("这张图还不能发布：{问题}")).with_hint(
+            ApiError::validation(format!("这张图还不能发布：{issues}")).with_hint(
                 "发布出去的版本改不了，运行记录会一直引用它。回编辑器按上面列出的问题改完再发",
             ),
         );
@@ -2014,41 +2019,16 @@ pub struct SupervisorAnswer {
     pub downgraded: Vec<String>,
 }
 
-/// 一轮对话的实时帧。**不落库** —— 它是「正在发生」的投影，
-/// 不是事实来源；事实仍然是那条最终落库的消息。
-///
-/// 断线、刷新、翻历史都靠落库那份恢复，所以丢帧不影响正确性。
-#[derive(Debug, Clone, Serialize)]
-#[serde(tag = "kind", rename_all = "camelCase")]
-pub enum StreamChunk {
-    /// Agent 正在说的话。已按时间窗口聚合过。
-    Text { text: String },
-    /// 推理过程。界面上折叠显示，流式时展开成「思考中」。
-    Reasoning { text: String },
-    /// 工具调用。「它到底在做什么」在长对话里只有这个能回答。
-    ToolCall { title: String, status: String },
-}
-
-/// 谁来接实时帧。桌面壳 emit 成 Tauri 事件，测试收进 Vec。
-///
-/// 定义在这里而不是桌面壳里：core-api 不能依赖 Tauri
-/// （Web 形态与 MCP 都用同一份实现）。
-pub trait ChunkSink: Send + Sync {
-    fn push(&self, chunk: &StreamChunk);
-}
-
-/// 攒够一个时间窗口再推。
-///
-/// 每来一个 token 就推一帧的话，一轮几百帧全部穿过 IPC 再触发
-/// React 重渲染 —— 界面会卡在自己的更新上，而模型其实早就说完了。
-/// 30–60ms 是一帧的量级，肉眼看仍然是连续的。
-const 流式窗口: std::time::Duration = std::time::Duration::from_millis(50);
+/// 实时帧与它的接收方。**定义在引擎里** —— AI 节点与主管 AI
+/// 推的是同一种帧，各定义一份的话界面要认两套形状。
+pub use aiwf_engine::acp::{ChunkSink, StreamChunk};
 
 /// 问主管 AI。走与 AI 节点同一套 ACP 客户端。
 ///
 /// 上下文由调用方显式给：把「当前草稿 rev、正在看的运行」这些
 /// 拼进提示词，而不是让模型自己去猜或去查 —— 猜错的话它的回答
 /// 会基于一个不存在的状态，而用户看不出来。
+#[allow(clippy::too_many_arguments)] // Tauri 的命令参数必须扁平，收不了结构体
 pub fn supervisor_ask(
     store: &Store,
     data_dir: &std::path::Path,
@@ -2144,51 +2124,51 @@ pub fn supervisor_ask(
     // 用一个只在这一轮有效的 key —— 它建出来的会话在下面拿到
     // 真正的 session id 之后会被改挂过去
     let pool = aiwf_engine::acp::SessionPool::shared();
-    let 池键 = session_id
+    let pool_key = session_id
         .clone()
         .unwrap_or_else(|| format!("新对话:{question}"));
 
     let mut text = String::new();
     let mut tool_calls = 0_u32;
     let cwd = data_dir.display().to_string();
-    // 流式的攒帧缓冲。见 `流式窗口` 的注释
-    let mut 待推 = String::new();
-    let mut 上次推送 = std::time::Instant::now();
+    // 流式的攒帧缓冲。见 `aiwf_engine::acp::STREAM_WINDOW` 的注释
+    let mut pending = String::new();
+    let mut last_push = std::time::Instant::now();
 
     // 用户在抽屉顶上选的那个模型。
     //
     // 这条链路以前断在最后一格：界面传了 modelRef、映射层也透传了，
     // 而 `dispatch.rs` 与桌面壳都不读它 —— 用户换个模型什么都不会变，
     // 界面上也没有任何提示（`docs/acp/07-violations.md` H-8）。
-    let 选的模型 = model_ref
+    let picked = model_ref
         .as_deref()
         .and_then(|id| store.get_model(id).ok().flatten());
-    let 要的模型 = 选的模型.as_ref().map(|m| m.model_id.clone());
+    let want_model = picked.as_ref().map(|m| m.model_id.clone());
     // 抽屉里选的深度优先，没选才用模型条目上记的那个 ——
     // 模型与推理深度是**两个正交的维度**（两端的 configOptions 就是这么分的），
     // 把深度焊在模型条目上的话，换个深度就得再登记一条模型
-    let 要的深度 = effort.or_else(|| 选的模型.as_ref().map(|m| m.effort.clone()));
+    let want_effort = effort.or_else(|| picked.as_ref().map(|m| m.effort.clone()));
 
     // 建会话时被 agent 拒掉的配置项。闭包里产生，闭包外要用 ——
     // 池的 `建` 只交出 (client, session_id)，降级信息得自己捞出来
-    let 降级记录 = std::sync::Mutex::new(Vec::new());
+    let downgrades = std::sync::Mutex::new(Vec::new());
 
     pool.prompt(
-        &池键,
+        &pool_key,
         || {
             let opened = aiwf_engine::acp::open_session(&aiwf_engine::acp::SessionSpec {
                 runtime: runtime.to_string(),
                 cwd: cwd.clone(),
-                model: 要的模型.clone(),
-                effort: 要的深度.clone(),
+                model: want_model.clone(),
+                effort: want_effort.clone(),
                 mode: None,
                 mcp: mcp.clone(),
                 timeout: std::time::Duration::from_secs(180),
                 adapter_override: Some((command.clone(), Vec::new())),
             })?;
-            if let Ok(mut 记录) = 降级记录.lock() {
-                记录.clear();
-                记录.extend(opened.downgraded.iter().map(ToString::to_string));
+            if let Ok(mut list) = downgrades.lock() {
+                list.clear();
+                list.extend(opened.downgraded.iter().map(ToString::to_string));
             }
             Ok((opened.client, opened.session.id))
         },
@@ -2198,21 +2178,26 @@ pub fn supervisor_ask(
                 text.push_str(chunk);
                 // 攒够一个窗口再推。每 token 一帧的话，一轮几百帧
                 // 穿过 IPC 再触发重渲染 —— 界面会卡在自己的更新上
-                待推.push_str(chunk);
-                if 上次推送.elapsed() >= 流式窗口 {
+                pending.push_str(chunk);
+                if last_push.elapsed() >= aiwf_engine::acp::STREAM_WINDOW {
                     if let Some(sink) = stream {
                         sink.push(&StreamChunk::Text {
-                            text: std::mem::take(&mut 待推),
+                            text: std::mem::take(&mut pending),
+                            // 主管 AI 不属于任何一次运行
+                            node_id: None,
+                            run_id: None,
                         });
                     }
-                    待推.clear();
-                    上次推送 = std::time::Instant::now();
+                    pending.clear();
+                    last_push = std::time::Instant::now();
                 }
             }
             SessionUpdate::Reasoning { text: chunk } => {
                 if let Some(sink) = stream {
                     sink.push(&StreamChunk::Reasoning {
                         text: chunk.to_string(),
+                        node_id: None,
+                        run_id: None,
                     });
                 }
             }
@@ -2224,6 +2209,8 @@ pub fn supervisor_ask(
                     sink.push(&StreamChunk::ToolCall {
                         title: title.to_string(),
                         status: status.to_string(),
+                        node_id: None,
+                        run_id: None,
                     });
                 }
             }
@@ -2236,6 +2223,18 @@ pub fn supervisor_ask(
         retriable: true,
         hint: None,
     })?;
+
+    // 把攒在窗口里的最后一段推出去。不 flush 的话，不足一个窗口的尾巴
+    // 永远推不出去 —— 而一个 50ms 内答完的短问题会完全没有流式
+    if let Some(sink) = stream
+        && !pending.is_empty()
+    {
+        sink.push(&StreamChunk::Text {
+            text: std::mem::take(&mut pending),
+            node_id: None,
+            run_id: None,
+        });
+    }
 
     let (text, proposal) = extract_proposal(&text);
 
@@ -2272,7 +2271,7 @@ pub fn supervisor_ask(
     // 用的是一个临时 key。不改挂的话，第二句带着真实 id 进来会认不出
     // 上一条，于是又建一条 —— 复用等于没做，agent 照样记不住上一句。
     if let Some(id) = &session {
-        pool.rekey(&池键, id);
+        pool.rekey(&pool_key, id);
     }
 
     match &session {
@@ -2294,7 +2293,7 @@ pub fn supervisor_ask(
         proposal,
         session_id: session,
         history_saved,
-        downgraded: 降级记录.into_inner().unwrap_or_default(),
+        downgraded: downgrades.into_inner().unwrap_or_default(),
     })
 }
 
@@ -2847,7 +2846,7 @@ pub fn model_test(store: &Store, id: String) -> ApiResult<ModelTestResult> {
 pub fn model_test_with(
     store: &Store,
     id: String,
-    找_adapter: impl FnOnce(&str) -> Option<String>,
+    find_adapter: impl FnOnce(&str) -> Option<String>,
 ) -> ApiResult<ModelTestResult> {
     let model = store
         .get_model(&id)?
@@ -2857,7 +2856,7 @@ pub fn model_test_with(
         })?;
 
     let started = std::time::Instant::now();
-    let 结果 = probe_runtime(&model.runtime, 找_adapter, |command| {
+    let result = probe_runtime(&model.runtime, find_adapter, |command| {
         // 与另外三个 AI 调用点同一个入口。
         //
         // 这里**顺带回答了「这个 runtime 现在有哪些模型可选」** ——
@@ -2875,20 +2874,20 @@ pub fn model_test_with(
         })
         .map_err(|error| format!("连不上 adapter：{error}"))?;
 
-        let 找 = |category: &str| {
+        let by_category = |category: &str| {
             opened
                 .session
                 .config_options
                 .iter()
                 .find(|o| o.category == category)
         };
-        let 模型数 = 找("model").map_or(0, |o| o.options.len());
-        let 深度数 = 找("thought_level").map_or(0, |o| o.options.len());
+        let model_count = by_category("model").map_or(0, |o| o.options.len());
+        let effort_count = by_category("thought_level").map_or(0, |o| o.options.len());
 
         // 说清「这个 runtime 能用什么」，而不只是「握上手了」——
         // 用户点这个按钮想知道的是能不能干活
         Ok(format!(
-            "握手成功 · 协议 v{} · {模型数} 个模型 / {深度数} 档推理深度可选",
+            "握手成功 · 协议 v{} · {model_count} 个模型 / {effort_count} 档推理深度可选",
             opened.client.protocol_version(),
         ))
     });
@@ -2897,7 +2896,7 @@ pub fn model_test_with(
     // 失败也记：用户看到一个停在上周的延迟会以为现在还是那么快
     store.set_model_latency(&id, latency_ms)?;
 
-    Ok(match 结果 {
+    Ok(match result {
         Ok(detail) => ModelTestResult {
             ok: true,
             latency_ms,
@@ -2948,9 +2947,9 @@ pub fn model_sync(store: &Store, runtime: String) -> ApiResult<ModelSyncResult> 
 pub fn model_sync_with(
     store: &Store,
     runtime: String,
-    找_adapter: impl FnOnce(&str) -> Option<String>,
+    find_adapter: impl FnOnce(&str) -> Option<String>,
 ) -> ApiResult<ModelSyncResult> {
-    let 结果 = probe_runtime(&runtime, 找_adapter, |command| {
+    let probed = probe_runtime(&runtime, find_adapter, |command| {
         let opened = aiwf_engine::acp::open_session(&aiwf_engine::acp::SessionSpec {
             runtime: runtime.clone(),
             cwd: std::env::temp_dir().display().to_string(),
@@ -2965,7 +2964,7 @@ pub fn model_sync_with(
 
         // 按 category 取，不按 id：id 两端不一样
         // （codex `reasoning_effort` / claude `effort`），category 一样
-        let 取 = |category: &str| {
+        let by_category = |category: &str| {
             opened
                 .session
                 .config_options
@@ -2973,18 +2972,18 @@ pub fn model_sync_with(
                 .find(|o| o.category == category)
                 .cloned()
         };
-        Ok((取("model"), 取("thought_level")))
+        Ok((by_category("model"), by_category("thought_level")))
     });
 
-    let (模型项, 深度项) = 结果.map_err(|detail| ApiError {
+    let (model_opt, effort_opt) = probed.map_err(|detail| ApiError {
         code: "EXTERNAL".to_string(),
         message: detail,
         retriable: true,
         hint: Some("在「设置与环境」里能看到 adapter 装没装".to_string()),
     })?;
 
-    let 转 = |项: &Option<aiwf_engine::acp::ConfigOption>| {
-        项.as_ref().map_or_else(Vec::new, |o| {
+    let to_dto = |opt: &Option<aiwf_engine::acp::ConfigOption>| {
+        opt.as_ref().map_or_else(Vec::new, |o| {
             o.options
                 .iter()
                 .map(|c| ConfigChoiceDto {
@@ -2996,12 +2995,12 @@ pub fn model_sync_with(
         })
     };
 
-    let models = 转(&模型项);
-    let efforts = 转(&深度项);
+    let models = to_dto(&model_opt);
+    let efforts = to_dto(&effort_opt);
 
     // 落库：同步是「把 runtime 现在能用的东西记下来」，不落的话
     // 用户点完同步、关掉页面，下次回来还是空的
-    let 新增 = store.sync_models(
+    let added = store.sync_models(
         &runtime,
         &models
             .iter()
@@ -3019,9 +3018,9 @@ pub fn model_sync_with(
     Ok(ModelSyncResult {
         models,
         efforts,
-        current_model: 模型项.map(|o| o.current_value).unwrap_or_default(),
-        current_effort: 深度项.map(|o| o.current_value).unwrap_or_default(),
-        added: i64::try_from(新增).unwrap_or(0),
+        current_model: model_opt.map(|o| o.current_value).unwrap_or_default(),
+        current_effort: effort_opt.map(|o| o.current_value).unwrap_or_default(),
+        added: i64::try_from(added).unwrap_or(0),
     })
 }
 
@@ -3034,7 +3033,7 @@ pub fn model_sync_with(
 /// 而断言「没装」的那句话再也测不到。
 pub fn probe_runtime<T>(
     runtime: &str,
-    找_adapter: impl FnOnce(&str) -> Option<String>,
+    find_adapter: impl FnOnce(&str) -> Option<String>,
     probe: impl FnOnce(&str) -> std::result::Result<T, String>,
 ) -> std::result::Result<T, String> {
     if aiwf_engine::acp::adapter_command(runtime).is_none() {
@@ -3042,7 +3041,7 @@ pub fn probe_runtime<T>(
             "{runtime} 不是 ACP 运行时，连通性测试只支持 ACP（acp.claude / acp.codex）"
         ));
     }
-    let Some(command) = 找_adapter(runtime) else {
+    let Some(command) = find_adapter(runtime) else {
         return Err(format!(
             "{runtime} 的 adapter 没有安装。在「设置与环境」里能看到怎么装"
         ));

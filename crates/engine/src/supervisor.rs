@@ -39,6 +39,8 @@ pub struct Supervisor {
     /// 谁把系统通知发出去。桌面壳在 setup 里注入，
     /// 每条运行的后台线程都从这里拿一份。
     notifier: Option<Arc<dyn crate::notify::Notifier>>,
+    /// AI 节点的实时帧往哪推。与 notifier 一样要跟进后台线程。
+    stream: Option<Arc<dyn crate::acp::ChunkSink>>,
 }
 
 impl Supervisor {
@@ -47,6 +49,7 @@ impl Supervisor {
             db_path,
             cancels: Arc::new(Mutex::new(HashMap::new())),
             notifier: None,
+            stream: None,
         }
     }
 
@@ -58,12 +61,26 @@ impl Supervisor {
         self
     }
 
-    /// 建一个带上通知发送器的 Runner。
+    /// 接上 AI 节点的实时帧通道。
+    ///
+    /// **与 notifier 同一条理由**：真正跑节点的是 `spawn` 起的后台线程，
+    /// 不跟进去的话，一个 AI 节点的帧都推不出来。
+    #[must_use]
+    pub fn with_stream(mut self, sink: Arc<dyn crate::acp::ChunkSink>) -> Self {
+        self.stream = Some(sink);
+        self
+    }
+
+    /// 建一个接好了通知与实时帧的 Runner。
     fn runner(&self) -> Runner {
-        match &self.notifier {
-            Some(notifier) => Runner::new().with_notifier(notifier.clone()),
-            None => Runner::new(),
+        let mut runner = Runner::new();
+        if let Some(notifier) = &self.notifier {
+            runner = runner.with_notifier(notifier.clone());
         }
+        if let Some(sink) = &self.stream {
+            runner = runner.with_stream(sink.clone());
+        }
+        runner
     }
 
     /// 启动运行：同步做完 preflight 与建 Run（这样调用方立刻拿到 runId
@@ -175,12 +192,17 @@ impl Supervisor {
         // 只给 `start` 那条路径上的 Runner 接上是不够的：那个 Runner
         // 只做 preflight 与建 Run，一个 notify 节点都不会经过它
         let notifier = self.notifier.clone();
+        let stream = self.stream.clone();
 
         std::thread::spawn(move || {
-            let runner = match notifier {
-                Some(notifier) => Runner::new().with_notifier(notifier),
-                None => Runner::new(),
-            };
+            let mut runner = Runner::new();
+            if let Some(notifier) = notifier {
+                runner = runner.with_notifier(notifier);
+            }
+            // 帧通道也要跟进来 —— 这条线程才是真正跑 AI 节点的地方
+            if let Some(sink) = stream {
+                runner = runner.with_stream(sink);
+            }
             // 各自一条连接：跑十分钟的脚本不该卡住界面的查询
             match Store::open(&db_path) {
                 Ok(store) => {

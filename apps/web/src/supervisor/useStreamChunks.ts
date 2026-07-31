@@ -16,12 +16,26 @@ import { isDesktopRuntime } from '../updater/useAppVersion.js';
  * 要流式得先有 SSE 端点（还没做）。挂不上时静默退回「转圈等」，
  * 那正是这条通道出现之前的样子。
  */
-export type StreamChunk =
+/**
+ * 一帧。`runId` / `nodeId` 只有工作流里的 AI 节点会带 ——
+ * 主管 AI 不属于任何一次运行。
+ */
+export type StreamChunk = { runId?: string; nodeId?: string } & (
   | { kind: 'text'; text: string }
   | { kind: 'reasoning'; text: string }
-  | { kind: 'toolCall'; title: string; status: string };
+  | { kind: 'toolCall'; title: string; status: string }
+);
 
-export function useStreamChunks(enabled: boolean, onChunk: (chunk: StreamChunk) => void): void {
+/**
+ * @param runId 只收这条运行的帧。传 `null` 表示只收**不属于任何运行**的
+ *   （主管 AI）。一个事件通道服务两处，分流在这里做 ——
+ *   不分的话，运行面板会把主管 AI 的话显示成某个节点的输出。
+ */
+export function useStreamChunks(
+  enabled: boolean,
+  onChunk: (chunk: StreamChunk) => void,
+  runId: string | null = null,
+): void {
   useEffect(() => {
     if (!enabled || !isDesktopRuntime()) return;
     let unlisten: (() => void) | null = null;
@@ -29,12 +43,15 @@ export function useStreamChunks(enabled: boolean, onChunk: (chunk: StreamChunk) 
 
     void import('@tauri-apps/api/event')
       .then(({ listen }) =>
-        listen<StreamChunk>('supervisor:chunk', (event) => {
+        listen<StreamChunk>('ai:chunk', (event) => {
           // 形状对不上就丢：payload 来自我们自己的桌面壳，但这一层
           // 不该假设它永远不出错 —— 一个缺 kind 的帧会让渲染分支全落空，
           // 而症状是「流式偶尔不动」，最难查的那种
           const chunk = event.payload;
-          if (chunk && typeof chunk === 'object' && 'kind' in chunk) onChunk(chunk);
+          if (!chunk || typeof chunk !== 'object' || !('kind' in chunk)) return;
+          // 分流：要这条运行的就只收它的，要主管 AI 的就只收没有 runId 的
+          if (runId === null ? chunk.runId !== undefined : chunk.runId !== runId) return;
+          onChunk(chunk);
         }),
       )
       .then((off) => {

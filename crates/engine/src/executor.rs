@@ -42,6 +42,12 @@ pub struct NodeExecutor {
     /// 值必须来自 agent 报的候选 —— 它自己会校验，设错了走降级而不是失败。
     model: Option<String>,
     effort: Option<String>,
+    /// 实时帧往哪推。`None` = 不推（无头运行、测试）。
+    ///
+    /// 与事件流是两回事：事件落库、是事实来源；帧不落库、是「正在发生」
+    /// 的投影。AI 节点要跑好几分钟，这期间运行面板上只有几条工具调用
+    /// 事件在动，而 agent 说的话要等节点跑完才一次性出现。
+    stream: Option<std::sync::Arc<dyn crate::acp::ChunkSink>>,
     /// 接给 AI 节点的系统 MCP。
     ///
     /// 空 = agent 手上没有任何工具，只能凭提示词里的文字工作：
@@ -110,12 +116,12 @@ pub struct NodeExecutor {
 /// 迟早对不上；对不上的样子是「Dry Run 说通过，一跑就挂」。
 #[must_use]
 pub fn resolve_runtime(node: &GraphNode, profiles: &[AgentProfile]) -> String {
-    let 角色的 = node
+    let from_profile = node
         .config
         .get("agentProfileId")
         .and_then(serde_json::Value::as_str)
         .and_then(|id| profiles.iter().find(|p| p.id == id));
-    if let Some(profile) = 角色的 {
+    if let Some(profile) = from_profile {
         if !profile.runtime.is_empty() {
             return profile.runtime.clone();
         }
@@ -192,7 +198,7 @@ pub type EventSink<'a> = dyn Fn(NodeEvent) + 'a;
 /// 截到能一眼扫完的长度，全文点 payload_ref 去看。
 const SUMMARY_CHARS: usize = 400;
 
-fn 摘要(text: &str) -> String {
+fn summarize(text: &str) -> String {
     let trimmed = text.trim();
     if trimmed.chars().count() <= SUMMARY_CHARS {
         return trimmed.to_string();
@@ -208,7 +214,7 @@ fn 摘要(text: &str) -> String {
 /// 比 AI 节点短得多：它只需要看一个节点的配置就表态，
 /// 而卡在这里的代价是整条运行停着不动 —— 超时之后升级人工，
 /// 用户至少能自己点。
-const 审批超时: Duration = Duration::from_secs(120);
+const APPROVAL_TIMEOUT: Duration = Duration::from_secs(120);
 
 /// AI 审批者给的答复。
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -229,10 +235,10 @@ enum AiVerdict {
 /// 全量交给审批者，不挑。挑就要为每种上游节点维护一份「哪些字段重要」
 /// 的清单，而漏掉的那个恰恰可能是他要判断的依据。太长时截断 ——
 /// 一份几十 MB 的 stdout 发过去只会撑爆上下文。
-fn 上游产出(scope: &Scope) -> String {
+fn upstream_output(scope: &Scope) -> String {
     /// 单个上游产出的上限。超了截断并说明 —— 悄悄截断的话，
     /// 审批者会对着半份 diff 做判断，而它看起来是完整的
-    const 每项上限: usize = 8_000;
+    const PER_ITEM_LIMIT: usize = 8_000;
 
     let snapshot = scope.snapshot();
     let Some(outputs) = snapshot
@@ -242,25 +248,25 @@ fn 上游产出(scope: &Scope) -> String {
         return String::new();
     };
 
-    let mut 材料 = String::new();
+    let mut material = String::new();
     for (key, value) in outputs {
-        let 文本 = match value {
+        let text = match value {
             serde_json::Value::String(text) => text.clone(),
             other => serde_json::to_string_pretty(other).unwrap_or_default(),
         };
-        材料.push_str(&format!("--- {key} ---\n"));
-        if 文本.chars().count() > 每项上限 {
-            let 前半: String = 文本.chars().take(每项上限).collect();
-            材料.push_str(&前半);
-            材料.push_str(&format!(
-                "\n…（这一项太长，只给了前 {每项上限} 个字。完整内容在运行详情的产物里）\n"
+        material.push_str(&format!("--- {key} ---\n"));
+        if text.chars().count() > PER_ITEM_LIMIT {
+            let head: String = text.chars().take(PER_ITEM_LIMIT).collect();
+            material.push_str(&head);
+            material.push_str(&format!(
+                "\n…（这一项太长，只给了前 {PER_ITEM_LIMIT} 个字。完整内容在运行详情的产物里）\n"
             ));
         } else {
-            材料.push_str(&文本);
-            材料.push('\n');
+            material.push_str(&text);
+            material.push('\n');
         }
     }
-    材料
+    material
 }
 
 /// 交给 AI 审批者的提示词。
@@ -272,36 +278,36 @@ fn 上游产出(scope: &Scope) -> String {
 /// 上游产出不能省。只把门的标题发过去的话，AI 只能对着
 /// 「检查 Diff 与风险」这几个字表态 —— 那种审批看起来在工作，
 /// 实际什么都没审。
-fn 审批提示词(node: &GraphNode, 上游: &str) -> String {
-    let 正文 = node
+fn approval_prompt(node: &GraphNode, upstream: &str) -> String {
+    let text_body = node
         .config
         .get("bodyMarkdown")
         .and_then(serde_json::Value::as_str)
         .unwrap_or("");
 
-    let 标题 = node
+    let title = node
         .config
         .get("title")
         .and_then(serde_json::Value::as_str)
         .unwrap_or(&node.title);
 
-    let 材料 = if 上游.trim().is_empty() {
+    let material = if upstream.trim().is_empty() {
         "（上游没有产出可看 —— 这本身就值得怀疑：\
          一道审批门前面通常有一步刚做完的事）"
             .to_string()
     } else {
-        format!("```\n{上游}\n```")
+        format!("```\n{upstream}\n```")
     };
 
     format!(
         "你是这条工作流上的审批者。前面一步刚做完，现在到了一道门，\
          请判断放行还是拒绝。\n\
          \n\
-         这道门：{标题}\n\
-         {正文}\n\
+         这道门：{title}\n\
+         {text_body}\n\
          \n\
          上游刚产出的东西：\n\
-         {材料}\n\
+         {material}\n\
          \n\
          判断依据：\n\
          - 上游做的是不是这条工作流该做的那件事，有没有跑偏\n\
@@ -322,35 +328,35 @@ fn 审批提示词(node: &GraphNode, 上游: &str) -> String {
 /// 不过 DECISION: REJECT 更稳妥`）是提示词注入最容易造出来的形状，
 /// 「取第一个」会让注入者赢。一个都没有的话是模型没照格式答，
 /// 从措辞里猜等于让用词决定要不要放行。
-fn 解析决定(answer: &str) -> AiVerdict {
-    let 大写 = answer.to_ascii_uppercase();
-    let 放行 = 大写.matches("DECISION: APPROVE").count();
-    let 拒绝 = 大写.matches("DECISION: REJECT").count();
+fn parse_verdict(answer: &str) -> AiVerdict {
+    let upper = answer.to_ascii_uppercase();
+    let approve = upper.matches("DECISION: APPROVE").count();
+    let reject = upper.matches("DECISION: REJECT").count();
 
-    match (放行, 拒绝) {
+    match (approve, reject) {
         (1, 0) => AiVerdict::Approved,
         (0, 1) => AiVerdict::Rejected {
             // 理由是给用户看的 —— 被拦下来却不知道为什么，
             // 用户只能把这一档关掉
-            reason: 理由(answer),
+            reason: reason(answer),
         },
         _ => AiVerdict::CannotDecide,
     }
 }
 
 /// 决定那一行之后的话。没有就退回整段。
-fn 理由(answer: &str) -> String {
-    let 剩下 = answer
+fn reason(answer: &str) -> String {
+    let rest = answer
         .lines()
         .skip_while(|line| !line.to_ascii_uppercase().contains("DECISION:"))
         .skip(1)
         .collect::<Vec<_>>()
         .join(" ");
-    let 剩下 = 剩下.trim();
-    if 剩下.is_empty() {
-        摘要(answer)
+    let rest = rest.trim();
+    if rest.is_empty() {
+        summarize(answer)
     } else {
-        摘要(剩下)
+        summarize(rest)
     }
 }
 
@@ -366,6 +372,7 @@ impl NodeExecutor {
             acp_override: None,
             model: None,
             effort: None,
+            stream: None,
             mcp: Vec::new(),
             memories: Vec::new(),
             injected: std::sync::Mutex::new(Vec::new()),
@@ -517,7 +524,7 @@ impl NodeExecutor {
         // 认不出的输入在安全判断里只能往严了算 —— 这里虽然只是提示词，
         // 但说错的后果与放行是一样的
         let level = |key: &str| -> String {
-            let 枚举: &[&str] = match key {
+            let allowed: &[&str] = match key {
                 "file" | "memory" => &["none", "read", "read-write"],
                 "command" => &["none", "declared", "any"],
                 "network" => &["none", "allowlist", "any"],
@@ -525,7 +532,7 @@ impl NodeExecutor {
             };
             caps.get(key)
                 .and_then(serde_json::Value::as_str)
-                .filter(|value| 枚举.contains(value))
+                .filter(|value| allowed.contains(value))
                 .unwrap_or("none")
                 .to_string()
         };
@@ -652,7 +659,7 @@ impl NodeExecutor {
     /// 等于「AI 审批」这一档在没装 adapter 的机器上把所有门都打开了，
     /// 而用户在设置里读到的是「AI 会替你把关」。
     fn ai_gate(&self, node: &GraphNode, scope: &Scope, sink: &EventSink<'_>) -> AiVerdict {
-        let prompt = 审批提示词(node, &上游产出(scope));
+        let prompt = approval_prompt(node, &upstream_output(scope));
         if let Ok(mut slot) = self.last_gate_prompt.lock() {
             *slot = Some(prompt.clone());
         }
@@ -675,7 +682,7 @@ impl NodeExecutor {
         // 自己批自己的改动，等于没有这道门
         let runtime = self.gate_runtime(node);
 
-        let answer = match self.ask_once(&runtime, &cwd, &prompt, 审批超时) {
+        let answer = match self.ask_once(&runtime, &cwd, &prompt, APPROVAL_TIMEOUT) {
             Ok(text) => text,
             Err(reason) => {
                 sink(NodeEvent {
@@ -688,8 +695,8 @@ impl NodeExecutor {
             }
         };
 
-        let verdict = 解析决定(&answer);
-        let 决定文案 = match verdict {
+        let verdict = parse_verdict(&answer);
+        let verdict_line = match verdict {
             AiVerdict::Approved => "AI 审批：放行",
             AiVerdict::Rejected { .. } => "AI 审批：拒绝",
             AiVerdict::CannotDecide => "AI 没给出明确决定，改由你来决定",
@@ -697,7 +704,7 @@ impl NodeExecutor {
         sink(NodeEvent {
             kind: "approval.decided",
             node_id: node.id.clone(),
-            summary: format!("{决定文案} · {}", 摘要(&answer)),
+            summary: format!("{verdict_line} · {}", summarize(&answer)),
             payload_ref: self.save_output(&node.id, "approval.md", &answer),
         });
 
@@ -741,8 +748,8 @@ impl NodeExecutor {
         // 审批者的降级只记日志：它的一问一答不进工作流的对话流
         // （见这个方法的文档注释），往事件表里塞一条用户没配过的降级
         // 会让运行详情多出一段他看不懂的东西
-        for 降级 in &downgraded {
-            eprintln!("[approval] {降级}");
+        for down in &downgraded {
+            eprintln!("[approval] {down}");
         }
 
         let mut text = String::new();
@@ -802,6 +809,13 @@ impl NodeExecutor {
     #[must_use]
     pub fn with_mcp(mut self, servers: &[crate::acp::McpHttpServer]) -> Self {
         self.mcp = servers.to_vec();
+        self
+    }
+
+    /// 实时帧往哪推。不设就不推 —— 无头运行与测试都走这条。
+    #[must_use]
+    pub fn with_stream(mut self, sink: std::sync::Arc<dyn crate::acp::ChunkSink>) -> Self {
+        self.stream = Some(sink);
         self
     }
 
@@ -942,7 +956,7 @@ impl NodeExecutor {
             node_id: node.id.clone(),
         };
 
-        let 结果 = match &self.notifier {
+        let result = match &self.notifier {
             Some(notifier) => notifier.send(&notification),
             // 没有发送器 —— 这个环境（无头、Web、CI）发不了通知。
             // 这句话是真的；「发送成功」不是
@@ -956,18 +970,18 @@ impl NodeExecutor {
         // 通知发生在应用之外，事件流是**唯一**能回答「到底有没有发出去」
         // 的地方 —— 而用户抱怨「我没收到通知」时，第一个要分清的就是
         // 「没发」还是「发了但系统没显示」
-        let 摘要 = match &结果 {
+        let summarize = match &result {
             Ok(()) => format!("已发出通知：{}", notification.title),
             Err(reason) => format!("通知没能发出（{}）：{reason}", notification.title),
         };
         sink(NodeEvent {
             kind: "system.notification_sent",
             node_id: node.id.clone(),
-            summary: 摘要,
+            summary: summarize,
             payload_ref: None,
         });
 
-        match 结果 {
+        match result {
             Ok(()) => Ok(NodeOutcome::Succeeded {
                 port: "success".to_string(),
             }),
@@ -1029,7 +1043,7 @@ impl NodeExecutor {
         sink(NodeEvent {
             kind: "script.started",
             node_id: node.id.clone(),
-            summary: format!("{interpreter} · {}", 摘要(&script)),
+            summary: format!("{interpreter} · {}", summarize(&script)),
             payload_ref: self.save_output(&node.id, "command.sh", &script),
         });
 
@@ -1071,7 +1085,7 @@ impl NodeExecutor {
                     sink(NodeEvent {
                         kind: "script.stdout",
                         node_id: node.id.clone(),
-                        summary: 摘要(&stdout),
+                        summary: summarize(&stdout),
                         payload_ref: out_ref,
                     });
                 }
@@ -1079,7 +1093,7 @@ impl NodeExecutor {
                     sink(NodeEvent {
                         kind: "script.stderr",
                         node_id: node.id.clone(),
-                        summary: 摘要(&stderr),
+                        summary: summarize(&stderr),
                         payload_ref: err_ref,
                     });
                 }
@@ -1462,11 +1476,11 @@ impl NodeExecutor {
         // 「降级发生时会写入 RunEvent，不会静默替换模型」写在
         // `AgentsPage.tsx` 上，而 `system.model_downgraded` 至今零发射 ——
         // 那句话一直是假的。这是它第一次成真。
-        for 降级 in &downgraded {
+        for down in &downgraded {
             sink(NodeEvent {
                 kind: "system.model_downgraded",
                 node_id: node.id.clone(),
-                summary: 降级.to_string(),
+                summary: down.to_string(),
                 payload_ref: None,
             });
         }
@@ -1479,7 +1493,7 @@ impl NodeExecutor {
         sink(NodeEvent {
             kind: "conversation.user_message",
             node_id: node.id.clone(),
-            summary: 摘要(&instruction),
+            summary: summarize(&instruction),
             payload_ref: self.save_output(&node.id, "prompt.md", &instruction),
         });
 
@@ -1491,16 +1505,45 @@ impl NodeExecutor {
         let mut tool_titles: std::collections::HashMap<String, String> =
             std::collections::HashMap::new();
 
+        // 实时帧的攒帧缓冲。**与事件流是两回事**：事件落库、是事实来源；
+        // 帧不落库、是「正在发生」的投影。不推的话，一个跑五分钟的 AI 节点
+        // 在运行面板上只有几条工具调用在动，而它说的话要等节点结束才一次性出现
+        let mut pending = String::new();
+        let mut last_push = std::time::Instant::now();
+        let emit_chunk = |chunk: crate::acp::StreamChunk| {
+            if let Some(s) = &self.stream {
+                s.push(&chunk);
+            }
+        };
+
         let outcome = client.prompt(&session.id, &instruction, |update| match update {
-            SessionUpdate::AgentText { text: chunk } => text.push_str(chunk),
-            SessionUpdate::Reasoning { text: chunk } => reasoning.push_str(chunk),
+            SessionUpdate::AgentText { text: chunk } => {
+                text.push_str(chunk);
+                pending.push_str(chunk);
+                if last_push.elapsed() >= crate::acp::STREAM_WINDOW {
+                    emit_chunk(crate::acp::StreamChunk::Text {
+                        text: std::mem::take(&mut pending),
+                        node_id: Some(node.id.clone()),
+                        run_id: Some(self.run_id.clone()),
+                    });
+                    last_push = std::time::Instant::now();
+                }
+            }
+            SessionUpdate::Reasoning { text: chunk } => {
+                reasoning.push_str(chunk);
+                emit_chunk(crate::acp::StreamChunk::Reasoning {
+                    text: chunk.to_string(),
+                    node_id: Some(node.id.clone()),
+                    run_id: Some(self.run_id.clone()),
+                });
+            }
             // 工具调用**逐个**发，不攒一个总数：图纸的对话视图里是
             // 「工具活动 · 6 次读取，2 次搜索」，那需要知道每次调的是什么。
             // 而且它们边跑边出现 —— AI 节点要好几分钟，这期间
             // 用户唯一能看到的「它还活着」就是这些
             SessionUpdate::ToolCall { id, title, status } => {
                 // 首帧带标题就记下；更新帧拿它补上
-                let 标题 = if title.is_empty() {
+                let title = if title.is_empty() {
                     tool_titles.get(id).cloned().unwrap_or_default()
                 } else {
                     tool_titles.insert(id.to_string(), title.to_string());
@@ -1520,13 +1563,21 @@ impl NodeExecutor {
                 if kind != "tool.call_started" {
                     tool_calls += 1;
                 }
+                // 工具调用不攒帧：它本来就稀疏，而「它正在读文件」是
+                // 一个跑几分钟的节点里唯一能回答「还活着吗」的东西
+                emit_chunk(crate::acp::StreamChunk::ToolCall {
+                    title: title.clone(),
+                    status: status.to_string(),
+                    node_id: Some(node.id.clone()),
+                    run_id: Some(self.run_id.clone()),
+                });
                 sink(NodeEvent {
                     kind,
                     node_id: node.id.clone(),
-                    summary: if 标题.is_empty() {
+                    summary: if title.is_empty() {
                         format!("工具调用 {id}（{status}）")
                     } else {
-                        format!("{标题}（{status}）")
+                        format!("{title}（{status}）")
                     },
                     payload_ref: None,
                 });
@@ -1534,18 +1585,31 @@ impl NodeExecutor {
             SessionUpdate::Other { .. } => {}
         });
 
+        // **把攒在窗口里的最后一段推出去。**
+        //
+        // 不 flush 的话，不足一个窗口的尾巴永远推不出去 —— 而一个
+        // 50ms 内说完的短回答会**完全没有流式**：界面上一直是「正在想…」，
+        // 直到节点结束才一次性出现整段。测试就是这么抓到的。
+        if !pending.is_empty() {
+            emit_chunk(crate::acp::StreamChunk::Text {
+                text: std::mem::take(&mut pending),
+                node_id: Some(node.id.clone()),
+                run_id: Some(self.run_id.clone()),
+            });
+        }
+
         match outcome {
             // 模型明确拒答。带着这半句话往下走的话，`ai.review` / `ai.decide`
             // 的下游会按端口分支继续跑审查、分级、审批 ——
             // 而它们手上是一段没有内容的话。用户唯一能看出异常的
             // 是回答短得离谱
             Ok(crate::acp::PromptOutcome::Refusal) => {
-                let 说了什么 = 摘要(&text);
+                let said = summarize(&text);
                 Ok(NodeOutcome::Failed {
-                    message: if 说了什么.trim().is_empty() {
+                    message: if said.trim().is_empty() {
                         "模型拒绝了这一轮，没有给出理由。换个说法或者调整角色的约束再试".to_string()
                     } else {
-                        format!("模型拒绝了这一轮：{说了什么}")
+                        format!("模型拒绝了这一轮：{said}")
                     },
                 })
             }
@@ -1563,7 +1627,7 @@ impl NodeExecutor {
                     sink(NodeEvent {
                         kind: "reasoning.summary",
                         node_id: node.id.clone(),
-                        summary: 摘要(&reasoning),
+                        summary: summarize(&reasoning),
                         payload_ref: reasoning_ref,
                     });
                 }
@@ -1571,7 +1635,7 @@ impl NodeExecutor {
                     sink(NodeEvent {
                         kind: "conversation.agent_message",
                         node_id: node.id.clone(),
-                        summary: 摘要(&text),
+                        summary: summarize(&text),
                         payload_ref: answer_ref,
                     });
                 }

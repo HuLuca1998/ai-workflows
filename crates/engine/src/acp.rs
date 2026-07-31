@@ -426,7 +426,7 @@ impl AcpClient {
         // 响应里的全量 configOptions 吃回来：下一次设别的项要用它找 configId，
         // 而且回读的值就是「agent 确认过的」那个
         let updated = parse_config_options(&result);
-        let 回读 = updated
+        let confirmed = updated
             .iter()
             .find(|option| option.category == category)
             .map(|option| option.current_value.clone())
@@ -434,7 +434,7 @@ impl AcpClient {
         if !updated.is_empty() {
             self.config_options.insert(session_id.to_string(), updated);
         }
-        Ok(回读)
+        Ok(confirmed)
     }
 
     /// 发一轮提示词。流式更新通过 `on_update` 回调交出去 ——
@@ -590,6 +590,59 @@ impl AcpClient {
     }
 }
 
+// ── 实时帧 ────────────────────────────────────────────────────────────────
+
+/// 一轮对话进行中的增量。**不落库** —— 它是「正在发生」的投影，
+/// 不是事实来源。
+///
+/// 事实仍然是那条最终落库的消息 / RunEvent：断线、刷新、翻历史都从库里
+/// 恢复，所以丢帧不影响正确性 —— 这也是它可以按时间窗口聚合的原因。
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum StreamChunk {
+    /// Agent 正在说的话。
+    Text {
+        text: String,
+        /// 哪个节点在说。主管 AI 不填 —— 它不属于任何一次运行。
+        #[serde(skip_serializing_if = "Option::is_none")]
+        node_id: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        run_id: Option<String>,
+    },
+    /// 推理过程。界面上折叠，流式时展开成「思考中」。
+    Reasoning {
+        text: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        node_id: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        run_id: Option<String>,
+    },
+    /// 工具调用。长对话里「它还活着吗」只有这个回答得了。
+    ToolCall {
+        title: String,
+        status: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        node_id: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        run_id: Option<String>,
+    },
+}
+
+/// 谁来接实时帧。桌面壳 emit 成 Tauri 事件，测试收进 Vec。
+///
+/// 定义在引擎里而不是某个调用方里：AI 节点与主管 AI 推的是同一种帧，
+/// 各定义一份的话，界面要认两套形状 —— 而它们在同一个对话组件里渲染。
+pub trait ChunkSink: Send + Sync {
+    fn push(&self, chunk: &StreamChunk);
+}
+
+/// 攒够一个时间窗口再推。
+///
+/// 每来一个 token 就推一帧的话，一轮几百帧全部穿过 IPC 再触发前端重渲染 ——
+/// 界面会卡在自己的更新上，而模型其实早就说完了。
+/// 30–60ms 是一帧的量级，肉眼看仍然是连续的。
+pub const STREAM_WINDOW: Duration = Duration::from_millis(50);
+
 // ── 统一入口 ──────────────────────────────────────────────────────────────
 
 /// 打开一条 AI 会话要什么。**四个调用点填同一张表。**
@@ -633,7 +686,7 @@ pub struct Downgrade {
 
 impl std::fmt::Display for Downgrade {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let 中文 = match self.category.as_str() {
+        let label = match self.category.as_str() {
             "model" => "模型",
             "thought_level" => "推理深度",
             "mode" => "权限档",
@@ -641,7 +694,7 @@ impl std::fmt::Display for Downgrade {
         };
         write!(
             f,
-            "{中文}「{}」这个 runtime 不认，改用它自己的默认值。原因：{}",
+            "{label}「{}」这个 runtime 不认，改用它自己的默认值。原因：{}",
             self.wanted, self.reason
         )
     }
@@ -1037,7 +1090,7 @@ impl SessionPool {
     pub fn prompt(
         &self,
         key: &str,
-        建: impl Fn() -> Result<(AcpClient, String)>,
+        build: impl Fn() -> Result<(AcpClient, String)>,
         text: &str,
         mut on_update: impl FnMut(SessionUpdate<'_>),
     ) -> Result<PromptOutcome> {
@@ -1057,7 +1110,7 @@ impl SessionPool {
         let mut held = slot.lock().map_err(|_| AcpError::Disconnected)?;
 
         if held.is_none() {
-            let (client, session_id) = 建()?;
+            let (client, session_id) = build()?;
             self.remember(client.pid());
             *held = Some(Live {
                 client,
@@ -1066,21 +1119,21 @@ impl SessionPool {
             });
         }
 
-        let 结果 = {
+        let result = {
             let session = held.as_mut().ok_or(AcpError::Disconnected)?;
             let id = session.session_id.clone();
             session.last_used = std::time::Instant::now();
             session.client.prompt(&id, text, &mut on_update)
         };
 
-        match 结果 {
+        match result {
             Ok(outcome) => Ok(outcome),
             // 失败多半是进程没了。丢掉重建再试一次 ——
             // 把「adapter 昨天半夜被升级了」这种事报给用户没有意义，
             // 他能做的也只是再点一次
             Err(_) => {
                 *held = None;
-                let (mut client, session_id) = 建()?;
+                let (mut client, session_id) = build()?;
                 self.remember(client.pid());
                 let outcome = client.prompt(&session_id, text, &mut on_update);
                 // 新会话照样放回池里：这一轮可能还是失败（adapter 真的坏了），
