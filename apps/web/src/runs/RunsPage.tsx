@@ -180,6 +180,7 @@ export function RunsPage() {
             <input
               type="search"
               placeholder="搜索工作流、参数或 Run ID"
+              aria-label="搜索执行记录"
               value={search.value}
               onChange={(event) => search.onChange(event.target.value)}
               onKeyDown={(event) => {

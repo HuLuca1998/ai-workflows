@@ -142,7 +142,7 @@ export function OverviewPage() {
               if (event.key === 'Enter') search.onEnter();
             }}
             placeholder="搜索工作流、运行或产物"
-            aria-label="搜索工作流"
+            aria-label="搜索工作流、运行或产物"
           />
         </label>
         <Button onClick={() => fileInput.current?.click()}>导入</Button>
@@ -151,6 +151,7 @@ export function OverviewPage() {
           type="file"
           accept="application/json,.json"
           className="sr-only"
+          tabIndex={-1}
           aria-label="导入工作流文件"
           onChange={(event) => {
             const file = event.target.files?.[0];

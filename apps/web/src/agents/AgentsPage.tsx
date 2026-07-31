@@ -382,6 +382,7 @@ export function AgentsPage() {
           <input
             type="search"
             placeholder="搜索角色、目标或工具"
+            aria-label="搜索 Agent 角色"
             value={search.value}
             onChange={(event) => search.onChange(event.target.value)}
             onKeyDown={(event) => {

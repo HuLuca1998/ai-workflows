@@ -48,7 +48,7 @@ describe('页面骨架', () => {
 
   it('搜索框与两个操作按钮就位', () => {
     renderPage();
-    expect(screen.getByLabelText('搜索工作流')).toBeInTheDocument();
+    expect(screen.getByLabelText('搜索工作流、运行或产物')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '导入' })).toBeInTheDocument();
     // 空态里也有一个「新建工作流」，头部这个在页面头部内
     const head = screen.getByRole('heading', { name: '工作流', level: 1 }).closest('header');
@@ -146,7 +146,7 @@ describe('列表与筛选', () => {
     useWorkspace.setState({ setFilter });
     renderPage();
 
-    const input = screen.getByLabelText('搜索工作流');
+    const input = screen.getByLabelText('搜索工作流、运行或产物');
     fireEvent.change(input, { target: { value: '归因' } });
     // 光输入不发请求 —— 每敲一个字母打一次后端是浪费
     expect(setFilter).not.toHaveBeenCalled();

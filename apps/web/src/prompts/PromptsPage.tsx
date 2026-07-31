@@ -235,6 +235,7 @@ export function PromptsPage() {
           <input
             type="search"
             placeholder="搜索名称、变量或正文"
+            aria-label="搜索提示词"
             value={search.value}
             onChange={(event) => search.onChange(event.target.value)}
             onKeyDown={(event) => {

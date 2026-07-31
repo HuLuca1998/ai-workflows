@@ -198,6 +198,7 @@ export function MemoryPage() {
           <input
             type="search"
             placeholder="搜索 key、内容或标签"
+            aria-label="搜索记忆"
             value={search.value}
             onChange={(event) => search.onChange(event.target.value)}
             onKeyDown={(event) => {

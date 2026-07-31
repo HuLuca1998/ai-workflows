@@ -258,6 +258,7 @@ export function ModelsPage() {
           <input
             type="search"
             placeholder="搜索名称或模型 ID"
+            aria-label="搜索模型"
             value={search.value}
             onChange={(event) => search.onChange(event.target.value)}
             onKeyDown={(event) => {
