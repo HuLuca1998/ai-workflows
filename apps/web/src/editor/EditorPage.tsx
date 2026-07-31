@@ -18,6 +18,8 @@ import {
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import type { NodeType } from '@aiwf/contracts';
+import { Button } from '@aiwf/ui';
+import { useWorkspace } from '../data/workspace.js';
 import type { MenuTarget } from './menuActions.js';
 import { useEditor } from './editorStore.js';
 import { EditorToolbar } from './EditorToolbar.jsx';
@@ -390,17 +392,7 @@ function EditorCanvas() {
 
   // 图纸的编辑器总是针对某个工作流；不带 id 进来时给空态而不是空白画布
   if (!workflowId) {
-    return (
-      <article className="page">
-        <header className="page__head">
-          <h1>工作流编辑器</h1>
-          <p className="page__summary">设计与维护流程</p>
-        </header>
-        <p className="page__todo">
-          先在<Link to="/">概览与工作流</Link>里选一个工作流，或新建一个。
-        </p>
-      </article>
-    );
+    return <EditorEmptyState />;
   }
 
   if (loading) {
@@ -621,5 +613,43 @@ function EditorCanvas() {
         </div>
       </div>
     </div>
+  );
+}
+
+/**
+ * 不带工作流 id 时的空态。文案说「或新建一个」，那就必须真的有新建入口 ——
+ * 只给一个跳回概览的链接是条死胡同（第 1 轮实测 M11）。
+ */
+function EditorEmptyState() {
+  const navigate = useNavigate();
+  const createWorkflow = useWorkspace((state) => state.createWorkflow);
+  const [creating, setCreating] = useState(false);
+
+  return (
+    <article className="page">
+      <header className="page__head">
+        <h1>工作流编辑器</h1>
+        <p className="page__summary">设计与维护流程</p>
+      </header>
+      <p className="page__todo">
+        先在<Link to="/">概览与工作流</Link>里选一个工作流，或者
+      </p>
+      <p>
+        <Button
+          variant="primary"
+          loading={creating}
+          onClick={() => {
+            if (creating) return;
+            setCreating(true);
+            void createWorkflow(null)
+              .then((id) => navigate(`/editor/${id}`))
+              .finally(() => setCreating(false));
+          }}
+        >
+          <i className="ph ph-plus" aria-hidden="true" />
+          新建工作流
+        </Button>
+      </p>
+    </article>
   );
 }

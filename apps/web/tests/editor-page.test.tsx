@@ -212,6 +212,9 @@ describe('异常态', () => {
     renderEditor('/editor');
     expect(screen.getByRole('heading', { name: '工作流编辑器', level: 1 })).toBeInTheDocument();
     expect(screen.getByRole('link', { name: '概览与工作流' })).toBeInTheDocument();
+    // 空态文案说「或新建一个」，那就必须真的有新建入口 ——
+    // 第 1 轮实测：这里只有一个跳回概览的文字链接，是条死胡同
+    expect(screen.getByRole('button', { name: /新建工作流/ })).toBeInTheDocument();
   });
 });
 
