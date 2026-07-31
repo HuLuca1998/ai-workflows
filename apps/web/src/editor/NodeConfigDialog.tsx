@@ -221,7 +221,7 @@ export function NodeConfigDialog({ node, graph, onClose, onSave, references }: N
         </div>
 
         <footer className="cfg__foot">
-          <span className="cfg__foot-note">改动保存到草稿，不影响已发布版本</span>
+          <span className="cfg__foot-note">应用后回到画布 —— 顶栏「保存草稿」才落库</span>
           <span className="cfg__tabs-grow" />
           <Button onClick={onClose}>取消</Button>
           {/* 「测试运行此节点」还没做：它要能只跑一个节点而不动整条流程，
@@ -230,7 +230,7 @@ export function NodeConfigDialog({ node, graph, onClose, onSave, references }: N
             测试运行此节点
           </Button>
           <Button variant="primary" onClick={onSubmit}>
-            保存到草稿
+            应用改动
           </Button>
         </footer>
       </div>

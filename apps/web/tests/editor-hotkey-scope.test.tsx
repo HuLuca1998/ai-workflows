@@ -64,7 +64,7 @@ describe('配置弹层开着时画布快捷键失效', () => {
     await waitFor(() => expect(screen.getByRole('dialog')).toBeTruthy());
 
     // 焦点落在弹层里的**按钮**上（不是输入框）—— 事故现场的形态
-    screen.getByRole('button', { name: '保存到草稿' }).focus();
+    screen.getByRole('button', { name: '应用改动' }).focus();
     fireEvent.keyDown(window, { key: 'a', metaKey: true });
 
     expect(useEditor.getState().selection).toEqual([]);

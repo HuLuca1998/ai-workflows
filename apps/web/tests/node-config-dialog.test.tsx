@@ -52,7 +52,7 @@ describe('弹层结构（照图纸）', () => {
   it('底部三个按钮；试运行禁用并说清为什么', () => {
     renderDialog();
     expect(screen.getByRole('button', { name: '取消' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: '保存到草稿' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '应用改动' })).toBeInTheDocument();
     const testRun = screen.getByRole('button', { name: '测试运行此节点' });
     expect(testRun).toBeDisabled();
     // 不露内部里程碑代号：用户不知道 M2 是什么，也不该知道
@@ -157,7 +157,7 @@ describe('保存', () => {
     const onSave = vi.fn();
     renderDialog(shellNode, onSave);
     fireEvent.change(screen.getByLabelText(/脚本内容/u), { target: { value: 'pnpm test' } });
-    fireEvent.click(screen.getByRole('button', { name: '保存到草稿' }));
+    fireEvent.click(screen.getByRole('button', { name: '应用改动' }));
 
     expect(onSave).toHaveBeenCalledOnce();
     const [config, title] = onSave.mock.calls[0] as [Record<string, unknown>, string];
@@ -169,7 +169,7 @@ describe('保存', () => {
     const onSave = vi.fn();
     renderDialog(shellNode, onSave);
     fireEvent.change(screen.getByLabelText(/脚本内容/u), { target: { value: '' } });
-    fireEvent.click(screen.getByRole('button', { name: '保存到草稿' }));
+    fireEvent.click(screen.getByRole('button', { name: '应用改动' }));
 
     expect(onSave).not.toHaveBeenCalled();
     expect(screen.getAllByRole('alert').length).toBeGreaterThan(0);
@@ -237,7 +237,7 @@ describe('校验文案是中文', () => {
     render(<NodeConfigDialog node={shellNode} graph={graph} onSave={onSave} onClose={vi.fn()} />);
 
     fireEvent.change(screen.getByLabelText(/脚本内容/u), { target: { value: '' } });
-    fireEvent.click(screen.getByRole('button', { name: '保存到草稿' }));
+    fireEvent.click(screen.getByRole('button', { name: '应用改动' }));
 
     expect(screen.getByText('脚本内容不能为空')).toBeTruthy();
     expect(screen.queryByText(/Too small|expected string/u)).toBeNull();
@@ -293,7 +293,7 @@ describe('JSON 字段解析失败时拦保存', () => {
     fireEvent.change(box, { target: { value: '{ "type": ' } });
     expect(screen.getByText(/JSON 无法解析/u)).toBeTruthy();
 
-    fireEvent.click(screen.getByRole('button', { name: '保存到草稿' }));
+    fireEvent.click(screen.getByRole('button', { name: '应用改动' }));
     expect(onSave).not.toHaveBeenCalled();
   });
 
@@ -302,7 +302,7 @@ describe('JSON 字段解析失败时拦保存', () => {
     const box = screen.getByLabelText(/输入参数 Schema/u) as HTMLTextAreaElement;
     fireEvent.change(box, { target: { value: '{ "type": ' } });
     fireEvent.change(box, { target: { value: '{ "type": "object" }' } });
-    fireEvent.click(screen.getByRole('button', { name: '保存到草稿' }));
+    fireEvent.click(screen.getByRole('button', { name: '应用改动' }));
     expect(onSave).toHaveBeenCalled();
   });
 });
@@ -329,7 +329,7 @@ describe('键值对控件能添加新行', () => {
     // 键改动会触发重渲染,值输入框要重新查 —— 拿旧引用会打在已卸载的节点上
     const vals = screen.getAllByLabelText(/^值 \d+/u);
     fireEvent.change(vals[vals.length - 1] as HTMLElement, { target: { value: 'bar' } });
-    fireEvent.click(screen.getByRole('button', { name: '保存到草稿' }));
+    fireEvent.click(screen.getByRole('button', { name: '应用改动' }));
 
     expect(onSave).toHaveBeenCalled();
     const saved = onSave.mock.calls[0]?.[0] as { env: Record<string, string> };
@@ -367,7 +367,7 @@ describe('引用字段渲染成下拉(S4/P5/#3 —— 三轮实测最一致的�
     const select = screen.getByLabelText(/Agent 角色/u) as HTMLSelectElement;
     expect(select.tagName).toBe('SELECT');
     fireEvent.change(select, { target: { value: 'agent_abc' } });
-    fireEvent.click(screen.getByRole('button', { name: '保存到草稿' }));
+    fireEvent.click(screen.getByRole('button', { name: '应用改动' }));
     const saved = onSave.mock.calls[0]?.[0] as { agentProfileId: string };
     expect(saved.agentProfileId).toBe('agent_abc');
   });
@@ -389,7 +389,7 @@ describe('引用字段渲染成下拉(S4/P5/#3 —— 三轮实测最一致的�
     );
     const select = screen.getByLabelText(/^提示词/u) as HTMLSelectElement;
     fireEvent.change(select, { target: { value: '' } });
-    fireEvent.click(screen.getByRole('button', { name: '保存到草稿' }));
+    fireEvent.click(screen.getByRole('button', { name: '应用改动' }));
     const saved = onSave.mock.calls[0]?.[0] as { promptId?: string };
     expect(saved.promptId).toBeUndefined();
   });
