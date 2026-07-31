@@ -419,3 +419,29 @@ describe('引用字段渲染成下拉(S4/P5/#3 —— 三轮实测最一致的�
     expect(input.tagName).toBe('INPUT');
   });
 });
+
+describe('数字字段的边界(第 6 轮实测 #6)', () => {
+  const aiNode: GraphNode = {
+    id: 'analyze',
+    type: 'ai.analyze',
+    title: '分析',
+    position: { x: 0, y: 0 },
+    config: { agentProfileId: 'builtin:analyst', instruction: '分析', target: 'x', turnLimit: 12 },
+  };
+
+  it('Turn 上限填 0 被拦下,不进配置', () => {
+    const onSave = vi.fn();
+    render(<NodeConfigDialog node={aiNode} graph={graph} onClose={vi.fn()} onSave={onSave} />);
+    fireEvent.change(screen.getByLabelText(/Turn 上限/u), { target: { value: '0' } });
+    fireEvent.click(screen.getByRole('button', { name: '应用改动' }));
+    expect(onSave).not.toHaveBeenCalled();
+  });
+
+  it('Turn 上限填小数被拦下', () => {
+    const onSave = vi.fn();
+    render(<NodeConfigDialog node={aiNode} graph={graph} onClose={vi.fn()} onSave={onSave} />);
+    fireEvent.change(screen.getByLabelText(/Turn 上限/u), { target: { value: '3.7' } });
+    fireEvent.click(screen.getByRole('button', { name: '应用改动' }));
+    expect(onSave).not.toHaveBeenCalled();
+  });
+});

@@ -320,3 +320,30 @@ describe('参数按 Schema 的类型渲染与校验', () => {
     expect(screen.getAllByText('必填项，请填写').length).toBeGreaterThan(0);
   });
 });
+
+describe('连点守卫(第 6 轮实测 #2)', () => {
+  it('三连点开始运行只起一条', async () => {
+    const user = userEvent.setup();
+    let starts = 0;
+    call.mockImplementation((method: string, input: unknown) => {
+      if (method === 'run.dryRun')
+        return Promise.resolve({ ...REPORT, ok: true, failed: 0, checks: [] });
+      if (method === 'run.start') {
+        starts += 1;
+        return new Promise((resolve) => setTimeout(() => resolve({ runId: 'run_x' }), 30));
+      }
+      return Promise.resolve({});
+    });
+    render(<LaunchDialog {...props} />);
+    // 填必填项 issue
+    const issue = await screen.findByLabelText(/Issue 编号/u);
+    await user.type(issue, '7');
+    const btn = screen.getByRole('button', { name: /开始运行/u });
+    // 同步三连点:用 fireEvent 不等重渲染
+    btn.click();
+    btn.click();
+    btn.click();
+    await new Promise((r) => setTimeout(r, 80));
+    expect(starts).toBe(1);
+  });
+});

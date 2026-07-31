@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { describeError } from '../data/describeError.js';
 import type { WorkflowGraph } from '../editor/editorDeps.js';
 import { coreClient } from '../data/workspace.js';
@@ -103,7 +103,13 @@ export function LaunchDialog({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [workflowId, versionId, workdir]);
 
+  // 同步守卫:starting 是异步 state,三连点在重渲染前都能穿过 disabled ——
+  // 各起一条真实运行,一次误双击 2–3 倍 token(第 6 轮实测 #2)。
+  // ref 在事件处理里同步生效,第二三下当场丢弃。真正的幂等在后端(DEBT L-5)
+  const inFlight = useRef(false);
+
   const onStart = async () => {
+    if (inFlight.current) return;
     // 布尔字段的「false」也是填了 —— 用 trim() 判空会把它当成没填
     const empty = fields.filter(
       (field) => field.required && field.kind !== 'boolean' && !values[field.key]?.trim(),
@@ -113,6 +119,7 @@ export function LaunchDialog({
       return;
     }
     setMissing([]);
+    inFlight.current = true;
     setStarting(true);
     setError(null);
     try {
@@ -127,6 +134,7 @@ export function LaunchDialog({
       // 留在表单里：关掉的话用户填的参数就没了，还得重来一遍
       setError(describeError(err));
     } finally {
+      inFlight.current = false;
       setStarting(false);
     }
   };

@@ -5667,6 +5667,13 @@ fieldset.launch__field {
   background: linear-gradient(180deg, rgb(145 132 217 / 12%), transparent);
 }
 
+/* radio 是 sr-only,焦点环画在看不见的 1×1 上 —— 把它提到卡片上。
+   这是全应用最要命的安全开关,键盘用户必须看得见自己停在哪(第 8 轮 P1-5) */
+.permission__card:has(:focus-visible) {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+
 .permission__card-name {
   display: flex;
   align-items: center;
