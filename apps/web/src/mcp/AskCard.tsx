@@ -167,14 +167,38 @@ export function AskCard({ spec, raw, busy, onAnswer, onDecline }: AskCardProps) 
         <button type="button" className="runs__action" disabled={busy} onClick={onDecline}>
           不回答
         </button>
-        <button
-          type="button"
-          className="runs__action runs__action--primary"
-          disabled={busy || !known || !ready}
-          onClick={submit}
-        >
-          提交
-        </button>
+        {known && spec.kind === 'confirm' ? (
+          <>
+            {/* 「否」是一个回答（{selected:'no'}），与「不回答」是两件事：
+                agent 要分得清「用户明确说不」和「用户不想理这个问题」。
+                裸「提交」在这里不渲染 —— 它发出去的是空答案 */}
+            <button
+              type="button"
+              className="runs__action"
+              disabled={busy}
+              onClick={() => onAnswer({ selected: 'no', selectedMany: [], fields: {} })}
+            >
+              否
+            </button>
+            <button
+              type="button"
+              className="runs__action runs__action--primary"
+              disabled={busy}
+              onClick={() => onAnswer({ selected: 'yes', selectedMany: [], fields: {} })}
+            >
+              是
+            </button>
+          </>
+        ) : (
+          <button
+            type="button"
+            className="runs__action runs__action--primary"
+            disabled={busy || !known || !ready}
+            onClick={submit}
+          >
+            提交
+          </button>
+        )}
       </div>
     </>
   );

@@ -199,6 +199,54 @@ describe('补充输入', () => {
   });
 });
 
+describe('确认', () => {
+  /*
+   * `confirm` 在 ASK_KINDS 白名单里，所以它必须真的可用 ——
+   * 曾经它 known=true 却没有渲染分支：卡片上只有一个裸的「提交」，
+   * 点下去发的是 {selectedMany:[], fields:{}} —— 恰好是这条链路
+   * 从头到尾都在防的那个空答案。
+   */
+  const 确认提问 = () =>
+    提问({
+      kind: 'confirm',
+      title: '要把这 3 个文件删掉吗',
+      detail: '删了就不可恢复',
+      options: [],
+      fields: [],
+      defaults: [],
+    });
+
+  it('「是」带着明确的肯定回到 agent 手上', async () => {
+    respond([确认提问()]);
+    render(<McpConfirmCard />);
+
+    await userEvent.click(await screen.findByRole('button', { name: /^是$/u }));
+    await waitFor(() => expect(收到的回答).not.toBeNull());
+    expect(收到的回答).toMatchObject({ answer: { selected: 'yes' } });
+  });
+
+  it('「否」是一个回答，不是「不回答」', async () => {
+    // 「否」要走 answerAsk 带回 {selected:'no'} —— 走拒绝的话
+    // agent 分不清「用户明确说不」和「用户不想理这个问题」
+    respond([确认提问()]);
+    render(<McpConfirmCard />);
+
+    await userEvent.click(await screen.findByRole('button', { name: /^否$/u }));
+    await waitFor(() => expect(收到的回答).not.toBeNull());
+    expect(收到的回答).toMatchObject({ answer: { selected: 'no' } });
+  });
+
+  it('没有裸的「提交」—— 那条路发出去的是空答案', async () => {
+    respond([确认提问()]);
+    render(<McpConfirmCard />);
+
+    await screen.findByRole('button', { name: /^是$/u });
+    expect(screen.queryByRole('button', { name: /提交/u })).toBeNull();
+    // 「不回答」始终可用：它与「否」是两件事
+    expect(screen.getByRole('button', { name: /不回答/u }).hasAttribute('disabled')).toBe(false);
+  });
+});
+
 describe('目录之外的东西', () => {
   it('认不出的 kind 降级成原文，不静默吞掉', async () => {
     // agent 用了一个我们不认识的组件。**至少要让用户看到它问了什么** ——

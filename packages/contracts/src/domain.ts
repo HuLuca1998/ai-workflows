@@ -263,7 +263,7 @@ export type AskSpec = z.infer<typeof AskSpecSchema>;
  * 反序列化跟着分叉，而这里的取舍是「两侧都好写」。
  */
 export const AskAnswerSchema = z.object({
-  /** `choice` 选中的那个 value。 */
+  /** `choice` 选中的那个 value；`confirm` 用固定值 `yes` / `no`。 */
   selected: z.string().optional(),
   /** `multiChoice` 选中的那些。 */
   selectedMany: z.array(z.string()).default([]),
