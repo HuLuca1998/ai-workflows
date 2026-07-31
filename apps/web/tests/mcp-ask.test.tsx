@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { ASK_KINDS } from '@aiwf/contracts';
 
 /**
  * Agent 向用户提问 —— 选一个 / 选几个 / 补一段。
@@ -245,6 +246,40 @@ describe('确认', () => {
     // 「不回答」始终可用：它与「否」是两件事
     expect(screen.getByRole('button', { name: /不回答/u }).hasAttribute('disabled')).toBe(false);
   });
+});
+
+describe('白名单里的每种 kind 都真的渲染得出来', () => {
+  /*
+   * 接缝守卫。`confirm` 曾经在 ASK_KINDS 里却没有渲染分支：
+   * known=true、裸「提交」可用，点下去发的是空答案。
+   * 往 ASK_KINDS 加新形态而 AskCard 没跟上时，这条会红。
+   */
+  for (const kind of ASK_KINDS) {
+    it(`${kind} 渲染出可交互的回答控件`, async () => {
+      respond([
+        提问({
+          kind,
+          title: '在问一件事',
+          detail: '',
+          options: [{ value: 'a', label: '甲', description: '' }],
+          fields: [
+            { name: 'f', label: '字段', multiline: false, required: false, placeholder: '' },
+          ],
+          defaults: [],
+        }),
+      ]);
+      render(<McpConfirmCard />);
+
+      await screen.findByRole('alertdialog', { name: /AI 提问/u });
+      const interactive =
+        screen.queryAllByRole('radio').length > 0 ||
+        screen.queryAllByRole('checkbox').length > 0 ||
+        screen.queryAllByRole('textbox').length > 0 ||
+        (screen.queryByRole('button', { name: /^是$/u }) !== null &&
+          screen.queryByRole('button', { name: /^否$/u }) !== null);
+      expect(interactive).toBe(true);
+    });
+  }
 });
 
 describe('目录之外的东西', () => {
