@@ -3769,6 +3769,13 @@
           "default": true,
           "type": "boolean"
         },
+        "downgraded": {
+          "default": [],
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
         "proposal": {
           "type": "object",
           "properties": {

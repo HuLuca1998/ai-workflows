@@ -790,6 +790,16 @@ const SPECS = {
        */
       historySaved: z.boolean().default(true),
       /**
+       * 选的模型没设上时的说明。空数组 = 用的就是抽屉里选的那个。
+       *
+       * **必须回到界面上**：那个下拉是用户刚点过的，只在后端日志里说
+       * 等于悄悄换了模型 —— 而 `AgentsPage` 上写着「不会静默替换模型」。
+       *
+       * 值来自 agent 自己的拒绝（实测两端都拒不存在的模型：
+       * codex `-32602` / claude `-32603`），不是我们编的判断。
+       */
+      downgraded: z.array(z.string()).default([]),
+      /**
        * AI 想做的改动。**只是提议** —— 界面据此算 Diff 给用户看，
        * 用户确认后才走 workflow.patch 落草稿。
        *
