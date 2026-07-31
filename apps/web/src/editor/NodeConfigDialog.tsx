@@ -8,7 +8,7 @@ import {
   type GraphNode,
   type WorkflowGraph,
 } from './editorDeps.js';
-import { Button } from '@aiwf/ui';
+import { Button, useFocusTrap } from '@aiwf/ui';
 import { iconFor } from './nodeVisuals.js';
 import { SchemaField, type ReferenceOption } from './SchemaField.jsx';
 
@@ -42,6 +42,8 @@ export function NodeConfigDialog({
   references,
 }: NodeConfigDialogProps) {
   const dialogRef = useRef<HTMLDivElement>(null);
+  // Tab 锁在弹层内 —— aria-modal=true 却让焦点跑到侧栏是第 8 轮实测 P0-3
+  useFocusTrap(dialogRef, true);
 
   /**
    * Esc 关闭挂在 document 上，不挂 backdrop 的 onKeyDown。

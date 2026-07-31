@@ -1,4 +1,5 @@
 import { useEffect, useId, useRef, type ReactNode } from 'react';
+import { useFocusTrap } from '../hooks/useFocusTrap.js';
 
 export interface DialogProps {
   open: boolean;
@@ -17,6 +18,7 @@ export interface DialogProps {
 export function Dialog({ open, title, onClose, children, actions, width = 720 }: DialogProps) {
   const titleId = useId();
   const ref = useRef<HTMLDivElement>(null);
+  useFocusTrap(ref, open);
 
   useEffect(() => {
     if (!open) return;

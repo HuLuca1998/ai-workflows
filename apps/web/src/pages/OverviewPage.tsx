@@ -293,9 +293,22 @@ export function OverviewPage() {
                 <tr
                   key={w.id}
                   onClick={() => navigate(`/editor/${w.id}`)}
+                  // 键盘可达:纯 onclick 的行,键盘用户打不开任何已有工作流
+                  // (第 8 轮实测 P0-1,阻断)。role=link + Enter 让它像链接一样
+                  role="link"
+                  tabIndex={0}
+                  onKeyDown={(event) => {
+                    // 落在行内的运行/重试按钮上时不劫持 —— 那是它们自己的键
+                    if (event.target !== event.currentTarget) return;
+                    if (event.key === 'Enter' || event.key === ' ') {
+                      event.preventDefault();
+                      navigate(`/editor/${w.id}`);
+                    }
+                  }}
                   data-clickable="true"
                   data-workflow-id={w.id}
                   title="打开编辑器"
+                  aria-label={`打开工作流 ${w.name}`}
                 >
                   <td>
                     <p className="wf-table__name">{w.name}</p>

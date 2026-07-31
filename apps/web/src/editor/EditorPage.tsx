@@ -289,6 +289,28 @@ function EditorCanvas() {
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [setSelection, configNodeId, versionsOpen, launchOpen]);
 
+  /**
+   * Enter 打开选中节点的配置 —— 键盘用户此前只有双击这一条路，
+   * 配置弹层根本进不去（第 8 轮实测 P0-2，阻断）。
+   * 恰好选中一个节点时才响应；焦点在输入框/弹层里时让给它们。
+   */
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== 'Enter') return;
+      if (configNodeId || versionsOpen || launchOpen) return;
+      const target = event.target as HTMLElement | null;
+      const tag = target?.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || target?.isContentEditable) return;
+      if (target?.closest?.('[role="dialog"]')) return;
+      const selected = useEditor.getState().selection;
+      if (selected.length !== 1) return;
+      event.preventDefault();
+      setConfigNodeId(selected[0] ?? null);
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [configNodeId, versionsOpen, launchOpen]);
+
   const selectedIds = useMemo(() => new Set(selection), [selection]);
   const nodes = useMemo(
     () =>
