@@ -87,7 +87,7 @@ mod 模型连通性 {
         // 这条原先就是那么写的，于是开发机一装上 adapter 它就变成
         // 真的去握手（起一个 codex 进程，最长 30 秒），而要断言的那句话
         // 反而再也走不到
-        let 话 = probe_runtime("acp.codex", |_| None, |_| panic!("没装就不该去探测"))
+        let 话 = probe_runtime::<String>("acp.codex", |_| None, |_| panic!("没装就不该去探测"))
             .expect_err("adapter 没装却报告成功");
 
         assert!(话.contains("adapter"), "没说清是 adapter 的问题：{话}");
@@ -111,7 +111,7 @@ mod 模型连通性 {
         // 那时用户会拿到一个含糊的失败，而不是「这不是 ACP 运行时」。
         //
         // 所以不再经过 store（它现在会拒绝这个值），直接测那条分支本身。
-        let 话 = probe_runtime(
+        let 话 = probe_runtime::<String>(
             "provider.api",
             |_| panic!("非 ACP 就不该去找 adapter"),
             |_| panic!("非 ACP 就不该去探测"),

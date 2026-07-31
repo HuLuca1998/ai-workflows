@@ -185,6 +185,7 @@ pub fn dispatch(
             boolean(input, "enabled"),
         )?),
         "model_test" => to_value(api::model_test(&store, string(input, "id")?)?),
+        "model_sync" => to_value(api::model_sync(string(input, "runtime")?)?),
         "model_update" => to_value(api::model_update(
             &store,
             string(input, "id")?,

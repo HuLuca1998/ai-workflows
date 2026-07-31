@@ -240,6 +240,7 @@ pub const COMMANDS: &[&str] = &[
     "model_create",
     "model_update",
     "model_test",
+    "model_sync",
     "model_delete",
     "run_start",
     "run_dry_run",
@@ -2840,6 +2841,96 @@ pub fn model_test_with(
     })
 }
 
+/// 一个 runtime 现在能用的模型与推理深度。
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ModelSyncResult {
+    pub models: Vec<ConfigChoiceDto>,
+    pub efforts: Vec<ConfigChoiceDto>,
+    /// runtime 自己的当前值 —— 默认值从这来，不硬编码。
+    pub current_model: String,
+    pub current_effort: String,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ConfigChoiceDto {
+    pub value: String,
+    pub label: String,
+    pub description: String,
+}
+
+/// 问 runtime：你现在能用哪些模型、哪些推理深度。
+///
+/// **所有模型下拉的唯一数据源。** 清单写死在契约或界面里的话，
+/// 本机 CLI 一升级就会漏掉新模型 —— 而那种失效是静默的。
+///
+/// 起一次 adapter、建一条会话、读 `configOptions`、关掉。
+/// 实测 codex 约 335ms，与 `model.test` 同量级。
+pub fn model_sync(runtime: String) -> ApiResult<ModelSyncResult> {
+    model_sync_with(runtime, aiwf_engine::acp::adapter_installed)
+}
+
+/// [`model_sync`]，但 adapter 的查找可以注入 —— 理由同 [`model_test_with`]。
+#[doc(hidden)]
+pub fn model_sync_with(
+    runtime: String,
+    找_adapter: impl FnOnce(&str) -> Option<String>,
+) -> ApiResult<ModelSyncResult> {
+    let 结果 = probe_runtime(&runtime, 找_adapter, |command| {
+        let opened = aiwf_engine::acp::open_session(&aiwf_engine::acp::SessionSpec {
+            runtime: runtime.clone(),
+            cwd: std::env::temp_dir().display().to_string(),
+            model: None,
+            effort: None,
+            mode: None,
+            mcp: Vec::new(),
+            timeout: std::time::Duration::from_secs(30),
+            adapter_override: Some((command.to_string(), Vec::new())),
+        })
+        .map_err(|error| format!("连不上 adapter：{error}"))?;
+
+        // 按 category 取，不按 id：id 两端不一样
+        // （codex `reasoning_effort` / claude `effort`），category 一样
+        let 取 = |category: &str| {
+            opened
+                .session
+                .config_options
+                .iter()
+                .find(|o| o.category == category)
+                .cloned()
+        };
+        Ok((取("model"), 取("thought_level")))
+    });
+
+    let (模型项, 深度项) = 结果.map_err(|detail| ApiError {
+        code: "EXTERNAL".to_string(),
+        message: detail,
+        retriable: true,
+        hint: Some("在「设置与环境」里能看到 adapter 装没装".to_string()),
+    })?;
+
+    let 转 = |项: &Option<aiwf_engine::acp::ConfigOption>| {
+        项.as_ref().map_or_else(Vec::new, |o| {
+            o.options
+                .iter()
+                .map(|c| ConfigChoiceDto {
+                    value: c.value.clone(),
+                    label: c.name.clone(),
+                    description: c.description.clone(),
+                })
+                .collect()
+        })
+    };
+
+    Ok(ModelSyncResult {
+        models: 转(&模型项),
+        efforts: 转(&深度项),
+        current_model: 模型项.map(|o| o.current_value).unwrap_or_default(),
+        current_effort: 深度项.map(|o| o.current_value).unwrap_or_default(),
+    })
+}
+
 /// 找到运行时对应的 adapter 再跑探测。找不到时给出可照做的说明。
 ///
 /// `找_adapter` 是参数而不是直接调 `adapter_installed`，**为的是能测**：
@@ -2847,11 +2938,11 @@ pub fn model_test_with(
 /// 来触发 —— 开发机上一装 adapter 它就变成真的去握手，
 /// 于是一条本该几微秒的单测会起一个 codex 进程，最长等 30 秒，
 /// 而断言「没装」的那句话再也测不到。
-pub fn probe_runtime(
+pub fn probe_runtime<T>(
     runtime: &str,
     找_adapter: impl FnOnce(&str) -> Option<String>,
-    probe: impl FnOnce(&str) -> std::result::Result<String, String>,
-) -> std::result::Result<String, String> {
+    probe: impl FnOnce(&str) -> std::result::Result<T, String>,
+) -> std::result::Result<T, String> {
     if aiwf_engine::acp::adapter_command(runtime).is_none() {
         return Err(format!(
             "{runtime} 不是 ACP 运行时，连通性测试只支持 ACP（acp.claude / acp.codex）"

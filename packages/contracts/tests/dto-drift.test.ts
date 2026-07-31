@@ -56,6 +56,8 @@ const 映射: {
   { dto: 'ConfirmationDto', method: 'mcp.pendingConfirms', 字段路径: 'items' },
   { dto: 'ConfirmStatusDto', method: 'mcp.confirmStatus' },
   { dto: 'ModelTestResult', method: 'model.test' },
+  { dto: 'ModelSyncResult', method: 'model.sync' },
+  { dto: 'ConfigChoiceDto', method: 'model.sync', 字段路径: 'models' },
   { dto: 'PatchDto', method: 'workflow.patch' },
   { dto: 'McpStatusDto', method: 'mcp.status' },
   { dto: 'McpClientDto', method: 'mcp.status', 字段路径: 'clients' },

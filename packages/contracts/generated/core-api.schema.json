@@ -5460,6 +5460,92 @@
       ]
     }
   },
+  "model.sync": {
+    "summary": "同步 runtime 现在能用的模型与推理深度",
+    "scope": null,
+    "mutates": false,
+    "audited": false,
+    "input": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "runtime": {
+          "type": "string",
+          "enum": [
+            "acp.codex",
+            "acp.claude"
+          ]
+        }
+      },
+      "required": [
+        "runtime"
+      ]
+    },
+    "output": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "models": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "value": {
+                "type": "string",
+                "minLength": 1
+              },
+              "label": {
+                "default": "",
+                "type": "string"
+              },
+              "description": {
+                "default": "",
+                "type": "string"
+              }
+            },
+            "required": [
+              "value"
+            ]
+          }
+        },
+        "efforts": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "value": {
+                "type": "string",
+                "minLength": 1
+              },
+              "label": {
+                "default": "",
+                "type": "string"
+              },
+              "description": {
+                "default": "",
+                "type": "string"
+              }
+            },
+            "required": [
+              "value"
+            ]
+          }
+        },
+        "currentModel": {
+          "default": "",
+          "type": "string"
+        },
+        "currentEffort": {
+          "default": "",
+          "type": "string"
+        }
+      },
+      "required": [
+        "models",
+        "efforts"
+      ]
+    }
+  },
   "agent.list": {
     "summary": "列出 Agent 角色",
     "scope": "workflow:read",

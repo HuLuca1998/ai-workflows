@@ -182,6 +182,25 @@ export const PromptSchema = z.object({
 });
 export type Prompt = z.infer<typeof PromptSchema>;
 
+/**
+ * runtime 报上来的一个可选项（一个模型、一档推理深度）。
+ *
+ * **值不写死在契约里** —— 本机 CLI 一升级就会多出模型，
+ * 而写死的枚举到那天会静默失效。所以这里只规定形状，
+ * 具体候选由 `model.sync` 现问现拿。
+ *
+ * 校验也不必我们做：设一个不在候选里的值，agent 自己会拒
+ * （实测 codex `-32602` / claude `-32603`）。
+ */
+export const ConfigChoiceSchema = z.object({
+  /** 发给 agent 的那个值，如 `gpt-5.6-sol` / `high`。 */
+  value: z.string().min(1),
+  /** 给人看的名字，如 `GPT-5.6-Sol`。agent 自己给的。 */
+  label: z.string().default(''),
+  description: z.string().default(''),
+});
+export type ConfigChoice = z.infer<typeof ConfigChoiceSchema>;
+
 export const ModelSchema = z.object({
   id: z.string().min(1),
   name: z.string().min(1),

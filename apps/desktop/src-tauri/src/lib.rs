@@ -491,6 +491,16 @@ fn model_test(state: State<'_, AppState>, id: String) -> IpcResult<api::ModelTes
     api::model_test(&store, id)
 }
 
+/// 问 runtime 现在能用哪些模型与推理深度。
+///
+/// **不锁 store**：它只跟 adapter 说话，不碰数据库。握着主锁去起一个
+/// adapter 进程（最长 30 秒）的话，这期间界面上什么都点不动 ——
+/// 主管 AI 那条已经因为同一个原因单开了一条连接。
+#[tauri::command]
+fn model_sync(runtime: String) -> IpcResult<api::ModelSyncResult> {
+    api::model_sync(runtime)
+}
+
 #[tauri::command]
 fn mcp_request_confirm(
     state: State<'_, AppState>,
@@ -947,6 +957,7 @@ pub fn run() {
             mcp_pending_confirms,
             mcp_decide_confirm,
             model_test,
+            model_sync,
             run_rewind_to_approval,
             env_diagnostics,
             workspace_update_settings,

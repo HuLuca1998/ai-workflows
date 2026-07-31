@@ -5,8 +5,10 @@ import { RUN_EVENT_CATEGORIES, RunEventSchema } from './events.js';
 import { WorkflowGraphSchema } from './graph.js';
 import { PatchOperationSchema } from './patch.js';
 import {
+  AGENT_RUNTIMES,
   AgentProfileSchema,
   ApprovalDecisionSchema,
+  ConfigChoiceSchema,
   SupervisorMessageSchema,
   SupervisorSessionSchema,
   EnvHealthItemSchema,
@@ -1016,6 +1018,42 @@ const SPECS = {
     // 会在这台机器上拉起 adapter 进程：与 env.install 同一条理由，不给远端
     scope: null,
     summary: '测试模型连通性并记下延迟',
+  },
+  'model.sync': {
+    /*
+     * 问 runtime：你现在能用哪些模型、哪些推理深度。
+     *
+     * **这是所有模型下拉的唯一数据源。** 清单不能写死在契约或界面里 ——
+     * 本机 CLI 一升级就会多出模型（实测 codex 现在 5 个模型族 × 6 档深度，
+     * 而契约里曾经写死的 effort 只有 4 档）。
+     *
+     * 数据来自 `session/new` 回的 `configOptions`，按 `category` 取：
+     * `model` 与 `thought_level` 两端一致，尽管 id 不一样
+     * （codex `reasoning_effort` / claude `effort`）。
+     *
+     * 不读 `models.availableModels`：它只有 codex 有，而且是二者的
+     * 笛卡尔积（25 条），拿来做两个独立下拉还要再拆一次。
+     */
+    input: z.object({ runtime: z.enum(AGENT_RUNTIMES) }),
+    output: z.object({
+      models: z.array(ConfigChoiceSchema),
+      efforts: z.array(ConfigChoiceSchema),
+      /**
+       * runtime 自己的当前值 —— **默认值从这来，不硬编码**。
+       *
+       * 实测 codex 是 `gpt-5.6-sol` + `high`，正好是「默认 codex
+       * gpt-5.6-sol high」想要的那个；CLI 升级后同步一次就跟着变，
+       * 不用回来改代码。
+       */
+      currentModel: z.string().default(''),
+      currentEffort: z.string().default(''),
+    }),
+    // 只问不写。落库是「勾选哪些可见」那一步的事，不在这里
+    mutates: false,
+    audited: false,
+    // 会在这台机器上拉起 adapter 进程：与 model.test 同一条理由，不给远端
+    scope: null,
+    summary: '同步 runtime 现在能用的模型与推理深度',
   },
   'agent.list': {
     input: z.object({ query: z.string().optional(), ...PAGING }),
