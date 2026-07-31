@@ -19,6 +19,7 @@ import { diffGraphs } from '../src/diff.js';
 import { CoreApiError } from '../src/errors.js';
 import { validateGraph } from '../src/graph.js';
 import { applyPatch } from '../src/patch.js';
+import { AskSpecSchema } from '../src/domain.js';
 import { RunEventSchema, RUN_EVENT_TYPES, RUN_EVENT_CATEGORIES } from '../src/events.js';
 import { WorkflowGraphSchema } from '../src/graph.js';
 import { NODE_TYPES, getNodeDefinition } from '../src/nodes/index.js';
@@ -48,6 +49,11 @@ const files: Record<string, unknown> = {
     patchOps: PATCH_OPS,
     methods: CORE_API_METHODS,
   },
+  /**
+   * agent 提问的形状。MCP 的内建 `ask_user` 工具拿它当入参 schema ——
+   * 不从这里拿就得手写第二份，而第二份会漂移。
+   */
+  'ask-spec.schema.json': toSchema(AskSpecSchema),
   'run-event.schema.json': toSchema(RunEventSchema),
   'workflow-graph.schema.json': toSchema(WorkflowGraphSchema),
   'node-configs.schema.json': Object.fromEntries(

@@ -1,0 +1,87 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "kind": {
+      "type": "string",
+      "minLength": 1
+    },
+    "title": {
+      "type": "string",
+      "minLength": 1
+    },
+    "detail": {
+      "default": "",
+      "type": "string"
+    },
+    "options": {
+      "default": [],
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "value": {
+            "type": "string",
+            "minLength": 1
+          },
+          "label": {
+            "type": "string",
+            "minLength": 1
+          },
+          "description": {
+            "default": "",
+            "type": "string"
+          }
+        },
+        "required": [
+          "value",
+          "label"
+        ]
+      }
+    },
+    "fields": {
+      "default": [],
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1
+          },
+          "label": {
+            "type": "string",
+            "minLength": 1
+          },
+          "multiline": {
+            "default": false,
+            "type": "boolean"
+          },
+          "required": {
+            "default": false,
+            "type": "boolean"
+          },
+          "placeholder": {
+            "default": "",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "label"
+        ]
+      }
+    },
+    "defaults": {
+      "default": [],
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  },
+  "required": [
+    "kind",
+    "title"
+  ]
+}
