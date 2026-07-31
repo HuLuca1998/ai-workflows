@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router';
-import { Button } from '@aiwf/ui';
+import { Button, Dialog } from '@aiwf/ui';
 import type { ValidationResult } from './editorDeps.js';
 
 export interface EditorToolbarProps {
@@ -44,6 +44,9 @@ export function EditorToolbar({
 }: EditorToolbarProps) {
   const navigate = useNavigate();
   const [renaming, setRenaming] = useState(false);
+  // dirty 时点返回先确认 —— 静默丢改动是第 2 轮实测抓到的数据丢失路径：
+  // 弹层的「保存到草稿」只落本地草稿，用户以为存了，一个返回全没了
+  const [confirmingLeave, setConfirmingLeave] = useState(false);
   const errorCount = validation.issues.filter((i) => i.level === 'error').length;
 
   const commitRename = (next: string) => {
@@ -58,11 +61,31 @@ export function EditorToolbar({
       <button
         type="button"
         className="editor-bar__back"
-        onClick={() => navigate('/')}
+        onClick={() => (dirty ? setConfirmingLeave(true) : navigate('/'))}
         aria-label="返回工作流列表"
       >
         <i className="ph ph-arrow-left" aria-hidden="true" />
       </button>
+
+      <Dialog
+        open={confirmingLeave}
+        title="有未保存的改动"
+        onClose={() => setConfirmingLeave(false)}
+        width={420}
+        actions={
+          <>
+            <Button onClick={() => setConfirmingLeave(false)}>留下继续编辑</Button>
+            <Button variant="danger" onClick={() => navigate('/')}>
+              丢弃并返回
+            </Button>
+          </>
+        }
+      >
+        <p>
+          这份草稿还没保存到后端 —— 现在返回，这些改动会丢。
+          要保留的话先点工具栏的「保存草稿」。
+        </p>
+      </Dialog>
 
       {renaming ? (
         <input
