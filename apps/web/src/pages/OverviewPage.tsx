@@ -65,6 +65,7 @@ export function OverviewPage() {
     setFilter: setServerFilter,
     createWorkflow,
     importWorkflow,
+    deleteWorkflow,
   } = useWorkspace();
   const [filter, setFilter] = useState<Filter>('全部');
   // 输入即搜（300ms 防抖），回车立刻搜。声明必须在 setServerFilter 之后 ——
@@ -72,6 +73,8 @@ export function OverviewPage() {
   const search = useDebouncedSearch((q) => void setServerFilter(FILTER_STATUS[filter], q));
   const query = search.value;
   const [creating, setCreating] = useState(false);
+  /** 正在武装删除确认的工作流 id(第 6 轮实测 #9:此前无删除入口)。 */
+  const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
   const [importError, setImportError] = useState<string | null>(null);
   const [stats, setStats] = useState<Stats | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
@@ -362,10 +365,42 @@ export function OverviewPage() {
                         aria-label={`运行 ${w.name}`}
                         onClick={(event) => {
                           event.stopPropagation();
-                          navigate(`/editor/${w.id}`);
+                          // ?run=1 让编辑器加载完直接开运行对话框 ——
+                          // 此前这个 ▷ 只是跳编辑器,不运行(第 6 轮实测 #11)
+                          navigate(`/editor/${w.id}?run=1`);
                         }}
                       >
                         <i className="ph ph-play" aria-hidden="true" />
+                      </button>
+                    )}
+                    {confirmDelete === w.id ? (
+                      <button
+                        type="button"
+                        className="wf-table__delete-confirm"
+                        aria-label={`确认删除 ${w.name}`}
+                        ref={(el) => el?.focus()}
+                        onKeyDown={(event) => {
+                          if (event.key === 'Escape') setConfirmDelete(null);
+                        }}
+                        onBlur={() => setConfirmDelete(null)}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          setConfirmDelete(null);
+                          void deleteWorkflow(w.id);
+                        }}
+                      >
+                        确认删除
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        aria-label={`删除 ${w.name}`}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          setConfirmDelete(w.id);
+                        }}
+                      >
+                        <i className="ph ph-trash" aria-hidden="true" />
                       </button>
                     )}
                   </td>

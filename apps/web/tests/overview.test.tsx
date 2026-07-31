@@ -1,6 +1,7 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { MemoryRouter } from 'react-router';
+import userEvent from '@testing-library/user-event';
 import { OverviewPage } from '../src/pages/OverviewPage.js';
 import { useWorkspace } from '../src/data/workspace.js';
 
@@ -176,5 +177,33 @@ describe('列表与筛选', () => {
     useWorkspace.setState({ workflows: [], loading: false, error: 'workflow.list 调用失败' });
     renderPage();
     expect(screen.getByRole('alert')).toHaveTextContent('workflow.list 调用失败');
+  });
+});
+
+describe('工作流删除入口(第 6 轮实测 #9)', () => {
+  it('删除按钮二次确认后调 deleteWorkflow', async () => {
+    const del = vi.fn().mockResolvedValue(undefined);
+    useWorkspace.setState({
+      workflows: [
+        {
+          id: 'wf_1',
+          name: 'GitHub Issue 修复',
+          createdAt: '2026-07-27T09:00:00.000Z',
+          updatedAt: '2026-07-27T09:00:00.000Z',
+          archived: false,
+        },
+      ],
+      loading: false,
+      error: null,
+      deleteWorkflow: del,
+    });
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findByText('GitHub Issue 修复');
+
+    await user.click(screen.getByRole('button', { name: /删除 GitHub Issue 修复/u }));
+    await user.click(screen.getByRole('button', { name: /确认删除 GitHub Issue 修复/u }));
+
+    await waitFor(() => expect(del).toHaveBeenCalledWith('wf_1'));
   });
 });

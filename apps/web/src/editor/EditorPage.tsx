@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ApprovalBanner } from './ApprovalBanner.js';
-import { Link, useNavigate, useParams } from 'react-router';
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router';
 import {
   type EdgeTypes,
   Background,
@@ -151,6 +151,7 @@ export function EditorPage() {
 function EditorCanvas() {
   const { workflowId } = useParams();
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const {
     name,
     rev,
@@ -231,6 +232,17 @@ function EditorCanvas() {
     if (workflowId) void load(workflowId);
     return () => clear();
   }, [workflowId, load, clear]);
+
+  // 从概览的「运行」进来时带 ?run=1 —— 草稿加载完直接开运行对话框,
+  // 免得用户到了编辑器还要再找一次「运行」(第 6 轮实测 #11)
+  useEffect(() => {
+    if (!loading && workflowId && searchParams.get('run') === '1') {
+      setLaunchOpen(true);
+      const next = new URLSearchParams(searchParams);
+      next.delete('run');
+      setSearchParams(next, { replace: true });
+    }
+  }, [loading, workflowId, searchParams, setSearchParams]);
 
   /**
    * 刷新或关标签前拦一下未保存的草稿。

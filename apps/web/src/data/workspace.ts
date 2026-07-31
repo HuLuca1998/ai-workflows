@@ -87,6 +87,8 @@ interface WorkspaceState {
   ) => Promise<string | null>;
   /** 导入一份已校验过的图，作为新工作流的第一个修订。 */
   importWorkflow: (name: string, graph: WorkflowGraph) => Promise<string | null>;
+  /** 删除一个工作流。后端 workflow.delete 一直在,界面此前没有入口。 */
+  deleteWorkflow: (id: string) => Promise<void>;
 }
 
 export const useWorkspace = create<WorkspaceState>((set, get) => ({
@@ -161,5 +163,10 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
     })) as { id: string };
     await get().load();
     return result.id ?? null;
+  },
+
+  deleteWorkflow: async (id: string) => {
+    await coreClient.call('workflow.delete', { id });
+    await get().load();
   },
 }));
