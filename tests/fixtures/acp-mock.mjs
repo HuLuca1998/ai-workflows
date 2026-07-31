@@ -25,6 +25,50 @@ let pendingPermission = null;
 /** 建过几条会话。count-sessions 场景靠它把「复用」与「每次新建」区分开。 */
 let sessionSeq = 0;
 
+/**
+ * 会话配置项。形状与两端实测一致
+ * （docs/acp/transcripts/{codex,claude}-model.jsonl）。
+ *
+ * **`id` 故意跟着场景变，`category` 不变** —— 这正是抽象层要吃掉的差异：
+ * 推理强度在 codex 上叫 `reasoning_effort`、在 claude 上叫 `effort`，
+ * 而两端的 `category` 都是 `thought_level`。按 id 写死的实现
+ * 会在其中一端静默失效，而这个 mock 让那件事在单测里就红。
+ */
+const 像claude = scenario.startsWith('claude');
+const 强度项id = 像claude ? 'effort' : 'reasoning_effort';
+
+function 初始配置项() {
+  return [
+    {
+      id: 'mode',
+      name: 'Mode',
+      category: 'mode',
+      type: 'select',
+      currentValue: 'default',
+      options: [{ value: 'default' }, { value: 'auto' }, { value: 'read-only' }],
+    },
+    {
+      id: 'model',
+      name: 'Model',
+      category: 'model',
+      type: 'select',
+      currentValue: 'mock-model-a',
+      options: [{ value: 'mock-model-a' }, { value: 'mock-model-b' }, { value: 'mock-model-c' }],
+    },
+    {
+      id: 强度项id,
+      name: 'Reasoning effort',
+      category: 'thought_level',
+      type: 'select',
+      currentValue: 'medium',
+      options: [{ value: 'low' }, { value: 'medium' }, { value: 'high' }],
+    },
+  ];
+}
+
+/** sessionId → 那条会话当前的配置项。配置是会话级的（实测）。 */
+const 会话配置 = new Map();
+
 // hang：什么都不回，用来验证客户端的超时。
 // 必须在注册 stdin 监听之前就停住 —— 否则照样会应答 initialize
 if (scenario === 'hang') {
@@ -106,9 +150,11 @@ function handle(message) {
     // 两轮对话到底是复用了同一条会话还是各建了一条
     sessionSeq += 1;
     const 编号 = scenario === 'count-sessions' ? `-${sessionSeq}` : '';
+    const sid = `mock-session${编号}${leaked}`;
+    会话配置.set(sid, 初始配置项());
 
     reply(id, {
-      sessionId: `mock-session${编号}${leaked}`,
+      sessionId: sid,
       modes: {
         currentModeId: 'default',
         availableModes: [
@@ -116,6 +162,10 @@ function handle(message) {
           { id: 'auto', name: 'Auto', description: '用分类器自动批准低风险操作' },
         ],
       },
+      // 实测：两端的 session/new 都回这一段，模型与推理强度都在里面。
+      // **`session/new` 的 params 里带 model 是没用的**（两端都静默忽略），
+      // 要改只能在建完之后 set_config_option —— mock 照这个规矩来
+      configOptions: 会话配置.get(sid),
     });
 
     notify('session/update', {
@@ -287,6 +337,45 @@ function handle(message) {
 
   if (method === 'session/cancel') {
     reply(id, {});
+    return;
+  }
+
+  if (method === 'session/set_config_option') {
+    // 参数名是 configId，不是 optionId —— 实测踩过，写错时真实 agent 报的是
+    // 「configId: expected string, received undefined」
+    const { sessionId, configId, value } = params ?? {};
+    const 配置 = 会话配置.get(sessionId);
+    if (!配置) {
+      send({
+        jsonrpc: '2.0',
+        id,
+        error: { code: -32602, message: `没有这条会话 ${sessionId}` },
+      });
+      return;
+    }
+    const 项 = 配置.find((o) => o.id === configId);
+    if (!项) {
+      send({
+        jsonrpc: '2.0',
+        id,
+        error: { code: -32602, message: `没有这个配置项 ${configId}` },
+      });
+      return;
+    }
+    // 值不在候选里就拒 —— 两端实测都是这个行为（codex -32602 / claude -32603）。
+    // **这条是「校验不必客户端自己做」的依据**，mock 不照做的话，
+    // 上层那段「被拒就降级」的代码在单测里永远走不到
+    if (!项.options.some((o) => o.value === value)) {
+      send({
+        jsonrpc: '2.0',
+        id,
+        error: { code: -32602, message: `Invalid value for config option ${configId}: ${value}` },
+      });
+      return;
+    }
+    项.currentValue = value;
+    // 实测：响应回**全量** configOptions，所以「设了是否生效」当场可回读
+    reply(id, { configOptions: 配置 });
     return;
   }
 

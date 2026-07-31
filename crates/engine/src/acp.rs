@@ -55,6 +55,33 @@ pub struct Session {
     pub id: String,
     pub current_mode: String,
     pub modes: Vec<SessionMode>,
+    /// 这条会话能调的配置项：模型、推理深度、权限档……
+    ///
+    /// **模型清单从这里来，不从 `models.availableModels`** —— 后者只有
+    /// codex 有（claude 侧完全没这个字段），而 `configOptions` 两端同构。
+    pub config_options: Vec<ConfigOption>,
+}
+
+/// 一个会话配置项。形状两端一致（实测）。
+#[derive(Debug, Clone)]
+pub struct ConfigOption {
+    /// **两端不一样**：推理深度在 codex 上是 `reasoning_effort`、
+    /// claude 上是 `effort`。所以代码里认的是下面那个 `category`。
+    pub id: String,
+    /// 语义类别。`mode` / `model` / `thought_level` 三项**两端完全一致**，
+    /// 这是整个 runtime 抽象层的锚点 —— 有了它就不需要 id 映射表，
+    /// 而映射表是要跟着 adapter 版本维护的，漏一条就是静默失效。
+    pub category: String,
+    pub current_value: String,
+    /// 可选值。设一个不在里面的，agent 会拒（实测两端都拒）。
+    pub options: Vec<ConfigChoice>,
+}
+
+#[derive(Debug, Clone)]
+pub struct ConfigChoice {
+    pub value: String,
+    pub name: String,
+    pub description: String,
 }
 
 #[derive(Debug, Clone)]
@@ -152,6 +179,11 @@ pub struct AcpClient {
     timeout: Duration,
     protocol_version: i64,
     capabilities: Value,
+    /// session id → 那条会话当前的配置项。
+    ///
+    /// 存在 client 上而不是只给调用方，是因为 `set_config_by_category`
+    /// 要按 category 反查 `configId`，而调用方手上通常只有 session id。
+    config_options: HashMap<String, Vec<ConfigOption>>,
 }
 
 impl AcpClient {
@@ -213,6 +245,7 @@ impl AcpClient {
             timeout,
             protocol_version: 0,
             capabilities: Value::Null,
+            config_options: HashMap::new(),
         };
 
         let handshake = client.request(
@@ -330,11 +363,72 @@ impl AcpClient {
             })
             .unwrap_or_default();
 
+        let config_options = parse_config_options(&result);
+        // 记在 client 上：`set_config_by_category` 要按 category 找 configId，
+        // 而调用方手上只有 session id
+        self.config_options
+            .insert(id.clone(), config_options.clone());
+
         Ok(Session {
             id,
             current_mode,
             modes,
+            config_options,
         })
+    }
+
+    /// 按**语义类别**设一个会话配置项，返回 agent 回读确认的值。
+    ///
+    /// 这是设模型与推理深度的唯一入口。三件事都是实测出来的
+    /// （`docs/acp/transcripts/{codex,claude}-model.jsonl`）：
+    ///
+    /// - **`session/new` 的 params 里带 `model` 是没用的** —— 两端都静默忽略，
+    ///   不报错也不采纳。照直觉那么写，测试会全绿而模型从没被切过；
+    /// - 参数名是 **`configId`**，不是 `optionId`；
+    /// - 响应回**全量** `configOptions`，所以「设了是否生效」当场能回读，
+    ///   不必再查一次。
+    ///
+    /// **按 `category` 而不是 `id` 找**：id 两端不一样
+    /// （`reasoning_effort` / `effort`），category 一样（`thought_level`）。
+    ///
+    /// agent 没暴露这一类时返回空串**而不是报错**：那时用它自己的默认值就好，
+    /// 而报错会让装了老 adapter 的用户连节点都跑不起来。
+    ///
+    /// # Errors
+    /// agent 拒绝这个值（不在候选里）时把拒绝原样传上去 ——
+    /// 吞掉的话，上层那段「被拒就降级」永远走不到，而用户以为模型换了。
+    pub fn set_config_by_category(
+        &mut self,
+        session_id: &str,
+        category: &str,
+        value: &str,
+    ) -> Result<String> {
+        let Some(config_id) = self
+            .config_options
+            .get(session_id)
+            .and_then(|options| options.iter().find(|option| option.category == category))
+            .map(|option| option.id.clone())
+        else {
+            return Ok(String::new());
+        };
+
+        let result = self.request(
+            "session/set_config_option",
+            json!({ "sessionId": session_id, "configId": config_id, "value": value }),
+        )?;
+
+        // 响应里的全量 configOptions 吃回来：下一次设别的项要用它找 configId，
+        // 而且回读的值就是「agent 确认过的」那个
+        let updated = parse_config_options(&result);
+        let 回读 = updated
+            .iter()
+            .find(|option| option.category == category)
+            .map(|option| option.current_value.clone())
+            .unwrap_or_else(|| value.to_string());
+        if !updated.is_empty() {
+            self.config_options.insert(session_id.to_string(), updated);
+        }
+        Ok(回读)
     }
 
     /// 发一轮提示词。流式更新通过 `on_update` 回调交出去 ——
@@ -623,6 +717,40 @@ fn dispatch_update(params: &Value, on_update: &mut impl FnMut(SessionUpdate<'_>)
             raw: update,
         }),
     }
+}
+
+/// 从 `session/new` 或 `session/set_config_option` 的响应里取配置项。
+///
+/// 两处的形状一样（后者回全量），所以共用这一份。
+fn parse_config_options(result: &Value) -> Vec<ConfigOption> {
+    result
+        .get("configOptions")
+        .and_then(Value::as_array)
+        .map(|items| {
+            items
+                .iter()
+                .map(|item| ConfigOption {
+                    id: text(item, "id"),
+                    category: text(item, "category"),
+                    current_value: text(item, "currentValue"),
+                    options: item
+                        .get("options")
+                        .and_then(Value::as_array)
+                        .map(|choices| {
+                            choices
+                                .iter()
+                                .map(|choice| ConfigChoice {
+                                    value: text(choice, "value"),
+                                    name: text(choice, "name"),
+                                    description: text(choice, "description"),
+                                })
+                                .collect()
+                        })
+                        .unwrap_or_default(),
+                })
+                .collect()
+        })
+        .unwrap_or_default()
 }
 
 fn text(value: &Value, key: &str) -> String {

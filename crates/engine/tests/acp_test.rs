@@ -303,3 +303,73 @@ fn 工具调用的更新帧带得出它是哪一次() {
     assert!(收到[1].1.is_empty(), "更新帧本来就不带标题");
     assert_eq!(收到[1].2, "completed");
 }
+
+// ── 会话配置：模型与推理深度 ───────────────────────────────────────────────
+//
+// 两端实测（docs/acp/transcripts/{codex,claude}-model.jsonl）：
+//
+// - `session/new` 的 params 里带 model **两端都静默忽略**，只能建完再设；
+// - 参数名是 `configId`，不是 `optionId`；
+// - 响应回**全量** configOptions，所以设了是否生效当场可回读；
+// - 值不在候选里两端都拒 —— 校验不必客户端自己做。
+
+#[test]
+fn 按_category_设模型_不认_id() {
+    // **这条是整个抽象层的理由**：推理强度在 codex 上叫 `reasoning_effort`、
+    // 在 claude 上叫 `effort`，而两端的 `category` 都是 `thought_level`。
+    // 按 id 写死的实现会在其中一端静默失效。
+    for 场景 in ["normal", "claude-flavored"] {
+        let mut client = connect(场景).expect("连接 mock");
+        let session = client.new_session("/tmp").expect("建会话");
+
+        let 设好的 = client
+            .set_config_by_category(&session.id, "thought_level", "high")
+            .unwrap_or_else(|e| panic!("{场景}：按 category 设深度失败 {e}"));
+
+        assert_eq!(
+            设好的, "high",
+            "{场景}：回读到的值不是刚设的那个（configOptions 没吃进去？）"
+        );
+    }
+}
+
+#[test]
+fn 设模型也走同一条路() {
+    let mut client = connect("normal").expect("连接 mock");
+    let session = client.new_session("/tmp").expect("建会话");
+
+    let 设好的 = client
+        .set_config_by_category(&session.id, "model", "mock-model-b")
+        .expect("设模型");
+    assert_eq!(设好的, "mock-model-b");
+}
+
+#[test]
+fn 设一个不存在的值被_agent_拒掉_而不是静默接受() {
+    // 两端实测都拒（codex -32602 / claude -32603）。
+    // **这是「校验不必我们做」的依据** —— 但前提是拒绝要真的传上来，
+    // 吞掉的话上层那段「被拒就降级」永远走不到，而用户以为模型换了。
+    let mut client = connect("normal").expect("连接 mock");
+    let session = client.new_session("/tmp").expect("建会话");
+
+    let 错 = client
+        .set_config_by_category(&session.id, "model", "这个模型不存在")
+        .expect_err("agent 拒了，客户端却报告成功");
+
+    assert!(
+        错.to_string().contains("这个模型不存在"),
+        "错误信息该带上被拒的值，不然用户不知道是哪一项：{错}"
+    );
+}
+
+#[test]
+fn 没有这个_category_时不发请求_也不报错() {
+    // agent 没暴露某一项（比如老版本没有 thought_level）时，
+    // 「不设」是对的行为 —— 那时用 agent 自己的默认。
+    // 报错的话，一个装了老 adapter 的用户会连节点都跑不起来。
+    let mut client = connect("normal").expect("连接 mock");
+    let session = client.new_session("/tmp").expect("建会话");
+
+    let 结果 = client.set_config_by_category(&session.id, "根本没有这一类", "随便");
+    assert!(结果.is_ok(), "没有这一项时不该报错：{结果:?}");
+}
