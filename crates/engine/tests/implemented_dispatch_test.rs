@@ -62,10 +62,13 @@ fn run_one(node_type: &str) -> aiwf_engine::executor::Result<NodeOutcome> {
         join: None,
     };
     let mut scope = Scope::new("run_probe");
-    // human_approval 让 approval 节点在 precheck 就交给人（NeedsApproval），
-    // 不会走到要拉 adapter 的 AI 审批
+    // 预批准探针节点：不批的话 approval 在 precheck 就短路返回，
+    // 根本走不进 match —— 删掉它的分派分支守卫也不红（假测试复核抓到的）。
+    // adapter 换成 /usr/bin/false：AI 审批那条路失败得快且不连真 adapter
     NodeExecutor::new(workdir)
         .with_permission_preset("human_approval")
+        .with_approved_nodes(&["probe".to_string()])
+        .with_acp_command("/usr/bin/false", &[])
         .execute(&node, &mut scope)
 }
 

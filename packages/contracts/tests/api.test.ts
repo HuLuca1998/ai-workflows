@@ -937,13 +937,16 @@ describe('模型连通性测试', () => {
   });
 });
 
-describe('model.sync 写出的值要能过 model.list 的出参', () => {
+describe('契约层允许同步形态的 contextWindow=0', () => {
   /**
    * 第 1 轮浏览器实测抓到的接缝断裂：`sync_models` 对 ACP 同步来的条目
    * 故意写 contextWindow=0（两端语义不同，编一个数字更糟 ——
    * 见 store sync_models 的注释），而 ModelSchema 曾要求 positive。
    * 结果是「同步成功新增 5 条」与「model.list 的返回值不合契约」
    * 同屏出现，列表纹丝不动。0 在这里的语义是「未知」。
+   *
+   * **只守契约层**：这里手写的是期望形状，不经过真实 sync/list 链路 ——
+   * Rust 侧真正写 0 的路径由 store 的 sync_models 测试压。
    */
   it('同步来源的 contextWindow=0（未知）能过 model.list', () => {
     const spec = getMethodSpec('model.list');

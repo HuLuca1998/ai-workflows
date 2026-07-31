@@ -9,6 +9,11 @@
 //!
 //! 扫描的前提是发射点都写字面量。`format!` 拼事件名会让扫描失明，
 //! 所以第三条测试守住「没有拼接发射」。
+//!
+//! **已知局限**（假测试复核确认过）：字面量扫描分不清「发射」与
+//! 「比较/常量」—— `e.kind == "run.failed"` 也会让 run.failed 记为
+//! 已发射。它守得住的是「整个类型被彻底遗忘」这一档；
+//! 「发射点被删而比较还在」要靠各类型自己的行为测试兜底。
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
@@ -135,11 +140,28 @@ fn 没有拼接发射_扫描才可信() {
     // 发射点都写字面量是上面那条守卫成立的前提。
     // `format!("node.{...}")` 这类拼法会让字面量扫描失明。
     let sources = emission_sources();
-    for prefix in ["run.", "node.", "system.", "approval.", "artifact."] {
-        let pattern = format!("format!(\"{prefix}");
-        assert!(
-            !sources.contains(&pattern),
-            "发现事件名拼接（{pattern}…）—— 改成字面量，否则发射点扫描不可信"
-        );
+    // 九类全覆盖;三种拼法都拦(format!、原始字符串、concat!)——
+    // 假测试复核用 format!(r#"run.{}"#) 与 concat!("run.", …) 各构造过一次绕过
+    for prefix in [
+        "run.",
+        "node.",
+        "conversation.",
+        "reasoning.",
+        "tool.",
+        "script.",
+        "approval.",
+        "artifact.",
+        "system.",
+    ] {
+        for pattern in [
+            format!("format!(\"{prefix}"),
+            format!("format!(r#\"{prefix}"),
+            format!("concat!(\"{prefix}"),
+        ] {
+            assert!(
+                !sources.contains(&pattern),
+                "发现事件名拼接（{pattern}…）—— 改成字面量，否则发射点扫描不可信"
+            );
+        }
     }
 }
