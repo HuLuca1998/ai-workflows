@@ -655,7 +655,14 @@ fn 运行记录说得清这一步用了哪个角色与模型() {
     assert_eq!(解析.node_id.as_deref(), Some("think"));
     // gpt-5-codex 是登记条目解析出来的 —— 事件里写的是实际交给 adapter
     // 的名字与推理档，不是 model:xxx 这种没人读得懂的内部引用
-    for 片段 in ["分析师", agent.as_str(), "gpt-5-codex", "推理 high", "acp.codex", "cwd "] {
+    for 片段 in [
+        "分析师",
+        agent.as_str(),
+        "gpt-5-codex",
+        "推理 high",
+        "acp.codex",
+        "cwd ",
+    ] {
         assert!(
             解析.summary.contains(片段),
             "「{片段}」没写进事件：{}",

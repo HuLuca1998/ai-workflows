@@ -13,7 +13,8 @@ fn 库() -> Store {
     Store::open_in_memory().unwrap()
 }
 
-const 问题: &str = r#"{"kind":"choice","title":"先修哪个","options":[{"value":"a","label":"缓存"}]}"#;
+const 问题: &str =
+    r#"{"kind":"choice","title":"先修哪个","options":[{"value":"a","label":"缓存"}]}"#;
 
 #[test]
 fn 回答之后结果里带着答案原文() {
@@ -136,12 +137,9 @@ fn 回答不是合法_json_时不落库() {
     assert_eq!(err.code, "VALIDATION");
 
     // 裸字符串也是合法 JSON —— 双重编码漏过去的正是它。必须是对象
-    let err = aiwf_core_api::mcp_answer_ask(
-        &store,
-        id.clone(),
-        r#""{\"selected\":\"a\"}""#.to_string(),
-    )
-    .unwrap_err();
+    let err =
+        aiwf_core_api::mcp_answer_ask(&store, id.clone(), r#""{\"selected\":\"a\"}""#.to_string())
+            .unwrap_err();
     assert_eq!(err.code, "VALIDATION", "裸字符串形态的回答该被拒");
 
     let 结果 = aiwf_core_api::mcp_ask_result(&store, id).unwrap();

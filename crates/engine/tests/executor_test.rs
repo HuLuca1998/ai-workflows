@@ -1068,7 +1068,7 @@ fn 角色(id: &str) -> aiwf_engine::executor::AgentProfile {
         persona: "挑毛病，但每条都要能落到具体某一行".to_string(),
         runtime: "acp.claude".to_string(),
         model_ref: "model:codex".to_string(),
-            fallback_model_ref: String::new(),
+        fallback_model_ref: String::new(),
         output_contract: "问题清单：严重度、文件与行、复现方式".to_string(),
         capabilities_json:
             r#"{"file":"read","command":"none","network":"none","memory":"read","secret":[]}"#
@@ -2318,9 +2318,30 @@ mod 模型选择 {
     /// 「模型」页登记的目录。与 mock adapter 的候选（mock-model-a/b/c）对齐。
     fn 模型目录() -> Vec<ModelEntry> {
         vec![
-            条目("model:fast", "快的", "acp.claude", "mock-model-a", "low", true),
-            条目("model:mid", "中的", "acp.claude", "mock-model-b", "medium", true),
-            条目("model:best", "好的", "acp.claude", "mock-model-c", "high", true),
+            条目(
+                "model:fast",
+                "快的",
+                "acp.claude",
+                "mock-model-a",
+                "low",
+                true,
+            ),
+            条目(
+                "model:mid",
+                "中的",
+                "acp.claude",
+                "mock-model-b",
+                "medium",
+                true,
+            ),
+            条目(
+                "model:best",
+                "好的",
+                "acp.claude",
+                "mock-model-c",
+                "high",
+                true,
+            ),
             // 别的 runtime 的条目，不该被 claude 节点选中
             条目("model:other", "别家的", "acp.codex", "gpt-x", "high", true),
         ]
@@ -2357,7 +2378,10 @@ mod 模型选择 {
         )
     }
 
-    fn 挑模型的角色(model_ref: &str, fallback: &str) -> Vec<aiwf_engine::executor::AgentProfile> {
+    fn 挑模型的角色(
+        model_ref: &str,
+        fallback: &str,
+    ) -> Vec<aiwf_engine::executor::AgentProfile> {
         vec![aiwf_engine::executor::AgentProfile {
             id: "prof:选型".to_string(),
             name: "选型".to_string(),
@@ -2392,7 +2416,10 @@ mod 模型选择 {
         let scope = Scope::new("run_pin");
 
         let 解析 = executor
-            .resolution_for(&带策略的节点(serde_json::json!({ "modelId": "model:mid" })), &scope)
+            .resolution_for(
+                &带策略的节点(serde_json::json!({ "modelId": "model:mid" })),
+                &scope,
+            )
             .expect("AI 节点该有解析");
         assert_eq!(解析.model_ref, "mock-model-b", "钉住的没生效：{解析:?}");
         assert_eq!(解析.effort, "medium");
@@ -2501,13 +2528,23 @@ mod 模型选择 {
         // 停用是用户的显式动作 —— 把他刚停用的模型报成「降级」，
         // 等于把他自己的决定当故障
         let mut 目录 = 模型目录();
-        目录.push(条目("model:off", "停了的", "acp.claude", "mock-model-b", "high", false));
+        目录.push(条目(
+            "model:off",
+            "停了的",
+            "acp.claude",
+            "mock-model-b",
+            "high",
+            false,
+        ));
         let executor = with_mock_adapter(ai_dir("disabled")).with_models(&目录);
         let 节点 = 带策略的节点(serde_json::json!({ "modelId": "model:off" }));
 
         let scope = Scope::new("run_disabled");
         let 解析 = executor.resolution_for(&节点, &scope).unwrap();
-        assert_eq!(解析.model_ref, "agent 默认", "停用的条目不该被选中：{解析:?}");
+        assert_eq!(
+            解析.model_ref, "agent 默认",
+            "停用的条目不该被选中：{解析:?}"
+        );
 
         let sink = 收集器::default();
         let mut scope = Scope::new("run_disabled");
@@ -2559,7 +2596,14 @@ mod 模型选择 {
         // model:zed 解析得出（在目录里）、但 mock 的候选里没有 ——
         // 只有值真的递过去，adapter 才会拒、才有这条降级事件
         let mut 目录 = 模型目录();
-        目录.push(条目("model:zed", "目录里有的", "acp.claude", "mock-model-z", "high", true));
+        目录.push(条目(
+            "model:zed",
+            "目录里有的",
+            "acp.claude",
+            "mock-model-z",
+            "high",
+            true,
+        ));
         let executor = with_mock_adapter(ai_dir("wired")).with_models(&目录);
         let 节点 = 带策略的节点(serde_json::json!({ "modelId": "model:zed" }));
 
@@ -2572,10 +2616,17 @@ mod 模型选择 {
                 }
             })
             .expect("执行");
-        assert!(matches!(outcome, NodeOutcome::Succeeded { .. }), "{outcome:?}");
+        assert!(
+            matches!(outcome, NodeOutcome::Succeeded { .. }),
+            "{outcome:?}"
+        );
 
         let 降级 = sink.某类("system.model_downgraded");
-        assert_eq!(降级.len(), 1, "mock 拒掉的值没有产生降级 —— 解析结果没递给 adapter");
+        assert_eq!(
+            降级.len(),
+            1,
+            "mock 拒掉的值没有产生降级 —— 解析结果没递给 adapter"
+        );
         assert!(
             降级[0].summary.contains("mock-model-z"),
             "降级要说清被拒的是哪个值：{}",
@@ -2588,7 +2639,14 @@ mod 模型选择 {
         // xhigh / max / ultra 两端 runtime 都真实报过 —— 当 medium 排的话，
         // quality 会把最高档当中档
         let mut 目录 = 模型目录();
-        目录.push(条目("model:ultra", "顶配", "acp.claude", "mock-model-a", "xhigh", true));
+        目录.push(条目(
+            "model:ultra",
+            "顶配",
+            "acp.claude",
+            "mock-model-a",
+            "xhigh",
+            true,
+        ));
         let executor = 执行器(ai_dir("xhigh")).with_models(&目录);
         let scope = Scope::new("run_xhigh");
 

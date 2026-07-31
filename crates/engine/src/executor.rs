@@ -657,7 +657,10 @@ impl NodeExecutor {
         if profile.model_ref.is_empty() {
             return choice;
         }
-        match look_up(&profile.model_ref, &format!("角色「{}」的模型", profile.name)) {
+        match look_up(
+            &profile.model_ref,
+            &format!("角色「{}」的模型", profile.name),
+        ) {
             Lookup::Usable(entry) => return choice.pick(entry),
             // 停用不算降级，但后备正是为「主选不可用」准备的 —— 接着试
             Lookup::DisabledByUser => {}

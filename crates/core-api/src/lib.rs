@@ -3190,7 +3190,8 @@ pub fn mcp_answer_ask(store: &Store, id: String, answer_json: String) -> ApiResu
         .map_err(|error| ApiError::validation(format!("回答不是合法 JSON：{error}")))?;
     if !parsed.is_object() {
         return Err(ApiError::validation(
-            "回答必须是 JSON 对象（{selected, selectedMany, fields}），别把它再编码一层".to_string(),
+            "回答必须是 JSON 对象（{selected, selectedMany, fields}），别把它再编码一层"
+                .to_string(),
         ));
     }
     store.answer_ask(&id, &answer_json)?;
