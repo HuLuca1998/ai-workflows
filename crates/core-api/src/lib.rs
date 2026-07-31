@@ -3128,11 +3128,13 @@ pub fn mcp_pending_confirms(store: &Store) -> ApiResult<Vec<ConfirmationDto>> {
         .collect())
 }
 
-/// Agent 提一个问题，挂起等用户回答。
+/// Agent 提一个问题，进队列等用户回答。
 ///
-/// 与 [`mcp_request_confirm`] 同一条队列。返回的 id 由 agent 拿去轮询
-/// [`mcp_confirm_status`] —— 它的那次工具调用一直挂着，
-/// 拿到答案之后接着往下做，不需要用户再把选择复述一遍。
+/// 与 [`mcp_request_confirm`] 同一条队列。返回的 id 由 MCP 层的内建
+/// `ask_user` 工具拿去轮询 [`mcp_ask_result`] —— agent 的那次工具调用
+/// 一直挂着，拿到答案之后接着往下做，不需要用户再把选择复述一遍。
+/// （不是 [`mcp_confirm_status`]：那条不带答案，而且在
+/// `DELIBERATELY_HIDDEN` 里，agent 够不着。）
 pub fn mcp_ask_user(store: &Store, spec_json: String) -> ApiResult<String> {
     // 形状不对就别入队：一张渲染不出来的卡片会一直堵在队列里，
     // 而用户只看得到一个空壳
@@ -3146,6 +3148,37 @@ pub fn mcp_ask_user(store: &Store, spec_json: String) -> ApiResult<String> {
 pub fn mcp_answer_ask(store: &Store, id: String, answer_json: String) -> ApiResult<()> {
     store.answer_ask(&id, &answer_json)?;
     Ok(())
+}
+
+/// 一条提问的结果。答案只在回答之后有。
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AskResultDto {
+    /// pending / approved / rejected / expired。回答过了就是 `approved`。
+    pub status: String,
+    /// 用户提交的结构化回答。被拒绝或过期的提问没有 ——
+    /// 那时 agent 该拿到「被拒绝」，而不是一个伪造的空对象。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub answer_json: Option<String>,
+}
+
+/// MCP 层读一条提问的结果。
+///
+/// 与 [`mcp_confirm_status`] 分开是因为**回答的形状不同**：
+/// 确认要的就是是/否，而这条要把 `answer_json` 一起带回去 ——
+/// 只回 status 的话，用户选的东西落在库里，agent 一个字都拿不到。
+pub fn mcp_ask_result(store: &Store, id: String) -> ApiResult<AskResultDto> {
+    store.expire_confirmations(CONFIRM_TTL_SECS)?;
+    let row = store
+        .get_confirmation(&id)?
+        .ok_or(aiwf_store::StoreError::NotFound {
+            kind: "提问",
+            id: id.clone(),
+        })?;
+    Ok(AskResultDto {
+        status: row.status,
+        answer_json: row.answer_json,
+    })
 }
 
 /// 用户的决定。
