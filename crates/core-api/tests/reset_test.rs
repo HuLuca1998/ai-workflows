@@ -112,8 +112,9 @@ mod 执行 {
         let (工作流, _) = store.list_workflows_paged(50, 0).unwrap();
         assert!(!工作流.iter().any(|w| w.name == "我的"));
         assert!(工作流.iter().any(|w| w.name == "GitHub Issue 修复"));
+        // 种子模型是停用的示例条目（model_id 两端都不认），查全量
         assert_eq!(
-            store.list_models_paged(true, None, 50, 0).unwrap().0.len(),
+            store.list_models_paged(false, None, 50, 0).unwrap().0.len(),
             2
         );
     }

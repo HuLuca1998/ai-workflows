@@ -31,13 +31,18 @@
 -- 凭据一列留空：ACP adapter 自己管登录态，这里没有密钥可存 ——
 -- 填一个假的 keychain:// 引用会让「凭据只进 Keychain」这条看起来被遵守了，
 -- 而实际上根本没有那一环。
+-- enabled = 0：这两条的 model_id 是**示例值**，两端 adapter 实测都不认
+-- （真实候选见 docs/acp/transcripts/{codex,claude}-model.jsonl，且随版本变）。
+-- 启用着的话，引用它们的每个 AI 节点每次运行都写一条 model_downgraded ——
+-- 而用户从没选过模型。停用条目不参与解析（executor 的 resolve_model
+-- 把「已停用」按「没配」处理），真实清单由「模型」页的 sync 拉取。
 INSERT INTO model (id, name, runtime, model_id, effort, ctx, caps_json, cred_ref, enabled,
                    created_at, updated_at)
 VALUES
   ('model:codex', 'Codex（本地 ACP）', 'acp.codex', 'gpt-5-codex', 'high', 400000,
-   '["text","tools","structured_output"]', NULL, 1, strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+   '["text","tools","structured_output"]', NULL, 0, strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now')),
   ('model:claude', 'Claude Code（本地 ACP）', 'acp.claude', 'claude-opus-5', 'high', 1000000,
-   '["text","tools","structured_output","vision"]', NULL, 1, strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now'));
+   '["text","tools","structured_output","vision"]', NULL, 0, strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now'));
 
 -- ── Agent 角色 ──────────────────────────────────────────────────────────────
 --

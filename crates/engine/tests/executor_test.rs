@@ -2318,36 +2318,30 @@ mod 模型选择 {
     /// 「模型」页登记的目录。与 mock adapter 的候选（mock-model-a/b/c）对齐。
     fn 模型目录() -> Vec<ModelEntry> {
         vec![
-            ModelEntry {
-                id: "model:fast".to_string(),
-                name: "快的".to_string(),
-                runtime: "acp.claude".to_string(),
-                model_id: "mock-model-a".to_string(),
-                effort: "low".to_string(),
-            },
-            ModelEntry {
-                id: "model:mid".to_string(),
-                name: "中的".to_string(),
-                runtime: "acp.claude".to_string(),
-                model_id: "mock-model-b".to_string(),
-                effort: "medium".to_string(),
-            },
-            ModelEntry {
-                id: "model:best".to_string(),
-                name: "好的".to_string(),
-                runtime: "acp.claude".to_string(),
-                model_id: "mock-model-c".to_string(),
-                effort: "high".to_string(),
-            },
+            条目("model:fast", "快的", "acp.claude", "mock-model-a", "low", true),
+            条目("model:mid", "中的", "acp.claude", "mock-model-b", "medium", true),
+            条目("model:best", "好的", "acp.claude", "mock-model-c", "high", true),
             // 别的 runtime 的条目，不该被 claude 节点选中
-            ModelEntry {
-                id: "model:other".to_string(),
-                name: "别家的".to_string(),
-                runtime: "acp.codex".to_string(),
-                model_id: "gpt-x".to_string(),
-                effort: "high".to_string(),
-            },
+            条目("model:other", "别家的", "acp.codex", "gpt-x", "high", true),
         ]
+    }
+
+    fn 条目(
+        id: &str,
+        name: &str,
+        runtime: &str,
+        model_id: &str,
+        effort: &str,
+        enabled: bool,
+    ) -> ModelEntry {
+        ModelEntry {
+            id: id.to_string(),
+            name: name.to_string(),
+            runtime: runtime.to_string(),
+            model_id: model_id.to_string(),
+            effort: effort.to_string(),
+            enabled,
+        }
     }
 
     fn 带策略的节点(policy: serde_json::Value) -> GraphNode {
@@ -2500,6 +2494,108 @@ mod 模型选择 {
             "要说清主选是哪个：{}",
             降级[0].summary
         );
+    }
+
+    #[test]
+    fn 停用的条目按没配处理_不算降级() {
+        // 停用是用户的显式动作 —— 把他刚停用的模型报成「降级」，
+        // 等于把他自己的决定当故障
+        let mut 目录 = 模型目录();
+        目录.push(条目("model:off", "停了的", "acp.claude", "mock-model-b", "high", false));
+        let executor = with_mock_adapter(ai_dir("disabled")).with_models(&目录);
+        let 节点 = 带策略的节点(serde_json::json!({ "modelId": "model:off" }));
+
+        let scope = Scope::new("run_disabled");
+        let 解析 = executor.resolution_for(&节点, &scope).unwrap();
+        assert_eq!(解析.model_ref, "agent 默认", "停用的条目不该被选中：{解析:?}");
+
+        let sink = 收集器::default();
+        let mut scope = Scope::new("run_disabled");
+        executor
+            .execute_with_sink(&节点, &mut scope, &|event| {
+                if let Ok(mut list) = sink.0.lock() {
+                    list.push(event);
+                }
+            })
+            .expect("执行");
+        assert!(
+            sink.某类("system.model_downgraded").is_empty(),
+            "用户自己停用的模型不该报降级"
+        );
+    }
+
+    #[test]
+    fn 跨_runtime_的引用说得清是_runtime_不符() {
+        // 「未登记、未启用或 runtime 不符」三选一的文案没人读得懂 ——
+        // 分开说，用户才知道该去改哪里
+        let executor = with_mock_adapter(ai_dir("cross_rt"))
+            .with_models(&模型目录())
+            .with_agent_profiles(&挑模型的角色("model:other", ""));
+        let 节点 = 挂角色的节点(None);
+
+        let sink = 收集器::default();
+        let mut scope = Scope::new("run_cross_rt");
+        executor
+            .execute_with_sink(&节点, &mut scope, &|event| {
+                if let Ok(mut list) = sink.0.lock() {
+                    list.push(event);
+                }
+            })
+            .expect("执行");
+        let 降级 = sink.某类("system.model_downgraded");
+        assert_eq!(降级.len(), 1);
+        assert!(
+            降级[0].summary.contains("runtime") && 降级[0].summary.contains("acp.codex"),
+            "要说清是 runtime 不符、属于哪个 runtime：{}",
+            降级[0].summary
+        );
+    }
+
+    #[test]
+    fn 解析出的值真的递给了_adapter() {
+        // 接缝的另一半：resolution 与降级事件都出自 resolve_model，
+        // 证明不了 open_session 收到的是同一个值 —— 把 SessionSpec 那两行
+        // 改回 self.model 的话，前面所有用例照样绿。这条不一样：
+        // model:zed 解析得出（在目录里）、但 mock 的候选里没有 ——
+        // 只有值真的递过去，adapter 才会拒、才有这条降级事件
+        let mut 目录 = 模型目录();
+        目录.push(条目("model:zed", "目录里有的", "acp.claude", "mock-model-z", "high", true));
+        let executor = with_mock_adapter(ai_dir("wired")).with_models(&目录);
+        let 节点 = 带策略的节点(serde_json::json!({ "modelId": "model:zed" }));
+
+        let sink = 收集器::default();
+        let mut scope = Scope::new("run_wired");
+        let outcome = executor
+            .execute_with_sink(&节点, &mut scope, &|event| {
+                if let Ok(mut list) = sink.0.lock() {
+                    list.push(event);
+                }
+            })
+            .expect("执行");
+        assert!(matches!(outcome, NodeOutcome::Succeeded { .. }), "{outcome:?}");
+
+        let 降级 = sink.某类("system.model_downgraded");
+        assert_eq!(降级.len(), 1, "mock 拒掉的值没有产生降级 —— 解析结果没递给 adapter");
+        assert!(
+            降级[0].summary.contains("mock-model-z"),
+            "降级要说清被拒的是哪个值：{}",
+            降级[0].summary
+        );
+    }
+
+    #[test]
+    fn 更高的推理档也认得() {
+        // xhigh / max / ultra 两端 runtime 都真实报过 —— 当 medium 排的话，
+        // quality 会把最高档当中档
+        let mut 目录 = 模型目录();
+        目录.push(条目("model:ultra", "顶配", "acp.claude", "mock-model-a", "xhigh", true));
+        let executor = 执行器(ai_dir("xhigh")).with_models(&目录);
+        let scope = Scope::new("run_xhigh");
+
+        let 解析 = executor
+            .resolution_for(&带策略的节点(serde_json::json!("quality")), &scope)
+            .unwrap();
+        assert_eq!(解析.effort, "xhigh", "quality 没选中最高档：{解析:?}");
     }
 
     #[test]

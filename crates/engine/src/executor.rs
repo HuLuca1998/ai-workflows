@@ -173,8 +173,12 @@ pub struct ModelEntry {
     /// 交给 adapter 的那个名字（`claude-sonnet-4-5`）。
     /// 值必须在 agent 报的候选里 —— 不在的话 adapter 会拒，走降级。
     pub model_id: String,
-    /// minimal / low / medium / high。
+    /// minimal / low / medium / high（同步进来的更高档也认，见 `effort_rank`）。
     pub effort: String,
+    /// 传全量目录进来（含停用的）：解析要区分「未登记」与「已停用」——
+    /// 前者是配置坏了要报降级，后者是用户自己的显式动作，
+    /// 把他刚停用的模型报成「降级」等于把他的决定当故障。
+    pub enabled: bool,
 }
 
 /// 一个 AI 节点实际用了什么。上层据此写 `system.model_resolved`。
@@ -238,11 +242,15 @@ impl ModelChoice {
 }
 
 /// 推理档的序。认不出的值按 medium 算 —— 排序要的是稳定，不是精确。
+///
+/// 高于 high 的档（`xhigh` / `max` / `ultra`）两端 runtime 都真实报过
+/// （`docs/acp/transcripts/`）—— 少了它们，`quality` 会把最高档当中档。
 fn effort_rank(effort: &str) -> u8 {
     match effort {
         "minimal" => 0,
         "low" => 1,
         "high" => 3,
+        "xhigh" | "max" | "ultra" => 4,
         _ => 2,
     }
 }
@@ -597,9 +605,28 @@ impl NodeExecutor {
         let candidates: Vec<&ModelEntry> = self
             .models
             .iter()
-            .filter(|entry| entry.runtime == runtime)
+            .filter(|entry| entry.enabled && entry.runtime == runtime)
             .collect();
-        let by_id = |id: &str| candidates.iter().find(|entry| entry.id == id).copied();
+
+        // 一个引用查下来的三种下场，各有各的说法：
+        // 找到且可用 → 用；已停用 → 静默按没配（停用是用户的显式动作，
+        // 把他的决定报成降级等于把它当故障）；未登记 / runtime 不符 → 降级
+        enum Lookup<'a> {
+            Usable(&'a ModelEntry),
+            DisabledByUser,
+            Missing(String),
+        }
+        let look_up = |id: &str, who: &str| -> Lookup<'_> {
+            match self.models.iter().find(|entry| entry.id == id) {
+                Some(entry) if entry.enabled && entry.runtime == runtime => Lookup::Usable(entry),
+                Some(entry) if !entry.enabled => Lookup::DisabledByUser,
+                Some(entry) => Lookup::Missing(format!(
+                    "{who} {id} 属于 runtime {}，这个节点跑在 {runtime} 上，用不了",
+                    entry.runtime
+                )),
+                None => Lookup::Missing(format!("{who} {id} 没有在「模型」页登记")),
+            }
+        };
 
         match node.config.get("modelPolicy") {
             Some(serde_json::Value::String(tier)) => {
@@ -612,12 +639,13 @@ impl NodeExecutor {
             }
             Some(serde_json::Value::Object(policy)) => {
                 if let Some(id) = policy.get("modelId").and_then(serde_json::Value::as_str) {
-                    if let Some(entry) = by_id(id) {
-                        return choice.pick(entry);
+                    match look_up(id, "节点钉住的模型") {
+                        Lookup::Usable(entry) => return choice.pick(entry),
+                        Lookup::DisabledByUser => {}
+                        Lookup::Missing(reason) => {
+                            choice.downgraded.push(format!("{reason}，退回角色默认"));
+                        }
                     }
-                    choice.downgraded.push(format!(
-                        "节点钉住的模型 {id} 不可用（未登记、未启用或 runtime 不符），退回角色默认"
-                    ));
                 }
             }
             _ => {}
@@ -629,24 +657,23 @@ impl NodeExecutor {
         if profile.model_ref.is_empty() {
             return choice;
         }
-        if let Some(entry) = by_id(&profile.model_ref) {
-            return choice.pick(entry);
+        match look_up(&profile.model_ref, &format!("角色「{}」的模型", profile.name)) {
+            Lookup::Usable(entry) => return choice.pick(entry),
+            // 停用不算降级，但后备正是为「主选不可用」准备的 —— 接着试
+            Lookup::DisabledByUser => {}
+            Lookup::Missing(reason) => choice.downgraded.push(reason),
         }
-        choice.downgraded.push(format!(
-            "角色「{}」的模型 {} 不可用（未登记、未启用或 runtime 不符）",
-            profile.name, profile.model_ref
-        ));
         if profile.fallback_model_ref.is_empty() {
             return choice;
         }
-        if let Some(entry) = by_id(&profile.fallback_model_ref) {
-            return choice.pick(entry);
+        match look_up(&profile.fallback_model_ref, "后备模型") {
+            Lookup::Usable(entry) => choice.pick(entry),
+            Lookup::DisabledByUser => choice,
+            Lookup::Missing(reason) => {
+                choice.downgraded.push(format!("{reason}，改用 agent 默认"));
+                choice
+            }
         }
-        choice.downgraded.push(format!(
-            "后备模型 {} 也不可用，改用 agent 默认",
-            profile.fallback_model_ref
-        ));
-        choice
     }
 
     /// 这个节点最终跑在哪个 runtime 上。

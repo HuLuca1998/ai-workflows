@@ -607,12 +607,17 @@ impl Runner {
         // 会拿到不一样的人设，而运行记录上看不出这件事发生过。
         let profiles = self.agent_profiles_for(store, run_id)?;
 
-        // 「模型」页登记且启用的条目，一次性查好交给执行器 ——
-        // 节点的 modelPolicy 与角色的 model_ref 靠它解析。
-        // 查不到按空目录办：那时执行器不解析也不报降级，agent 用默认
+        // 「模型」页的**全量**目录（含停用的），一次性查好交给执行器 ——
+        // 节点的 modelPolicy 与角色的 model_ref 靠它解析，
+        // 而「已停用」与「未登记」要区分：前者是用户的显式动作。
         let models: Vec<crate::executor::ModelEntry> = store
-            .list_models(true)
-            .unwrap_or_default()
+            .list_models(false)
+            .unwrap_or_else(|error| {
+                // 读失败与「模型页是空的」是两回事：后者静默用 agent 默认
+                // 是设计，前者会把用户配好的模型悄悄忽略 —— 至少留痕
+                eprintln!("[runner] 模型目录读不出来，这次运行按未配置跑：{error}");
+                Vec::new()
+            })
             .into_iter()
             .map(|row| crate::executor::ModelEntry {
                 id: row.id,
@@ -620,6 +625,7 @@ impl Runner {
                 runtime: row.runtime,
                 model_id: row.model_id,
                 effort: row.effort,
+                enabled: row.enabled,
             })
             .collect();
 

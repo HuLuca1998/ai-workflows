@@ -19,18 +19,23 @@ fn 新库() -> (tempfile::TempDir, Store) {
 }
 
 #[test]
-fn 首次打开就有可用的模型() {
+fn 首次打开模型页不是空白_但示例是停用的() {
+    // AI 节点没有模型条目照样跑（引擎按「没配」处理，agent 用自己的默认）。
+    // 种子的用处是让模型页有个能看的样例 —— 但它们的 model_id 是
+    // 两端 adapter 都不认的示例值，必须停用：启用着的话，
+    // 引用它们的每个 AI 节点每次运行都报一条 model_downgraded
     let (_dir, store) = 新库();
-    let (models, _) = store.list_models_paged(true, None, 50, 0).unwrap();
+    let (models, _) = store.list_models_paged(false, None, 50, 0).unwrap();
 
-    assert!(
-        !models.is_empty(),
-        "一个空的模型表意味着所有 AI 节点都跑不了"
-    );
-    // 两个 ACP 运行时各一条 —— 只装了其中一个的机器也得能用
+    assert!(!models.is_empty(), "模型页首次打开是空白页");
+    // 两个 ACP 运行时各一条 —— 只装了其中一个的机器也有参照
     let runtimes: Vec<&str> = models.iter().map(|m| m.runtime.as_str()).collect();
     assert!(runtimes.contains(&"acp.codex"), "{runtimes:?}");
     assert!(runtimes.contains(&"acp.claude"), "{runtimes:?}");
+    assert!(
+        models.iter().all(|m| !m.enabled),
+        "示例条目启用着 —— 默认装机每次运行都会报降级"
+    );
 }
 
 #[test]

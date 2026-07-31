@@ -60,10 +60,20 @@ fn 重置后内置数据回来了() {
 
     store.reset_workspace().unwrap();
 
-    let (models, _) = store.list_models_paged(true, None, 50, 0).unwrap();
+    // 种子模型是**停用**的示例条目：model_id 是两端 adapter 都不认的
+    // 示例值，启用着会让每个引用它的 AI 节点每次运行都报降级。
+    // 所以查全量（enabled_only = false），并确认它们真的是停用态
+    let (models, _) = store.list_models_paged(false, None, 50, 0).unwrap();
     let runtimes: Vec<&str> = models.iter().map(|m| m.runtime.as_str()).collect();
     assert!(runtimes.contains(&"acp.codex"), "{runtimes:?}");
     assert!(runtimes.contains(&"acp.claude"), "{runtimes:?}");
+    assert!(
+        models
+            .iter()
+            .filter(|m| m.id.starts_with("model:"))
+            .all(|m| !m.enabled),
+        "种子模型该是停用的示例 —— 启用着的话默认装机每次运行都报降级"
+    );
 
     let (agents, _) = store.list_agents_paged(None, 50, 0).unwrap();
     let ids: Vec<&str> = agents.iter().map(|a| a.id.as_str()).collect();
@@ -120,7 +130,8 @@ fn 重置可以连着做两次() {
     store.reset_workspace().unwrap();
     store.reset_workspace().unwrap();
 
-    let (models, _) = store.list_models_paged(true, None, 50, 0).unwrap();
+    // 种子模型是停用的示例条目，查全量才看得见
+    let (models, _) = store.list_models_paged(false, None, 50, 0).unwrap();
     assert!(!models.is_empty(), "第二次重置之后内置模型没种上");
 }
 
