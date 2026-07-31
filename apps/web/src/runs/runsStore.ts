@@ -258,6 +258,9 @@ export const useRuns = create<RunsState>((set, get) => ({
       set({ error: describeError(error) });
     }
     await get().load();
+    // 取消把状态推到终态,轮询随之停了 —— run.cancelled 事件还没拉回来。
+    // 不补这一次,事件流停在取消前一刻,要手动刷新才看得到(第 3 轮实测 P8)
+    await get().pollEvents();
   },
 
   resume: async (runId: string) => {
