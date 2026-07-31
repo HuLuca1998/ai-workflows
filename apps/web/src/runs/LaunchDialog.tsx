@@ -394,10 +394,10 @@ interface PropertySpec {
  *
  * 值发出去是一个对象，但表单内部拆成两格 —— 这样必填校验
  * （「仓库选了没」）与其余字段共用同一条路径，不必为一种字段
- * 再开一套状态。` ` 前缀不会与 schema 里的属性名撞上。
+ * 再开一套状态。`\0` 前缀不会与 schema 里的属性名撞上。
  */
 function branchKey(key: string): string {
-  return `${key} branch`;
+  return `${key}\0branch`;
 }
 
 /**
