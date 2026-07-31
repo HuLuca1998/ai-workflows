@@ -224,8 +224,10 @@ function EditorCanvas() {
 
       // 弹层开着时画布快捷键整体失效。第 2 轮实测的事故链：焦点落在
       // 弹层内的按钮上按 ⌘A → 画布全选 → Backspace 清空整张画布，
-      // 而撤销是「待实现」。按 tagName 挡不住按钮和标签页
-      if (configNodeId) return;
+      // 而撤销是「待实现」。按 tagName 挡不住按钮和标签页。
+      // 版本抽屉与运行对话框同理 —— 抽屉不是 role=dialog，
+      // 光靠下面的 closest 兜不住（codex 复核抓到的）
+      if (configNodeId || versionsOpen || launchOpen) return;
 
       const target = event.target as HTMLElement | null;
       const tag = target?.tagName;
@@ -241,7 +243,7 @@ function EditorCanvas() {
 
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [setSelection, configNodeId]);
+  }, [setSelection, configNodeId, versionsOpen, launchOpen]);
 
   const selectedIds = useMemo(() => new Set(selection), [selection]);
   const nodes = useMemo(
@@ -628,6 +630,7 @@ function EditorEmptyState() {
   const navigate = useNavigate();
   const createWorkflow = useWorkspace((state) => state.createWorkflow);
   const [creating, setCreating] = useState(false);
+  const [createError, setCreateError] = useState<string | null>(null);
 
   return (
     <article className="page">
@@ -646,7 +649,14 @@ function EditorEmptyState() {
             if (creating) return;
             setCreating(true);
             void createWorkflow(null)
-              .then((id) => navigate(`/editor/${id}`))
+              .then((id) => {
+                if (id) navigate(`/editor/${id}`);
+              })
+              // 建失败要说出来 —— 只有 then/finally 的话按钮弹回原状,
+              // 用户看不到任何原因(codex 复核抓到的)
+              .catch((error: unknown) => {
+                setCreateError(error instanceof Error ? error.message : String(error));
+              })
               .finally(() => setCreating(false));
           }}
         >
@@ -654,6 +664,7 @@ function EditorEmptyState() {
           新建工作流
         </Button>
       </p>
+      {createError ? <p role="alert">新建失败：{createError}</p> : null}
     </article>
   );
 }

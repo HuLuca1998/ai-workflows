@@ -180,14 +180,24 @@ export function NodeConfigDialog({ node, graph, onClose, onSave }: NodeConfigDia
                   value={draft[field.key]}
                   {...(fieldErrors[field.key] ? { error: fieldErrors[field.key] } : {})}
                   onChange={(next) => setDraft((prev) => ({ ...prev, [field.key]: next }))}
-                  onParseError={(parseError) =>
+                  onParseError={(parseError) => {
                     setJsonErrors((prev) => {
                       const next = { ...prev };
                       if (parseError) next[field.key] = `JSON 无法解析：${parseError}`;
                       else delete next[field.key];
                       return next;
-                    })
-                  }
+                    });
+                    // 修好后同步清掉提交时复制进 fieldErrors 的那份 ——
+                    // 不清的话红字残留到下一次提交(codex 复核抓到的)
+                    if (!parseError) {
+                      setFieldErrors((prev) => {
+                        if (!(field.key in prev)) return prev;
+                        const next = { ...prev };
+                        delete next[field.key];
+                        return next;
+                      });
+                    }
+                  }}
                 />
               ))}
             </div>
