@@ -317,7 +317,12 @@ export function PromptsPage() {
                 <p className="models__detail-sub">
                   {selected.group} · v{selected.ver} ·{' '}
                   <code className="agents__id">{selected.id}</code>
-                  <CopyButton value={selected.id} label="" ariaLabel="复制提示词 id" className="env__copy" />
+                  <CopyButton
+                    value={selected.id}
+                    label=""
+                    ariaLabel="复制提示词 id"
+                    className="env__copy"
+                  />
                 </p>
               </div>
               <span className="runs__grow" />

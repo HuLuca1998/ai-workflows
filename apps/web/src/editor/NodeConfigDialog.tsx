@@ -34,7 +34,13 @@ type Tab = (typeof TABS)[number];
  * 配置页的表单**完全由 Schema 驱动**（fieldDescriptors），
  * 新增节点类型只要写 Schema 与 describe，这里一行都不用改。
  */
-export function NodeConfigDialog({ node, graph, onClose, onSave, references }: NodeConfigDialogProps) {
+export function NodeConfigDialog({
+  node,
+  graph,
+  onClose,
+  onSave,
+  references,
+}: NodeConfigDialogProps) {
   const dialogRef = useRef<HTMLDivElement>(null);
 
   /**

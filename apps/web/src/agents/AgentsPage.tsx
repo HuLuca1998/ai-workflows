@@ -504,7 +504,12 @@ export function AgentsPage() {
                   {/* id 露出来:节点配置、MCP、排查都认 id 不认名字 ——
                       此前全应用无处可查(第 5 轮实测 P5) */}
                   <code className="agents__id">{selected.id}</code>
-                  <CopyButton value={selected.id} label="" ariaLabel="复制角色 id" className="env__copy" />
+                  <CopyButton
+                    value={selected.id}
+                    label=""
+                    ariaLabel="复制角色 id"
+                    className="env__copy"
+                  />
                 </p>
               </div>
               <span className="runs__grow" />

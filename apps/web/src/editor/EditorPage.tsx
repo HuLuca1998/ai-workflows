@@ -104,7 +104,12 @@ function LiveReactFlow({
   // colorMode:画布根元素曾挂着 React Flow 的 light 类 —— 自研样式盖住了它,
   // 但内置 Controls/MiniMap 一旦启用就会是浅色的(第 7 轮实测 #9)
   return (
-    <ReactFlow {...props} colorMode="dark" defaultNodes={graphNodes} onNodesChange={onNodesChange} />
+    <ReactFlow
+      {...props}
+      colorMode="dark"
+      defaultNodes={graphNodes}
+      onNodesChange={onNodesChange}
+    />
   );
 }
 

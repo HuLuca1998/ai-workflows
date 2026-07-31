@@ -614,7 +614,7 @@ mod 记忆更新走契约字段名 {
     use aiwf_store::Store;
 
     #[test]
-    fn dispatch_按契约收_ver_而不是_baseVer() {
+    fn dispatch_按契约字段名收乐观锁版本() {
         // 第 4 轮实测阻断:契约与前端发 `ver`,dispatch 曾读 `baseVer` ——
         // 「缺少参数 baseVer」让记忆完全不可编辑,只能删了重建
         let dir = tempfile::tempdir().unwrap();
