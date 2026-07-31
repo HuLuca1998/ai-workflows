@@ -282,7 +282,7 @@ describe('筛选与搜索交给后端', () => {
     view();
     await row('GitHub Issue 修复');
 
-    await user.type(screen.getByLabelText('搜索工作流'), '归档');
+    await user.type(screen.getByLabelText('搜索工作流、运行或产物'), '归档');
     await user.keyboard('{Enter}');
     expect(setFilter).toHaveBeenCalledWith(null, '归档');
   });
@@ -303,7 +303,7 @@ describe('筛选与搜索交给后端', () => {
     view();
     await screen.findByLabelText('搜索工作流');
 
-    const input = screen.getByLabelText('搜索工作流') as HTMLInputElement;
+    const input = screen.getByLabelText('搜索工作流、运行或产物') as HTMLInputElement;
     fireEvent.change(input, { target: { value: 'worktree' } });
     expect(input.value, '输入框的值没跟手').toBe('worktree');
 
@@ -319,7 +319,7 @@ describe('筛选与搜索交给后端', () => {
     view();
     await screen.findByLabelText('搜索工作流');
 
-    const input = screen.getByLabelText('搜索工作流');
+    const input = screen.getByLabelText('搜索工作流、运行或产物');
     fireEvent.change(input, { target: { value: 'worktree' } });
     fireEvent.keyDown(input, { key: 'Enter' });
 

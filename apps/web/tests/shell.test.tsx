@@ -22,31 +22,34 @@ const setWidth = (width: number) => {
 };
 
 describe('主导航', () => {
-  it('覆盖功能文档 §2 的全部菜单', () => {
-    expect(NAV_ITEMS.map((item) => item.label)).toEqual([
+  it('可见菜单不含编辑器 —— 它是从工作流点进去的,不是常驻入口', () => {
+    // 「工作流编辑器」直点进去是一个「先去别处选工作流」的空态 ——
+    // 一个只能告诉你去别处的常驻入口没有意义(第 1 轮实测 M11 的后半)。
+    // 路由与面包屑保留:/editor/:id 深链、刷新都照常
+    expect(NAV_ITEMS.filter((item) => !item.hidden).map((item) => item.label)).toEqual([
       '概览与工作流',
-      '工作流编辑器',
       '执行记录',
       '记忆',
       'Agent 角色',
       '提示词库',
       '模型',
       '设置与环境',
-      // 「首次配置」不在这里了 —— 它是设置页左栏的第一档
-      // （docs/adr/0010-settings-holds-setup-and-version.md）。
-      // 主导航放每天都要用的，装机时走一遍的东西不该常驻。
-      // `/onboarding` 路由仍在，首次启动照样直达
+      // 「首次配置」不在这里了 —— 它是设置页左栏的一档
+      // （docs/adr/0010-settings-holds-setup-and-version.md）
     ]);
+    // 编辑器仍在 NAV_ITEMS 里(hidden):路由生成与面包屑都靠它
+    expect(NAV_ITEMS.find((item) => item.path === '/editor')?.hidden).toBe(true);
   });
 
-  it('渲染出可导航的链接', () => {
+  it('渲染出可导航的链接;隐藏项不渲染', () => {
     renderShell();
     const nav = screen.getByRole('navigation', { name: '主导航' });
-    for (const item of NAV_ITEMS) {
+    for (const item of NAV_ITEMS.filter((entry) => !entry.hidden)) {
       expect(
         within(nav).getByRole('link', { name: new RegExp(item.label, 'u') }),
       ).toBeInTheDocument();
     }
+    expect(within(nav).queryByRole('link', { name: /工作流编辑器/u })).toBeNull();
   });
 
   it('当前页在语义上被标出，而不只是变个颜色', () => {

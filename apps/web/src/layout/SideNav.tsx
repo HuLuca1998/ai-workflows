@@ -31,7 +31,7 @@ export function SideNav({ counts, permission, environment }: SideNavProps) {
       {collapsed ? null : <p className="side-nav__group">工作区</p>}
 
       <div className="side-nav__items">
-        {NAV_ITEMS.map((item) => {
+        {NAV_ITEMS.filter((item) => !item.hidden).map((item) => {
           const count = item.badge ? counts?.[item.badge] : undefined;
           return (
             <NavLink

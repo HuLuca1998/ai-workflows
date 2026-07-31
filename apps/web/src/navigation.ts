@@ -13,6 +13,12 @@ export interface NavItem {
   summary: string;
   /** 徽标读哪种计数；由真实数据填充，为 0 时不显示。 */
   badge?: 'waitingApproval' | 'activeRuns';
+  /**
+   * 不出现在侧栏，但路由与面包屑仍然靠这条登记。
+   * 编辑器就是这样：它总是针对某个工作流，从列表点进去 ——
+   * 一个直点进去只会说「先去别处选工作流」的常驻入口没有意义。
+   */
+  hidden?: boolean;
 }
 
 export const NAV_ITEMS: readonly NavItem[] = [
@@ -23,7 +29,13 @@ export const NAV_ITEMS: readonly NavItem[] = [
     summary: '找到、创建、了解全部工作流的当前状态',
     badge: 'waitingApproval',
   },
-  { path: '/editor', label: '工作流编辑器', icon: 'ph-flow-arrow', summary: '设计与维护流程' },
+  {
+    path: '/editor',
+    label: '工作流编辑器',
+    icon: 'ph-flow-arrow',
+    summary: '设计与维护流程',
+    hidden: true,
+  },
   {
     path: '/runs',
     label: '执行记录',
