@@ -1904,7 +1904,9 @@ impl Store {
 
         let (filter, params_vec): (&str, Vec<Box<dyn rusqlite::ToSql>>) = match &pattern {
             Some(like) => (
-                "WHERE name LIKE ?1 OR goal LIKE ?1",
+                // tools_json 也参与:界面占位符写着「搜索角色、目标或工具」,
+                // 工具名恰恰是「这个角色能干什么」最硬的判据(第 5 轮实测 P15)
+                "WHERE name LIKE ?1 OR goal LIKE ?1 OR tools_json LIKE ?1",
                 vec![Box::new(like.clone())],
             ),
             None => ("", Vec::new()),

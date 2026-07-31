@@ -3608,3 +3608,30 @@ fn 更新模型拒绝非正的上下文窗口() {
     s.update_model(&id, None, None, None, None, Some(200000), None, None)
         .unwrap();
 }
+
+#[test]
+fn 角色搜索匹配工具白名单_界面占位符承诺过() {
+    // 第 5 轮实测 P15:占位符写「搜索角色、目标或工具」,按工具名搜直接空态
+    let s = store();
+    s.create_agent(&NewAgent {
+        name: "带工具的".to_string(),
+        role: "执行".to_string(),
+        goal: "干活".to_string(),
+        persona: String::new(),
+        runtime: "acp.codex".to_string(),
+        model_ref: String::new(),
+        fallback_model_ref: None,
+        tools: vec!["special_probe_tool".to_string()],
+        capabilities_json: "{}".to_string(),
+        output_contract: String::new(),
+        turn_limit: 6,
+        timeout_ms: 60000,
+    })
+    .unwrap();
+
+    let (rows, total) = s
+        .list_agents_paged(Some("special_probe_tool"), 50, 0)
+        .unwrap();
+    assert_eq!(total, 1, "按工具名要能搜到");
+    assert_eq!(rows[0].name, "带工具的");
+}
