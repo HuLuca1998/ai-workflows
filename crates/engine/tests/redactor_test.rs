@@ -177,7 +177,8 @@ fn sec_前缀的_token_会被脱敏_第3轮实测泄漏的形态() {
     // 真实事故:adapter 的 502 报错把上游 API key 带在 URL 路径里
     // (https://…/sec-XXXX/v1/responses),原样进了事件流与产物
     let redactor = Redactor::with_defaults();
-    let text = "unexpected status 502: url: https://llm.example.com/sec-T00AbCdEfGh123456789/v1/responses";
+    let text =
+        "unexpected status 502: url: https://llm.example.com/sec-T00AbCdEfGh123456789/v1/responses";
     let out = redactor.redact(text);
     assert!(!out.contains("sec-T00AbCdEfGh123456789"), "泄漏:{out}");
     assert!(out.contains("v1/responses"), "URL 其余部分要保留:{out}");
