@@ -123,6 +123,7 @@
     "mcp.requestConfirm",
     "mcp.confirmStatus",
     "mcp.pendingConfirms",
+    "mcp.answerAsk",
     "mcp.decideConfirm",
     "mcp.status",
     "mcp.connect",

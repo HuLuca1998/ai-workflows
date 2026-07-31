@@ -201,6 +201,67 @@ export const ConfigChoiceSchema = z.object({
 });
 export type ConfigChoice = z.infer<typeof ConfigChoiceSchema>;
 
+/**
+ * Agent 向用户提的一个问题。
+ *
+ * **组件目录是白名单**：agent 只能从这几种里挑一个、填数据，
+ * 碰不到布局也发明不了新组件。让它返回 HTML 或任意 UI spec 的话，
+ * 渲染通道就与它的权限面接在了一起 —— 而这个 agent 连着系统 MCP，
+ * 能读工作流、能改草稿。
+ *
+ * 认不出的 `kind` 由界面降级成纯文本显示原文，**不静默吞掉**：
+ * 用户至少要知道 agent 问了什么。
+ */
+export const ASK_KINDS = ['choice', 'multiChoice', 'form', 'confirm'] as const;
+export type AskKind = (typeof ASK_KINDS)[number];
+
+export const AskOptionSchema = z.object({
+  value: z.string().min(1),
+  label: z.string().min(1),
+  /** 补充说明。选项之间的差别常常不在标题上。 */
+  description: z.string().default(''),
+});
+
+export const AskFieldSchema = z.object({
+  name: z.string().min(1),
+  label: z.string().min(1),
+  /** 多行输入。补一段背景与填一个分支名不是一回事。 */
+  multiline: z.boolean().default(false),
+  required: z.boolean().default(false),
+  placeholder: z.string().default(''),
+});
+
+export const AskSpecSchema = z.object({
+  kind: z.enum(ASK_KINDS),
+  /** 一句话说清在问什么。它是卡片的标题。 */
+  title: z.string().min(1),
+  /** 为什么问。用户凭它判断该选哪个。 */
+  detail: z.string().default(''),
+  /** `choice` / `multiChoice` 用。 */
+  options: z.array(AskOptionSchema).default([]),
+  /** `form` 用。 */
+  fields: z.array(AskFieldSchema).default([]),
+  /** `multiChoice` 的默认勾选。 */
+  defaults: z.array(z.string()).default([]),
+});
+export type AskSpec = z.infer<typeof AskSpecSchema>;
+
+/**
+ * 用户的回答。
+ *
+ * 三个字段按 `kind` 用其一 —— 合成一个联合类型会让 Rust 侧的
+ * 反序列化跟着分叉，而这里的取舍是「两侧都好写」。
+ */
+export const AskAnswerSchema = z.object({
+  /** `choice` 选中的那个 value。 */
+  selected: z.string().optional(),
+  /** `multiChoice` 选中的那些。 */
+  selectedMany: z.array(z.string()).default([]),
+  /** `form` 填的内容。 */
+  fields: z.record(z.string(), z.string()).default({}),
+});
+export type AskAnswer = z.infer<typeof AskAnswerSchema>;
+
 export const ModelSchema = z.object({
   id: z.string().min(1),
   name: z.string().min(1),

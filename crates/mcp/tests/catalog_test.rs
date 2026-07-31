@@ -15,6 +15,9 @@ use aiwf_mcp::catalog::{self, WriteGate};
 const 本地专属: &[&str] = &[
     "mcp_pending_confirms",
     "mcp_decide_confirm",
+    // 回答只能由本地 UI 给 —— 开给远端等于让 agent 自己回答自己的问题，
+    // 与 decide_confirm 是同一条理由
+    "mcp_answer_ask",
     // 把 MCP 自己的接线情况暴露给 MCP，等于让 Agent 看得见自己的令牌，
     // 而那个令牌就是它的全部权限
     "mcp_status",

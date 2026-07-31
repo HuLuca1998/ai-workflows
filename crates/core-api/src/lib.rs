@@ -259,6 +259,7 @@ pub const COMMANDS: &[&str] = &[
     "mcp_confirm_status",
     "mcp_pending_confirms",
     "mcp_decide_confirm",
+    "mcp_answer_ask",
     "mcp_status",
     "mcp_connect",
     "env_diagnostics",
@@ -3049,7 +3050,7 @@ pub fn probe_runtime<T>(
     probe(&command)
 }
 
-/// 一条待用户确认的 MCP 写操作。
+/// 一条待用户处理的打断：写操作待确认，或者 agent 在问你。
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ConfirmationDto {
@@ -3057,7 +3058,19 @@ pub struct ConfirmationDto {
     pub tool: String,
     pub input_json: String,
     pub created_at: String,
+    /// 提问的定义。缺席表示这是一次普通的写操作确认。
+    ///
+    /// 界面靠它决定渲染成哪种卡：确认卡给批准/拒绝，
+    /// 提问卡给选项或输入框。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ask: Option<serde_json::Value>,
 }
+
+/// 提问用的工具名。队列里靠它把两种打断分开。
+///
+/// 用工具名而不是新加一列：这条队列本来就按 `tool` 区分来源，
+/// 而 `ask_user` 在 agent 眼里也确实是一个工具。
+pub const ASK_TOOL: &str = "ask_user";
 
 /// 确认的当前状态。
 #[derive(Serialize)]
@@ -3097,13 +3110,42 @@ pub fn mcp_pending_confirms(store: &Store) -> ApiResult<Vec<ConfirmationDto>> {
     Ok(store
         .pending_confirmations()?
         .into_iter()
-        .map(|row| ConfirmationDto {
-            id: row.id,
-            tool: row.tool,
-            input_json: row.input_json,
-            created_at: row.created_at,
+        .map(|row| {
+            // 提问的 input_json 存的是问题定义。解不出来就当普通确认卡，
+            // **不丢掉这一条** —— 用户至少要知道 agent 问了什么，
+            // 哪怕形状对不上只能看原文
+            let ask = (row.tool == ASK_TOOL)
+                .then(|| serde_json::from_str::<serde_json::Value>(&row.input_json).ok())
+                .flatten();
+            ConfirmationDto {
+                id: row.id,
+                tool: row.tool,
+                input_json: row.input_json,
+                created_at: row.created_at,
+                ask,
+            }
         })
         .collect())
+}
+
+/// Agent 提一个问题，挂起等用户回答。
+///
+/// 与 [`mcp_request_confirm`] 同一条队列。返回的 id 由 agent 拿去轮询
+/// [`mcp_confirm_status`] —— 它的那次工具调用一直挂着，
+/// 拿到答案之后接着往下做，不需要用户再把选择复述一遍。
+pub fn mcp_ask_user(store: &Store, spec_json: String) -> ApiResult<String> {
+    // 形状不对就别入队：一张渲染不出来的卡片会一直堵在队列里，
+    // 而用户只看得到一个空壳
+    serde_json::from_str::<serde_json::Value>(&spec_json)
+        .map_err(|error| ApiError::validation(format!("问题定义不是合法 JSON：{error}")))?;
+    store.expire_confirmations(CONFIRM_TTL_SECS)?;
+    Ok(store.create_ask(ASK_TOOL, &spec_json)?)
+}
+
+/// 用户回答了。
+pub fn mcp_answer_ask(store: &Store, id: String, answer_json: String) -> ApiResult<()> {
+    store.answer_ask(&id, &answer_json)?;
+    Ok(())
 }
 
 /// 用户的决定。

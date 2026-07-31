@@ -7,6 +7,8 @@ import { PatchOperationSchema } from './patch.js';
 import {
   AGENT_RUNTIMES,
   AgentProfileSchema,
+  AskAnswerSchema,
+  AskSpecSchema,
   ApprovalDecisionSchema,
   ConfigChoiceSchema,
   SupervisorMessageSchema,
@@ -164,6 +166,14 @@ const SPECS = {
           inputJson: z.string(),
           /** 提交时间。用户要知道它等了多久。 */
           createdAt: z.iso.datetime(),
+          /**
+           * 这是一次「写操作待确认」还是一个「agent 在问你」。
+           *
+           * 两者共用同一条队列（机制一样：TTL、过期、轮询），
+           * 但渲染成两种卡：确认卡给的是批准/拒绝，
+           * 提问卡给的是选项或输入框。
+           */
+          ask: AskSpecSchema.optional(),
         }),
       ),
     }),
@@ -172,6 +182,23 @@ const SPECS = {
     // 只给本地 UI：让 MCP 看得见待确认队列，它就能自己找到自己那条
     scope: null,
     summary: '列出等待用户确认的 MCP 写操作',
+  },
+  'mcp.answerAsk': {
+    /*
+     * 用户回答了 agent 的提问。
+     *
+     * 与 `decideConfirm` 分开是因为**回答的形状不同**：那条只有是/否，
+     * 而这条要把用户选的东西带回给 agent —— agent 的那次工具调用
+     * 一直挂着等它，拿到之后接着往下做，不需要用户再复述一遍。
+     */
+    input: z.object({ id: z.string().min(1), answer: AskAnswerSchema }),
+    output: z.object({ ok: z.literal(true) }),
+    mutates: true,
+    audited: true,
+    // 与 decideConfirm 同一条理由：回答只能由本地 UI 给，
+    // 开给远端等于让 agent 自己回答自己的问题
+    scope: null,
+    summary: '回答 agent 提出的问题',
   },
   'mcp.decideConfirm': {
     input: z.object({ id: z.string().min(1), approved: z.boolean() }),

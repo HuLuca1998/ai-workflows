@@ -555,6 +555,16 @@ fn mcp_decide_confirm(state: State<'_, AppState>, id: String, approved: bool) ->
     api::mcp_decide_confirm(&store, id, approved)
 }
 
+/// 用户回答了 agent 的提问。
+///
+/// answer 是结构化的，所以走 JSON 字符串 —— Tauri 的命令参数
+/// 必须扁平，收不了嵌套结构。
+#[tauri::command]
+fn mcp_answer_ask(state: State<'_, AppState>, id: String, answer: String) -> IpcResult<()> {
+    let store = lock(&state)?;
+    api::mcp_answer_ask(&store, id, answer)
+}
+
 #[tauri::command]
 fn workspace_settings(state: State<'_, AppState>) -> IpcResult<api::WorkspaceSettingsDto> {
     let store = lock(&state)?;
@@ -987,6 +997,7 @@ pub fn run() {
             mcp_confirm_status,
             mcp_pending_confirms,
             mcp_decide_confirm,
+            mcp_answer_ask,
             model_test,
             model_sync,
             run_rewind_to_approval,

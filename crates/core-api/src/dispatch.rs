@@ -289,6 +289,14 @@ pub fn dispatch(
         )?),
         "mcp_confirm_status" => to_value(api::mcp_confirm_status(&store, string(input, "id")?)?),
         "mcp_pending_confirms" => to_value(api::mcp_pending_confirms(&store)?),
+        "mcp_answer_ask" => to_value(api::mcp_answer_ask(
+            &store,
+            string(input, "id")?,
+            input
+                .get("answer")
+                .map(ToString::to_string)
+                .unwrap_or_default(),
+        )?),
         "mcp_decide_confirm" => to_value(api::mcp_decide_confirm(
             &store,
             string(input, "id")?,
