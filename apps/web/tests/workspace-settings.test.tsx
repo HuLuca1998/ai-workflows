@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router';
 import type * as WorkspaceModule from '../src/data/workspace.js';
+import { APPROVAL_MODES, APPROVAL_MODE_LABELS } from '@aiwf/contracts';
 
 /**
  * 顶栏的工作目录、侧栏的权限档与环境状态。
@@ -86,19 +87,19 @@ describe('设置配过之后界面跟着变', () => {
     expect(screen.queryByText('尚未授权工作目录')).toBeNull();
   });
 
-  it('侧栏显示权限档 —— 用图纸上的文案，不是存的那个 ID', async () => {
-    respond({ 'workspace.settings': () => ({ permissionPreset: 'workspace_safe' }) });
+  it('侧栏显示的是档位的名字，不是存的那个 ID', async () => {
+    respond({ 'workspace.settings': () => ({ permissionPreset: 'ai_assisted' }) });
     view();
 
-    expect(await screen.findByText('Workspace Safe')).toBeTruthy();
+    expect(await screen.findByText(APPROVAL_MODE_LABELS.ai_assisted.name)).toBeTruthy();
   });
 
+
+
   it('三档的文案都照图纸', async () => {
-    for (const [id, 文案] of [
-      ['review_every_change', 'Review Every Change'],
-      ['workspace_safe', 'Workspace Safe'],
-      ['trusted_workflow', 'Trusted Workflow'],
-    ] as const) {
+    for (const [id, 文案] of APPROVAL_MODES.map(
+      (mode) => [mode, APPROVAL_MODE_LABELS[mode].name] as const,
+    )) {
       respond({ 'workspace.settings': () => ({ permissionPreset: id }) });
       const { unmount } = view();
       expect(await screen.findByText(文案)).toBeTruthy();

@@ -162,7 +162,7 @@ describe('节点库', () => {
     renderEditor();
     const lib = screen.getByRole('complementary', { name: '节点库' });
     await userEvent.type(within(lib).getByLabelText('搜索节点'), '审批');
-    expect(within(lib).getByText('人工审批')).toBeInTheDocument();
+    expect(within(lib).getByText('审批')).toBeInTheDocument();
     expect(within(lib).queryByText('入口设置')).toBeNull();
   });
 });

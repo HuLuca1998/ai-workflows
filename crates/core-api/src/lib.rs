@@ -265,6 +265,7 @@ pub const COMMANDS: &[&str] = &[
     "workspace_reset_preview",
     "workspace_reset",
     "env_health",
+    "env_check_directory",
     "run_artifact_content",
     "run_diagnostics",
     "workflow_create",
@@ -1014,11 +1015,23 @@ pub struct WorkspaceSettingsDto {
 }
 
 /// 读工作区设置。顶栏的工作目录、侧栏的权限档与环境状态都来自它。
+///
+/// **审批档在这里迁移一次**：库里可能躺着上一版的值
+/// （`review_every_change` / `workspace_safe` / `trusted_workflow`），
+/// 而那三个在契约的值域里都非法。原样返回的话，前端拿到一个
+/// 它的 schema 拒绝的值 —— 症状是侧栏显示空白或那个原始 ID。
+///
+/// 迁移放在**读取出口**这一处，不散在各个消费方：
+/// 前端、MCP、引擎各迁一次的话，它们对同一个旧值的理解会分叉。
+/// 不改库是刻意的 —— 用户装回旧版还要读得出来
+/// （见 `contracts` 的 `migrateApprovalMode`）。
 pub fn workspace_settings(store: &Store) -> ApiResult<WorkspaceSettingsDto> {
     let settings = store.workspace_settings()?;
     Ok(WorkspaceSettingsDto {
         workdir: settings.workdir,
-        permission_preset: settings.permission_preset,
+        permission_preset: settings
+            .permission_preset
+            .map(|value| aiwf_engine::risk::migrate_approval_mode(&value).to_string()),
         env_checked_at: settings.env_checked_at,
     })
 }

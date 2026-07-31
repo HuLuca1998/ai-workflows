@@ -1,22 +1,25 @@
-//! 这一步会造成什么 —— 审批判定的前半截。
+//! 审批：谁来批工作流里的那些门，以及这一步会造成什么。
 //!
-//! 后半截是档位（谁来批），在 [`approval_decider`]。两者分开是因为
-//! 风险由**工作流内容**决定，档位由**用户设置**决定，改一个不该动另一个。
+//! ## 权限由流程管，不由节点各自管
 //!
-//! 判定原则只有一条：**judge 判低了等于把门让出去，判高了只是多问一次**。
-//! 所以基线来自契约，内容嗅探**只往上调**，认不出的一律按最高算。
+//! 执行节点拿到的是**最高权限** —— 引擎不再按节点类型或脚本内容
+//! 自动拦截。要不要停下来问，由工作流的形状决定：在
+//! 「探索完成 → 开始编辑」之间、在「编码完成 → 开 PR」之间
+//! 放一个 `approval` 节点，那两处就是关卡。
 //!
-//! ## 嗅探到不了的地方
+//! 上一版按风险自动拦截，结果是**读一个 Issue 也要人点一次** ——
+//! 用户的原话。而自动判定既拦不住 `PUSH="git push"; $PUSH`
+//! （静态分析看不出来），又挡住了明明无害的操作。
 //!
-//! `PUSH="git push"; $PUSH` 这种写法看不出来，会判成 `WorkspaceWrite`。
-//! 这是静态分析的固有局限，不是可以修的 bug —— 真要完备就得跑一遍。
-//! 两件事兜住它：
+//! **这条的代价必须说清楚**：一条没放 `approval` 节点的工作流
+//! 会一路跑到底，包括 push 与建 PR。
 //!
-//! 1. `human_approval` 档下 `WorkspaceWrite` 一样挂人工，看不出来也拦得住
-//! 2. `ai_assisted` / `unattended` 档下 AI 审批者拿到的是**完整脚本原文**，
-//!    它认得出 `$PUSH`
+//! ## 风险等级还留着，但换了用途
 //!
-//! 界面上要说清这件事：想要逐字精确的控制就选最严那档。
+//! [`node_risk`] 不再决定拦不拦，它决定**审批界面上怎么说** ——
+//! 批的那个人（或那个 AI）要知道放行之后会发生什么。
+//! 判低了的后果从「门开了」变成「说明不准”，仍然不该判低，
+//! 但不再是安全边界。
 
 use serde_json::Value;
 
@@ -43,39 +46,40 @@ impl RiskLevel {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ApprovalDecider {
-    /// 不用问，直接跑。
-    None,
     Ai,
     Human,
 }
 
-/// 谁来批这一步。
+/// 一道审批门由谁批。
+///
+/// 两个输入：全局档位（用户当下想被打扰多少）与节点上写的
+/// （工作流作者的意图）。**全局档位覆盖节点** —— 那是设置页
+/// 那三张卡的意义所在。
 ///
 /// 与 `packages/contracts/src/approval.ts` 的 `approvalDecider`
 /// **逐格等价**。两份实现的代价由 `contract_sync_test` 对冲。
+///
+/// 注意**没有「不用批」这一档**：审批节点是工作流作者显式放下的一道门，
+/// 让某个档位把它整个跳过，等于让设置页悄悄改写工作流的形状。
 #[must_use]
-pub fn approval_decider(mode: &str, risk: RiskLevel) -> ApprovalDecider {
-    // 认不出的档位按最严 —— 库里可能躺着上一版的值（review_every_change 等）。
-    // 静默放行的话，用户以为自己选了某一档，实际一道门都没有
-    if !matches!(mode, "human_approval" | "ai_assisted" | "unattended") {
-        return ApprovalDecider::Human;
+pub fn approval_decider(mode: &str, node_decider: &str) -> ApprovalDecider {
+    match mode {
+        // 全都我来 —— 节点上写的 ai 也不作数
+        "human_approval" => ApprovalDecider::Human,
+        // 全交给 AI —— 节点上写的 user 也不作数，否则它不叫无人值守
+        "unattended" => ApprovalDecider::Ai,
+        // 节点说了算；没说（auto）时默认 AI
+        "ai_assisted" => {
+            if node_decider == "user" {
+                ApprovalDecider::Human
+            } else {
+                ApprovalDecider::Ai
+            }
+        }
+        // 认不出的档位回到人 —— 库里可能躺着上一版的值。
+        // 静默交给 AI 的话，用户以为自己设了一道要亲自批的门
+        _ => ApprovalDecider::Human,
     }
-
-    if risk == RiskLevel::ReadOnly {
-        return ApprovalDecider::None;
-    }
-
-    if mode == "human_approval" {
-        return ApprovalDecider::Human;
-    }
-
-    // ai_assisted 与 unattended 的**唯一**差别就在这里。
-    //「AI 审批，关键节点用户审批」这句话的全部内容就是这一格
-    if mode == "ai_assisted" && risk == RiskLevel::ExternalWrite {
-        return ApprovalDecider::Human;
-    }
-
-    ApprovalDecider::Ai
 }
 
 /// 上一版三档 → 新三档。

@@ -131,18 +131,18 @@ const 引擎不消费: Record<string, string> = {
   'entry.injectedFields': '欠账：系统注入字段没实现，run.id / run.startedAt 不会自动进 inputs',
   'end.artifacts': '欠账：最终产物清单不生效，产物由各节点自己写，末尾不做汇总',
 
-  'approval.bodyMarkdown': '欠账：审批正文不进事件，界面上只看得到标题',
+  // approval.bodyMarkdown 接上了：AI 审批者的提示词里带着它
+  // （`executor.rs` 的 审批提示词）—— 门守的是什么，批的那位要知道
   'approval.interaction': '欠账：交互类型（单选/多选）不生效',
   'approval.waitStrategy': '欠账：等待策略不生效，一律等到底',
   'approval.reminderAfterMs': '欠账：提醒没实现',
 
-  // notify 节点本身就是空实现（DEBT B-1）：归在 entry | end 那一档，
-  // 什么都不做直接返回成功。它的字段自然一个都不读
-  'notify.subtitle': '欠账：notify 节点是空实现（DEBT B-1）',
-  'notify.body': '欠账：notify 节点是空实现（DEBT B-1）',
-  'notify.on': '欠账：notify 节点是空实现（DEBT B-1）',
-  'notify.clickAction': '欠账：notify 节点是空实现（DEBT B-1）',
-  'notify.onFailure': '欠账：notify 节点是空实现（DEBT B-1）',
+  // notify 的 title / subtitle / body / clickAction / onFailure 都接上了
+  // （`executor.rs` 的 run_notify + 桌面壳的 DesktopNotifier），从这里删掉。
+  // 留下的只有 `on` 一条
+  'notify.on':
+    '欠账：说的是「运行到什么状态时才发」，而节点执行时运行还没有终态 —— ' +
+    '要按运行状态发通知得由调度器在收尾时统一做。字段描述里已直说不生效',
 
   'script.shell.env': '欠账：环境变量只给 scope.env_vars()，这里填的进不去',
   'script.shell.secretEnv': '欠账：**这是安全承诺**，契约写着用 keychain:// 引用，而实现为零',
@@ -167,11 +167,29 @@ describe('节点配置字段的接缝', () => {
     ).toEqual([]);
   });
 
+  /**
+   * 字段名与别的节点类型撞车，守卫区分不了的那几条。
+   *
+   * `找漂移` 按**字段名**在源码里全局匹配（`node.config.get("onFailure")`
+   * 里没有节点类型的信息）。于是 notify 接上 `onFailure` 之后，
+   * subworkflow 那条同名的也被判成「已接上」—— 而 subworkflow
+   * 整个节点类型都还没实现。
+   *
+   * 放宽守卫（比如按类型加前缀匹配）做不到：源码里根本没有那个信息。
+   * 所以显式列出来，每条写清撞的是谁 —— 列表短、变化少，
+   * 而含糊地放宽会让守卫失去意义。
+   */
+  const 名字撞车: Record<string, string> = {
+    'subworkflow.onFailure': '与 notify.onFailure 同名；subworkflow 整个类型未实现',
+  };
+
   it('白名单里不留已经接上的字段', () => {
     // 接上了却还挂在白名单里的话，这份清单会慢慢变成一堆没人敢删的死条目 ——
     // 而它的价值全在于「上面每一条都还欠着」
     const 漂移 = new Set(找漂移(配置_SCHEMA, 引擎执行源码));
-    const 已经接上 = Object.keys(引擎不消费).filter((字段) => !漂移.has(字段));
+    const 已经接上 = Object.keys(引擎不消费).filter(
+      (字段) => !漂移.has(字段) && !(字段 in 名字撞车),
+    );
 
     expect(
       已经接上,

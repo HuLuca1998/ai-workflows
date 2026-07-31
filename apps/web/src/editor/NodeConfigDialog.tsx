@@ -261,7 +261,7 @@ function PermissionsTab({ node }: { node: GraphNode }) {
       <div className="cfg__caps">
         <p className="cfg__caps-title">
           <i className="ph ph-shield-check" aria-hidden="true" />
-          能力声明（由引擎强制，Prompt 无法越权）
+          能力声明（写进提示词交给 agent，引擎不强制）
         </p>
         <div className="cfg__caps-list">
           <code>文件：{caps.file}</code>
@@ -274,14 +274,22 @@ function PermissionsTab({ node }: { node: GraphNode }) {
 
       {definition.externalWrite ? (
         <p className="cfg__warn">
-          这个节点会产生外部写操作，运行时必须由审批或决策结果授权，重试前会核对外部状态。
+          这个节点会写到这台机器之外。想在它之前停一下，就在画布上给它前面接一个「审批」节点
+          —— 引擎不会替你拦。
         </p>
       ) : null}
 
+      {/* 说清这几行字到底是什么。
+          原来写的是「由引擎强制，Prompt 无法越权」，而引擎已经不强制了 ——
+          界面承诺一件实现里没有的事，比不承诺更糟（CLAUDE.md 第二条纪律） */}
       <p className="cfg__hint-block">
-        扩大权限会让已保存的 Trusted Workflow 策略失效并要求重新确认。
-        这里显示的是节点声明需要什么；**允许什么**在「Agent 角色」里配，
-        运行时取两者交集，由引擎强制。
+        <strong>权限由流程管，不由节点各自管。</strong>
+        执行节点拿到的是最高权限；要不要停下来问，取决于工作流里有没有在这个位置放一道「审批」节点
+        —— 比如「探索完成 → 开始编辑」之间、「编码完成 → 开 PR」之间。
+      </p>
+      <p className="cfg__hint-block">
+        上面这几项会拼进提示词交给 agent，请它自觉遵守；引擎**不**逐项拦截。
+        要硬性的边界，用审批节点。
       </p>
     </div>
   );

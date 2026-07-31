@@ -50,7 +50,7 @@ const HEALTH = {
 
 /** 还没配过：后端没有 envCheckedAt，工作目录也是空的。 */
 function freshWorkspace() {
-  return { permissionPreset: 'workspace_safe', environment: 'local' };
+  return { permissionPreset: 'ai_assisted', environment: 'local' };
 }
 
 function respond(settings: Record<string, unknown>) {

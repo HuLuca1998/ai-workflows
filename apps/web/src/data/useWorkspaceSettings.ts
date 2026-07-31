@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { APPROVAL_MODES, APPROVAL_MODE_LABELS, migrateApprovalMode } from '@aiwf/contracts';
 import { coreClient } from './workspace.js';
 
 /**
@@ -15,19 +16,20 @@ export interface WorkspaceSettings {
   envCheckedAt?: string;
 }
 
-/** 图纸「05 设置与环境」的权限策略三档。存的是 ID，显示的是这些文案。 */
-export const PRESET_LABELS: Record<string, string> = {
-  review_every_change: 'Review Every Change',
-  workspace_safe: 'Workspace Safe',
-  trusted_workflow: 'Trusted Workflow',
-};
+/**
+ * 审批三档的显示名。存的是 ID，显示的是这些文案。
+ *
+ * **从契约取，不再抄一份** —— 设置页、引导页、侧栏说的必须是同一件事。
+ * 抄一份的代价是：改了其中一处文案，另外两处还在向用户承诺旧的行为。
+ */
+export const PRESET_LABELS: Record<string, string> = Object.fromEntries(
+  APPROVAL_MODES.map((mode) => [mode, APPROVAL_MODE_LABELS[mode].name]),
+);
 
-/** 图纸侧栏底部那句说明，跟着权限档走。 */
-const PRESET_DETAILS: Record<string, string> = {
-  review_every_change: '文件写入、命令与外部写操作逐项审批。',
-  workspace_safe: '授权目录内可读写与执行已声明命令；Push、PR、删除仍需审批。',
-  trusted_workflow: '对指定已发布版本沿用保存策略；权限扩大后自动失效。',
-};
+/** 侧栏底部那句说明，跟着档位走。 */
+const PRESET_DETAILS: Record<string, string> = Object.fromEntries(
+  APPROVAL_MODES.map((mode) => [mode, APPROVAL_MODE_LABELS[mode].summary]),
+);
 
 export function useWorkspaceSettings(): {
   settings: WorkspaceSettings;
@@ -76,8 +78,11 @@ export function useWorkspaceSettings(): {
 export function permissionDisplay(
   settings: WorkspaceSettings,
 ): { preset: string; detail: string } | undefined {
-  const preset = settings.permissionPreset;
-  if (!preset) return undefined;
+  const stored = settings.permissionPreset;
+  if (!stored) return undefined;
+  // 库里可能躺着上一版的档位名。不迁移的话侧栏显示的是那个原始值
+  // （「workspace_safe」），而用户在设置页看到的是迁移后的档 —— 两处对不上
+  const preset = migrateApprovalMode(stored);
   return {
     preset: PRESET_LABELS[preset] ?? preset,
     detail: PRESET_DETAILS[preset] ?? '',

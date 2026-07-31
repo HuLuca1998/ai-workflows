@@ -373,13 +373,38 @@ const DEFINITIONS: Record<NodeType, NodeDefinition> = {
     type: 'approval',
     icon: 'ph-user-check',
     seed: { title: '待填写标题', interaction: 'confirm' },
-    title: '人工审批',
+    title: '审批',
     group: 'human',
-    summary: '把决定权交回给人：单选 / 多选 / 确认 / 补充',
+    summary: '流程上的一道门：由你批，或由另一个 AI 批',
     configSchema: z.object({
       title: z.string().min(1).describe('审批标题'),
       bodyMarkdown: z.string().default('').meta({ long: true }).describe('审批内容\n支持 Markdown'),
       interaction: z.enum(['single', 'multi', 'confirm', 'supplement']).describe('交互类型'),
+      /**
+       * 谁来批这一道门。
+       *
+       * **权限由流程管，不由节点各自管**：执行节点拿到的是最高权限，
+       * 要不要停下来问由工作流的形状决定 —— 在「探索完成 → 开始编辑」
+       * 之间、在「编码完成 → 开 PR」之间放一道门，就是在那两处设了关卡。
+       *
+       * `auto` 跟随设置里的全局档位。显式写 `user` / `ai` 的节点
+       * 表达的是「这一道我要求由谁批」，全局档位仍可覆盖它 ——
+       * 「无人值守」的字面含义就是连标了 user 的也交给 AI。
+       */
+      decider: z
+        .enum(['auto', 'user', 'ai'])
+        .default('auto')
+        .describe('谁来批\nauto 跟随设置里的全局档位'),
+      /**
+       * `decider: 'ai'` 时由哪个角色来批。
+       *
+       * 刻意与执行的角色分开：让写代码的那个 agent 自己批自己的改动，
+       * 等于没有这道门。空着时用内置的审批者角色。
+       */
+      deciderAgentProfileId: z
+        .string()
+        .optional()
+        .describe('审批者角色\n留空用内置审批者；别填成执行那一个 —— 自己批自己等于没有门'),
       options: z
         .array(
           z.object({
@@ -416,12 +441,32 @@ const DEFINITIONS: Record<NodeType, NodeDefinition> = {
     summary: 'macOS 系统通知，点击可跳回运行',
     configSchema: z.object({
       title: z.string().min(1).describe('通知标题'),
-      subtitle: z.string().optional().describe('副标题'),
+      /**
+       * macOS 的通知原生有副标题这一行，但 `tauri-plugin-notification`
+       * 在桌面端只通 title / body / icon / sound（2.3.3 的 `desktop.rs`）。
+       * 所以它被拼在正文的第一行 —— 显示得出来，位置不是原生那一行。
+       */
+      subtitle: z
+        .string()
+        .optional()
+        .describe('副标题\n会显示在正文第一行（插件没有原生副标题的通路）'),
       body: z.string().min(1).meta({ long: true }).describe('通知正文'),
+      /**
+       * **引擎目前不读它。**
+       *
+       * 这个字段说的是「运行到什么状态时才发」，而节点是被上游连线
+       * 带到的 —— 执行到这里时运行还没有终态，「completed」无从判断。
+       * 要按运行状态发通知，得由调度器在运行收尾时统一处理，
+       * 那是另一件事（不是这个节点的配置）。
+       *
+       * 照 CLAUDE.md 那条：填了不生效比报错更糟，所以在描述里直说。
+       * 想控制「什么时候发」，用连线 —— 把 notify 接在成功分支还是
+       * 失败分支上，那才是引擎真正照办的东西。
+       */
       on: z
         .array(z.enum(['completed', 'failed', 'waiting_approval', 'cancelled']))
         .default(['completed', 'failed', 'waiting_approval'])
-        .describe('触发条件'),
+        .describe('触发条件\n引擎目前不读它，改了不会生效。用连线控制什么时候发'),
       clickAction: z
         .enum(['open_run', 'open_workflow', 'none'])
         .default('open_run')

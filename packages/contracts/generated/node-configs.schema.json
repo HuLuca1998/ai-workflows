@@ -694,6 +694,20 @@
         ],
         "description": "交互类型"
       },
+      "decider": {
+        "default": "auto",
+        "description": "谁来批\nauto 跟随设置里的全局档位",
+        "type": "string",
+        "enum": [
+          "auto",
+          "user",
+          "ai"
+        ]
+      },
+      "deciderAgentProfileId": {
+        "description": "审批者角色\n留空用内置审批者；别填成执行那一个 —— 自己批自己等于没有门",
+        "type": "string"
+      },
       "options": {
         "default": [],
         "description": "可选项",
@@ -757,7 +771,7 @@
         "description": "通知标题"
       },
       "subtitle": {
-        "description": "副标题",
+        "description": "副标题\n会显示在正文第一行（插件没有原生副标题的通路）",
         "type": "string"
       },
       "body": {
@@ -772,7 +786,7 @@
           "failed",
           "waiting_approval"
         ],
-        "description": "触发条件",
+        "description": "触发条件\n引擎目前不读它，改了不会生效。用连线控制什么时候发",
         "type": "array",
         "items": {
           "type": "string",

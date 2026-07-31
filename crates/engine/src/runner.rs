@@ -159,11 +159,22 @@ pub enum StepResult {
 }
 
 #[derive(Default)]
-pub struct Runner;
+pub struct Runner {
+    /// 谁把系统通知发出去。桌面壳注入；无头环境是 None，
+    /// 那时 `notify` 节点明确报「这个环境发不了」而不是假装成功。
+    notifier: Option<std::sync::Arc<dyn crate::notify::Notifier>>,
+}
 
 impl Runner {
     pub fn new() -> Self {
-        Self
+        Self { notifier: None }
+    }
+
+    /// 接上系统通知的发送器。
+    #[must_use]
+    pub fn with_notifier(mut self, notifier: std::sync::Arc<dyn crate::notify::Notifier>) -> Self {
+        self.notifier = Some(notifier);
+        self
     }
 
     /// 启动运行：preflight → 入队 → 开始。
@@ -557,12 +568,18 @@ impl Runner {
         // 会拿到不一样的人设，而运行记录上看不出这件事发生过。
         let profiles = self.agent_profiles_for(store, run_id)?;
 
-        let executor = NodeExecutor::new(workdir)
+        let mut executor = NodeExecutor::new(workdir)
             .with_run_id(run_id)
             .with_memories(&memories)
             .with_permission_preset(&preset)
             .with_approved_nodes(&approved)
             .with_agent_profiles(&profiles);
+
+        // 通知发送器从外壳一路传下来。没有它时 `notify` 节点
+        // 明确报「这个环境发不了」—— 那正是 B-1 要修的
+        if let Some(notifier) = &self.notifier {
+            executor = executor.with_notifier(notifier.clone());
+        }
 
         // 「记忆注入可在事件中溯源」：在**取快照时**就写下，
         // 而不是等某个 AI 节点跑完 —— 那个节点可能失败、可能被取消，

@@ -163,7 +163,7 @@ describe('隐私模式下的首次引导', () => {
     });
 
     const checked = createContractCall({
-      'workspace.settings': () => ({ permissionPreset: 'workspace_safe', environment: 'local' }),
+      'workspace.settings': () => ({ permissionPreset: 'ai_assisted', environment: 'local' }),
       'env.health': () => ({ ready: true, items: [] }),
       'run.list': () => ({ items: [], total: 0 }),
       'workflow.list': () => ({ items: [], total: 0 }),

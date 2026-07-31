@@ -24,7 +24,7 @@ beforeEach(() => {
   const checked = createContractCall({
     'workspace.settings': () => ({
       workdir: '/tmp/ws',
-      permissionPreset: 'workspace_safe',
+      permissionPreset: 'ai_assisted',
       environment: 'local',
       blockers: [],
     }),

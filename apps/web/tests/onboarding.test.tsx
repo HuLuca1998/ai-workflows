@@ -312,7 +312,7 @@ describe('配置真的落地', () => {
       const 入参 = 写入[写入.length - 1]![1] as Record<string, unknown>;
       expect(入参['workdir'], '没授权工作目录').toBeTruthy();
       // 默认给最保守的一档：用户还没表达过信任程度
-      expect(入参['permissionPreset']).toBe('review_every_change');
+      expect(入参['permissionPreset']).toBe('human_approval');
       expect(入参['envCheckedAt'], '没记环境检查时间').toBeTruthy();
     });
   });

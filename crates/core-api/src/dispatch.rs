@@ -260,6 +260,7 @@ pub fn dispatch(
             string(input, "runId")?,
         )?),
         "env_diagnostics" => to_value(api::env_diagnostics(&data_dir.join("diagnostics"))?),
+        "env_check_directory" => to_value(api::env::check_directory(&string(input, "path")?)?),
         "env_health" => to_value(api::env_health(
             opt_bool(input, "recheck").unwrap_or(false),
         )?),

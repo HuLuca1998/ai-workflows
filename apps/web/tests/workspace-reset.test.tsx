@@ -50,7 +50,7 @@ const PREVIEW = {
 function respond(handlers: Record<string, (input: unknown) => unknown> = {}) {
   const checked = createContractCall({
     'env.health': () => ({ ready: true, items: [] }),
-    'workspace.settings': () => ({ permissionPreset: 'workspace_safe' }),
+    'workspace.settings': () => ({ permissionPreset: 'ai_assisted' }),
     'workspace.resetPreview': () => PREVIEW,
     'workspace.reset': () => ({ ok: true, removedDirectories: [PREVIEW.directories[0]!.path] }),
     ...handlers,

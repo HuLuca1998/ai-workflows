@@ -182,6 +182,7 @@
     "github.repos",
     "github.branches",
     "env.health",
+    "env.checkDirectory",
     "run.diagnostics",
     "env.diagnostics",
     "env.install"

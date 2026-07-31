@@ -185,12 +185,23 @@ describe('其余标签页', () => {
     expect(screen.getByText('${lint.success}')).toBeInTheDocument();
   });
 
-  it('权限页显示能力声明，并写明由引擎强制', () => {
+  it('权限页显示能力声明，并说清它是怎么生效的', () => {
+    // 引擎不再逐项强制（权限由流程管）。这几行字是拼进提示词
+    // 交给 agent 自觉遵守的 —— 说成「引擎强制」就是假承诺
     renderDialog();
     fireEvent.click(screen.getByRole('tab', { name: '权限与能力' }));
-    expect(screen.getByText(/能力声明（由引擎强制，Prompt 无法越权）/u)).toBeInTheDocument();
+    expect(screen.getByText(/能力声明（写进提示词交给 agent，引擎不强制）/u)).toBeInTheDocument();
     expect(screen.getByText('文件：read-write')).toBeInTheDocument();
     expect(screen.getByText('凭据：未授予')).toBeInTheDocument();
+  });
+
+  it('权限页说清硬边界在哪 —— 是审批节点，不是这几行字', () => {
+    // 不说的话，用户会以为把「命令」调成「不允许」就拦住了
+    renderDialog();
+    fireEvent.click(screen.getByRole('tab', { name: '权限与能力' }));
+    expect(screen.getByText(/权限由流程管/u)).toBeInTheDocument();
+    // 「审批」在这一屏出现多次（标签页、正文），用 getAllByText
+    expect(screen.getAllByText(/审批/u).length).toBeGreaterThan(0);
   });
 
   it('外部写操作的节点在权限页给出额外警示', () => {
@@ -203,7 +214,9 @@ describe('其余标签页', () => {
     };
     renderDialog(mcp);
     fireEvent.click(screen.getByRole('tab', { name: '权限与能力' }));
-    expect(screen.getByText(/会产生外部写操作/u)).toBeInTheDocument();
+    // 警示要说清「引擎不会替你拦」—— 那是这个设计最容易被误解的一点
+    expect(screen.getByText(/会写到这台机器之外/u)).toBeInTheDocument();
+    expect(screen.getByText(/引擎不会替你拦/u)).toBeInTheDocument();
   });
 
   it('重试页显示实际取值，并说清为什么改不了', () => {

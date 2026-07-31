@@ -1,11 +1,15 @@
 import { z } from 'zod';
 
 /**
- * 能力声明。产品原则「显式权限」：读写文件、执行命令、访问网络、使用 Secret
- * 都由策略控制，**引擎强制，Prompt 无法越权**（功能文档 §1）。
+ * 能力声明：读写文件、执行命令、访问网络、使用 Secret。
  *
- * 节点声明自己需要什么，Agent 角色声明自己允许什么，运行时取两者交集，
- * 且不得超出当前权限档（Review Every Change / Workspace Safe / Trusted Workflow）。
+ * **引擎不再强制它们。** 这几项会拼进提示词交给 agent 自觉遵守 ——
+ * 权限由流程管：执行节点拿最高权限，要不要停下来问，取决于工作流里
+ * 有没有在那个位置放一道 `approval` 门（见 `approval.ts`）。
+ *
+ * 上一版在 `check_capability` 里逐项拦。撤掉它的同时，
+ * 界面上「引擎强制，Prompt 无法越权」那句话也一并改了 ——
+ * 承诺一件实现里没有的事，比不承诺更糟。
  */
 
 export const FILE_CAPABILITIES = ['none', 'read', 'read-write'] as const;

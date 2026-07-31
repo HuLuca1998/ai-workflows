@@ -3,6 +3,7 @@ import { describeError } from '../data/describeError.js';
 import { ChatInput } from '../chat/ChatInput.js';
 import {
   applyPatch,
+  migrateApprovalMode,
   LIST_PAGE_LIMIT_MAX,
   type PatchOperation,
   type WorkflowDiff,
@@ -116,8 +117,10 @@ interface ModelOption {
  */
 function grantedScopes(preset: string | null): string[] {
   const readOnly = ['workflow:read', 'memory:read'];
-  switch (preset) {
-    case 'trusted_workflow':
+  // 库里可能躺着上一版的档位名。不迁移的话它落到 default 那一支，
+  // 抽屉里说「任何写操作都需逐项确认」而 MCP 那边其实放行 —— 界面说得比实际严
+  switch (migrateApprovalMode(preset)) {
+    case 'unattended':
       return [
         ...readOnly,
         'workflow:write-draft',
@@ -125,7 +128,7 @@ function grantedScopes(preset: string | null): string[] {
         'workflow:run',
         'memory:write',
       ];
-    case 'workspace_safe':
+    case 'ai_assisted':
       return [...readOnly, 'workflow:write-draft', 'memory:write'];
     default:
       // 认不出来的档位按最严说 —— 与引擎那边一致
@@ -135,10 +138,10 @@ function grantedScopes(preset: string | null): string[] {
 
 /** 末尾那句话。图纸写的是「发布与运行未授权」，这里说的是当下的实情。 */
 function withheldNote(preset: string | null): string {
-  switch (preset) {
-    case 'trusted_workflow':
+  switch (migrateApprovalMode(preset)) {
+    case 'unattended':
       return '全部放行 · 这一档下写操作不再逐项确认';
-    case 'workspace_safe':
+    case 'ai_assisted':
       return '发布与运行需逐项确认';
     default:
       return '任何写操作都需逐项确认';

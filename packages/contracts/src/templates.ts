@@ -118,6 +118,12 @@ const ISSUE_FIX: WorkflowTemplate = {
         title: '选择修复方案',
         bodyMarkdown: '分析给出了多个方案，选一个继续。',
         interaction: 'single',
+        // 「探索完成 → 开始编辑」之间这一道。
+        //
+        // 跟随全局档位：这一步的性质是「从几个方案里挑一个」，
+        // AI 有能力挑（它刚写完那几个方案），而用户想自己挑的时候
+        // 把设置调到最严那档就行
+        decider: 'auto',
         waitStrategy: 'forever',
       },
     },
@@ -186,6 +192,18 @@ const ISSUE_FIX: WorkflowTemplate = {
         title: '检查 Diff 与风险',
         bodyMarkdown: '将要发生的外部写操作：commit → push → 创建 PR。不会修改当前分支。',
         interaction: 'confirm',
+        /**
+         * 「编码完成 → 开 PR」之间这一道，**标成必须人批**。
+         *
+         * 权限由流程管：引擎不再替你拦 `git push`，拦它的就是这一道门。
+         * 标 `user` 的意思是「即使全局档位是 AI 审批，这一道也停下来问我」——
+         * 推上去的分支与开出去的 PR 别人立刻就看得见，撤回也是一次公开动作。
+         *
+         * 想让它也自动跑的话，把全局档位调到「无人值守」。
+         * 那一档的含义就是「连标了必须我批的也交给 AI」，
+         * 而做出那个选择的是用户，不是这份模板。
+         */
+        decider: 'user',
         waitStrategy: 'forever',
       },
     },
@@ -346,8 +364,8 @@ const ISSUE_FIX: WorkflowTemplate = {
      * 这一条比变量名写错那处更根本：那个报错至少停在第二个节点上，
      * 这个是安静地跑完然后什么都没发生。
      */
-    { op: 'setJoin', nodeId: 'approve_diff', join: { strategy: 'any' } },
-    { op: 'setJoin', nodeId: 'push_pr', join: { strategy: 'any' } },
+    { op: 'setJoin', nodeId: 'approve_diff', join: { strategy: 'any', merge: 'namespaced', onPartialFailure: 'fail' } },
+    { op: 'setJoin', nodeId: 'push_pr', join: { strategy: 'any', merge: 'namespaced', onPartialFailure: 'fail' } },
 
     /**
      * 所有「走不下去」的分支都收到同一个终点。
@@ -409,7 +427,7 @@ const ISSUE_FIX: WorkflowTemplate = {
       target: { nodeId: 'approve_diff', port: 'input' },
     },
     // 这些入边一条都不会同时到达 —— 必须是「任一到达即可」
-    { op: 'setJoin', nodeId: 'stopped', join: { strategy: 'any' } },
+    { op: 'setJoin', nodeId: 'stopped', join: { strategy: 'any', merge: 'namespaced', onPartialFailure: 'fail' } },
     {
       op: 'connect',
       edgeId: 'e_push_notify',

@@ -46,6 +46,40 @@ fn wait_until<F: Fn() -> bool>(check: F, limit: Duration) -> bool {
     false
 }
 
+/// 一路批到底，等运行走到终态。
+///
+/// 审批判定按**操作的实际风险**算：`echo done > marker.txt` 有重定向，
+/// 判成「会改工作区」，最严档下先挂人工。这个文件里的用例测的是
+/// 调度、并发、取消与重启，不是审批 —— 途中遇到审批一律放行，
+/// 拦不拦由 `approval_gate_test.rs` 专门测。
+///
+/// 放行而不是把档位调松：新三档里最松的一档（无人值守）也要 AI 表态，
+/// 那会去起一个 adapter 进程 —— 单测里连真实模型是另一种坏法。
+fn 批到底(supervisor: &Supervisor, store: &Store, run_id: &str, limit: Duration) -> Option<String> {
+    let deadline = Instant::now() + limit;
+    while Instant::now() < deadline {
+        let status = store.run_status(run_id).unwrap();
+        match status.as_deref() {
+            Some("waiting_approval") => {
+                // 等的是哪个节点由引擎说了算 —— 从检查点读，不猜
+                let Some(node) = aiwf_engine::runner::Runner::new()
+                    .pending_approval(store, run_id)
+                    .unwrap()
+                else {
+                    std::thread::sleep(Duration::from_millis(30));
+                    continue;
+                };
+                // 竞态：后台线程可能刚好在这一瞬改了状态，让下一轮重来
+                let _ = supervisor.decide_approval(store, run_id, &node, "approved");
+            }
+            Some("running") | Some("queued") | None => {}
+            other => return other.map(str::to_string),
+        }
+        std::thread::sleep(Duration::from_millis(30));
+    }
+    store.run_status(run_id).unwrap()
+}
+
 #[test]
 fn 后台运行真的执行脚本并留下副作用() {
     let path = db("effect");
@@ -54,7 +88,7 @@ fn 后台运行真的执行脚本并留下副作用() {
     // 这些用例测的是「跑起来之后发生什么」。默认权限档是
     // review_every_change（有副作用的节点先挂起等审批）—— 那是有意的默认
     store
-        .set_workspace_setting("permissionPreset", "workspace_safe")
+        .set_workspace_setting("permissionPreset", "human_approval")
         .unwrap();
     let workflow = store
         .create_workflow_with_graph(
@@ -78,16 +112,19 @@ fn 后台运行真的执行脚本并留下副作用() {
         )
         .unwrap();
 
+    // 写文件的脚本在最严档下先挂人工 —— 批过去，这条测的是「批完真的跑了」
+    let status = 批到底(&supervisor, &store, &run_id, Duration::from_secs(15));
+
     assert!(
-        wait_until(|| marker.exists(), Duration::from_secs(10)),
-        "脚本没有真的执行"
+        marker.exists(),
+        "批准了却没有真的执行 —— 那就只是把节点标绿"
     );
     assert!(
         wait_until(
             || store.run_status(&run_id).unwrap().as_deref() == Some("succeeded"),
             Duration::from_secs(10)
         ),
-        "状态实际：{:?}",
+        "状态实际：{status:?} / {:?}",
         store.run_status(&run_id).unwrap()
     );
 }
@@ -100,7 +137,7 @@ fn 同一工作流的两个并行运行互不影响() {
     // 这些用例测的是「跑起来之后发生什么」。默认权限档是
     // review_every_change（有副作用的节点先挂起等审批）—— 那是有意的默认
     store
-        .set_workspace_setting("permissionPreset", "workspace_safe")
+        .set_workspace_setting("permissionPreset", "human_approval")
         .unwrap();
 
     // 脚本把 run id 写进各自的文件：串了的话文件内容会互相覆盖
@@ -144,6 +181,11 @@ fn 同一工作流的两个并行运行互不影响() {
         );
     }
 
+    // 两条都是写文件的脚本，最严档下各自先挂人工 —— 各批各的
+    for id in &ids {
+        批到底(&supervisor, &store, id, Duration::from_secs(20));
+    }
+
     assert!(
         wait_until(
             || ids
@@ -172,7 +214,7 @@ fn 取消能让运行停下而不是跑到底() {
     // 这些用例测的是「跑起来之后发生什么」。默认权限档是
     // review_every_change（有副作用的节点先挂起等审批）—— 那是有意的默认
     store
-        .set_workspace_setting("permissionPreset", "workspace_safe")
+        .set_workspace_setting("permissionPreset", "human_approval")
         .unwrap();
 
     // 第一个节点慢，第二个节点写文件：取消后第二个不该留下痕迹
@@ -242,7 +284,7 @@ fn 运行到审批就停下等人_不占着线程() {
     // 这些用例测的是「跑起来之后发生什么」。默认权限档是
     // review_every_change（有副作用的节点先挂起等审批）—— 那是有意的默认
     store
-        .set_workspace_setting("permissionPreset", "workspace_safe")
+        .set_workspace_setting("permissionPreset", "human_approval")
         .unwrap();
     let graph = serde_json::json!({
         "nodes": [
@@ -293,7 +335,7 @@ fn 审批通过后能继续跑到结束() {
     // 这些用例测的是「跑起来之后发生什么」。默认权限档是
     // review_every_change（有副作用的节点先挂起等审批）—— 那是有意的默认
     store
-        .set_workspace_setting("permissionPreset", "workspace_safe")
+        .set_workspace_setting("permissionPreset", "human_approval")
         .unwrap();
     let graph = serde_json::json!({
         "nodes": [
@@ -337,6 +379,10 @@ fn 审批通过后能继续跑到结束() {
     supervisor
         .decide_approval(&store, &run_id, "ap", "approved")
         .unwrap();
+
+    // 审批节点之后那个脚本会写文件，最严档下它自己也要批一次 ——
+    // 这条测的是「审批通过后能继续跑」，不是「一共要批几次」
+    批到底(&supervisor, &store, &run_id, Duration::from_secs(15));
 
     assert!(
         wait_until(
@@ -382,7 +428,7 @@ fn 杀掉进程后重新打开数据库_能回到同一审批点并跑完() {
         // 这些用例测的是「跑起来之后发生什么」。默认权限档是
         // review_every_change（有副作用的节点先挂起等审批）—— 那是有意的默认
         store
-            .set_workspace_setting("permissionPreset", "workspace_safe")
+            .set_workspace_setting("permissionPreset", "human_approval")
             .unwrap();
         let workflow = store
             .create_workflow_with_graph("重启", None, &graph)
@@ -418,7 +464,7 @@ fn 杀掉进程后重新打开数据库_能回到同一审批点并跑完() {
     // 这些用例测的是「跑起来之后发生什么」。默认权限档是
     // review_every_change（有副作用的节点先挂起等审批）—— 那是有意的默认
     store
-        .set_workspace_setting("permissionPreset", "workspace_safe")
+        .set_workspace_setting("permissionPreset", "human_approval")
         .unwrap();
     let supervisor = Supervisor::new(path.clone());
 
@@ -431,6 +477,9 @@ fn 杀掉进程后重新打开数据库_能回到同一审批点并跑完() {
     supervisor
         .decide_approval(&store, &run_id, "ap", "approved")
         .unwrap();
+
+    // 下游那个脚本会写文件，最严档下它自己也要批一次
+    批到底(&supervisor, &store, &run_id, Duration::from_secs(20));
 
     assert!(
         wait_until(
@@ -455,7 +504,7 @@ fn 事件流可完整回放_从第一条到最后一条连续无缺口() {
     // 这些用例测的是「跑起来之后发生什么」。默认权限档是
     // review_every_change（有副作用的节点先挂起等审批）—— 那是有意的默认
     store
-        .set_workspace_setting("permissionPreset", "workspace_safe")
+        .set_workspace_setting("permissionPreset", "human_approval")
         .unwrap();
 
     let graph = serde_json::json!({
@@ -543,7 +592,7 @@ fn 重复提交审批不会让同一个运行跑起两个线程() {
     // 这些用例测的是「跑起来之后发生什么」。默认权限档是
     // review_every_change（有副作用的节点先挂起等审批）—— 那是有意的默认
     store
-        .set_workspace_setting("permissionPreset", "workspace_safe")
+        .set_workspace_setting("permissionPreset", "human_approval")
         .unwrap();
 
     let graph = serde_json::json!({
@@ -591,6 +640,9 @@ fn 重复提交审批不会让同一个运行跑起两个线程() {
         .unwrap();
     let _ = supervisor.decide_approval(&store, &run_id, "ap", "approved");
 
+    // 下游脚本自己那次审批
+    批到底(&supervisor, &store, &run_id, Duration::from_secs(20));
+
     assert!(wait_until(
         || store.run_status(&run_id).unwrap().as_deref() == Some("succeeded"),
         Duration::from_secs(20)
@@ -617,7 +669,7 @@ fn 审批决定必须指向当前真正在等的那个节点() {
     // 这些用例测的是「跑起来之后发生什么」。默认权限档是
     // review_every_change（有副作用的节点先挂起等审批）—— 那是有意的默认
     store
-        .set_workspace_setting("permissionPreset", "workspace_safe")
+        .set_workspace_setting("permissionPreset", "human_approval")
         .unwrap();
 
     let graph = serde_json::json!({
@@ -665,6 +717,8 @@ fn 审批决定必须指向当前真正在等的那个节点() {
     supervisor
         .decide_approval(&store, &run_id, "ap", "approved")
         .unwrap();
+    // must_run 自己那次审批 —— 它也写文件
+    批到底(&supervisor, &store, &run_id, Duration::from_secs(20));
     assert!(wait_until(
         || store.run_status(&run_id).unwrap().as_deref() == Some("succeeded"),
         Duration::from_secs(20)
@@ -685,7 +739,7 @@ fn 已经结束的运行不能被迟到的取消改状态() {
     // 这些用例测的是「跑起来之后发生什么」。默认权限档是
     // review_every_change（有副作用的节点先挂起等审批）—— 那是有意的默认
     store
-        .set_workspace_setting("permissionPreset", "workspace_safe")
+        .set_workspace_setting("permissionPreset", "human_approval")
         .unwrap();
     let workflow = store
         .create_workflow_with_graph(
@@ -735,7 +789,7 @@ fn 已取消的运行不能被恢复() {
     // 这些用例测的是「跑起来之后发生什么」。默认权限档是
     // review_every_change（有副作用的节点先挂起等审批）—— 那是有意的默认
     store
-        .set_workspace_setting("permissionPreset", "workspace_safe")
+        .set_workspace_setting("permissionPreset", "human_approval")
         .unwrap();
     let workflow = store
         .create_workflow_with_graph(

@@ -25,6 +25,11 @@ const API_SCHEMA: &str = include_str!("../../../packages/contracts/generated/cor
 /// 开给 Agent 的话，`workflow_patch` 那套版本守卫与结构化审计
 /// 就有了旁路 —— 技术选型 §6 禁的正是这个。Agent 要改图走 `workflow_patch`。
 ///
+/// 三、`env_check_directory`：探测本机文件系统。
+/// 契约里它的 scope 就是 `null`（只允许本地 UI 触发）——
+/// 开给外部客户端的话，一个 Agent 能拿它把用户的目录结构扫一遍，
+/// 而每次调用都是一次「这个路径存不存在」的确定回答。
+///
 /// 其余的都开，包括 `supervisor_ask`（问一个懂这个系统的人）
 /// 与所有删除操作 —— 后者由权限档挡着，且描述里写明了「不可逆」。
 pub const DELIBERATELY_HIDDEN: &[&str] = &[
@@ -33,6 +38,7 @@ pub const DELIBERATELY_HIDDEN: &[&str] = &[
     "mcp_pending_confirms",
     "mcp_decide_confirm",
     "workflow_save_draft",
+    "env_check_directory",
 ];
 
 #[derive(Debug, Clone)]
@@ -189,13 +195,15 @@ pub fn gate_for(tool: &McpTool, preset: &str) -> WriteGate {
         return WriteGate::Allow;
     }
 
-    match preset {
-        // 全放行。用户明确说了这条工作流可信
-        "trusted_workflow" => WriteGate::Allow,
+    // 先过一次迁移：库里可能躺着上一版的档位名。不迁的话它落到
+    // 「认不出 → 全部确认」那一支，而用户在设置里选的是中间档
+    match aiwf_engine::risk::migrate_approval_mode(preset) {
+        // 全放行。用户明确说了这条工作流可信 —— 无人值守就是这个意思
+        "unattended" => WriteGate::Allow,
 
         // 改草稿放行：它可回滚、有 Diff、不碰外部世界。
         // 发布、运行、删除仍要确认 —— 那三件事要么不可逆，要么会真的动起来
-        "workspace_safe" => match tool.scope.as_deref() {
+        "ai_assisted" => match tool.scope.as_deref() {
             // 改边界的先拦下。它们的 scope 恰好也是 write-draft，
             // 而按 scope 放行等于让这一档能自己把自己解除
             _ if CHANGES_THE_BOUNDARY.contains(&tool.name.as_str()) => WriteGate::NeedsConfirm,

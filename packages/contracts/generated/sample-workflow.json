@@ -92,6 +92,7 @@
           "title": "选择修复方案",
           "bodyMarkdown": "分析给出了多个方案，选一个继续。",
           "interaction": "single",
+          "decider": "auto",
           "options": [],
           "waitStrategy": "forever"
         }
@@ -187,11 +188,14 @@
           "title": "检查 Diff 与风险",
           "bodyMarkdown": "将要发生的外部写操作：commit → push → 创建 PR。不会修改当前分支。",
           "interaction": "confirm",
+          "decider": "user",
           "options": [],
           "waitStrategy": "forever"
         },
         "join": {
-          "strategy": "any"
+          "strategy": "any",
+          "merge": "namespaced",
+          "onPartialFailure": "fail"
         }
       },
       {
@@ -215,7 +219,9 @@
           "timeoutMs": 300000
         },
         "join": {
-          "strategy": "any"
+          "strategy": "any",
+          "merge": "namespaced",
+          "onPartialFailure": "fail"
         }
       },
       {
@@ -264,7 +270,9 @@
           "artifacts": []
         },
         "join": {
-          "strategy": "any"
+          "strategy": "any",
+          "merge": "namespaced",
+          "onPartialFailure": "fail"
         }
       }
     ],

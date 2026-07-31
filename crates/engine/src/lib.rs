@@ -13,6 +13,7 @@ pub mod exec;
 pub mod executor;
 pub mod graph;
 pub mod interp;
+pub mod notify;
 pub mod patch;
 pub mod path_guard;
 pub mod plan;

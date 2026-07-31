@@ -345,9 +345,9 @@
     }
   },
   "approval": {
-    "title": "人工审批",
+    "title": "审批",
     "group": "human",
-    "summary": "把决定权交回给人：单选 / 多选 / 确认 / 补充",
+    "summary": "流程上的一道门：由你批，或由另一个 AI 批",
     "icon": "ph-user-check",
     "ports": {
       "inputs": [

@@ -30,7 +30,7 @@ beforeEach(() => {
   call.mockReset();
   const checked = createContractCall({
     'env.health': () => ({ ready: true, items: [] }),
-    'workspace.settings': () => ({ permissionPreset: 'workspace_safe' }),
+    'workspace.settings': () => ({ permissionPreset: 'ai_assisted' }),
   });
   call.mockImplementation((method: string, input: unknown) => checked(method, input));
 });

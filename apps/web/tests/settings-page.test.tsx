@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router';
+import { APPROVAL_MODES, APPROVAL_MODE_LABELS } from '@aiwf/contracts';
 
 /**
  * 设置与环境 —— 图纸「05 设置与环境」。
@@ -42,7 +43,7 @@ const HEALTH = {
 function respond(handlers: Record<string, (input: unknown) => unknown> = {}) {
   const checked = createContractCall({
     'env.health': () => HEALTH,
-    'workspace.settings': () => ({ permissionPreset: 'workspace_safe' }),
+    'workspace.settings': () => ({ permissionPreset: 'ai_assisted' }),
     'workspace.updateSettings': () => ({ ok: true }),
     'env.diagnostics': () => ({ path: '/tmp/env-diagnostics.json', bytes: 2048 }),
     ...handlers,
@@ -105,27 +106,26 @@ describe('左侧分组导航', () => {
   });
 });
 
-describe('权限策略三档', () => {
-  it('三张卡照图纸，文案一字不差', async () => {
+describe('审批三档', () => {
+  it('三张卡的文案取自契约，不在界面里另抄一份', async () => {
+    // 抄一份的代价是：改了其中一处文案，设置页、引导页、侧栏
+    // 会向用户承诺三件不同的事。这条断言的是「显示的就是契约里那份」
     view();
-    const region = await screen.findByRole('radiogroup', { name: '权限策略' });
+    const region = await screen.findByRole('radiogroup', { name: '审批策略' });
 
-    expect(within(region).getByText('Review Every Change')).toBeTruthy();
-    expect(
-      within(region).getByText('文件写入、命令与外部写操作逐项审批。适合陌生工作流。'),
-    ).toBeTruthy();
-    expect(
-      within(region).getByText('授权目录内可读写与执行已声明命令；Push、PR、删除仍需审批。'),
-    ).toBeTruthy();
-    expect(
-      within(region).getByText('对指定已发布版本沿用保存策略；权限扩大后自动失效。'),
-    ).toBeTruthy();
+    for (const mode of APPROVAL_MODES) {
+      const card = APPROVAL_MODE_LABELS[mode];
+      expect(within(region).getByText(card.name), `${mode} 的名字没显示`).toBeTruthy();
+      expect(within(region).getByText(card.detail), `${mode} 的说明没显示`).toBeTruthy();
+    }
   });
 
   it('当前那档被标出来 —— 用户得看得见自己现在授权到什么程度', async () => {
     view();
     await waitFor(() => {
-      expect(screen.getByRole('radio', { name: /Workspace Safe/u })).toBeChecked();
+      expect(
+        screen.getByRole('radio', { name: new RegExp(APPROVAL_MODE_LABELS.ai_assisted.name, 'u') }),
+      ).toBeChecked();
     });
   });
 
@@ -133,14 +133,18 @@ describe('权限策略三档', () => {
     const user = userEvent.setup();
     view();
     await waitFor(() => {
-      expect(screen.getByRole('radio', { name: /Workspace Safe/u })).toBeChecked();
+      expect(
+        screen.getByRole('radio', { name: new RegExp(APPROVAL_MODE_LABELS.ai_assisted.name, 'u') }),
+      ).toBeChecked();
     });
 
-    await user.click(screen.getByRole('radio', { name: /Review Every Change/u }));
+    await user.click(
+      screen.getByRole('radio', { name: new RegExp(APPROVAL_MODE_LABELS.human_approval.name, 'u') }),
+    );
 
     await waitFor(() => {
       expect(call).toHaveBeenCalledWith('workspace.updateSettings', {
-        permissionPreset: 'review_every_change',
+        permissionPreset: 'human_approval',
       });
     });
   });
@@ -150,32 +154,58 @@ describe('权限策略三档', () => {
     view();
 
     await waitFor(() => {
-      expect(screen.getByRole('radio', { name: /Review Every Change/u })).toBeChecked();
+      expect(
+        screen.getByRole('radio', {
+          name: new RegExp(APPROVAL_MODE_LABELS.human_approval.name, 'u'),
+        }),
+      ).toBeChecked();
     });
+  });
+
+  it('每一档都能被选中显示 —— 不只是默认那一档', async () => {
+    // 旧档位名的迁移在**后端读取出口**做（core-api 的 workspace_settings），
+    // 所以前端拿到的永远是新值。这里验的是三档都认得，
+    // 而不是只有默认那一档能亮
+    for (const mode of APPROVAL_MODES) {
+      respond({ 'workspace.settings': () => ({ permissionPreset: mode }) });
+      const { unmount } = view();
+      await waitFor(() => {
+        expect(
+          screen.getByRole('radio', { name: new RegExp(APPROVAL_MODE_LABELS[mode].name, 'u') }),
+        ).toBeChecked();
+      });
+      unmount();
+    }
   });
 
   it('说清这一档对运行的实际影响 —— 否则用户不知道选了会怎样', async () => {
     view();
-    const region = await screen.findByRole('radiogroup', { name: '权限策略' });
-    expect(region.textContent).toMatch(/挂起|审批/u);
+    const region = await screen.findByRole('radiogroup', { name: '审批策略' });
+    const 整块 = region.parentElement?.textContent ?? '';
+    // 点名了只读不拦与 push 要问 —— 那是这三档最容易被误解的两处
+    expect(整块).toMatch(/只读|gh issue view/u);
+    expect(整块).toMatch(/git push|无人值守/u);
   });
 
   it('写失败时说明原因，并且不留一个假的选中态', async () => {
     respond({
-      'workspace.settings': () => ({ permissionPreset: 'workspace_safe' }),
+      'workspace.settings': () => ({ permissionPreset: 'ai_assisted' }),
       'workspace.updateSettings': () => {
         throw new Error('数据库忙');
       },
     });
     const user = userEvent.setup();
     view();
+    const 中间档 = new RegExp(APPROVAL_MODE_LABELS.ai_assisted.name, 'u');
     await waitFor(() => {
-      expect(screen.getByRole('radio', { name: /Workspace Safe/u })).toBeChecked();
+      expect(screen.getByRole('radio', { name: 中间档 })).toBeChecked();
     });
 
-    await user.click(screen.getByRole('radio', { name: /Trusted Workflow/u }));
+    await user.click(
+      screen.getByRole('radio', { name: new RegExp(APPROVAL_MODE_LABELS.unattended.name, 'u') }),
+    );
 
     expect(await screen.findByRole('alert')).toHaveTextContent('数据库忙');
-    expect(screen.getByRole('radio', { name: /Workspace Safe/u })).toBeChecked();
+    expect(screen.getByRole('radio', { name: 中间档 })).toBeChecked();
   });
 });

@@ -2,10 +2,12 @@ import { describe, expect, it } from 'vitest';
 
 import {
   APPROVAL_MODES,
+  NODE_DECIDERS,
   RISK_LEVELS,
   approvalDecider,
   baseRiskOf,
   type ApprovalMode,
+  type NodeDecider,
   type RiskLevel,
 } from '../src/approval.js';
 import { migrateApprovalMode } from '../src/capabilities.js';
@@ -13,15 +15,15 @@ import { NODE_TYPES, getNodeDefinition } from '../src/nodes/index.js';
 import { getMethodSpec } from '../src/api.js';
 
 /**
- * 审批三档。
+ * 审批三档 —— 谁来批工作流里的那些门。
  *
- * 这三档替换了原来的 review_every_change / workspace_safe / trusted_workflow ——
- * 那三档描述的是「哪一类操作要确认」，而用户真正要选的是**谁来确认**：
- * 全都我来 / AI 顶大部分但外部写留给我 / 全交给 AI。
+ * **权限由流程管**：执行节点拿最高权限，要不要停下来问由工作流的形状决定
+ * （在「探索完成 → 开始编辑」之间、在「编码完成 → 开 PR」之间放一个
+ * approval 节点）。这三档决定的是那些门由谁来批。
  *
- * 判定是两维的：档位（谁批）× 风险等级（这一步会造成什么）。
- * 两维都放在契约里，因为引擎按它拦、界面按它提示、MCP 按它决定要不要确认 ——
- * 三处各写一份的话，用户在设置里选的那一档在三个地方含义不同。
+ * 判定是两维的：全局档位（用户当下想被打扰多少）× 节点上写的
+ * （工作流作者的意图）。两维都在契约里，因为引擎按它拦、界面按它提示 ——
+ * 两处各写一份的话，用户在设置里选的那一档在两个地方含义不同。
  */
 
 describe('三档的形状', () => {
@@ -34,64 +36,71 @@ describe('三档的形状', () => {
   });
 });
 
-describe('判定矩阵：档位 × 风险 → 谁来批', () => {
+describe('判定矩阵：全局档位 × 节点上写的 → 谁来批', () => {
   /**
    * 整张表摊开写。用循环生成期望值等于把实现抄一遍 ——
    * 那样实现改了期望跟着改，测试永远绿。
    */
-  const 矩阵: [ApprovalMode, RiskLevel, 'none' | 'ai' | 'human'][] = [
-    // 只读的三档都不拦。用户的原话：「现在连读取 issue 都需要用户审批」
-    ['human_approval', 'read_only', 'none'],
-    ['ai_assisted', 'read_only', 'none'],
-    ['unattended', 'read_only', 'none'],
+  const 矩阵: [ApprovalMode, NodeDecider, 'ai' | 'human'][] = [
+    // 全都我来 —— 节点上写的 ai 也不作数
+    ['human_approval', 'auto', 'human'],
+    ['human_approval', 'user', 'human'],
+    ['human_approval', 'ai', 'human'],
 
-    // 工作区内写：可回滚、不出这台机器
-    ['human_approval', 'workspace_write', 'human'],
-    ['ai_assisted', 'workspace_write', 'ai'],
-    ['unattended', 'workspace_write', 'ai'],
+    // 节点说了算；没说时默认 AI
+    ['ai_assisted', 'auto', 'ai'],
+    ['ai_assisted', 'user', 'human'],
+    ['ai_assisted', 'ai', 'ai'],
 
-    // 外部写：push、PR、删远端。别人看得见，撤不回来
-    ['human_approval', 'external_write', 'human'],
-    ['ai_assisted', 'external_write', 'human'],
-    ['unattended', 'external_write', 'ai'],
+    // 全交给 AI —— 节点上写的 user 也不作数
+    ['unattended', 'auto', 'ai'],
+    ['unattended', 'user', 'ai'],
+    ['unattended', 'ai', 'ai'],
   ];
 
-  for (const [mode, risk, expected] of 矩阵) {
-    it(`${mode} × ${risk} → ${expected}`, () => {
-      expect(approvalDecider(mode, risk)).toBe(expected);
+  for (const [mode, nodeDecider, expected] of 矩阵) {
+    it(`${mode} × 节点写 ${nodeDecider} → ${expected}`, () => {
+      expect(approvalDecider(mode, nodeDecider)).toBe(expected);
     });
   }
 
-  it('ai_assisted 与 unattended 的唯一差别就在外部写那一格', () => {
-    // 这条是「AI 审批，关键节点用户审批」这句话的全部内容。
-    // 两档在别处也有差异的话，「关键节点」就不止外部写这一类，
-    // 而界面上并没有第二个地方告诉用户那是什么
-    const 不同 = RISK_LEVELS.filter(
-      (risk) => approvalDecider('ai_assisted', risk) !== approvalDecider('unattended', risk),
+  it('中间档是唯一一档会看节点配置的', () => {
+    // 另外两档的名字就是「全都我来」与「全交给 AI」——
+    // 它们要是也看节点配置，那两个名字就不成立了
+    const 会看节点的 = APPROVAL_MODES.filter(
+      (mode) => approvalDecider(mode, 'user') !== approvalDecider(mode, 'ai'),
     );
-    expect(不同).toEqual(['external_write']);
+    expect(会看节点的).toEqual(['ai_assisted']);
   });
 
-  it('无人值守也不是「不批」——AI 批过要留下决定', () => {
-    // 返回 'none' 的话就没有 approval.decided 事件，
-    // 事后没人能回答「这次 push 是谁放行的」
-    expect(approvalDecider('unattended', 'external_write')).toBe('ai');
+  it('无人值守连「必须我批」也交给 AI —— 否则它不叫无人值守', () => {
+    expect(approvalDecider('unattended', 'user')).toBe('ai');
+  });
+
+  it('节点没写时按 auto 算', () => {
+    for (const mode of APPROVAL_MODES) {
+      expect(approvalDecider(mode, undefined)).toBe(approvalDecider(mode, 'auto'));
+    }
+  });
+
+  it('没有「不用批」这一档 —— 门就是门', () => {
+    // 审批节点是工作流作者显式放下的一道门。
+    // 让某个档位把它整个跳过，等于让设置页悄悄改写工作流的形状
+    for (const mode of APPROVAL_MODES) {
+      for (const nodeDecider of NODE_DECIDERS) {
+        expect(['ai', 'human']).toContain(approvalDecider(mode, nodeDecider));
+      }
+    }
   });
 });
 
 describe('认不出的值按最严处理', () => {
-  it('档位拼错 → 全部人工', () => {
+  it('档位拼错 → 回到人', () => {
     // 数据库里躺一个旧值（比如上一版的 workspace_safe）时会走到这里。
-    // 静默放行的话，用户以为自己选的是某一档，实际一道门都没有
-    for (const risk of RISK_LEVELS) {
-      const decider = approvalDecider('workspace_safe' as ApprovalMode, risk);
-      expect(decider, `${risk} 在未知档位下被放行了`).toBe('human');
+    // 静默交给 AI 的话，用户以为自己设了一道要亲自批的门
+    for (const nodeDecider of NODE_DECIDERS) {
+      expect(approvalDecider('workspace_safe' as ApprovalMode, nodeDecider)).toBe('human');
     }
-  });
-
-  it('风险等级拼错 → 按外部写那一档算', () => {
-    expect(approvalDecider('ai_assisted', 'somehow_new' as RiskLevel)).toBe('human');
-    expect(approvalDecider('unattended', 'somehow_new' as RiskLevel)).toBe('ai');
   });
 });
 
@@ -127,7 +136,7 @@ describe('上一版三档的迁移', () => {
 });
 
 describe('节点的基线风险', () => {
-  it('每个节点类型都有基线风险 —— 漏一个就是漏一道门', () => {
+  it('每个节点类型都有基线风险 —— 漏一个，审批界面上那一栏就是空的', () => {
     for (const type of NODE_TYPES) {
       expect(RISK_LEVELS, `${type} 没有基线风险`).toContain(baseRiskOf(type));
     }
@@ -146,15 +155,16 @@ describe('节点的基线风险', () => {
     }
   });
 
-  it('会动文件或起进程的节点不能是只读', () => {
-    // 判成 read_only 就等于三档全部放行。
-    // 这几个类型无论如何都到不了那一档
+  it('会动文件或起进程的节点不能标成只读', () => {
+    // 风险等级现在是**给审批者看的说明**，不是自动拦截的依据。
+    // 把 ai.execute 标成「只读」，批的那个人（或 AI）会以为
+    // 放行它不会改任何东西
     for (const type of ['ai.execute', 'script.shell', 'script.python', 'git.worktree', 'env']) {
       expect(baseRiskOf(type), `${type} 被判成了只读`).not.toBe('read_only');
     }
   });
 
-  it('纯流程与纯分析的节点是只读 —— 否则最严档下连看一眼都要批', () => {
+  it('纯流程与纯分析的节点是只读 —— 审批界面上不该吓唬人', () => {
     for (const type of ['entry', 'end', 'approval', 'ai.analyze', 'ai.review', 'ai.decide']) {
       expect(baseRiskOf(type), `${type} 不该拦`).toBe('read_only');
     }
@@ -162,7 +172,8 @@ describe('节点的基线风险', () => {
 
   it('未知节点类型按外部写算', () => {
     // 契约加了新节点而这张表没跟上时走到这里。
-    // 默认 read_only 的话，新节点会带着「三档全放行」上线
+    // 默认 read_only 的话，审批界面会对一个没人知道会做什么的节点
+    // 说「这一步什么都不改」
     expect(baseRiskOf('something.new')).toBe('external_write');
   });
 });

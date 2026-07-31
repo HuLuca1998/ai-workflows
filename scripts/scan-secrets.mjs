@@ -53,7 +53,8 @@ export const SKIP = [
   // 审查剧本与证据：手工审查时要照着这些形态去界面上找，
   // 报告里会原样引用命中的那一行
   'docs/archive/',
-  'docs/reference/acp/',
+  // 目录从 docs/reference/acp/ 移到了 docs/acp/（另一个会话做的整理）
+  'docs/acp/',
   'pnpm-lock.yaml',
 ];
 

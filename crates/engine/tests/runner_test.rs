@@ -991,23 +991,28 @@ mod 端到端_人工介入 {
         std::fs::create_dir_all(&dir).unwrap();
         let 产出 = dir.join("批准之后才该出现.txt");
 
+        // **门放在写文件那一步之前** —— 权限由流程管：
+        // 引擎不再按节点类型自动拦，拦它的就是图上这一道
         let graph = serde_json::json!({
             "nodes": [
                 {"id": "entry", "type": "entry", "title": "入口", "config": {}},
+                {"id": "gate", "type": "approval", "title": "开工前确认",
+                 "config": {"title": "要开始写文件了", "interaction": "confirm"}},
                 {"id": "write", "type": "script.shell", "title": "写一个文件",
                  "config": {"interpreter": "bash", "timeoutMs": 5000,
                             "script": format!("echo 真的跑了 > {}", 产出.display())}},
                 {"id": "done", "type": "end", "title": "结束", "config": {}}
             ],
             "edges": [
-                {"id": "e1", "source": {"nodeId": "entry", "port": "success"}, "target": {"nodeId": "write", "port": "input"}},
-                {"id": "e2", "source": {"nodeId": "write", "port": "success"}, "target": {"nodeId": "done", "port": "input"}}
+                {"id": "e1", "source": {"nodeId": "entry", "port": "success"}, "target": {"nodeId": "gate", "port": "input"}},
+                {"id": "e2", "source": {"nodeId": "gate", "port": "approved"}, "target": {"nodeId": "write", "port": "input"}},
+                {"id": "e3", "source": {"nodeId": "write", "port": "success"}, "target": {"nodeId": "done", "port": "input"}}
             ],
             "groups": []
         }).to_string();
 
         let store = Store::open_in_memory().unwrap();
-        // 最严档：脚本节点要先问一句
+        // 最严档：图上那道门由人批
         store
             .set_workspace_setting("permissionPreset", "human_approval")
             .unwrap();
@@ -1033,19 +1038,19 @@ mod 端到端_人工介入 {
         // 走 run_all 而不是自己搭 executor —— 它会按 workspace 设置
         // 构造权限档与 approved_nodes，那正是生产路径
         let status = runner.run_all(&store, &run_id).unwrap();
-        assert_eq!(status, "waiting_approval", "最严档下脚本节点没有先问一句");
+        assert_eq!(status, "waiting_approval", "图上那道门没有拦住");
         assert!(
             !产出.exists(),
-            "还没批准，文件就已经写出来了 —— 审批拦在了副作用之后"
+            "还没批准，文件就已经写出来了 —— 门拦在了副作用之后"
         );
         assert_eq!(
             runner.pending_approval(&store, &run_id).unwrap().as_deref(),
-            Some("write"),
-            "卡住的不是那个脚本节点"
+            Some("gate"),
+            "卡住的不是那道门"
         );
 
         runner
-            .decide_approval(&store, &run_id, "write", "approved")
+            .decide_approval(&store, &run_id, "gate", "approved")
             .unwrap();
         let status = runner.run_all(&store, &run_id).unwrap();
         assert_eq!(status, "succeeded", "批准之后没跑完");
@@ -1146,14 +1151,7 @@ mod 超长摘要不该压垮运行 {
             )
             .unwrap();
 
-        // 这段脚本会写东西（跑 python3、非零退出），最严档下先挂人工。
-        // 走完整的审批流程而不是绕开它：这条测的是「失败了要有 node.failed」，
-        // 而失败发生在批准之后 —— 绕开审批的话测的就是另一条路径了
-        let 挂起 = runner.run_all(&store, &run_id).unwrap();
-        assert_eq!(挂起, "waiting_approval", "会写东西的脚本该先问一句");
-        runner
-            .decide_approval(&store, &run_id, "boom", "approved")
-            .unwrap();
+        // 脚本节点不再被自动拦（权限由流程管）—— 直接跑到失败
         let status = runner.run_all(&store, &run_id).unwrap();
 
         let events = store.events(&run_id, 0, 500).unwrap();

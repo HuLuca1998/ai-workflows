@@ -1111,6 +1111,42 @@ const SPECS = {
     scope: 'workflow:read',
     summary: '环境健康报告',
   },
+  /**
+   * 这个目录能不能用。
+   *
+   * 引导页选完工作目录要验一次，启动表单填本地仓库路径也要验 ——
+   * 不验的话，错误发生在运行跑到第四个节点时，而原因在第一屏填的东西里。
+   *
+   * **必须是真探测**：写一个探针文件再删掉。`stat` 说得出「存在」，
+   * 说不出「你有没有权限往里写」—— 而 macOS 的 TCC 恰恰是后者
+   * （目录在 `~/Documents` 下时，读得到、写不了）。
+   */
+  'env.checkDirectory': {
+    input: z.object({ path: z.string().min(1) }),
+    output: z.object({
+      /** 展开 `~` 之后的绝对路径。界面显示它，用户要能确认自己选的是哪个 */
+      resolved: z.string().min(1),
+      exists: z.boolean(),
+      /** 探针文件写得进去吗。这是唯一说得准的判据 */
+      writable: z.boolean(),
+      /** 是不是一个 git 仓库（有 .git）。选本地仓库路径时要用 */
+      isGitRepo: z.boolean(),
+      /**
+       * 落在 macOS 的 TCC 保护区里（Desktop / Documents / Downloads…）。
+       * 现在写得进去不代表以后还行 —— ad-hoc 签名下，App 一更新
+       * 授权就失效（docs/MACOS-PERMISSIONS.md）
+       */
+      tccProtected: z.boolean(),
+      /** 不可用时说清为什么、怎么办。可用时为空 */
+      message: z.string().optional(),
+    }),
+    mutates: false,
+    audited: false,
+    // 与 env.install 同一条理由：探测本机文件系统只允许本地 UI 触发。
+    // 开给 MCP 的话，外部客户端能拿它扫用户的目录结构
+    scope: null,
+    summary: '检查一个目录能不能用',
+  },
   'run.diagnostics': {
     // 图纸「03 执行记录」失败横幅的第四个按钮。
     // M5 的出口标准写着「诊断包不含 Secret」—— 那是这个方法存在的全部理由：

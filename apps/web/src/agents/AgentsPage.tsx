@@ -682,7 +682,7 @@ export function AgentsPage() {
               <div className="models__card">
                 <p className="models__card-title">
                   <i className="ph ph-shield-check" aria-hidden="true" />
-                  权限（AI 节点执行前校验，Prompt 无法越权）
+                  权限（写进提示词交给 agent，引擎不强制）
                 </p>
                 <div className="agents__caps" role="group" aria-label="权限">
                   {CAPABILITY_FIELDS.map((field) => {

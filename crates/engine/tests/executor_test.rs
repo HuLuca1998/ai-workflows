@@ -177,8 +177,11 @@ fn 尚未实现的节点类型明确报未实现_而不是假装成功() {
 }
 
 #[test]
-fn 审批节点交回引擎处理_不在执行器里决定() {
-    let outcome = executor()
+fn 审批节点在最严档下交回给人() {
+    // 这个 helper 预批准了 "ap"（它测的是别的东西），
+    // 所以这里显式建一个没预批准的执行器 —— 门就该拦得住
+    let outcome = NodeExecutor::new(workdir())
+        .with_permission_preset("human_approval")
         .execute(
             &node("ap", "approval", serde_json::json!({"title": "确认"})),
             &mut Scope::new("run_exec_7"),
@@ -233,7 +236,14 @@ fn 脚本超时报告成超时而不是普通失败() {
 }
 
 #[test]
-fn 通知节点在无桌面环境下也不应崩溃() {
+fn 通知节点在无桌面环境下不假装发出去了() {
+    // 这条原来叫「在无桌面环境下也不应崩溃」，断言的是走 success 端口，
+    // 注释写着「实际发送在 Tauri 壳里做，引擎只负责记录意图」——
+    // **那两件事当时都不成立**：壳里没有实现，引擎也没记任何意图。
+    // 它是 DEBT.md B-1 的三层掩护之一。
+    //
+    // 现在断言的是反过来那半句：发不出去就得看得出来。
+    // 完整的 notify 行为在 tests/notify_test.rs
     let outcome = executor()
         .execute(
             &node(
@@ -244,8 +254,10 @@ fn 通知节点在无桌面环境下也不应崩溃() {
             &mut Scope::new("run_exec_10"),
         )
         .unwrap();
-    // 通知的实际发送在 Tauri 壳里做，引擎只负责记录意图
-    assert!(matches!(&outcome, NodeOutcome::Succeeded { port } if port == "success"));
+    assert!(
+        matches!(&outcome, NodeOutcome::Succeeded { port } if port == "failed"),
+        "没有通知发送器却走了成功端口：{outcome:?}"
+    );
 }
 
 // ── 输出落产物 ────────────────────────────────────────────────────────────
@@ -852,31 +864,19 @@ fn 非_ai_节点不注入记忆() {
     assert!(executor.injected_memory_keys().is_empty());
 }
 
-/// 权限档真的改变引擎的行为 —— 否则设置屏那三档只是三个好看的卡片。
+/// 审批档改变的是「门由谁批」，不是「哪些节点会被拦」。
 ///
-/// 图纸「05 设置与环境」的权限策略：
-/// - Review Every Change：文件写入、命令与外部写操作**逐项审批**
-/// - Workspace Safe：授权目录内可读写与执行已声明命令
-/// - Trusted Workflow：对指定已发布版本沿用保存策略
-///
-/// 界面能选而引擎不按档位拦截的话，那是假的安全感 —— 比没有更糟。
-mod 权限档改变行为 {
-    use super::*;
+/// 执行节点一个都不拦 —— 那一版的代价是「读一个 Issue 也要人点一次」。
+/// 完整的档位行为在 `approval_gate_test.rs`；这里只留跨模块的那几条。
+mod 审批档改变行为 {
+    #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
-    fn shell节点(script: &str) -> GraphNode {
-        node(
-            "s1",
-            "script.shell",
-            serde_json::json!({ "interpreter": "zsh", "script": script }),
-        )
-    }
+    use super::{node, workdir};
+    use aiwf_engine::interp::Scope;
+    use aiwf_engine::runner::NodeOutcome;
+    use aiwf_engine::executor::NodeExecutor;
 
-    /// 会写东西的脚本。判定必然落在 `workspace_write` 上。
-    ///
-    /// 这一组原本全用 `echo hello`，而按新判定它是**只读**的 ——
-    /// 于是「最严档下要审批」那条会因为一个与档位无关的原因通过或失败。
-    /// 测档位就得用一个确实有副作用的节点。
-    fn 写文件节点() -> GraphNode {
+    fn 写文件节点() -> aiwf_engine::graph::GraphNode {
         node(
             "s1",
             "script.shell",
@@ -885,69 +885,45 @@ mod 权限档改变行为 {
     }
 
     #[test]
-    fn 最严档下有副作用的命令要先审批() {
+    fn 最严档下执行节点照样直接跑() {
+        // 权限由流程管：想拦它就在它前面放一道门
         let dir = tempfile::tempdir().unwrap();
-        let executor =
-            NodeExecutor::new(dir.path().to_path_buf()).with_permission_preset("human_approval");
-        let mut scope = Scope::new("run_perm");
-
-        let outcome = executor.execute(&写文件节点(), &mut scope).unwrap();
-
-        assert!(
-            matches!(outcome, NodeOutcome::NeedsApproval),
-            "这一档要求有副作用的操作逐项审批，实际：{outcome:?}"
-        );
-    }
-
-    #[test]
-    fn 最严档下只读命令照样直接跑() {
-        // 用户的原话：「现在连读取 issue 都需要用户审批」。
-        // 上一版按节点类型一刀切，`script.shell` 整类都拦 ——
-        // 这条盯着那个行为不要回来
-        let dir = tempfile::tempdir().unwrap();
-        let executor =
-            NodeExecutor::new(dir.path().to_path_buf()).with_permission_preset("human_approval");
-        let mut scope = Scope::new("run_perm");
-
-        let outcome = executor
-            .execute(&shell节点("echo hello"), &mut scope)
+        let outcome = NodeExecutor::new(dir.path().to_path_buf())
+            .with_permission_preset("human_approval")
+            .execute(&写文件节点(), &mut Scope::new("run_perm"))
             .unwrap();
 
         assert!(
             matches!(outcome, NodeOutcome::Succeeded { .. }),
-            "只读命令不该被拦，实际：{outcome:?}"
+            "执行节点被自动拦了 —— 那是上一版的行为：{outcome:?}"
         );
     }
 
     #[test]
-    fn 没设过权限档时按最严的一档办() {
-        // 首次配置写的就是最严那档，但万一没有 ——
+    fn 没设过档位时按最严的一档办() {
         // 默认放宽等于替用户做了一个他不知道自己做过的决定
         let dir = tempfile::tempdir().unwrap();
-        let executor = NodeExecutor::new(dir.path().to_path_buf());
-        let mut scope = Scope::new("run_perm");
-
-        let outcome = executor.execute(&写文件节点(), &mut scope).unwrap();
+        let 门 = node("gate", "approval", serde_json::json!({"title": "确认", "interaction": "confirm"}));
+        let outcome = NodeExecutor::new(dir.path().to_path_buf())
+            .execute(&门, &mut Scope::new("run_perm"))
+            .unwrap();
 
         assert!(
             matches!(outcome, NodeOutcome::NeedsApproval),
-            "没设过就该按最严的办，实际：{outcome:?}"
+            "没设过就该按最严的办：{outcome:?}"
         );
     }
 
     #[test]
     fn 库里躺着上一版的档位名时按最严处理() {
-        // 用户从旧版升上来，`workspace_safe` 这个值在新值域里不存在。
-        // 静默放行的话，他以为自己选的是「中间档」，实际一道门都没有。
-        //
-        // 正常路径上读取处会先跑一次迁移（contracts 的 migrateApprovalMode），
+        // 正常路径上读取处会先跑一次迁移（risk::migrate_approval_mode），
         // 这一条守的是**迁移也没接上**时的兜底
         let dir = tempfile::tempdir().unwrap();
+        let 门 = node("gate", "approval", serde_json::json!({"title": "确认", "interaction": "confirm"}));
         for 旧值 in ["review_every_change", "workspace_safe", "trusted_workflow"] {
-            let executor =
-                NodeExecutor::new(dir.path().to_path_buf()).with_permission_preset(旧值);
-            let outcome = executor
-                .execute(&写文件节点(), &mut Scope::new("run_perm"))
+            let outcome = NodeExecutor::new(dir.path().to_path_buf())
+                .with_permission_preset(旧值)
+                .execute(&门, &mut Scope::new("run_perm"))
                 .unwrap();
             assert!(
                 matches!(outcome, NodeOutcome::NeedsApproval),
@@ -955,70 +931,27 @@ mod 权限档改变行为 {
             );
         }
     }
-
-    #[test]
-    fn 审批过的命令不再问第二次() {
-        // 用户在审批那一步点了通过，恢复执行时不该又停在同一个节点上
-        let dir = tempfile::tempdir().unwrap();
-        let executor = NodeExecutor::new(dir.path().to_path_buf())
-            .with_permission_preset("human_approval")
-            .with_approved_nodes(&["s1".to_string()]);
-        let mut scope = Scope::new("run_perm");
-
-        let outcome = executor
-            .execute(&shell节点("echo hello"), &mut scope)
-            .unwrap();
-
-        assert!(
-            matches!(outcome, NodeOutcome::Succeeded { .. }),
-            "批准过还再问，运行会永远卡在这里：{outcome:?}"
-        );
-    }
-
-    #[test]
-    fn 不涉及副作用的节点不受影响() {
-        // 入口只是起点，逐项审批它没有任何意义 ——
-        // 每个节点都弹一次的话用户会直接把最严那一档关掉
-        let dir = tempfile::tempdir().unwrap();
-        let executor = NodeExecutor::new(dir.path().to_path_buf())
-            .with_permission_preset("human_approval");
-        let mut scope = Scope::new("run_perm");
-
-        let outcome = executor
-            .execute(&node("e1", "entry", serde_json::json!({})), &mut scope)
-            .unwrap();
-
-        assert!(matches!(outcome, NodeOutcome::Succeeded { .. }));
-    }
 }
 
-/// 能力声明由引擎强制 —— 图纸「05 Agent 角色」的原话是
-/// 「权限（引擎强制，Prompt 无法越权）」。
-///
-/// **作用范围是挂得上角色的那四个 AI 节点**。能力从
-/// `profile_for(node)` 取，而它只认 config 里的 `agentProfileId` ——
-/// 脚本与 worktree 节点的 configSchema 里没有这个字段，
-/// 给它们写的能力分支一次都走不到（`capability_reach_test` 守着）。
-///
-/// 这一组原本全用 `with_capabilities` + `script.shell` 写，
-/// 而 `with_capabilities` 在生产里零调用：五条绿灯证明的是
-/// 一条运行时走不到的路径。改成挂角色的 AI 节点 —— 生产走的那条。
-mod 能力声明是硬的 {
-    use super::*;
 
-    fn shell(script: &str) -> GraphNode {
-        node(
-            "s1",
-            "script.shell",
-            serde_json::json!({ "interpreter": "zsh", "script": script }),
-        )
-    }
+/// 角色声明的能力**不再由引擎强制**，而是写进提示词。
+///
+/// 上一版在 `check_capability` 里逐项拦：角色的「文件」权限不是可读写
+/// 就不让 `ai.execute` 跑。现在的设计是**权限由流程管** ——
+/// 执行节点拿最高权限，拦它的是工作流里那道 `approval` 门。
+///
+/// 但字段不能就此不生效：用户在角色页上逐项设过它们，一个字都没到过
+/// 模型面前的话，那一屏就是装饰。所以它们进提示词，交给 agent 自觉遵守。
+/// **角色页上「引擎强制，Prompt 无法越权」那句话必须跟着改。**
+mod 角色的能力声明进提示词 {
+    #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
-    /// 一个带指定能力的角色，和一个挂着它的 `ai.execute` 节点。
-    fn 挂角色的执行节点(
-        caps: serde_json::Value,
-    ) -> (Vec<aiwf_engine::executor::AgentProfile>, GraphNode) {
-        let profile = aiwf_engine::executor::AgentProfile {
+    use super::{mock_acp, node, workdir, 收到的提示词};
+    use aiwf_engine::executor::NodeExecutor;
+    use aiwf_engine::interp::Scope;
+
+    fn 带能力的角色(caps: &str) -> aiwf_engine::executor::AgentProfile {
+        aiwf_engine::executor::AgentProfile {
             id: "ap_cap".to_string(),
             name: "执行者".to_string(),
             role: "执行".to_string(),
@@ -1029,8 +962,11 @@ mod 能力声明是硬的 {
             output_contract: String::new(),
             capabilities_json: caps.to_string(),
             timeout_ms: 900_000,
-        };
-        let node = node(
+        }
+    }
+
+    fn 挂角色的执行节点() -> aiwf_engine::graph::GraphNode {
+        node(
             "fix",
             "ai.execute",
             serde_json::json!({
@@ -1038,141 +974,72 @@ mod 能力声明是硬的 {
                 "instruction": "改一下",
                 "workdirSource": "inherit"
             }),
-        );
-        (vec![profile], node)
-    }
-
-    /// 只允许 file 读、不允许执行命令的一份能力。
-    fn 只读能力() -> serde_json::Value {
-        serde_json::json!({
-            "file": "read",
-            "command": "none",
-            "network": "none",
-            "memory": "none",
-            "secret": []
-        })
-    }
-
-    fn 可执行能力() -> serde_json::Value {
-        serde_json::json!({
-            "file": "read-write",
-            "command": "declared",
-            "network": "none",
-            "memory": "none",
-            "secret": []
-        })
+        )
     }
 
     #[test]
-    fn 角色不给写文件时_ai_execute_被拒() {
-        let (profiles, node) = 挂角色的执行节点(只读能力());
-        let executor = 执行器(workdir())
-            .with_permission_preset("human_approval")
-            .with_agent_profiles(&profiles);
+    fn 声明的边界逐项进提示词() {
+        let (command, args) = mock_acp();
+        let executor = NodeExecutor::new(workdir())
+            .with_acp_command(&command, &args)
+            .with_agent_profiles(&[带能力的角色(
+                r#"{"file":"read","command":"declared","network":"none","memory":"read","secret":[]}"#,
+            )]);
 
-        match executor.precheck(&node) {
-            Some(NodeOutcome::Failed { message }) => {
-                assert!(message.contains("文件"), "没说清缺的是哪一项：{message}");
-            }
-            other => panic!("只读角色跑起了会写文件的节点：{other:?}"),
+        let mut scope = Scope::new("run_caps_note");
+        executor.execute(&挂角色的执行节点(), &mut scope).unwrap();
+
+        let 提示词 = 收到的提示词(&scope, "fix");
+        for 片段 in ["文件 read", "命令 declared", "网络 none"] {
+            assert!(
+                提示词.contains(片段),
+                "「{片段}」没进提示词 —— 角色页上那一栏就成了装饰：\n{提示词}"
+            );
         }
     }
 
     #[test]
-    fn 角色不给跑命令时_ai_execute_被拒() {
-        let mut caps = 可执行能力();
-        caps["command"] = serde_json::json!("none");
-        let (profiles, node) = 挂角色的执行节点(caps);
-        let executor = 执行器(workdir())
-            .with_permission_preset("human_approval")
-            .with_agent_profiles(&profiles);
+    fn 拼错的能力值按最严说给_agent_听() {
+        // 枚举外的值当成 none。说成「可读写」的话，
+        // agent 会以为自己被授权做一件用户没授权的事
+        let (command, args) = mock_acp();
+        let executor = NodeExecutor::new(workdir())
+            .with_acp_command(&command, &args)
+            .with_agent_profiles(&[带能力的角色(
+                r#"{"file":"READ-WRITE","command":"any","network":"none","memory":"read","secret":[]}"#,
+            )]);
 
-        match executor.precheck(&node) {
-            Some(NodeOutcome::Failed { message }) => {
-                assert!(message.contains("命令"), "没说清缺的是哪一项：{message}");
-            }
-            other => panic!("command=none 却放行了会跑命令的节点：{other:?}"),
-        }
-    }
+        let mut scope = Scope::new("run_caps_bad");
+        executor.execute(&挂角色的执行节点(), &mut scope).unwrap();
 
-    #[test]
-    fn 能力够时放行() {
-        let (profiles, node) = 挂角色的执行节点(可执行能力());
-        let executor = 执行器(workdir())
-            .with_permission_preset("human_approval")
-            .with_agent_profiles(&profiles);
-
-        assert!(executor.precheck(&node).is_none(), "能力够却被拦下");
-    }
-
-    #[test]
-    fn 脚本节点不看角色能力_它由权限档管() {
-        // **记录当前真实语义，别让人再误以为这里有一道角色级的防线。**
-        //
-        // 脚本是用户自己写在节点里的命令，不是 agent 自主决定要跑的东西，
-        // 所以它不受「Agent 角色」的能力声明约束 —— 何况脚本节点
-        // 根本挂不上角色（configSchema 里没有 agentProfileId）。
-        //
-        // 它真正的关卡是审批档，而档位管的是**这段脚本会造成什么**：
-        // 只读的直接跑，会写东西的挂起等审批。下半段断言的就是那一条 ——
-        // 少了它，这个测试就成了「脚本节点没人管」的背书
-        let dir = tempfile::tempdir().unwrap();
-        let 最严档 =
-            || NodeExecutor::new(dir.path().to_path_buf()).with_permission_preset("human_approval");
-
-        let mut scope = Scope::new("run_cap1");
-        let outcome = 最严档().execute(&shell("echo hi"), &mut scope).unwrap();
+        let 提示词 = 收到的提示词(&scope, "fix");
         assert!(
-            matches!(outcome, NodeOutcome::Succeeded { .. }),
-            "只读脚本被拦了：{outcome:?}"
-        );
-
-        assert!(
-            matches!(
-                最严档().precheck(&shell("echo hi > out.txt")),
-                Some(NodeOutcome::NeedsApproval)
-            ),
-            "最严档下会写东西的脚本没有挂起等审批 —— 那它就真的没人管了"
+            提示词.contains("文件 none"),
+            "拼错的能力值没有按最严处理：\n{提示词}"
         );
     }
 
     #[test]
-    fn 没声明能力时不拦_那是没配过角色的运行() {
-        // 直接跑一条脚本工作流（不挂 Agent）时没有能力声明，
-        // 拦下来的话所有现成的工作流都跑不了了
-        let dir = tempfile::tempdir().unwrap();
-        let executor =
-            执行器(dir.path().to_path_buf()).with_permission_preset("human_approval");
-        let mut scope = Scope::new("run_cap3");
+    fn 没挂角色的节点不凭空编一段边界出来() {
+        let (command, args) = mock_acp();
+        let executor = NodeExecutor::new(workdir()).with_acp_command(&command, &args);
 
-        let outcome = executor.execute(&shell("echo hi"), &mut scope).unwrap();
-        assert!(
-            matches!(outcome, NodeOutcome::Succeeded { .. }),
-            "{outcome:?}"
+        let mut scope = Scope::new("run_caps_none");
+        let 没角色 = node(
+            "fix",
+            "ai.execute",
+            serde_json::json!({"instruction": "改一下", "workdirSource": "inherit"}),
         );
-    }
+        executor.execute(&没角色, &mut scope).unwrap();
 
-    #[test]
-    fn 拒绝发生在执行之前_不留副作用() {
-        // 「拦」必须在起进程之前，否则脚本已经写了文件才报错。
-        // 用最严档来拦 —— 那是脚本节点身上真实存在的那道关
-        let dir = tempfile::tempdir().unwrap();
-        let marker = dir.path().join("不该出现.txt");
-        let executor = NodeExecutor::new(dir.path().to_path_buf())
-            .with_permission_preset("human_approval");
-        let mut scope = Scope::new("run_cap4");
-
-        let outcome = executor
-            .execute(&shell(&format!("touch '{}'", marker.display())), &mut scope)
-            .unwrap();
-
+        let 提示词 = 收到的提示词(&scope, "fix");
         assert!(
-            matches!(outcome, NodeOutcome::NeedsApproval),
-            "没拦住：{outcome:?}"
+            !提示词.contains("这个角色声明的边界"),
+            "没挂角色却说了一段边界：\n{提示词}"
         );
-        assert!(!marker.exists(), "脚本已经跑了才拦，副作用已经发生");
     }
 }
+
 
 // ── Agent 角色真的生效（M3 出口标准）────────────────────────────────────────
 //
@@ -1268,46 +1135,6 @@ fn 角色不存在时当场失败_而不是悄悄按没有角色跑() {
             );
         }
         other => panic!("角色不存在该失败，实得 {other:?}"),
-    }
-}
-
-#[test]
-fn 角色声明的能力被引擎强制_提示词改不了它_也不看权限档() {
-    // 「权限（引擎强制，Prompt 无法越权）」——审查者是 file: read，
-    // 那么挂着它的 `ai.execute` 就不该能改文件。
-    //
-    // 两个要点，与上面那组 `precheck` 用例不重：
-    // 一、走完整的 `execute`，验证拦在**起 adapter 之前**（mock 一次都不该被调起）；
-    // 二、权限档是最松的 `trusted_workflow` —— 能力校验不因为
-    //     「这条工作流我信得过」而放宽，那是两件事。
-    //
-    // 原来这条把 `agentProfileId` 塞进 `script.shell` 的 config 里。
-    // 契约里脚本节点没有这个字段，Zod 的 strip 语义会把它丢掉 ——
-    // 界面上根本存不出这样一张图，测的是一个不存在的形状
-    let (command, args) = mock_acp();
-    let executor = 执行器(workdir())
-        .with_acp_command(&command, &args)
-        .with_permission_preset("trusted_workflow")
-        .with_agent_profiles(&[角色("builtin:reviewer")]);
-
-    let 执行节点 = node(
-        "fix",
-        "ai.execute",
-        serde_json::json!({
-            "agentProfileId": "builtin:reviewer",
-            "instruction": "把这个 bug 改了",
-            "workdirSource": "inherit"
-        }),
-    );
-
-    let outcome = executor
-        .execute(&执行节点, &mut Scope::new("run_caps"))
-        .unwrap();
-    match outcome {
-        NodeOutcome::Failed { message } => {
-            assert!(message.contains("文件"), "要说清是哪一项权限：{message}");
-        }
-        other => panic!("审查者不该能改文件，实得 {other:?}"),
     }
 }
 
@@ -2145,21 +1972,18 @@ mod 分析对象 {
     }
 }
 
-/// 权限档说的话要算数。
+/// 审批档说的话要算数。
 ///
-/// 设置页那三张卡下面写着「选『Review Every Change』时，脚本、worktree、
-/// commit、PR 与 MCP 工具节点会在执行前挂起等你审批」——
-/// 点名的五类里 `git.commit` 与 `github.pr` **在契约里根本不存在**，
-/// 而 `ai.execute`（唯一会放一个自主 agent 进 worktree 写文件、跑命令的节点）
-/// 既不在挂起名单里，能力校验也没有它的分支。
+/// **权限由流程管**：执行节点拿最高权限，引擎不再按节点类型或脚本内容
+/// 自动拦截。要不要停下来问，取决于工作流里有没有在那个位置放一个
+/// `approval` 节点。
 ///
-/// 用户选了最严那一档，以为「文件写入、命令与外部写操作逐项审批」，
-/// 结果写得最多的那个节点一次都不问 —— 这不是功能缺失，是**反向的安全感**。
-mod 权限档说的话要算数 {
+/// 上一版在这里按风险自动拦，代价是「读一个 Issue 也要人点一次」——
+/// 用户的原话。这一组盯着那个行为不要回来，以及它的代价被如实记着。
+mod 审批档说的话要算数 {
     #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
-    use super::{node, workdir, 执行器};
-    use aiwf_engine::catalog;
+    use super::{node, workdir};
     use aiwf_engine::executor::NodeExecutor;
     use aiwf_engine::runner::NodeOutcome;
 
@@ -2170,58 +1994,60 @@ mod 权限档说的话要算数 {
             serde_json::json!({
                 "instruction": "改一下",
                 "workdirSource": "inherit",
-                "runtime": "acp.claude"
+                "runtime": "acp.codex"
             }),
         )
     }
 
-    #[test]
-    fn 挂起名单里不能有契约里不存在的节点类型() {
-        // 门禁证明不了自己会红就不是门禁：这条元测试盯的是
-        // 「名单里混进一个拼错的/已经改名的类型」——那种条目永远不会生效，
-        // 而设置页还照着它向用户承诺
-        let 全集 = catalog::node_types();
-        let 不存在: Vec<&str> = NodeExecutor::side_effect_nodes()
-            .iter()
-            .copied()
-            .filter(|kind| !全集.contains(kind))
-            .collect();
-
-        assert!(
-            不存在.is_empty(),
-            "这些类型不在契约里，写在挂起名单里等于没写：{不存在:?}"
-        );
+    fn 门() -> aiwf_engine::graph::GraphNode {
+        node(
+            "gate",
+            "approval",
+            serde_json::json!({"title": "确认", "interaction": "confirm"}),
+        )
     }
 
     #[test]
-    fn ai_execute_在最严档下要先问一句() {
-        // 它是唯一会放一个自主 agent 进 worktree 写文件、跑命令的节点
+    fn 只有审批节点会被拦() {
+        // 执行节点一个都不拦 —— 包括那个会放一个自主 agent
+        // 进 worktree 写文件跑命令的 ai.execute。
+        //
+        // 这条看起来像在给一个危险行为背书，但它记的是一个**设计决定**：
+        // 拦 ai.execute 的应该是它前面那道门（内置模板里就有一道），
+        // 不是引擎。哪天有人想加回自动拦截，得先来改它
         let executor = NodeExecutor::new(workdir()).with_permission_preset("human_approval");
 
-        let outcome = executor.precheck(&ai_execute());
         assert!(
-            matches!(outcome, Some(NodeOutcome::NeedsApproval)),
-            "最严档下 ai.execute 没有挂起等审批：{outcome:?}"
+            executor.precheck(&ai_execute()).is_none(),
+            "执行节点被自动拦了 —— 那是上一版的行为"
+        );
+        assert!(
+            matches!(executor.precheck(&门()), Some(NodeOutcome::NeedsApproval)),
+            "最严档下审批门没有挂起等人"
         );
     }
 
     #[test]
-    fn 认不出的权限档按最严处理() {
+    fn 认不出的档位按最严处理() {
         // CLAUDE.md：「认不出的档位按最严处理」。
-        // 反过来的话，配置里一个拼错的档位名会把所有审批静默关掉
+        // 反过来的话，库里一个拼错的档位名会把门静默交给 AI，
+        // 而用户以为那是他要亲自批的
         let executor = NodeExecutor::new(workdir()).with_permission_preset("拼错的档位");
 
-        let outcome = executor.precheck(&ai_execute());
         assert!(
-            matches!(outcome, Some(NodeOutcome::NeedsApproval)),
-            "认不出的档位放行了：{outcome:?}"
+            matches!(executor.precheck(&门()), Some(NodeOutcome::NeedsApproval)),
+            "认不出的档位把门交给了 AI"
         );
     }
 
     #[test]
-    fn 角色没有写文件权限时_ai_execute_跑不了() {
-        // 角色页写着「权限（引擎强制，Prompt 无法越权）」。
-        // 挂在节点上，不走 `with_capabilities` —— 后者生产里没人调
+    fn 角色声明的能力写进提示词_而不是被引擎强制() {
+        // 角色页原来写着「权限（引擎强制，Prompt 无法越权）」，
+        // 而现在引擎不强制了 —— 那句话必须跟着改，否则就是假承诺。
+        //
+        // 但**字段不能就此不生效**：用户在角色页上逐项设过它们，
+        // 一个字都没到过模型面前的话，那一屏就是装饰。
+        // 所以它们进提示词，交给 agent 自觉遵守
         let 只读角色 = aiwf_engine::executor::AgentProfile {
             id: "ap_ro".to_string(),
             name: "审查者".to_string(),
@@ -2238,17 +2064,24 @@ mod 权限档说的话要算数 {
         };
         let mut 节点 = ai_execute();
         节点.config["agentProfileId"] = serde_json::json!("ap_ro");
-        let executor = 执行器(workdir())
+
+        let (command, args) = super::mock_acp();
+        let executor = NodeExecutor::new(workdir())
             .with_permission_preset("human_approval")
+            .with_acp_command(&command, &args)
             .with_agent_profiles(&[只读角色]);
 
-        let outcome = executor.precheck(&节点);
-        match outcome {
-            Some(NodeOutcome::Failed { message }) => {
-                assert!(message.contains("文件"), "没说清缺的是哪项权限：{message}");
-            }
-            other => panic!("只读角色跑起了会写文件的节点：{other:?}"),
-        }
+        // 不再被拦下
+        assert!(executor.precheck(&节点).is_none(), "引擎还在强制能力声明");
+
+        // 而声明确实到了模型面前
+        let mut scope = aiwf_engine::interp::Scope::new("run_cap_note");
+        executor.execute(&节点, &mut scope).unwrap();
+        let 提示词 = super::收到的提示词(&scope, "fix");
+        assert!(
+            提示词.contains("文件 read") && 提示词.contains("命令 none"),
+            "角色声明的边界没进提示词 —— 那一屏就成了装饰：\n{提示词}"
+        );
     }
 }
 
@@ -2364,79 +2197,3 @@ mod 这一轮怎么结束的要算数 {
     }
 }
 
-/// 「引擎强制，Prompt 无法越权」这句话得算数。
-///
-/// 角色页与节点配置页两处都写着它，并让用户逐项配 文件 / 命令 /
-/// 网络 / 记忆 / 凭据 五项。而引擎只读前两项，判据还是
-/// `== "none"` / `!= "read-write"` —— 于是：
-///
-/// - `command` 填 `declared`（「只能执行节点配置里显式列出的命令」）
-///   与填 `any` **行为完全一样**
-/// - 数据库里一个**拼错的值**等于放行，与「认不出的按最严处理」正相反
-///
-/// 后一条尤其要紧：能力声明是安全边界，而认不出的输入在安全判断里
-/// 只能往严了算。
-mod 能力枚举外的值按最严 {
-    #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
-
-    use super::{node, workdir, 执行器};
-    use aiwf_engine::executor::{AgentProfile, NodeExecutor};
-    use aiwf_engine::runner::NodeOutcome;
-
-    /// 走生产那条路：节点挂角色，能力从角色的 `capabilities_json` 读。
-    /// 用 `with_capabilities` 的话测的是一条运行时走不到的旁路
-    fn 跑一下(command: &str) -> Option<NodeOutcome> {
-        let caps = serde_json::json!({
-            "file": "read-write", "command": command,
-            "network": "none", "memory": "read", "secret": []
-        });
-        let profile = AgentProfile {
-            id: "ap_enum".to_string(),
-            name: "执行者".to_string(),
-            role: "执行".to_string(),
-            goal: String::new(),
-            persona: String::new(),
-            runtime: "acp.codex".to_string(),
-            model_ref: "model:codex".to_string(),
-            output_contract: String::new(),
-            capabilities_json: caps.to_string(),
-            timeout_ms: 900_000,
-        };
-        执行器(workdir())
-            .with_permission_preset("human_approval")
-            .with_agent_profiles(&[profile])
-            .precheck(&node(
-                "fix",
-                "ai.execute",
-                serde_json::json!({
-                    "agentProfileId": "ap_enum",
-                    "instruction": "改一下",
-                    "workdirSource": "inherit"
-                }),
-            ))
-    }
-
-    #[test]
-    fn 拼错的能力值当成不允许() {
-        for 坏值 in ["随便写的", "", "ANY", "Declared"] {
-            let outcome = 跑一下(坏值);
-            assert!(
-                matches!(outcome, Some(NodeOutcome::Failed { .. })),
-                "command = {坏值:?} 被放行了 —— 一个拼错的值不该等于「任意命令」"
-            );
-        }
-    }
-
-    #[test]
-    fn 枚举里的值照常放行() {
-        assert!(跑一下("any").is_none(), "any 应当放行");
-        assert!(
-            跑一下("declared").is_none(),
-            "declared 也放行（比对清单是另一条账）"
-        );
-        assert!(
-            matches!(跑一下("none"), Some(NodeOutcome::Failed { .. })),
-            "none 应当拦下"
-        );
-    }
-}

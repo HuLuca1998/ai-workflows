@@ -54,5 +54,5 @@ export async function seedWorkflow(
  * 成败取决于上一条用例留下了什么。
  */
 export async function 允许直接执行(page: Page): Promise<void> {
-  await api(page, 'workspace_update_settings', { permissionPreset: 'workspace_safe' });
+  await api(page, 'workspace_update_settings', { permissionPreset: 'ai_assisted' });
 }

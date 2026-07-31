@@ -76,7 +76,7 @@ export function OnboardingPage() {
     try {
       await coreClient.call('workspace.updateSettings', {
         workdir: DEFAULT_WORKDIR,
-        permissionPreset: 'review_every_change',
+        permissionPreset: 'human_approval',
         envCheckedAt: new Date().toISOString(),
       });
       markOnboardingSkipped();

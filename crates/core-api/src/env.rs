@@ -91,6 +91,132 @@ struct Probe {
     install: (&'static str, &'static str, Option<&'static str>),
 }
 
+/// 一个目录能不能用。
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DirectoryCheck {
+    /// 展开 `~` 之后的绝对路径。界面显示它 —— 用户要能确认自己选的是哪个。
+    pub resolved: String,
+    pub exists: bool,
+    /// 探针文件写得进去吗。**这是唯一说得准的判据**。
+    pub writable: bool,
+    pub is_git_repo: bool,
+    pub tcc_protected: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub message: Option<String>,
+}
+
+/// macOS 上要 TCC 授权才能访问的位置。
+///
+/// 现在写得进去不代表以后还行：ad-hoc 签名下 App 一更新，cdhash 变了，
+/// 上一版拿到的授权就不再适用（docs/MACOS-PERMISSIONS.md）。
+/// 界面要能提前说这句话，而不是等用户下次跑工作流时撞上 EPERM。
+const TCC_保护的子目录: &[&str] = &["Documents", "Desktop", "Downloads", "Movies", "Music", "Pictures"];
+
+/// 这个目录能不能用。
+///
+/// **必须是真探测**：写一个探针文件再删掉。`metadata` 说得出「存在」，
+/// 说不出「你有没有权限往里写」—— 而 macOS 的 TCC 恰恰是后者
+/// （目录在 `~/Documents` 下时，读得到、写不了，`exists` 照样是 true）。
+///
+/// 探针写完立刻删。留下一个 `.aiwf-probe` 的话，用户选中自己的仓库目录时
+/// 会看到一个莫名其妙的文件，而 `git status` 会把它算成未跟踪改动。
+pub fn check_directory(path: &str) -> ApiResult<DirectoryCheck> {
+    let trimmed = path.trim();
+    if trimmed.is_empty() {
+        // 空串走 `PathBuf::from("")` 会变成当前目录 —— 于是「什么都没填」
+        // 被当成「选了一个能用的目录」
+        return Ok(DirectoryCheck {
+            resolved: String::new(),
+            exists: false,
+            writable: false,
+            is_git_repo: false,
+            tcc_protected: false,
+            message: Some("还没有选目录".to_string()),
+        });
+    }
+
+    let expanded = 展开波浪号(trimmed);
+    let resolved = expanded.display().to_string();
+    let exists = expanded.is_dir();
+    let is_git_repo = expanded.join(".git").exists();
+    let tcc_protected = 在_tcc_保护区(&expanded);
+
+    if !exists {
+        return Ok(DirectoryCheck {
+            resolved,
+            exists: false,
+            writable: false,
+            is_git_repo,
+            tcc_protected,
+            message: Some(format!("这个目录不存在：{}", expanded.display())),
+        });
+    }
+
+    let (writable, message) = match 探一下(&expanded) {
+        Ok(()) => (true, None),
+        Err(reason) => (false, Some(reason)),
+    };
+
+    Ok(DirectoryCheck {
+        resolved,
+        exists,
+        writable,
+        is_git_repo,
+        tcc_protected,
+        message,
+    })
+}
+
+/// 写一个探针文件再删掉。
+fn 探一下(dir: &std::path::Path) -> std::result::Result<(), String> {
+    // 名字带进程 id：两个实例同时探同一个目录时不会互相删掉对方的探针
+    let probe = dir.join(format!(".aiwf-probe-{}", std::process::id()));
+    let 结果 = std::fs::write(&probe, b"aiwf");
+    // 删除放在判断成败之前 —— 写成功了才有东西可删，
+    // 而写失败时这一句是无害的
+    let _ = std::fs::remove_file(&probe);
+
+    结果.map_err(|error| match error.kind() {
+        std::io::ErrorKind::PermissionDenied => format!(
+            "这个目录写不进去（权限被拒）。\
+             如果它在「文稿」「桌面」「下载」里，到「系统设置 → 隐私与安全性 → 文件与文件夹」\
+             里给 AI Workflows 授权；或者换一个目录：{}",
+            dir.display()
+        ),
+        _ => format!("这个目录写不进去：{error}"),
+    })
+}
+
+/// `~` 展开成主目录。
+///
+/// 界面上存的是 `~/Library/…` 这种可读形式（Web 形态拿不到 Tauri 的
+/// path API），而判断要在真实路径上做。
+fn 展开波浪号(path: &str) -> std::path::PathBuf {
+    let Some(rest) = path.strip_prefix('~') else {
+        return std::path::PathBuf::from(path);
+    };
+    let Some(home) = std::env::var_os("HOME") else {
+        return std::path::PathBuf::from(path);
+    };
+    let rest = rest.trim_start_matches('/');
+    if rest.is_empty() {
+        std::path::PathBuf::from(home)
+    } else {
+        std::path::PathBuf::from(home).join(rest)
+    }
+}
+
+fn 在_tcc_保护区(path: &std::path::Path) -> bool {
+    let Some(home) = std::env::var_os("HOME") else {
+        return false;
+    };
+    let home = std::path::PathBuf::from(home);
+    TCC_保护的子目录
+        .iter()
+        .any(|name| path.starts_with(home.join(name)))
+}
+
 /// 要探测的工具，以及缺了怎么装。
 ///
 /// 安装命令用各项目**官方推荐**的装法，并注明出处 ——

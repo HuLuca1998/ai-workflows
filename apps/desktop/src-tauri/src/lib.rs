@@ -21,6 +21,7 @@ use tauri::menu::{MenuBuilder, MenuItemBuilder};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::{Emitter, Manager, State};
 
+pub mod notify;
 pub mod tray;
 
 /// 命令实现全在 `aiwf-core-api`，这里只做 IPC 转发。
@@ -604,6 +605,13 @@ fn env_health(recheck: Option<bool>) -> IpcResult<api::EnvHealthReport> {
     api::env_health(recheck.unwrap_or(false))
 }
 
+/// 这个目录能不能用。引导页选完工作目录、启动表单填本地仓库路径都调它。
+#[tauri::command]
+fn env_check_directory(path: String) -> IpcResult<api::env::DirectoryCheck> {
+    // 只读探测（探针文件写完立刻删），不碰 store
+    api::env::check_directory(&path)
+}
+
 #[tauri::command]
 fn github_repos(query: Option<String>, limit: Option<i64>) -> IpcResult<api::github::RepoListDto> {
     // 同样不碰 store：它问的是当前 gh 账号能看到什么
@@ -866,6 +874,7 @@ fn build_tray(app: &tauri::AppHandle) -> tauri::Result<()> {
 #[allow(clippy::expect_used)]
 pub fn run() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .setup(|app| {
@@ -895,7 +904,12 @@ pub fn run() {
             app.manage(AppState {
                 store: Mutex::new(store),
                 supervisor_store: Mutex::new(supervisor_store),
-                supervisor: Supervisor::new(path),
+                // 通知发送器在这里接上。不接的话 `notify` 节点会
+                // 明确报「这个环境发不了系统通知」—— 那是真话，
+                // 但在桌面 App 里它不该是真的
+                supervisor: Supervisor::new(path).with_notifier(std::sync::Arc::new(
+                    notify::DesktopNotifier::new(app.handle().clone()),
+                )),
                 data_dir,
             });
             build_tray(app.handle())?;
@@ -928,6 +942,7 @@ pub fn run() {
             workspace_reset_preview,
             workspace_reset,
             env_health,
+            env_check_directory,
             github_repos,
             github_branches,
             run_diagnostics,

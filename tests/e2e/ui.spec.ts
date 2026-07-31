@@ -431,7 +431,7 @@ test.describe('权限档真的改变运行行为', () => {
     const workflowId = await createWorkflow(page, '权限档 e2e', SCRIPT_GRAPH);
 
     await page.goto('/');
-    await 设档(page, 'review_every_change');
+    await 设档(page, 'human_approval');
 
     const 跑一次 = async () => {
       const 结果 = await page.evaluate(async (id) => {
@@ -460,7 +460,7 @@ test.describe('权限档真的改变运行行为', () => {
 
     expect(await 跑一次(), '严格档下脚本节点该停在审批').toBe('waiting_approval');
 
-    await 设档(page, 'workspace_safe');
+    await 设档(page, 'ai_assisted');
     expect(await 跑一次(), '宽松档下已声明的命令该直接跑').toBe('succeeded');
   });
 });

@@ -36,6 +36,9 @@ type Cancels = Arc<Mutex<HashMap<String, Arc<AtomicBool>>>>;
 pub struct Supervisor {
     db_path: PathBuf,
     cancels: Cancels,
+    /// 谁把系统通知发出去。桌面壳在 setup 里注入，
+    /// 每条运行的后台线程都从这里拿一份。
+    notifier: Option<Arc<dyn crate::notify::Notifier>>,
 }
 
 impl Supervisor {
@@ -43,13 +46,30 @@ impl Supervisor {
         Self {
             db_path,
             cancels: Arc::new(Mutex::new(HashMap::new())),
+            notifier: None,
+        }
+    }
+
+    /// 接上系统通知的发送器。桌面壳在 setup 里调它 ——
+    /// 不调的话 `notify` 节点会明确报「这个环境发不了」。
+    #[must_use]
+    pub fn with_notifier(mut self, notifier: Arc<dyn crate::notify::Notifier>) -> Self {
+        self.notifier = Some(notifier);
+        self
+    }
+
+    /// 建一个带上通知发送器的 Runner。
+    fn runner(&self) -> Runner {
+        match &self.notifier {
+            Some(notifier) => Runner::new().with_notifier(notifier.clone()),
+            None => Runner::new(),
         }
     }
 
     /// 启动运行：同步做完 preflight 与建 Run（这样调用方立刻拿到 runId
     /// 或立刻知道图有问题），执行本身丢给后台线程。
     pub fn start(&self, store: &Store, request: RunRequest) -> Result<String> {
-        let runner = Runner::new();
+        let runner = self.runner();
         let run_id = runner.start(store, request)?;
 
         // preflight 没过的运行已经是 failed，不必再起线程
@@ -151,12 +171,20 @@ impl Supervisor {
         let cancels = self.cancels.clone();
         let run_id = run_id.to_string();
         let owned_flag = flag.clone();
+        // 通知发送器要跟进后台线程 —— **真正跑节点的是这里**。
+        // 只给 `start` 那条路径上的 Runner 接上是不够的：那个 Runner
+        // 只做 preflight 与建 Run，一个 notify 节点都不会经过它
+        let notifier = self.notifier.clone();
 
         std::thread::spawn(move || {
+            let runner = match notifier {
+                Some(notifier) => Runner::new().with_notifier(notifier),
+                None => Runner::new(),
+            };
             // 各自一条连接：跑十分钟的脚本不该卡住界面的查询
             match Store::open(&db_path) {
                 Ok(store) => {
-                    if let Err(error) = Runner::new().run_until_pause(&store, &run_id, &flag) {
+                    if let Err(error) = runner.run_until_pause(&store, &run_id, &flag) {
                         // 后台错误必须留下痕迹：吞掉的话运行会永远停在
                         // running 却没有线程在推进它，用户只看到「一直在跑」
                         record_background_failure(&store, &run_id, &error.to_string());

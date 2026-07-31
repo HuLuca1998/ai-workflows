@@ -12,7 +12,8 @@ use crate::artifacts::{ArtifactKind, ArtifactStore};
 use crate::exec::{ExecOutcome, ScriptRequest, run_script};
 use crate::graph::GraphNode;
 use crate::interp::{Scope, interpolate, interpolate_with, shell_quote};
-use crate::risk::{ApprovalDecider, RiskLevel, approval_decider, base_risk, node_risk};
+use crate::notify::{Notification, Notifier};
+use crate::risk::{ApprovalDecider, approval_decider};
 use crate::runner::NodeOutcome;
 use crate::worktree::{WorktreeRequest, create_worktree};
 
@@ -61,6 +62,14 @@ pub struct NodeExecutor {
      * 而那种审批看起来在工作，实际什么都没审。
      */
     last_gate_prompt: std::sync::Mutex<Option<String>>,
+    /**
+     * 谁把系统通知发出去。
+     *
+     * 引擎自己发不了 —— 它是个库，跑在没有桌面的地方也要能编译。
+     * **None 时 `notify` 节点明确报发不了**，不返回成功
+     * （DEBT.md 的 B-1 就是那个「什么都不做直接成功」）。
+     */
+    notifier: Option<std::sync::Arc<dyn Notifier>>,
     /**
      * 这次运行所挂 Agent 角色声明的能力。
      *
@@ -198,47 +207,95 @@ enum AiVerdict {
     CannotDecide,
 }
 
-/// 交给 AI 审批者的提示词。
+/// 上游节点到目前为止产出了什么。
 ///
-/// 三件事必须在里面：**这一步会执行什么**（脚本原文 / 配置）、
-/// **判定成了什么风险**、**答复要长什么样**。
+/// 从 `Scope` 取而不是让调度器传进来：Scope 本来就是「这次运行到现在
+/// 攒下了什么」的权威副本，再开一条传递路径就多一处会不一致的地方。
 ///
-/// 脚本原文不能省。静态嗅探看不出 `PUSH="git push"; $PUSH`，
-/// 而 AI 看得出 —— 前提是它拿得到原文。只把节点类型发过去的话，
-/// 它只能对着「script.shell」这四个字表态，那种审批看起来在工作，
-/// 实际什么都没审。
-fn 审批提示词(node: &GraphNode, risk: RiskLevel) -> String {
-    let 风险说明 = match risk {
-        RiskLevel::ReadOnly => "只读（静态判定）",
-        RiskLevel::WorkspaceWrite => "会改这台机器上授权目录里的东西（可回滚）",
-        RiskLevel::ExternalWrite => "会写到这台机器之外（推送、开 PR、发布 —— 撤不回来）",
+/// 全量交给审批者，不挑。挑就要为每种上游节点维护一份「哪些字段重要」
+/// 的清单，而漏掉的那个恰恰可能是他要判断的依据。太长时截断 ——
+/// 一份几十 MB 的 stdout 发过去只会撑爆上下文。
+fn 上游产出(scope: &Scope) -> String {
+    /// 单个上游产出的上限。超了截断并说明 —— 悄悄截断的话，
+    /// 审批者会对着半份 diff 做判断，而它看起来是完整的
+    const 每项上限: usize = 8_000;
+
+    let snapshot = scope.snapshot();
+    let Some(outputs) = snapshot.get("outputs").and_then(serde_json::Value::as_object) else {
+        return String::new();
     };
 
-    // 配置整份发过去，不挑字段。挑字段就要为每种节点类型维护一份
-    // 「哪些字段重要」的清单，而漏掉的那个字段恰恰可能是关键的
-    let 配置 = serde_json::to_string_pretty(&node.config).unwrap_or_else(|_| "{}".to_string());
+    let mut 材料 = String::new();
+    for (key, value) in outputs {
+        let 文本 = match value {
+            serde_json::Value::String(text) => text.clone(),
+            other => serde_json::to_string_pretty(other).unwrap_or_default(),
+        };
+        材料.push_str(&format!("--- {key} ---\n"));
+        if 文本.chars().count() > 每项上限 {
+            let 前半: String = 文本.chars().take(每项上限).collect();
+            材料.push_str(&前半);
+            材料.push_str(&format!(
+                "\n…（这一项太长，只给了前 {每项上限} 个字。完整内容在运行详情的产物里）\n"
+            ));
+        } else {
+            材料.push_str(&文本);
+            材料.push('\n');
+        }
+    }
+    材料
+}
+
+/// 交给 AI 审批者的提示词。
+///
+/// 这是一道**门**，不是一个执行节点。所以要说清三件事：
+/// 这道门守的是什么（标题与正文，工作流作者写给审批者看的）、
+/// **上游刚做完了什么**（那是他要判断的材料）、答复要长什么样。
+///
+/// 上游产出不能省。只把门的标题发过去的话，AI 只能对着
+/// 「检查 Diff 与风险」这几个字表态 —— 那种审批看起来在工作，
+/// 实际什么都没审。
+fn 审批提示词(node: &GraphNode, 上游: &str) -> String {
+    let 正文 = node
+        .config
+        .get("bodyMarkdown")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or("");
+
+    let 标题 = node
+        .config
+        .get("title")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or(&node.title);
+
+    let 材料 = if 上游.trim().is_empty() {
+        "（上游没有产出可看 —— 这本身就值得怀疑：\
+         一道审批门前面通常有一步刚做完的事）"
+            .to_string()
+    } else {
+        format!("```\n{上游}\n```")
+    };
 
     format!(
-        "你是这条工作流的审批者。下面这一步即将执行，请判断放行还是拒绝。\n\
+        "你是这条工作流上的审批者。前面一步刚做完，现在到了一道门，\
+         请判断放行还是拒绝。\n\
          \n\
-         节点：{}（类型 {}）\n\
-         静态风险判定：{风险说明}\n\
+         这道门：{标题}\n\
+         {正文}\n\
          \n\
-         它的完整配置：\n\
-         ```json\n{配置}\n```\n\
+         上游刚产出的东西：\n\
+         {材料}\n\
          \n\
          判断依据：\n\
-         - 这一步做的事情，是不是这个节点的标题与配置所描述的那件事\n\
-         - 有没有超出范围的副作用（删除、推送、改动无关文件、外发数据）\n\
-         - 静态判定可能低估：脚本里 `CMD=\"git push\"; $CMD` 这类写法\n\
-           判定看不出来，你要自己看原文\n\
+         - 上游做的是不是这条工作流该做的那件事，有没有跑偏\n\
+         - 有没有超出范围的改动（碰了无关文件、删了不该删的、外发了数据）\n\
+         - 放行之后接下来会真的执行 —— 包括推分支、开 PR 这类别人看得见的操作\n\
          \n\
-         拿不准就拒绝 —— 拒绝只是把决定交回给人，放行是不可逆的。\n\
+         拿不准就拒绝 —— 拒绝只是让工作流走另一条分支，放行是不可逆的。\n\
          \n\
          答复格式（第一行必须是这个，且只出现一次）：\n\
          DECISION: APPROVE 或 DECISION: REJECT\n\
-         第二行起写一句话理由。",
-        node.title, node.node_type
+         第二行起写一句话理由。"
     )
 }
 
@@ -296,6 +353,7 @@ impl NodeExecutor {
             permission_preset: "human_approval".to_string(),
             approved_nodes: Vec::new(),
             last_gate_prompt: std::sync::Mutex::new(None),
+            notifier: None,
             capabilities: None,
             agent_profiles: Vec::new(),
             resolutions: std::sync::Mutex::new(Vec::new()),
@@ -418,45 +476,28 @@ impl NodeExecutor {
         self
     }
 
-    /// 这个节点要的能力，角色给了没有。
+    /// 角色声明的能力**不再由引擎强制**。
     ///
-    /// **只管挂得上角色的节点**，也就是四个 AI 节点 —— 能力是从
-    /// `profile_for(node)` 取的，而它只认 config 里的 `agentProfileId`。
+    /// 上一版在这里逐项拦：角色的「文件」权限不是可读写就不让
+    /// `ai.execute` 跑。现在的设计是**权限由流程管** ——
+    /// 执行节点拿最高权限，要不要停下来问由工作流里有没有
+    /// 在那个位置放一道 `approval` 门决定。
     ///
-    /// 这里曾经还有 `script.shell` / `script.python` / `git.worktree`
-    /// 三支，它们的 configSchema 里没有 `agentProfileId`，于是
-    /// `profile_for` 永远 None、那三支一次都没走到过。而「Agent 角色」页
-    /// 照着它们向用户承诺「引擎强制，Prompt 无法越权」：
-    /// 用户把「命令」调成「不允许」，脚本节点照跑。
-    /// 一道看得见摸不着的防线比没有更糟 —— 删掉，
-    /// 并把角色页那句话的作用范围写清楚。
-    ///
-    /// 脚本与 worktree 不是没人管：它们在 `SIDE_EFFECT_NODES` 里，
-    /// `review_every_change` 档会挂起等用户逐项审批。那条是真的。
-    ///
-    /// 返回 Err 里带的是**面向用户的**说明：「命令执行未授权」比
-    /// 「capability denied」有用得多 —— 用户要知道去哪儿改。
-    fn check_capability(&self, node: &GraphNode) -> std::result::Result<(), String> {
-        // 节点挂着角色时以角色的能力为准 —— 那是用户在「Agent 角色」屏上
-        // 逐项设过的东西。运行级的 capabilities 是兜底
-        let 角色的 = self
-            .profile_for(node)
-            .and_then(|profile| serde_json::from_str(&profile.capabilities_json).ok());
-        let caps: serde_json::Value = match (角色的, &self.capabilities) {
-            (Some(value), _) => value,
-            (None, Some(value)) => value.clone(),
-            (None, None) => return Ok(()),
-        };
-        let caps = &caps;
-        // 认不出的值一律当「不允许」。
+    /// capabilities 字段留着，但它的身份变了：从「引擎强制的边界」
+    /// 变成「写进提示词交给 agent 的约束说明」。
+    /// **Agent 角色页上那句「引擎强制，Prompt 无法越权」必须跟着改** ——
+    /// 界面承诺一件实现里没有的事，比不承诺更糟。
+    fn capability_note(&self, node: &GraphNode) -> Option<String> {
+        let profile = self.profile_for(node)?;
+        let caps: serde_json::Value = serde_json::from_str(&profile.capabilities_json).ok()?;
+        // **枚举外的值一律当成 none。**
         //
-        // 能力声明是安全边界，而安全判断里认不出的输入只能往严了算 ——
-        // 原来是 `.unwrap_or("none")` 只兜住「字段缺席」，一个**拼错的值**
-        // （`"随便写的"`、大小写不对的 `"ANY"`）会原样穿过后面每一条
-        // `== "none"` 的比较，等于放行。CLAUDE.md 那句「认不出的档位
-        // 按最严处理」说的正是这件事
-        let level = |key: &str| {
-            let 合法值: &[&str] = match key {
+        // 直接把库里那个字符串念给 agent 听的话，一个拼错的
+        // `"READ-WRITE"` 会让它以为自己被授权做一件用户没授权的事。
+        // 认不出的输入在安全判断里只能往严了算 —— 这里虽然只是提示词，
+        // 但说错的后果与放行是一样的
+        let level = |key: &str| -> String {
+            let 枚举: &[&str] = match key {
                 "file" | "memory" => &["none", "read", "read-write"],
                 "command" => &["none", "declared", "any"],
                 "network" => &["none", "allowlist", "any"],
@@ -464,29 +505,19 @@ impl NodeExecutor {
             };
             caps.get(key)
                 .and_then(serde_json::Value::as_str)
-                .filter(|value| 合法值.contains(value))
+                .filter(|value| 枚举.contains(value))
                 .unwrap_or("none")
                 .to_string()
         };
-
-        // 用 match guard 而不是嵌 if：每一支就是「哪种节点 + 缺哪项能力」
-        match node.node_type.as_str() {
-            // ai.execute 两样都要：agent 会改文件，也会跑命令。
-            // 这两支曾经不存在 —— 角色页写着「权限（引擎强制，Prompt 无法越权）」，
-            // 而这个节点把一个自主 agent 放进工作目录时一项都不查
-            "ai.execute" if level("file") != "read-write" => Err(
-                "这个角色的「文件」权限不是「可读写」，改不了工作目录里的文件。\
-                 在「Agent 角色」里改它的权限声明"
-                    .to_string(),
-            ),
-            "ai.execute" if level("command") == "none" => {
-                Err("这个角色的「命令」权限是「不允许」，agent 跑不了验证命令。\
-                 在「Agent 角色」里改它的权限声明"
-                    .to_string())
-            }
-            _ => Ok(()),
-        }
+        Some(format!(
+            "这个角色声明的边界：文件 {} · 命令 {} · 网络 {}。\
+             请自觉遵守 —— 超出范围的事先停下来说明，不要直接做。",
+            level("file"),
+            level("command"),
+            level("network"),
+        ))
     }
+
 
     /// 这次运行按哪一档权限执行。
     ///
@@ -499,6 +530,17 @@ impl NodeExecutor {
         self
     }
 
+    /// 接上系统通知的发送器。
+    ///
+    /// 桌面壳注入一个走 `tauri-plugin-notification` 的实现。
+    /// 不注入时 `notify` 节点报「这个环境发不了系统通知」——
+    /// 那是真话，而「发送成功」不是。
+    #[must_use]
+    pub fn with_notifier(mut self, notifier: std::sync::Arc<dyn Notifier>) -> Self {
+        self.notifier = Some(notifier);
+        self
+    }
+
     /// 已经被用户批准过的节点。恢复执行时靠它跳过重复的审批。
     #[must_use]
     pub fn with_approved_nodes(mut self, node_ids: &[String]) -> Self {
@@ -506,58 +548,69 @@ impl NodeExecutor {
         self
     }
 
-    /// 这个节点该由谁放行。
+    /// 这道审批门该由谁批。
     ///
-    /// 判定不再看**节点类型**，看这一步会造成什么（`risk::node_risk`）——
-    /// 上一版按类型一刀切，于是一条只读的 `gh issue view` 因为属于
-    /// `script.shell` 而被拦在最严档下。用户的原话：
-    /// 「现在连读取 issue 都需要用户审批」。
+    /// **只对 `approval` 节点有意义。** 执行节点不再被自动拦截 ——
+    /// 权限由流程管：要不要停下来问，取决于工作流里有没有在这个位置
+    /// 放一道门，不取决于节点属于哪种类型或脚本里写了什么。
     ///
-    /// 认不出的档位按最严处理：库里可能躺着上一版的值
-    /// （`review_every_change` 那三个），而静默放行等于把门让出去。
+    /// 上一版按风险自动拦截，结果是「读一个 Issue 也要人点一次」。
     #[must_use]
     pub fn decider_for(&self, node: &GraphNode) -> ApprovalDecider {
-        // 批过一次就不再问。恢复运行时靠它不停在同一个节点上
-        if self.approved_nodes.iter().any(|id| id == &node.id) {
-            return ApprovalDecider::None;
-        }
-        approval_decider(&self.permission_preset, node_risk(node))
+        let node_decider = node
+            .config
+            .get("decider")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("auto");
+        approval_decider(&self.permission_preset, node_decider)
     }
 
-    /// 最严档下会先问一句的节点类型。
+    /// 一条工作流里的哪些节点是门。
     ///
-    /// 从契约的基线风险派生，不再是手写名单 —— 手写的那份会与契约分叉，
-    /// 而分叉的症状是设置页照着它向用户承诺了一件引擎不做的事。
-    ///
-    /// 注意这是**类型**层面的清单，只能回答「哪些类型可能被拦」。
-    /// 具体某个节点拦不拦要看内容（`script.shell` 里装的是
-    /// `git log` 还是 `git push`），那由 [`decider_for`] 回答。
+    /// 就是 `approval` 节点 —— 暴露出来是给 Dry Run 用的：
+    /// 运行之前要能告诉用户「这条工作流有几道门、分别在哪」，
+    /// 那是「权限由流程管」这个设计唯一的兜底。
     #[must_use]
-    pub fn side_effect_nodes() -> Vec<&'static str> {
-        crate::catalog::node_types()
-            .into_iter()
-            .filter(|kind| base_risk(kind) != RiskLevel::ReadOnly)
-            .collect()
+    pub fn is_gate(node: &GraphNode) -> bool {
+        node.node_type == "approval"
     }
 
-    /// 只跑执行**之前**那两道关：审批与能力声明。
+    /// 只跑执行**之前**那道关。
     ///
-    /// 放行时返回 `None`。抽出来是因为这两道关本身值得单独测 ——
+    /// 放行时返回 `None`。抽出来是因为这道关本身值得单独测 ——
     /// 走完整的 `execute` 会真的起进程、连 adapter，
     /// 而要验证的只是「它到底拦不拦」。
     ///
     /// **AI 审批不在这里**：它要起一个 adapter 进程，而这个方法的用途
-    /// 之一就是「不起进程地问一句拦不拦」。AI 那一档在
+    /// 之一就是「不起进程地问一句拦不拦」。AI 那一支在
     /// [`execute_with_sink`] 里走。
     #[must_use]
     pub fn precheck(&self, node: &GraphNode) -> Option<NodeOutcome> {
+        if !Self::is_gate(node) {
+            return None;
+        }
+        // 批过一次就不再问。恢复运行时靠它不停在同一道门上
+        if self.approved_nodes.iter().any(|id| id == &node.id) {
+            return None;
+        }
         if self.decider_for(node) == ApprovalDecider::Human {
             return Some(NodeOutcome::NeedsApproval);
         }
-        match self.check_capability(node) {
-            Err(message) => Some(NodeOutcome::Failed { message }),
-            Ok(()) => None,
-        }
+        None
+    }
+
+    /// 审批者用哪个 runtime。
+    ///
+    /// 节点上写了 `deciderAgentProfileId` 就用那个角色的，否则用默认。
+    /// **刻意与执行的角色分开**：让写代码的那个 agent 自己批自己的改动，
+    /// 等于没有这道门。
+    fn gate_runtime(&self, node: &GraphNode) -> String {
+        node.config
+            .get("deciderAgentProfileId")
+            .and_then(serde_json::Value::as_str)
+            .filter(|id| !id.is_empty())
+            .and_then(|id| self.agent_profiles.iter().find(|p| p.id == id))
+            .map_or_else(|| self.resolved_runtime(node), |p| p.runtime.clone())
     }
 
     /// AI 审批者最近一次收到的提示词。
@@ -579,9 +632,8 @@ impl NodeExecutor {
     /// fail closed 在这里不是保守习惯而是必需的：审批者请不来时放行，
     /// 等于「AI 审批」这一档在没装 adapter 的机器上把所有门都打开了，
     /// 而用户在设置里读到的是「AI 会替你把关」。
-    fn ai_gate(&self, node: &GraphNode, sink: &EventSink<'_>) -> AiVerdict {
-        let risk = node_risk(node);
-        let prompt = 审批提示词(node, risk);
+    fn ai_gate(&self, node: &GraphNode, scope: &Scope, sink: &EventSink<'_>) -> AiVerdict {
+        let prompt = 审批提示词(node, &上游产出(scope));
         if let Ok(mut slot) = self.last_gate_prompt.lock() {
             *slot = Some(prompt.clone());
         }
@@ -589,25 +641,20 @@ impl NodeExecutor {
         // 先说一句「正在审批」再去问。
         //
         // AI 审批要起一个 adapter 进程、跑一轮对话，几十秒是常事 ——
-        // 这期间界面上那个节点如果什么都不显示，用户看到的就是「卡住了」，
+        // 这期间界面上那道门如果什么都不显示，用户看到的就是「卡住了」，
         // 而他并不知道有一次审批正在进行
         sink(NodeEvent {
             kind: "approval.requested",
             node_id: node.id.clone(),
-            summary: format!(
-                "交给 AI 审批（{}）",
-                match risk {
-                    RiskLevel::ExternalWrite => "外部写操作",
-                    RiskLevel::WorkspaceWrite => "工作区内写操作",
-                    RiskLevel::ReadOnly => "只读",
-                }
-            ),
+            summary: format!("交给 AI 审批：{}", node.title),
             payload_ref: self.save_output(&node.id, "approval-prompt.md", &prompt),
         });
 
-        // 审批者用这次运行的默认工作目录。它只读配置，不该进 worktree
+        // 审批者用这次运行的默认工作目录。它只读，不该进 worktree
         let cwd = self.workdir.display().to_string();
-        let runtime = self.resolved_runtime(node);
+        // 审批者的角色刻意与执行的分开：让写代码的那个 agent
+        // 自己批自己的改动，等于没有这道门
+        let runtime = self.gate_runtime(node);
 
         let answer = match self.ask_once(&runtime, &cwd, &prompt, 审批超时) {
             Ok(text) => text,
@@ -748,37 +795,42 @@ impl NodeExecutor {
         scope: &mut Scope,
         sink: &EventSink<'_>,
     ) -> Result<NodeOutcome> {
-        // 审批档先说话。引擎不拦的话，设置屏那三张卡就只是三个好看的卡片。
+        // 审批门先说话。引擎不拦的话，设置屏那三张卡就只是三个好看的卡片。
         //
-        // 审批与能力检查都在**起进程之前**：拦晚了脚本已经写了文件才报错，
-        // 而那时副作用已经发生
+        // **只有 `approval` 节点会被拦**：权限由流程管，执行节点拿最高权限。
+        // 一条没放 approval 节点的工作流会一路跑到底，包括 push
         if let Some(outcome) = self.precheck(node) {
             return Ok(outcome);
         }
 
-        // AI 那一档要起 adapter 进程，所以不在 precheck 里 ——
-        // 那个方法的用途之一就是「不起进程地问一句拦不拦」
-        if self.decider_for(node) == ApprovalDecider::Ai {
-            match self.ai_gate(node, sink) {
-                AiVerdict::Approved => {}
-                AiVerdict::Rejected { reason } => {
-                    return Ok(NodeOutcome::Failed {
-                        message: format!("AI 审批未通过：{reason}"),
-                    });
-                }
-                // 判不了就交回给人。这一支是 fail closed 的落点：
-                // adapter 连不上、超时、答复里没有明确决定都会走到这里
-                AiVerdict::CannotDecide => return Ok(NodeOutcome::NeedsApproval),
-            }
-        }
-
         match node.node_type.as_str() {
-            "entry" | "end" | "notify" => Ok(NodeOutcome::Succeeded {
+            // entry / end 什么都不做是**对的** —— 它们就是标记。
+            //
+            // `notify` 曾经也在这一档里：什么都不做，返回成功。
+            // 于是用户第一条能跑的工作流，最后一个节点是绿的、
+            // 什么也不会发生（DEBT.md 的 B-1）
+            "entry" | "end" => Ok(NodeOutcome::Succeeded {
                 port: "success".to_string(),
             }),
 
-            // 审批是引擎强制的暂停点，执行器不做决定
-            "approval" => Ok(NodeOutcome::NeedsApproval),
+            "notify" => self.run_notify(node, scope, sink),
+
+            // 一道门。走到这里说明 precheck 判的是「交给 AI」——
+            // 判「交给人」的那一支在 precheck 里就返回 NeedsApproval 了
+            "approval" => match self.ai_gate(node, scope, sink) {
+                AiVerdict::Approved => Ok(NodeOutcome::Succeeded {
+                    port: "approved".to_string(),
+                }),
+                // AI 说不行就走 rejected 端口，让工作流自己决定接下来怎么办
+                // （内置模板把它接到一个 outcome 为 failure 的终点）——
+                // 而不是让整个节点失败，那样图上那条边就白连了
+                AiVerdict::Rejected { .. } => Ok(NodeOutcome::Succeeded {
+                    port: "rejected".to_string(),
+                }),
+                // 判不了就交回给人。这一支是 fail closed 的落点：
+                // adapter 连不上、超时、答复里没有明确决定都会走到这里
+                AiVerdict::CannotDecide => Ok(NodeOutcome::NeedsApproval),
+            },
 
             "script.shell" => self.run_shell(node, scope, sink),
             "git.worktree" => self.run_worktree(node, scope, sink),
@@ -790,6 +842,102 @@ impl NodeExecutor {
             other => Ok(NodeOutcome::Failed {
                 message: format!("节点类型 {other} 尚未实现。这个节点不会被执行，运行到此为止"),
             }),
+        }
+    }
+
+    /// 发一条系统通知。
+    ///
+    /// 引擎自己发不了 —— 它是个库。真正的发送由外壳注入
+    /// （`with_notifier`），**没注入就明确报发不了**，不返回成功。
+    fn run_notify(
+        &self,
+        node: &GraphNode,
+        scope: &mut Scope,
+        sink: &EventSink<'_>,
+    ) -> Result<NodeOutcome> {
+        // 标题与正文在契约里都是 min(1) 的必填。缺了就报错，
+        // 不发一条空通知 —— 用户收到一个没有内容的横幅，
+        // 不知道是哪条工作流发的，比不发更糟
+        let title_raw = self.require_str(node, "title")?;
+        let body_raw = self.require_str(node, "body")?;
+
+        // 不插值的话，通知上写的是 `${input.issue}` 这串字面量
+        let interp = |raw: &str| -> std::result::Result<String, String> {
+            interpolate(raw, scope).map_err(|error| error.to_string())
+        };
+        let (title, body) = match (interp(&title_raw), interp(&body_raw)) {
+            (Ok(title), Ok(body)) => (title, body),
+            (Err(message), _) | (_, Err(message)) => {
+                return Ok(NodeOutcome::Failed { message });
+            }
+        };
+
+        let subtitle = node
+            .config
+            .get("subtitle")
+            .and_then(serde_json::Value::as_str)
+            .filter(|text| !text.trim().is_empty())
+            .and_then(|raw| interp(raw).ok());
+
+        let notification = Notification {
+            title,
+            subtitle,
+            body,
+            click_action: node
+                .config
+                .get("clickAction")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or("open_run")
+                .to_string(),
+            run_id: scope.run_id().to_string(),
+            node_id: node.id.clone(),
+        };
+
+        let 结果 = match &self.notifier {
+            Some(notifier) => notifier.send(&notification),
+            // 没有发送器 —— 这个环境（无头、Web、CI）发不了通知。
+            // 这句话是真的；「发送成功」不是
+            None => Err("这个环境发不了系统通知：桌面外壳没有接上通知发送器。\
+                         在 macOS App 里跑这条工作流才会真的弹出通知"
+                .to_string()),
+        };
+
+        // 发没发出去都要留事件。
+        //
+        // 通知发生在应用之外，事件流是**唯一**能回答「到底有没有发出去」
+        // 的地方 —— 而用户抱怨「我没收到通知」时，第一个要分清的就是
+        // 「没发」还是「发了但系统没显示」
+        let 摘要 = match &结果 {
+            Ok(()) => format!("已发出通知：{}", notification.title),
+            Err(reason) => format!("通知没能发出（{}）：{reason}", notification.title),
+        };
+        sink(NodeEvent {
+            kind: "system.notification_sent",
+            node_id: node.id.clone(),
+            summary: 摘要,
+            payload_ref: None,
+        });
+
+        match 结果 {
+            Ok(()) => Ok(NodeOutcome::Succeeded {
+                port: "success".to_string(),
+            }),
+            Err(reason) => {
+                // 通知是提醒不是产出。默认 ignore：发不出去就走 failed 端口
+                // 往下走，而不是把整条工作流拖挂
+                match node
+                    .config
+                    .get("onFailure")
+                    .and_then(serde_json::Value::as_str)
+                    .unwrap_or("ignore")
+                {
+                    "fail_node" => Ok(NodeOutcome::Failed { message: reason }),
+                    // retry 归调度器管（节点级重试策略），执行器这里与 ignore 同路
+                    _ => Ok(NodeOutcome::Succeeded {
+                        port: "failed".to_string(),
+                    }),
+                }
+            }
         }
     }
 
@@ -1166,6 +1314,16 @@ impl NodeExecutor {
                         "交出来的东西要是这个形状：{}\n",
                         profile.output_contract
                     ));
+                }
+                // 角色声明的边界写进提示词。
+                //
+                // 引擎不再逐项强制它（权限由流程管，见 risk.rs 头部）——
+                // 但那不等于这几个字段可以不生效。**填了不生效比报错更糟**：
+                // 用户在角色页上逐项设过它们，一个字都没到过模型面前的话，
+                // 那一屏就是装饰
+                if let Some(note) = self.capability_note(node) {
+                    prompt.push_str(&note);
+                    prompt.push('\n');
                 }
                 if !prompt.is_empty() {
                     prompt.push('\n');

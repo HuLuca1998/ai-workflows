@@ -29,55 +29,38 @@ fn 判定矩阵与契约逐格一致() {
     // TypeScript 那份在 packages/contracts/src/approval.ts。
     // 两份实现，所以这张表在两边各写一次 —— 值不一样时，
     // 用户在设置里选的那一档在引擎里就是另一个意思
-    let 矩阵: &[(&str, RiskLevel, ApprovalDecider)] = &[
-        ("human_approval", RiskLevel::ReadOnly, ApprovalDecider::None),
-        ("ai_assisted", RiskLevel::ReadOnly, ApprovalDecider::None),
-        ("unattended", RiskLevel::ReadOnly, ApprovalDecider::None),
-        (
-            "human_approval",
-            RiskLevel::WorkspaceWrite,
-            ApprovalDecider::Human,
-        ),
-        (
-            "ai_assisted",
-            RiskLevel::WorkspaceWrite,
-            ApprovalDecider::Ai,
-        ),
-        (
-            "unattended",
-            RiskLevel::WorkspaceWrite,
-            ApprovalDecider::Ai,
-        ),
-        (
-            "human_approval",
-            RiskLevel::ExternalWrite,
-            ApprovalDecider::Human,
-        ),
-        (
-            "ai_assisted",
-            RiskLevel::ExternalWrite,
-            ApprovalDecider::Human,
-        ),
-        ("unattended", RiskLevel::ExternalWrite, ApprovalDecider::Ai),
+    let 矩阵: &[(&str, &str, ApprovalDecider)] = &[
+        // 全都我来 —— 节点上写的 ai 也不作数
+        ("human_approval", "auto", ApprovalDecider::Human),
+        ("human_approval", "user", ApprovalDecider::Human),
+        ("human_approval", "ai", ApprovalDecider::Human),
+        // 节点说了算；没说时默认 AI
+        ("ai_assisted", "auto", ApprovalDecider::Ai),
+        ("ai_assisted", "user", ApprovalDecider::Human),
+        ("ai_assisted", "ai", ApprovalDecider::Ai),
+        // 全交给 AI —— 节点上写的 user 也不作数
+        ("unattended", "auto", ApprovalDecider::Ai),
+        ("unattended", "user", ApprovalDecider::Ai),
+        ("unattended", "ai", ApprovalDecider::Ai),
     ];
 
-    for (mode, risk, expected) in 矩阵 {
+    for (mode, node_decider, expected) in 矩阵 {
         assert_eq!(
-            approval_decider(mode, *risk),
+            approval_decider(mode, node_decider),
             *expected,
-            "{mode} × {risk:?} 判成了别的"
+            "{mode} × 节点写 {node_decider} 判成了别的"
         );
     }
 }
 
 #[test]
-fn 认不出的档位全部按人工处理() {
-    // 库里躺着上一版的档位名时走到这里。
-    // 静默放行的话，用户以为自己选了某一档，实际一道门都没有
+fn 认不出的档位一律回到人() {
+    // 库里躺着上一版的档位名时走到这里。静默交给 AI 的话，
+    // 用户以为自己设了一道要亲自批的门
     for 旧值 in ["review_every_change", "workspace_safe", "trusted_workflow", ""] {
-        for risk in [RiskLevel::WorkspaceWrite, RiskLevel::ExternalWrite] {
+        for node_decider in ["auto", "user", "ai"] {
             assert_eq!(
-                approval_decider(旧值, risk),
+                approval_decider(旧值, node_decider),
                 ApprovalDecider::Human,
                 "{旧值} 被当成了已知档位"
             );
@@ -86,13 +69,18 @@ fn 认不出的档位全部按人工处理() {
 }
 
 #[test]
-fn 无人值守也要留下是谁放行的() {
-    // 返回 None 就没有 approval.decided 事件，
-    // 事后没人能回答「这次 push 是谁批的」
-    assert_eq!(
-        approval_decider("unattended", RiskLevel::ExternalWrite),
-        ApprovalDecider::Ai
-    );
+fn 没有不用批这一档() {
+    // 审批节点是工作流作者显式放下的一道门。让某个档位把它整个跳过，
+    // 等于让设置页悄悄改写工作流的形状
+    for mode in ["human_approval", "ai_assisted", "unattended"] {
+        for node_decider in ["auto", "user", "ai"] {
+            let d = approval_decider(mode, node_decider);
+            assert!(
+                matches!(d, ApprovalDecider::Ai | ApprovalDecider::Human),
+                "{mode} × {node_decider} 给出了第三种结果"
+            );
+        }
+    }
 }
 
 // -------------------------------------------------------------- 旧值迁移

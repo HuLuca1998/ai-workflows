@@ -1,37 +1,22 @@
 import { useEffect, useState } from 'react';
-import type { PERMISSION_PRESETS } from '@aiwf/contracts';
+import { APPROVAL_MODES, APPROVAL_MODE_LABELS, migrateApprovalMode } from '@aiwf/contracts';
 import { coreClient } from '../data/workspace.js';
 
 /**
- * 权限策略三档 —— 严格照图纸「05 设置与环境」的三张并排卡。
+ * 审批三档 —— 用户选的是**谁来批**，不是「哪一类操作要批」。
  *
- * 这三档**引擎真的按它办事**：`review_every_change` 下有副作用的节点
- * （脚本、worktree、commit、PR、MCP 工具）会先挂起等审批。
+ * 这三档**引擎真的按它办事**（`crates/engine/src/risk.rs`）：
+ * 风险由这一步会造成什么决定，不由节点属于哪种类型决定。
  * 界面能选而引擎不拦的话，那是假的安全感 —— 比没有更糟。
+ *
+ * 文案取自契约的 `APPROVAL_MODE_LABELS`，这里不再抄一份：
+ * 设置页、引导页、运行页的审批卡片说的必须是同一件事，
+ * 各写一份的时候同一个档位在三个地方承诺的东西会不一样。
  */
-
-/** 文案一字不差照图纸。 */
-const CARDS: { id: (typeof PERMISSION_PRESETS)[number]; name: string; detail: string }[] = [
-  {
-    id: 'review_every_change',
-    name: 'Review Every Change',
-    detail: '文件写入、命令与外部写操作逐项审批。适合陌生工作流。',
-  },
-  {
-    id: 'workspace_safe',
-    name: 'Workspace Safe',
-    detail: '授权目录内可读写与执行已声明命令；Push、PR、删除仍需审批。',
-  },
-  {
-    id: 'trusted_workflow',
-    name: 'Trusted Workflow',
-    detail: '对指定已发布版本沿用保存策略；权限扩大后自动失效。',
-  },
-];
 
 export function PermissionPolicy() {
   // 没读到之前按最严的显示 —— 引擎也是这么办的
-  const [preset, setPreset] = useState<string>('review_every_change');
+  const [mode, setMode] = useState<string>('human_approval');
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -40,7 +25,9 @@ export function PermissionPolicy() {
       .call('workspace.settings', {})
       .then((result) => {
         const current = (result as { permissionPreset?: string }).permissionPreset;
-        if (!cancelled && current) setPreset(current);
+        // 库里可能躺着上一版的档位名。不迁移的话它落到「认不出」那一支，
+        // 界面显示最严档而用户从没选过它
+        if (!cancelled && current) setMode(migrateApprovalMode(current));
       })
       .catch(() => {
         // 读不到就按最严的显示，不报错 —— 那与引擎的默认一致
@@ -51,22 +38,22 @@ export function PermissionPolicy() {
   }, []);
 
   const choose = async (next: string) => {
-    if (next === preset) return;
+    if (next === mode) return;
     setError(null);
-    const previous = preset;
-    setPreset(next);
+    const previous = mode;
+    setMode(next);
     try {
       await coreClient.call('workspace.updateSettings', { permissionPreset: next });
     } catch (err) {
       // 写失败就退回去：留一个假的选中态，用户会以为已经改了
-      setPreset(previous);
+      setMode(previous);
       setError(err instanceof Error ? err.message : String(err));
     }
   };
 
   return (
     <section className="permission">
-      <h5 className="permission__title">权限策略</h5>
+      <h5 className="permission__title">谁来审批</h5>
 
       {error ? (
         <p className="runs__error" role="alert">
@@ -74,36 +61,38 @@ export function PermissionPolicy() {
         </p>
       ) : null}
 
-      <div className="permission__cards" role="radiogroup" aria-label="权限策略">
-        {CARDS.map((card) => (
-          <label key={card.id} className="permission__card" data-active={preset === card.id}>
-            <input
-              type="radio"
-              name="permission-preset"
-              className="sr-only"
-              checked={preset === card.id}
-              onChange={() => void choose(card.id)}
-            />
-            <span className="permission__card-name">
-              {preset === card.id ? (
-                <i className="ph-fill ph-radio-button" aria-hidden="true" />
-              ) : null}
-              {card.name}
-            </span>
-            <span className="permission__card-detail">{card.detail}</span>
-          </label>
-        ))}
+      <div className="permission__cards" role="radiogroup" aria-label="审批策略">
+        {APPROVAL_MODES.map((id) => {
+          const card = APPROVAL_MODE_LABELS[id];
+          return (
+            <label key={id} className="permission__card" data-active={mode === id}>
+              <input
+                type="radio"
+                name="approval-mode"
+                className="sr-only"
+                checked={mode === id}
+                onChange={() => void choose(id)}
+              />
+              <span className="permission__card-name">
+                {mode === id ? <i className="ph-fill ph-radio-button" aria-hidden="true" /> : null}
+                {card.name}
+              </span>
+              <span className="permission__card-detail">{card.detail}</span>
+            </label>
+          );
+        })}
       </div>
 
-      {/* 说清对运行的实际影响：不说的话用户不知道选了会怎样。
-          这里点名的每一类都必须真的会挂起 —— 原来写的是
-          「脚本、worktree、commit、PR 与 MCP 工具节点」，
-          而 commit 与 PR **在契约里根本不是节点类型**，
-          真正会挂起的那个（AI 执行）反倒没提。
+      {/* 说清对运行的实际影响。这里点名的每一件事都必须真的成立 ——
           承诺得比实际多，比不承诺更糟 */}
       <p className="permission__note">
-        选「Review Every Change」时，脚本、AI 执行、worktree 与 MCP 工具节点
-        会在执行前挂起等你审批；批准过的节点恢复运行时不再重复询问。
+        判断的是**这一步会造成什么**，不是它属于哪种节点：一条只读的{' '}
+        <code>gh issue view</code> 三档都不拦，而一条 <code>git push</code> 只有在「无人值守」下
+        才不问你。脚本节点按内容判定，判不出来时按「会改工作区」算 —— 多问一次是麻烦，不问是把边界让出去了。
+      </p>
+      <p className="permission__note">
+        静态判断看不出 <code>CMD=&quot;git push&quot;; $CMD</code> 这类写法。
+        「AI 审批」两档下 AI 拿到的是脚本原文，它认得出；要逐字精确的控制就选第一档。
       </p>
     </section>
   );

@@ -109,11 +109,14 @@ describe('角色详情', () => {
     expect(detail.textContent).toContain('结构化 JSON');
   });
 
-  it('权限那块说明它由引擎强制，并说清管到哪儿', async () => {
+  it('权限那块说清它是怎么生效的 —— 引擎不强制，写进提示词', async () => {
+    // 引擎的 check_capability 已经撤了（权限由流程管）。
+    // 界面上留着「引擎强制」那句话的话，用户把「命令」调成「不允许」
+    // 会以为引擎真的会拦 —— 承诺一件实现里没有的事，比不承诺更糟
     const user = userEvent.setup();
     view();
     await user.click(await screen.findByRole('button', { name: /分析 Agent/u }));
-    expect(screen.getByText('权限（AI 节点执行前校验，Prompt 无法越权）')).toBeTruthy();
+    expect(screen.getByText('权限（写进提示词交给 agent，引擎不强制）')).toBeTruthy();
   });
 
   it('底部说明节点能覆盖什么、不能覆盖什么', async () => {
@@ -264,15 +267,13 @@ describe('权限、工具白名单、输出契约可配', () => {
     });
   });
 
-  it('不出现无条件的那句「引擎强制」—— 它对脚本节点是假的', async () => {
-    // 图纸原话是「权限（引擎强制，Prompt 无法越权）」，而引擎的
-    // `check_capability` 只在挂得上角色的 AI 节点上取能力。
-    // 无条件写的话，用户把「命令」调成「不允许」会以为脚本节点也被管住了。
-    //
-    // 这条守的是「别改回去」：图纸已归档，界面以实现为准
+  it('不出现「引擎强制」这几个字 —— 引擎已经不强制了', async () => {
+    // 权限由流程管：执行节点拿最高权限，拦它的是工作流里的审批节点。
+    // 这条守的是「别改回去」—— 那句话现在是假的
     await 打开();
-    expect(screen.queryByText('权限（引擎强制，Prompt 无法越权）')).toBeNull();
-    expect(await screen.findByText(/Prompt 无法越权/u)).toBeTruthy();
+    expect(screen.queryByText(/引擎强制/u)).toBeNull();
+    expect(screen.queryByText(/Prompt 无法越权/u)).toBeNull();
+    expect(await screen.findByText(/写进提示词交给 agent/u)).toBeTruthy();
   });
 
   it('工具白名单能加能删 —— 图纸有「+ 添加」', async () => {

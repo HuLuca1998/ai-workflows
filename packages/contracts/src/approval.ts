@@ -4,63 +4,77 @@ import { NODE_TYPES, type NodeType } from './nodes/definitions.js';
 export { APPROVAL_MODES, RISK_LEVELS, type ApprovalMode, type RiskLevel };
 
 /**
- * 审批三档。
+ * 审批三档 —— **谁来批工作流里的那些门**。
  *
- * 用户选的不是「哪一类操作要确认」，而是**谁来确认**：
+ * | 档位             | 谁批                                             |
+ * | ---------------- | ------------------------------------------------ |
+ * | `human_approval` | 每一道门都我批                                   |
+ * | `ai_assisted`    | AI 批，节点上标了「必须我批」的除外               |
+ * | `unattended`     | 全交给 AI，包括标了「必须我批」的                 |
  *
- * | 档位             | 谁批                                       |
- * | ---------------- | ------------------------------------------ |
- * | `human_approval` | 有副作用的都我批                           |
- * | `ai_assisted`    | AI 批常规的，外部写留给我                  |
- * | `unattended`     | 全交给 AI，包括 push 与建 PR               |
+ * ## 权限由流程管，不由节点各自管
  *
- * 这三档替换了原来的 `review_every_change` / `workspace_safe` /
- * `trusted_workflow`。旧的那组按「操作类别」切，结果是最严那档把
- * `script.shell` **整类**都拦下 —— 一条只读的 `gh issue view` 也要人点一次。
- * 真正决定要不要问人的是这一步会造成什么，不是它属于哪种节点。
+ * 执行节点拿到的是**最高权限** —— 不再逐个节点声明能读什么、能跑什么。
+ * 要不要停下来问，由工作流的形状决定：在「探索完成 → 开始编辑」之间、
+ * 在「编码完成 → 开 PR」之间放一个 `approval` 节点，那两处就是关卡。
+ *
+ * 这条的代价必须说清楚：**一条没放 approval 节点的工作流会一路跑到底**，
+ * 包括 push 与建 PR。引擎不再按节点类型或脚本内容替你兜底 ——
+ * 那道兜底曾经存在，而它带来的是「读一个 Issue 也要人点一次」。
+ *
+ * 兜底换成了别的东西：节点库里那句话、审批节点的默认位置（内置模板里
+ * 两道门都在）、以及运行前的 Dry Run 会列出这条工作流有几道门。
  */
 
-/** 这一步由谁放行。`none` = 不用问，直接跑。 */
-export type ApprovalDecider = 'none' | 'ai' | 'human';
+/** 这一道门由谁放行。 */
+export type ApprovalDecider = 'ai' | 'human';
+
+/** 审批节点上写的裁决者。`auto` = 跟随全局档位。 */
+export const NODE_DECIDERS = ['auto', 'user', 'ai'] as const;
+export type NodeDecider = (typeof NODE_DECIDERS)[number];
 
 /**
- * 谁来批这一步。
+ * 一道审批门由谁批。
  *
- * **认不出的值一律从严**：数据库里可能躺着上一版的档位名（旧的三档），
- * 契约里可能加了新节点而基线风险表没跟上。静默放行的话，
- * 用户以为自己选的是某一档，实际一道门都没有。
+ * 两个输入：节点上写的（工作流作者的意图）与全局档位（用户当下想被打扰多少）。
+ * **全局档位覆盖节点** —— 那是设置页那三张卡的意义所在：
+ * 用户选「无人值守」时，连标了「必须我批」的门也交给 AI，
+ * 否则那一档就不叫无人值守。
+ *
+ * 认不出的值一律回到人 —— 库里可能躺着上一版的档位名，
+ * 静默放行等于用户以为设了一道门而实际没有。
  */
-export function approvalDecider(mode: ApprovalMode, risk: RiskLevel): ApprovalDecider {
-  const 已知档位 = (APPROVAL_MODES as readonly string[]).includes(mode);
-  if (!已知档位) return 'human';
+export function approvalDecider(mode: ApprovalMode, nodeDecider?: NodeDecider): ApprovalDecider {
+  if (!(APPROVAL_MODES as readonly string[]).includes(mode)) return 'human';
 
-  // 认不出的风险等级按最高那档算
-  const 实际风险: RiskLevel = (RISK_LEVELS as readonly string[]).includes(risk)
-    ? risk
-    : 'external_write';
+  switch (mode) {
+    // 全都我来 —— 节点上写的 ai 也不作数
+    case 'human_approval':
+      return 'human';
 
-  if (实际风险 === 'read_only') return 'none';
+    // 全交给 AI —— 节点上写的 user 也不作数
+    case 'unattended':
+      return 'ai';
 
-  if (mode === 'human_approval') return 'human';
-
-  // ai_assisted 与 unattended 的**唯一**差别就在这里：
-  // 「关键节点用户审批」这句话的全部内容就是外部写这一格
-  if (mode === 'ai_assisted' && 实际风险 === 'external_write') return 'human';
-
-  return 'ai';
+    // 节点说了算。没说（auto）时默认 AI 批 ——
+    // 这一档的名字就是「AI 审批，关键节点用户审批」，
+    // 而「关键」由工作流作者在节点上标出来
+    default:
+      return nodeDecider === 'user' ? 'human' : 'ai';
+  }
 }
 
 /**
- * 节点类型的**基线**风险。
+ * 节点类型的基线风险。
  *
- * 叫基线是因为它只是下限：`script.shell` 的实际风险取决于脚本内容 ——
- * 同一个节点类型，`git log` 与 `git push` 不是一回事。引擎按脚本内容
- * 往上调（`crates/engine/src/risk.rs`），**只上调不下调**：
- * 嗅探漏了一种写法时，结果是多问一次，而不是放过一次。
+ * **这不再是一道门，是一句说明。** 风险判定曾经用来自动拦截，
+ * 结果是「读一个 Issue 也要人点一次」—— 现在拦不拦由工作流里的
+ * `approval` 节点决定，而这张表的用途是**告诉批的那个人（或 AI）
+ * 接下来会发生什么**：审批界面上那句「这一步会写到这台机器之外」
+ * 就是从这里来的。
  *
- * 这张表必须覆盖 `NODE_TYPES` 全部 —— 漏一个就是漏一道门，
- * 而漏掉的那个会以 `read_only` 的形态被三档全部放行。
- * `tests/approval.test.ts` 盯着这件事。
+ * 仍然要覆盖 `NODE_TYPES` 全部：漏一个，审批界面上那一栏就是空的，
+ * 而批的人得自己去猜。`tests/approval.test.ts` 盯着这件事。
  */
 const BASE_RISK: Record<NodeType, RiskLevel> = {
   // 什么都不做，或只读上游产出
@@ -119,20 +133,32 @@ export const APPROVAL_MODE_LABELS: Record<
 > = {
   human_approval: {
     name: '我来审批',
-    summary: '每一步有副作用的操作都问我',
+    summary: '工作流里的每一道门都由你批',
     detail:
-      '改文件、起进程、推分支、建 PR 都会停下来等你点。只读操作（看 Issue、读日志、跑分析）不拦。',
+      '节点上标了「交给 AI」的门也会停下来等你。适合第一次跑一条陌生的工作流 —— 你会看到它每一步想做什么。',
   },
   ai_assisted: {
     name: 'AI 审批，关键步骤问我',
-    summary: 'AI 放行常规操作，外部写操作留给你',
+    summary: '门由 AI 批，标了「必须我批」的除外',
     detail:
-      '改工作区里的文件、跑验证命令由 AI 判断放不放行，并写清理由；push、建 PR、删远端这类别人看得见的操作仍然停下来等你。',
+      'AI 会读这一步要做什么，给出放行或拒绝并写清理由。工作流作者标为「必须我批」的那几道门仍然停下来等你 —— 通常是开 PR 之前那一道。',
   },
   unattended: {
     name: '无人值守',
-    summary: '全部交给 AI，包括推分支与建 PR',
+    summary: '所有门都交给 AI，包括标了「必须我批」的',
     detail:
-      'AI 对每一步都给出放行或拒绝的判断并留档，全程不打断你。适合你已经跑过几遍、清楚这条工作流会做什么的时候。',
+      '全程不打断你，每一次放行都留档可查。适合你已经跑过几遍、清楚这条工作流会做什么的时候。',
   },
+};
+
+/**
+ * 「谁来批」这件事在界面上怎么说。
+ *
+ * 节点配置弹层与审批卡片共用 —— 两处各写一份的话，
+ * 用户在节点上选的那一项与运行时看到的说法会对不上。
+ */
+export const NODE_DECIDER_LABELS: Record<NodeDecider, string> = {
+  auto: '跟随设置（默认）',
+  user: '必须我批',
+  ai: '交给 AI 批',
 };
