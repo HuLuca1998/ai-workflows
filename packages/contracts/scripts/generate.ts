@@ -13,6 +13,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { z } from 'zod';
 import { CORE_API_METHODS, getMethodSpec } from '../src/api.js';
+import { baseRiskOf } from '../src/approval.js';
 import { CONFORMANCE_CASES, DIFF_CASES } from '../src/conformance.js';
 import { diffGraphs } from '../src/diff.js';
 import { CoreApiError } from '../src/errors.js';
@@ -76,6 +77,14 @@ const files: Record<string, unknown> = {
           dynamicOutputs: def.dynamicOutputs ?? null,
           defaultCapabilities: def.defaultCapabilities,
           externalWrite: def.externalWrite,
+          /**
+           * 审批判定的下限。引擎按脚本内容往上调，**不下调**。
+           *
+           * 走生成物而不是让 Rust 手抄一份表：抄的那份会与契约悄悄分叉，
+           * 而分叉的症状是「设置里选的档位在引擎里是另一个含义」——
+           * 没有任何东西会红
+           */
+          baseRisk: baseRiskOf(type),
           singleton: def.singleton ?? false,
           seed: def.seed ?? null,
         },

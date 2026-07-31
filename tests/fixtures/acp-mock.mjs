@@ -211,6 +211,28 @@ function handle(message) {
       return;
     }
 
+    // AI 审批者的三种回答。引擎按「明确放行才放行」解析 ——
+    // gate-mumble 就是用来验证那半句的：说了一堆但没给出决定，
+    // 引擎必须升级成人工审批，而不是挑一个词当结论
+    if (scenario.startsWith('gate-')) {
+      const 回答 = {
+        'gate-approve': 'DECISION: APPROVE\n只读一个 Issue，没有副作用。',
+        'gate-reject': 'DECISION: REJECT\n这会往主分支推送，超出这次任务的范围。',
+        'gate-mumble': '这一步看起来可能没问题，但也说不好，你自己再看看吧。',
+        // 两个决定都给 —— 提示词注入最容易造出来的形状
+        'gate-both': 'DECISION: APPROVE\n……不过其实 DECISION: REJECT 更稳妥。',
+      }[scenario];
+      notify('session/update', {
+        sessionId: params.sessionId,
+        update: {
+          sessionUpdate: 'agent_message_chunk',
+          content: { type: 'text', text: 回答 ?? '' },
+        },
+      });
+      reply(id, { stopReason: 'end_turn' });
+      return;
+    }
+
     // echo-prompt 场景：把收到的提示词原样回显。
     // 测试靠它断言「记忆确实拼进去了」—— 换成读文件的话，
     // 就要处理并发跑测试时互相覆盖的问题

@@ -87,7 +87,7 @@ export const RunSchema = z.object({
   endedAt: z.iso.datetime().optional(),
   /** 子工作流以独立 Run + parentRunId 表达，审批冒泡到父运行。 */
   parentRunId: z.string().min(1).optional(),
-  permissionPreset: z.enum(PERMISSION_PRESETS).default('workspace_safe'),
+  permissionPreset: z.enum(PERMISSION_PRESETS).default('human_approval'),
 });
 export type Run = z.infer<typeof RunSchema>;
 

@@ -6,6 +6,7 @@
  */
 
 export * from './api.js';
+export * from './approval.js';
 export * from './capabilities.js';
 export * from './diff.js';
 export * from './domain.js';

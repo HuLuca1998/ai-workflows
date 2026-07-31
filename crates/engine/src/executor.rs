@@ -12,6 +12,7 @@ use crate::artifacts::{ArtifactKind, ArtifactStore};
 use crate::exec::{ExecOutcome, ScriptRequest, run_script};
 use crate::graph::GraphNode;
 use crate::interp::{Scope, interpolate, interpolate_with, shell_quote};
+use crate::risk::{ApprovalDecider, RiskLevel, approval_decider, base_risk, node_risk};
 use crate::runner::NodeOutcome;
 use crate::worktree::{WorktreeRequest, create_worktree};
 
@@ -52,6 +53,14 @@ pub struct NodeExecutor {
     permission_preset: String,
     /// 已经被用户批准过的节点。恢复执行时不该又停在同一个节点上。
     approved_nodes: Vec<String>,
+    /**
+     * AI 审批者最近一次收到的提示词。
+     *
+     * 留档是为了能验证「审批者到底看见了什么」—— 只把节点类型
+     * 发过去的话，它只能对着「script.shell」这四个字表态，
+     * 而那种审批看起来在工作，实际什么都没审。
+     */
+    last_gate_prompt: std::sync::Mutex<Option<String>>,
     /**
      * 这次运行所挂 Agent 角色声明的能力。
      *
@@ -173,25 +182,103 @@ fn 摘要(text: &str) -> String {
     )
 }
 
-/// 有副作用因而受权限档管的节点类型。
+/// AI 审批者等多久。
 ///
-/// transform 只改内存里的数据、分支只看条件 —— 逐项审批它们没有意义，
-/// 而每个节点都弹一次的话用户会直接把最严那一档关掉。
-/// 这里的每一项都必须是**契约里真实存在**的节点类型。
-/// 写一个不存在的进来等于没写：那一支永远匹配不到，
-/// 而设置页还照着这份名单向用户承诺「它们会挂起等你审批」。
-/// `权限档说的话要算数::挂起名单里不能有契约里不存在的节点类型` 盯着这件事。
-const SIDE_EFFECT_NODES: &[&str] = &[
-    "script.shell",
-    "script.python",
-    // ai.execute 是唯一会放一个**自主 agent** 进 worktree 写文件、跑命令的节点。
-    // 它一度不在这份名单里 —— 于是用户选了最严那一档，
-    // 以为「文件写入、命令与外部写操作逐项审批」，
-    // 而写得最多的那个节点一次都不问。那不是功能缺失，是反向的安全感
-    "ai.execute",
-    "git.worktree",
-    "mcp.tool",
-];
+/// 比 AI 节点短得多：它只需要看一个节点的配置就表态，
+/// 而卡在这里的代价是整条运行停着不动 —— 超时之后升级人工，
+/// 用户至少能自己点。
+const 审批超时: Duration = Duration::from_secs(120);
+
+/// AI 审批者给的答复。
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum AiVerdict {
+    Approved,
+    Rejected { reason: String },
+    /// 没给出明确决定 —— 升级给人。
+    CannotDecide,
+}
+
+/// 交给 AI 审批者的提示词。
+///
+/// 三件事必须在里面：**这一步会执行什么**（脚本原文 / 配置）、
+/// **判定成了什么风险**、**答复要长什么样**。
+///
+/// 脚本原文不能省。静态嗅探看不出 `PUSH="git push"; $PUSH`，
+/// 而 AI 看得出 —— 前提是它拿得到原文。只把节点类型发过去的话，
+/// 它只能对着「script.shell」这四个字表态，那种审批看起来在工作，
+/// 实际什么都没审。
+fn 审批提示词(node: &GraphNode, risk: RiskLevel) -> String {
+    let 风险说明 = match risk {
+        RiskLevel::ReadOnly => "只读（静态判定）",
+        RiskLevel::WorkspaceWrite => "会改这台机器上授权目录里的东西（可回滚）",
+        RiskLevel::ExternalWrite => "会写到这台机器之外（推送、开 PR、发布 —— 撤不回来）",
+    };
+
+    // 配置整份发过去，不挑字段。挑字段就要为每种节点类型维护一份
+    // 「哪些字段重要」的清单，而漏掉的那个字段恰恰可能是关键的
+    let 配置 = serde_json::to_string_pretty(&node.config).unwrap_or_else(|_| "{}".to_string());
+
+    format!(
+        "你是这条工作流的审批者。下面这一步即将执行，请判断放行还是拒绝。\n\
+         \n\
+         节点：{}（类型 {}）\n\
+         静态风险判定：{风险说明}\n\
+         \n\
+         它的完整配置：\n\
+         ```json\n{配置}\n```\n\
+         \n\
+         判断依据：\n\
+         - 这一步做的事情，是不是这个节点的标题与配置所描述的那件事\n\
+         - 有没有超出范围的副作用（删除、推送、改动无关文件、外发数据）\n\
+         - 静态判定可能低估：脚本里 `CMD=\"git push\"; $CMD` 这类写法\n\
+           判定看不出来，你要自己看原文\n\
+         \n\
+         拿不准就拒绝 —— 拒绝只是把决定交回给人，放行是不可逆的。\n\
+         \n\
+         答复格式（第一行必须是这个，且只出现一次）：\n\
+         DECISION: APPROVE 或 DECISION: REJECT\n\
+         第二行起写一句话理由。",
+        node.title, node.node_type
+    )
+}
+
+/// 从答复里读出决定。
+///
+/// **只有恰好一个决定时才作数。** 两个都出现（`DECISION: APPROVE …
+/// 不过 DECISION: REJECT 更稳妥`）是提示词注入最容易造出来的形状，
+/// 「取第一个」会让注入者赢。一个都没有的话是模型没照格式答，
+/// 从措辞里猜等于让用词决定要不要放行。
+fn 解析决定(answer: &str) -> AiVerdict {
+    let 大写 = answer.to_ascii_uppercase();
+    let 放行 = 大写.matches("DECISION: APPROVE").count();
+    let 拒绝 = 大写.matches("DECISION: REJECT").count();
+
+    match (放行, 拒绝) {
+        (1, 0) => AiVerdict::Approved,
+        (0, 1) => AiVerdict::Rejected {
+            // 理由是给用户看的 —— 被拦下来却不知道为什么，
+            // 用户只能把这一档关掉
+            reason: 理由(answer),
+        },
+        _ => AiVerdict::CannotDecide,
+    }
+}
+
+/// 决定那一行之后的话。没有就退回整段。
+fn 理由(answer: &str) -> String {
+    let 剩下 = answer
+        .lines()
+        .skip_while(|line| !line.to_ascii_uppercase().contains("DECISION:"))
+        .skip(1)
+        .collect::<Vec<_>>()
+        .join(" ");
+    let 剩下 = 剩下.trim();
+    if 剩下.is_empty() {
+        摘要(answer)
+    } else {
+        摘要(剩下)
+    }
+}
 
 impl NodeExecutor {
     pub fn new(workdir: PathBuf) -> Self {
@@ -206,8 +293,9 @@ impl NodeExecutor {
             memories: Vec::new(),
             injected: std::sync::Mutex::new(Vec::new()),
             // 没设过就按最严的办
-            permission_preset: "review_every_change".to_string(),
+            permission_preset: "human_approval".to_string(),
             approved_nodes: Vec::new(),
+            last_gate_prompt: std::sync::Mutex::new(None),
             capabilities: None,
             agent_profiles: Vec::new(),
             resolutions: std::sync::Mutex::new(Vec::new()),
@@ -418,49 +506,178 @@ impl NodeExecutor {
         self
     }
 
-    /// 这个节点在当前权限档下需不需要先问一句。
-    fn needs_permission_approval(&self, node: &GraphNode) -> bool {
-        // 认不出的档位按**最严**处理（CLAUDE.md）。
-        //
-        // 原来是 `!= "review_every_change" → 直接放行`，于是配置里一个拼错的
-        // 档位名会把所有审批静默关掉 —— 而用户以为自己选的是某一档。
-        // 宁可多问一次：多问是麻烦，不问是把边界让出去了
-        let 已知放行档 = matches!(
-            self.permission_preset.as_str(),
-            "workspace_safe" | "trusted_workflow"
-        );
-        if 已知放行档 {
-            return false;
-        }
-        if self.approved_nodes.iter().any(|id| id == &node.id) {
-            return false;
-        }
-        SIDE_EFFECT_NODES.contains(&node.node_type.as_str())
-    }
-
-    /// 最严档下会先挂起等审批的节点类型。
+    /// 这个节点该由谁放行。
     ///
-    /// 暴露出来是给那条元测试用的 —— 它盯着「名单里混进一个契约里
-    /// 不存在的类型」：那种条目永远匹配不到，而设置页还照着它
-    /// 向用户承诺「它们会挂起等你审批」。
+    /// 判定不再看**节点类型**，看这一步会造成什么（`risk::node_risk`）——
+    /// 上一版按类型一刀切，于是一条只读的 `gh issue view` 因为属于
+    /// `script.shell` 而被拦在最严档下。用户的原话：
+    /// 「现在连读取 issue 都需要用户审批」。
+    ///
+    /// 认不出的档位按最严处理：库里可能躺着上一版的值
+    /// （`review_every_change` 那三个），而静默放行等于把门让出去。
     #[must_use]
-    pub fn side_effect_nodes() -> &'static [&'static str] {
-        SIDE_EFFECT_NODES
+    pub fn decider_for(&self, node: &GraphNode) -> ApprovalDecider {
+        // 批过一次就不再问。恢复运行时靠它不停在同一个节点上
+        if self.approved_nodes.iter().any(|id| id == &node.id) {
+            return ApprovalDecider::None;
+        }
+        approval_decider(&self.permission_preset, node_risk(node))
     }
 
-    /// 只跑执行**之前**那两道关：权限档与能力声明。
+    /// 最严档下会先问一句的节点类型。
+    ///
+    /// 从契约的基线风险派生，不再是手写名单 —— 手写的那份会与契约分叉，
+    /// 而分叉的症状是设置页照着它向用户承诺了一件引擎不做的事。
+    ///
+    /// 注意这是**类型**层面的清单，只能回答「哪些类型可能被拦」。
+    /// 具体某个节点拦不拦要看内容（`script.shell` 里装的是
+    /// `git log` 还是 `git push`），那由 [`decider_for`] 回答。
+    #[must_use]
+    pub fn side_effect_nodes() -> Vec<&'static str> {
+        crate::catalog::node_types()
+            .into_iter()
+            .filter(|kind| base_risk(kind) != RiskLevel::ReadOnly)
+            .collect()
+    }
+
+    /// 只跑执行**之前**那两道关：审批与能力声明。
     ///
     /// 放行时返回 `None`。抽出来是因为这两道关本身值得单独测 ——
     /// 走完整的 `execute` 会真的起进程、连 adapter，
     /// 而要验证的只是「它到底拦不拦」。
+    ///
+    /// **AI 审批不在这里**：它要起一个 adapter 进程，而这个方法的用途
+    /// 之一就是「不起进程地问一句拦不拦」。AI 那一档在
+    /// [`execute_with_sink`] 里走。
     #[must_use]
     pub fn precheck(&self, node: &GraphNode) -> Option<NodeOutcome> {
-        if self.needs_permission_approval(node) {
+        if self.decider_for(node) == ApprovalDecider::Human {
             return Some(NodeOutcome::NeedsApproval);
         }
         match self.check_capability(node) {
             Err(message) => Some(NodeOutcome::Failed { message }),
             Ok(()) => None,
+        }
+    }
+
+    /// AI 审批者最近一次收到的提示词。
+    ///
+    /// 留这个观测口是因为「审批者到底看见了什么」决定了它的判断值不值钱 ——
+    /// 只把节点类型发过去的话，它只能对着「script.shell」这四个字表态，
+    /// 而那种审批看起来在工作，实际什么都没审。
+    #[must_use]
+    pub fn last_gate_prompt(&self) -> Option<String> {
+        self.last_gate_prompt.lock().ok().and_then(|p| p.clone())
+    }
+
+    /// 让 AI 审批者看一眼这个节点。
+    ///
+    /// 三种结果：放行、拒绝、判不了。**判不了一律升级给人**，
+    /// 包括 adapter 连不上、超时、回答里没有明确决定、
+    /// 两个决定同时出现。
+    ///
+    /// fail closed 在这里不是保守习惯而是必需的：审批者请不来时放行，
+    /// 等于「AI 审批」这一档在没装 adapter 的机器上把所有门都打开了，
+    /// 而用户在设置里读到的是「AI 会替你把关」。
+    fn ai_gate(&self, node: &GraphNode, sink: &EventSink<'_>) -> AiVerdict {
+        let risk = node_risk(node);
+        let prompt = 审批提示词(node, risk);
+        if let Ok(mut slot) = self.last_gate_prompt.lock() {
+            *slot = Some(prompt.clone());
+        }
+
+        // 先说一句「正在审批」再去问。
+        //
+        // AI 审批要起一个 adapter 进程、跑一轮对话，几十秒是常事 ——
+        // 这期间界面上那个节点如果什么都不显示，用户看到的就是「卡住了」，
+        // 而他并不知道有一次审批正在进行
+        sink(NodeEvent {
+            kind: "approval.requested",
+            node_id: node.id.clone(),
+            summary: format!(
+                "交给 AI 审批（{}）",
+                match risk {
+                    RiskLevel::ExternalWrite => "外部写操作",
+                    RiskLevel::WorkspaceWrite => "工作区内写操作",
+                    RiskLevel::ReadOnly => "只读",
+                }
+            ),
+            payload_ref: self.save_output(&node.id, "approval-prompt.md", &prompt),
+        });
+
+        // 审批者用这次运行的默认工作目录。它只读配置，不该进 worktree
+        let cwd = self.workdir.display().to_string();
+        let runtime = self.resolved_runtime(node);
+
+        let answer = match self.ask_once(&runtime, &cwd, &prompt, 审批超时) {
+            Ok(text) => text,
+            Err(reason) => {
+                sink(NodeEvent {
+                    kind: "approval.decided",
+                    node_id: node.id.clone(),
+                    summary: format!("AI 审批没能进行（{reason}），改由你来决定"),
+                    payload_ref: None,
+                });
+                return AiVerdict::CannotDecide;
+            }
+        };
+
+        let verdict = 解析决定(&answer);
+        let 决定文案 = match verdict {
+            AiVerdict::Approved => "AI 审批：放行",
+            AiVerdict::Rejected { .. } => "AI 审批：拒绝",
+            AiVerdict::CannotDecide => "AI 没给出明确决定，改由你来决定",
+        };
+        sink(NodeEvent {
+            kind: "approval.decided",
+            node_id: node.id.clone(),
+            summary: format!("{决定文案} · {}", 摘要(&answer)),
+            payload_ref: self.save_output(&node.id, "approval.md", &answer),
+        });
+
+        verdict
+    }
+
+    /// 连一次 adapter，问一句，把回答的文本拿回来。
+    ///
+    /// 与 `run_ai` 的区别是它**不发对话事件、不落产物、不解析端口** ——
+    /// 审批者的一问一答不属于工作流的对话流，混进去会让运行详情里
+    /// 多出一段用户没有配过的对话。
+    fn ask_once(
+        &self,
+        runtime: &str,
+        cwd: &str,
+        prompt: &str,
+        timeout: Duration,
+    ) -> std::result::Result<String, String> {
+        let (command, args) = match &self.acp_override {
+            Some((command, args)) => (command.clone(), args.clone()),
+            None => match adapter_command(runtime) {
+                Some((command, args)) => match adapter_installed(runtime) {
+                    Some(path) => (path, args),
+                    None => return Err(format!("{runtime} 的 adapter（{command}）没装")),
+                },
+                None => return Err(format!("不认识的 runtime {runtime}")),
+            },
+        };
+
+        let mut client = AcpClient::connect(&command, &args, &env_to_remove(runtime), timeout)
+            .map_err(|error| format!("连不上 adapter：{error}"))?;
+        let session = client
+            .new_session(cwd)
+            .map_err(|error| format!("建会话失败：{error}"))?;
+
+        let mut text = String::new();
+        let outcome = client.prompt(&session.id, prompt, |update| {
+            if let SessionUpdate::AgentText { text: chunk } = update {
+                text.push_str(chunk);
+            }
+        });
+
+        match outcome {
+            Ok(crate::acp::PromptOutcome::Refusal) => Err("模型拒绝了这一轮".to_string()),
+            Ok(_) => Ok(text),
+            Err(error) => Err(format!("问不出结果：{error}")),
         }
     }
 
@@ -531,13 +748,28 @@ impl NodeExecutor {
         scope: &mut Scope,
         sink: &EventSink<'_>,
     ) -> Result<NodeOutcome> {
-        // 权限档先说话。「Review Every Change」这一档的原话是
-        //「文件写入、命令与外部写操作逐项审批」—— 引擎不拦的话，
-        // 设置屏那三张卡就只是三个好看的卡片
-        // 权限档与能力检查都在**起进程之前**：拦晚了脚本已经写了文件才报错，
+        // 审批档先说话。引擎不拦的话，设置屏那三张卡就只是三个好看的卡片。
+        //
+        // 审批与能力检查都在**起进程之前**：拦晚了脚本已经写了文件才报错，
         // 而那时副作用已经发生
         if let Some(outcome) = self.precheck(node) {
             return Ok(outcome);
+        }
+
+        // AI 那一档要起 adapter 进程，所以不在 precheck 里 ——
+        // 那个方法的用途之一就是「不起进程地问一句拦不拦」
+        if self.decider_for(node) == ApprovalDecider::Ai {
+            match self.ai_gate(node, sink) {
+                AiVerdict::Approved => {}
+                AiVerdict::Rejected { reason } => {
+                    return Ok(NodeOutcome::Failed {
+                        message: format!("AI 审批未通过：{reason}"),
+                    });
+                }
+                // 判不了就交回给人。这一支是 fail closed 的落点：
+                // adapter 连不上、超时、答复里没有明确决定都会走到这里
+                AiVerdict::CannotDecide => return Ok(NodeOutcome::NeedsApproval),
+            }
         }
 
         match node.node_type.as_str() {

@@ -539,11 +539,16 @@ impl Runner {
         //
         // 已批准的节点从事件流里算：用户在审批那一步点过通过之后，
         // 恢复执行不该又停在同一个节点上。
+        // 读出来先过一次迁移：库里可能躺着上一版的档位名
+        // （`workspace_safe` 等）。不迁的话它们会落到「认不出 → 最严」，
+        // 一个原本选了「全放行」的用户升级后每一步都被拦，
+        // 而他没改过任何设置
         let preset = store
             .workspace_settings()
             .ok()
             .and_then(|settings| settings.permission_preset)
-            .unwrap_or_else(|| "review_every_change".to_string());
+            .map(|value| crate::risk::migrate_approval_mode(&value).to_string())
+            .unwrap_or_else(|| "human_approval".to_string());
         let approved = self.approved_nodes(store, run_id)?;
 
         // 图里引用到的 Agent 角色，一次性查好交给执行器。

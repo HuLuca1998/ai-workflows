@@ -26,20 +26,44 @@ fn workdir() -> std::path::PathBuf {
     dir
 }
 
-/// 测节点本身行为的用例都用这个：显式声明 workspace_safe。
+/// 这个文件里出现过的节点 id，全部预批准。
 ///
-/// 默认档是 review_every_change（有副作用的节点先挂起等审批）——
-/// 那是**有意**的默认，但它会让「shell 节点真的执行脚本」这类用例
-/// 停在审批上。声明档位比放宽默认好：默认放宽等于替用户做了一个
-/// 他不知道自己做过的决定。
-/// 测节点本身行为的用例都用这个：显式声明 workspace_safe。
+/// 这里的用例测的是**节点真的做了那件事**，不是「拦不拦」——
+/// 后者由 `approval_gate_test.rs` 专门测。不让开审批那道门的话，
+/// 每个会写东西的节点都停在 `NeedsApproval`，一条行为都验证不到。
 ///
-/// 默认档是 review_every_change（有副作用的节点先挂起等审批）——
-/// 那是**有意**的默认，但它会让「shell 节点真的执行脚本」这类用例
-/// 停在审批上。声明档位比放宽默认好：默认放宽等于替用户做了一个
-/// 他不知道自己做过的决定。
+/// 预批准而不是放宽档位：新三档里没有「全部放行」的一档
+/// （最松的 `unattended` 也要 AI 表态，那要起 adapter 进程），
+/// 而 `with_approved_nodes` 恰好就是「这个我已经批过了」的意思。
+///
+/// **新加用例时 id 不在这里的话，它会停在审批上** ——
+/// 那个失败信息（`NeedsApproval`）看起来会很莫名其妙，所以列全。
+const 已批准的测试节点: &[&str] = &[
+    "act", "analyze", "ap", "bad", "boom", "consume", "decide", "done", "e1", "echo", "entry",
+    "exec", "fix", "greet", "hi", "logger", "n", "notify", "quiet", "review", "s1", "sh", "sh2",
+    "sh3", "sh4", "slow", "sub", "wt",
+];
+
+fn 预批准() -> Vec<String> {
+    已批准的测试节点.iter().map(|s| (*s).to_string()).collect()
+}
+
+/// 建一个「审批不挡路」的执行器。
+///
+/// 这个文件里除了 `mod 权限档改变行为` 之外的用例都用它 ——
+/// 那一个模块**要**审批挡路，它是唯一在测审批的地方，
+/// 所以那里仍然直接 `NodeExecutor::new`。
+fn 执行器(workdir: std::path::PathBuf) -> NodeExecutor {
+    NodeExecutor::new(workdir)
+        .with_permission_preset("human_approval")
+        .with_approved_nodes(&预批准())
+}
+
+/// 测节点本身行为的用例都用这个。
 fn executor() -> NodeExecutor {
-    NodeExecutor::new(workdir()).with_permission_preset("workspace_safe")
+    执行器(workdir())
+        .with_permission_preset("human_approval")
+        .with_approved_nodes(&预批准())
 }
 
 #[test]
@@ -233,9 +257,9 @@ fn 脚本输出落成产物文件_事件里只留摘要() {
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
 
-    let executor = NodeExecutor::new(dir.clone())
+    let executor = 执行器(dir.clone())
         .with_run_id("run_art")
-        .with_permission_preset("workspace_safe");
+        .with_permission_preset("human_approval");
     let mut scope = Scope::new("run_art");
     executor
         .execute(
@@ -271,9 +295,9 @@ fn 没有输出的脚本不留空产物文件() {
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
 
-    let executor = NodeExecutor::new(dir)
+    let executor = 执行器(dir)
         .with_run_id("run_art2")
-        .with_permission_preset("workspace_safe");
+        .with_permission_preset("human_approval");
     executor
         .execute(
             &node(
@@ -310,9 +334,9 @@ fn 失败的脚本也要留下日志产物() {
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
 
-    let executor = NodeExecutor::new(dir)
+    let executor = 执行器(dir)
         .with_run_id("run_fail")
-        .with_permission_preset("workspace_safe");
+        .with_permission_preset("human_approval");
     let outcome = executor
         .execute(
             &node(
@@ -359,7 +383,7 @@ fn 启动参数里的分号不能变成另一条命令() {
         "name": format!("x; touch {} #", marker.display()),
     }));
 
-    NodeExecutor::new(dir.clone())
+    执行器(dir.clone())
         .execute(
             &node(
                 "greet",
@@ -394,7 +418,7 @@ fn 上游节点的输出里的反引号不会被求值() {
         serde_json::json!({ "stdout": format!("$(touch {})", marker.display()) }),
     );
 
-    NodeExecutor::new(dir.clone())
+    执行器(dir.clone())
         .execute(
             &node(
                 "consume",
@@ -422,8 +446,8 @@ fn 插值出的值原样传给脚本_不因转义而变形() {
     let mut scope = Scope::new("run_inject3");
     scope.set_inputs(serde_json::json!({ "text": "a b'c\"d;e$f" }));
 
-    NodeExecutor::new(dir)
-        .with_permission_preset("workspace_safe")
+    执行器(dir)
+        .with_permission_preset("human_approval")
         .execute(
             &node(
                 "echo",
@@ -454,7 +478,7 @@ fn 换行也不能拆出新的一行命令() {
         "name": format!("x\ntouch {}", marker.display()),
     }));
 
-    NodeExecutor::new(dir.clone())
+    执行器(dir.clone())
         .execute(
             &node(
                 "greet",
@@ -506,14 +530,14 @@ fn with_mock_adapter(dir: std::path::PathBuf) -> NodeExecutor {
         .and_then(|p| p.parent())
         .expect("仓库根")
         .join("tests/fixtures/acp-mock.mjs");
-    NodeExecutor::new(dir)
+    执行器(dir)
         .with_agent_profiles(&内置角色())
         // 显式声明权限档。默认是最严那一档，而 `ai.execute` 在那一档下
         // 会先挂起等审批 —— 这些用例问的是「跑起来之后 cwd 是哪个、
         // 走哪个端口」，不是「拦不拦」。拦不拦由
         // `权限档说的话要算数` 那一组单独压着。
         // 声明比放宽默认好：默认放宽等于替用户做一个他不知道的决定
-        .with_permission_preset("workspace_safe")
+        .with_permission_preset("human_approval")
         .with_acp_command(
             "node",
             &[script.display().to_string(), "normal".to_string()],
@@ -644,10 +668,10 @@ fn 未插值的引用不会被发给_agent() {
 #[test]
 fn adapter_没装时说清楚要装什么_而不是假装成功() {
     let dir = ai_dir("noadapter");
-    let executor = NodeExecutor::new(dir)
+    let executor = 执行器(dir)
         .with_agent_profiles(&内置角色())
         .with_acp_command("definitely-not-an-adapter", &[])
-        .with_permission_preset("workspace_safe");
+        .with_permission_preset("human_approval");
 
     let outcome = executor
         .execute(
@@ -748,7 +772,7 @@ fn 收到的提示词(scope: &Scope, node_id: &str) -> String {
 #[test]
 fn ai_节点把记忆拼进提示词() {
     let (command, args) = mock_acp();
-    let executor = NodeExecutor::new(workdir())
+    let executor = 执行器(workdir())
         .with_acp_command(&command, &args)
         .with_memories(&[
             ("style.commit".to_string(), "提交信息用中文".to_string()),
@@ -778,7 +802,7 @@ fn 注入的记忆记在执行器上_供上层写事件() {
     // 执行器不碰数据库（它连 store 都没有），所以把「注入了哪几条」
     // 报给上层，由 runner 写成 system.memory_injected 事件
     let (command, args) = mock_acp();
-    let executor = NodeExecutor::new(workdir())
+    let executor = 执行器(workdir())
         .with_acp_command(&command, &args)
         .with_memories(&[("style.commit".to_string(), "用中文".to_string())]);
 
@@ -797,9 +821,9 @@ fn 没有记忆时提示词里不留空段() {
     // 留一句「已知的长期上下文：」后面什么都没有，
     // 模型会以为上下文被截断了
     let (command, args) = mock_acp();
-    let executor = NodeExecutor::new(workdir())
+    let executor = 执行器(workdir())
         .with_acp_command(&command, &args)
-        .with_permission_preset("workspace_safe");
+        .with_permission_preset("human_approval");
 
     let mut scope = Scope::new("run_mem");
     executor.execute(&ai_节点(), &mut scope).unwrap();
@@ -814,7 +838,7 @@ fn 没有记忆时提示词里不留空段() {
 #[test]
 fn 非_ai_节点不注入记忆() {
     // 脚本节点拿记忆没有意义，而拼进环境变量反而会泄露
-    let executor = NodeExecutor::new(workdir())
+    let executor = 执行器(workdir())
         .with_memories(&[("style.commit".to_string(), "用中文".to_string())]);
 
     let node = node(
@@ -847,30 +871,42 @@ mod 权限档改变行为 {
         )
     }
 
+    /// 会写东西的脚本。判定必然落在 `workspace_write` 上。
+    ///
+    /// 这一组原本全用 `echo hello`，而按新判定它是**只读**的 ——
+    /// 于是「最严档下要审批」那条会因为一个与档位无关的原因通过或失败。
+    /// 测档位就得用一个确实有副作用的节点。
+    fn 写文件节点() -> GraphNode {
+        node(
+            "s1",
+            "script.shell",
+            serde_json::json!({ "interpreter": "zsh", "script": "echo x > probe.txt" }),
+        )
+    }
+
     #[test]
-    fn review_every_change_下命令要先审批() {
+    fn 最严档下有副作用的命令要先审批() {
         let dir = tempfile::tempdir().unwrap();
-        let executor = NodeExecutor::new(dir.path().to_path_buf())
-            .with_permission_preset("review_every_change");
+        let executor =
+            NodeExecutor::new(dir.path().to_path_buf()).with_permission_preset("human_approval");
         let mut scope = Scope::new("run_perm");
 
-        let outcome = executor
-            .execute(&shell节点("echo hello"), &mut scope)
-            .unwrap();
+        let outcome = executor.execute(&写文件节点(), &mut scope).unwrap();
 
         assert!(
             matches!(outcome, NodeOutcome::NeedsApproval),
-            "这一档要求命令逐项审批，实际：{outcome:?}"
+            "这一档要求有副作用的操作逐项审批，实际：{outcome:?}"
         );
     }
 
     #[test]
-    fn workspace_safe_下已声明的命令直接跑() {
-        // 「授权目录内可读写与执行已声明命令」—— 节点配置里写死的 script
-        // 就是已声明的，每次都问等于把这一档变成上一档
+    fn 最严档下只读命令照样直接跑() {
+        // 用户的原话：「现在连读取 issue 都需要用户审批」。
+        // 上一版按节点类型一刀切，`script.shell` 整类都拦 ——
+        // 这条盯着那个行为不要回来
         let dir = tempfile::tempdir().unwrap();
         let executor =
-            NodeExecutor::new(dir.path().to_path_buf()).with_permission_preset("workspace_safe");
+            NodeExecutor::new(dir.path().to_path_buf()).with_permission_preset("human_approval");
         let mut scope = Scope::new("run_perm");
 
         let outcome = executor
@@ -879,21 +915,19 @@ mod 权限档改变行为 {
 
         assert!(
             matches!(outcome, NodeOutcome::Succeeded { .. }),
-            "已声明的命令不该被拦，实际：{outcome:?}"
+            "只读命令不该被拦，实际：{outcome:?}"
         );
     }
 
     #[test]
     fn 没设过权限档时按最严的一档办() {
-        // 首次配置写的就是 review_every_change，但万一没有 ——
+        // 首次配置写的就是最严那档，但万一没有 ——
         // 默认放宽等于替用户做了一个他不知道自己做过的决定
         let dir = tempfile::tempdir().unwrap();
         let executor = NodeExecutor::new(dir.path().to_path_buf());
         let mut scope = Scope::new("run_perm");
 
-        let outcome = executor
-            .execute(&shell节点("echo hello"), &mut scope)
-            .unwrap();
+        let outcome = executor.execute(&写文件节点(), &mut scope).unwrap();
 
         assert!(
             matches!(outcome, NodeOutcome::NeedsApproval),
@@ -902,11 +936,32 @@ mod 权限档改变行为 {
     }
 
     #[test]
+    fn 库里躺着上一版的档位名时按最严处理() {
+        // 用户从旧版升上来，`workspace_safe` 这个值在新值域里不存在。
+        // 静默放行的话，他以为自己选的是「中间档」，实际一道门都没有。
+        //
+        // 正常路径上读取处会先跑一次迁移（contracts 的 migrateApprovalMode），
+        // 这一条守的是**迁移也没接上**时的兜底
+        let dir = tempfile::tempdir().unwrap();
+        for 旧值 in ["review_every_change", "workspace_safe", "trusted_workflow"] {
+            let executor =
+                NodeExecutor::new(dir.path().to_path_buf()).with_permission_preset(旧值);
+            let outcome = executor
+                .execute(&写文件节点(), &mut Scope::new("run_perm"))
+                .unwrap();
+            assert!(
+                matches!(outcome, NodeOutcome::NeedsApproval),
+                "{旧值} 被当成了已知档位：{outcome:?}"
+            );
+        }
+    }
+
+    #[test]
     fn 审批过的命令不再问第二次() {
         // 用户在审批那一步点了通过，恢复执行时不该又停在同一个节点上
         let dir = tempfile::tempdir().unwrap();
         let executor = NodeExecutor::new(dir.path().to_path_buf())
-            .with_permission_preset("review_every_change")
+            .with_permission_preset("human_approval")
             .with_approved_nodes(&["s1".to_string()]);
         let mut scope = Scope::new("run_perm");
 
@@ -926,7 +981,7 @@ mod 权限档改变行为 {
         // 每个节点都弹一次的话用户会直接把最严那一档关掉
         let dir = tempfile::tempdir().unwrap();
         let executor = NodeExecutor::new(dir.path().to_path_buf())
-            .with_permission_preset("review_every_change");
+            .with_permission_preset("human_approval");
         let mut scope = Scope::new("run_perm");
 
         let outcome = executor
@@ -1011,8 +1066,8 @@ mod 能力声明是硬的 {
     #[test]
     fn 角色不给写文件时_ai_execute_被拒() {
         let (profiles, node) = 挂角色的执行节点(只读能力());
-        let executor = NodeExecutor::new(workdir())
-            .with_permission_preset("workspace_safe")
+        let executor = 执行器(workdir())
+            .with_permission_preset("human_approval")
             .with_agent_profiles(&profiles);
 
         match executor.precheck(&node) {
@@ -1028,8 +1083,8 @@ mod 能力声明是硬的 {
         let mut caps = 可执行能力();
         caps["command"] = serde_json::json!("none");
         let (profiles, node) = 挂角色的执行节点(caps);
-        let executor = NodeExecutor::new(workdir())
-            .with_permission_preset("workspace_safe")
+        let executor = 执行器(workdir())
+            .with_permission_preset("human_approval")
             .with_agent_profiles(&profiles);
 
         match executor.precheck(&node) {
@@ -1043,8 +1098,8 @@ mod 能力声明是硬的 {
     #[test]
     fn 能力够时放行() {
         let (profiles, node) = 挂角色的执行节点(可执行能力());
-        let executor = NodeExecutor::new(workdir())
-            .with_permission_preset("workspace_safe")
+        let executor = 执行器(workdir())
+            .with_permission_preset("human_approval")
             .with_agent_profiles(&profiles);
 
         assert!(executor.precheck(&node).is_none(), "能力够却被拦下");
@@ -1058,27 +1113,26 @@ mod 能力声明是硬的 {
         // 所以它不受「Agent 角色」的能力声明约束 —— 何况脚本节点
         // 根本挂不上角色（configSchema 里没有 agentProfileId）。
         //
-        // 它真正的关卡是权限档：`review_every_change` 下先挂起等审批。
-        // 下半段断言的就是那一条 —— 少了它，这个测试就成了
-        // 「脚本节点没人管」的背书
+        // 它真正的关卡是审批档，而档位管的是**这段脚本会造成什么**：
+        // 只读的直接跑，会写东西的挂起等审批。下半段断言的就是那一条 ——
+        // 少了它，这个测试就成了「脚本节点没人管」的背书
         let dir = tempfile::tempdir().unwrap();
-        let 放行 =
-            NodeExecutor::new(dir.path().to_path_buf()).with_permission_preset("workspace_safe");
+        let 最严档 =
+            || NodeExecutor::new(dir.path().to_path_buf()).with_permission_preset("human_approval");
+
         let mut scope = Scope::new("run_cap1");
-        let outcome = 放行.execute(&shell("echo hi"), &mut scope).unwrap();
+        let outcome = 最严档().execute(&shell("echo hi"), &mut scope).unwrap();
         assert!(
             matches!(outcome, NodeOutcome::Succeeded { .. }),
-            "{outcome:?}"
+            "只读脚本被拦了：{outcome:?}"
         );
 
-        let 要审批 = NodeExecutor::new(dir.path().to_path_buf())
-            .with_permission_preset("review_every_change");
         assert!(
             matches!(
-                要审批.precheck(&shell("echo hi")),
+                最严档().precheck(&shell("echo hi > out.txt")),
                 Some(NodeOutcome::NeedsApproval)
             ),
-            "最严档下脚本节点没有挂起等审批 —— 那它就真的没人管了"
+            "最严档下会写东西的脚本没有挂起等审批 —— 那它就真的没人管了"
         );
     }
 
@@ -1088,7 +1142,7 @@ mod 能力声明是硬的 {
         // 拦下来的话所有现成的工作流都跑不了了
         let dir = tempfile::tempdir().unwrap();
         let executor =
-            NodeExecutor::new(dir.path().to_path_buf()).with_permission_preset("workspace_safe");
+            执行器(dir.path().to_path_buf()).with_permission_preset("human_approval");
         let mut scope = Scope::new("run_cap3");
 
         let outcome = executor.execute(&shell("echo hi"), &mut scope).unwrap();
@@ -1105,7 +1159,7 @@ mod 能力声明是硬的 {
         let dir = tempfile::tempdir().unwrap();
         let marker = dir.path().join("不该出现.txt");
         let executor = NodeExecutor::new(dir.path().to_path_buf())
-            .with_permission_preset("review_every_change");
+            .with_permission_preset("human_approval");
         let mut scope = Scope::new("run_cap4");
 
         let outcome = executor
@@ -1163,7 +1217,7 @@ fn 挂角色的_ai_节点(profile_id: &str) -> GraphNode {
 #[test]
 fn 角色的目标人设与输出契约都进了提示词() {
     let (command, args) = mock_acp();
-    let executor = NodeExecutor::new(workdir())
+    let executor = 执行器(workdir())
         .with_acp_command(&command, &args)
         .with_agent_profiles(&[角色("builtin:reviewer")]);
 
@@ -1196,9 +1250,9 @@ fn 角色不存在时当场失败_而不是悄悄按没有角色跑() {
     // 悄悄跑下去的话，用户得到的分析是一个没有人设、没有输出契约、
     // 也没有权限约束的模型给的 —— 而界面上显示的是「审查者」
     let (command, args) = mock_acp();
-    let executor = NodeExecutor::new(workdir())
+    let executor = 执行器(workdir())
         .with_acp_command(&command, &args)
-        .with_permission_preset("workspace_safe");
+        .with_permission_preset("human_approval");
 
     let mut scope = Scope::new("run_role");
     let outcome = executor
@@ -1231,7 +1285,7 @@ fn 角色声明的能力被引擎强制_提示词改不了它_也不看权限档
     // 契约里脚本节点没有这个字段，Zod 的 strip 语义会把它丢掉 ——
     // 界面上根本存不出这样一张图，测的是一个不存在的形状
     let (command, args) = mock_acp();
-    let executor = NodeExecutor::new(workdir())
+    let executor = 执行器(workdir())
         .with_acp_command(&command, &args)
         .with_permission_preset("trusted_workflow")
         .with_agent_profiles(&[角色("builtin:reviewer")]);
@@ -1265,7 +1319,7 @@ fn 角色的_runtime_压过节点上写的那个() {
         runtime: "acp.codex".to_string(),
         ..角色("builtin:reviewer")
     }];
-    let executor = NodeExecutor::new(workdir()).with_agent_profiles(&profiles);
+    let executor = 执行器(workdir()).with_agent_profiles(&profiles);
 
     assert_eq!(
         executor.resolved_runtime(&挂角色的_ai_节点("builtin:reviewer")),
@@ -1279,7 +1333,7 @@ fn 解析结果记在执行器上_供上层写可解释性事件() {
     // 「用了哪个模型 / 哪条提示词 / 哪个角色」是运行记录要回答的问题。
     // 执行器不碰数据库，所以把它报给上层去写 system.model_resolved
     let (command, args) = mock_acp();
-    let executor = NodeExecutor::new(workdir())
+    let executor = 执行器(workdir())
         .with_acp_command(&command, &args)
         .with_agent_profiles(&[角色("builtin:reviewer")]);
 
@@ -1304,9 +1358,9 @@ fn 没挂角色的_ai_节点照旧能跑() {
     // 已经存在的工作流里有一堆没写 agentProfileId 的 AI 节点。
     // 一刀切要求挂角色的话，它们会在这次升级之后全部跑不了
     let (command, args) = mock_acp();
-    let executor = NodeExecutor::new(workdir())
+    let executor = 执行器(workdir())
         .with_acp_command(&command, &args)
-        .with_permission_preset("workspace_safe");
+        .with_permission_preset("human_approval");
 
     let outcome = executor
         .execute(&ai_节点(), &mut Scope::new("run_plain"))
@@ -1353,8 +1407,8 @@ fn worktree_的相对路径按运行工作目录算_不是进程的_cwd() {
             .unwrap();
     }
 
-    let outcome = NodeExecutor::new(dir.clone())
-        .with_permission_preset("workspace_safe")
+    let outcome = 执行器(dir.clone())
+        .with_permission_preset("human_approval")
         .execute(
             &node(
                 "wt",
@@ -1380,8 +1434,8 @@ fn worktree_的绝对路径原样使用() {
     // 相对路径改了解析基准，绝对路径不能跟着变
     let tmp = tempfile::tempdir().unwrap();
     let dir = tmp.path().to_path_buf();
-    let outcome = NodeExecutor::new(dir.clone())
-        .with_permission_preset("workspace_safe")
+    let outcome = 执行器(dir.clone())
+        .with_permission_preset("human_approval")
         .execute(
             &node(
                 "wt",
@@ -1431,9 +1485,9 @@ fn 声明了_worktree_却没有上游_worktree_时当场失败() {
     // 悄悄退回运行工作目录的话，Agent 会直接在克隆出来的仓库里改 ——
     // 那正是「不会污染你当前分支」要防的事，而用户不会知道它发生了
     let (command, args) = mock_acp();
-    let executor = NodeExecutor::new(workdir())
+    let executor = 执行器(workdir())
         .with_acp_command(&command, &args)
-        .with_permission_preset("workspace_safe")
+        .with_permission_preset("human_approval")
         .with_agent_profiles(&内置角色());
 
     let outcome = executor
@@ -1451,9 +1505,9 @@ fn 声明了_worktree_却没有上游_worktree_时当场失败() {
 #[test]
 fn 声明了_worktree_时_cwd_就是那个_worktree() {
     let (command, args) = mock_acp();
-    let executor = NodeExecutor::new(workdir())
+    let executor = 执行器(workdir())
         .with_acp_command(&command, &args)
-        .with_permission_preset("workspace_safe")
+        .with_permission_preset("human_approval")
         .with_agent_profiles(&内置角色());
 
     let mut scope = Scope::new("run_wds2");
@@ -1480,9 +1534,9 @@ fn 声明了_worktree_时_cwd_就是那个_worktree() {
 fn 声明了_inherit_时_cwd_是运行工作目录() {
     let (command, args) = mock_acp();
     let dir = workdir();
-    let executor = NodeExecutor::new(dir.clone())
+    let executor = 执行器(dir.clone())
         .with_acp_command(&command, &args)
-        .with_permission_preset("workspace_safe")
+        .with_permission_preset("human_approval")
         .with_agent_profiles(&内置角色());
 
     executor
@@ -1500,9 +1554,9 @@ fn 分析与审查节点不受_worktree_约束() {
     // 只有 ai.execute 有 workdirSource。分析、审查、决策是只读的，
     // 强制要求上游有 worktree 会让一条纯分析的工作流跑不了
     let (command, args) = mock_acp();
-    let executor = NodeExecutor::new(workdir())
+    let executor = 执行器(workdir())
         .with_acp_command(&command, &args)
-        .with_permission_preset("workspace_safe")
+        .with_permission_preset("human_approval")
         .with_agent_profiles(&内置角色());
 
     let outcome = executor
@@ -1548,9 +1602,9 @@ fn 各类_ai_节点走的端口都在节点目录里() {
             config[key] = value.clone();
         }
 
-        let executor = NodeExecutor::new(workdir())
+        let executor = 执行器(workdir())
             .with_acp_command(&command, &args)
-            .with_permission_preset("workspace_safe")
+            .with_permission_preset("human_approval")
             .with_agent_profiles(&内置角色());
         let mut scope = Scope::new("run_ports");
         let outcome = executor
@@ -1621,7 +1675,7 @@ fn 跑一个_ai_节点带工具调用() -> (收集器, Scope) {
 }
 
 fn 跑带收集(command: &str, args: &[String]) -> (收集器, Scope) {
-    let executor = NodeExecutor::new(workdir())
+    let executor = 执行器(workdir())
         .with_acp_command(command, args)
         .with_agent_profiles(&内置角色());
 
@@ -1718,7 +1772,7 @@ fn 不带_sink_时照旧能跑() {
     // 已有的调用点（测试、外部调度）用的是 execute()，
     // 加了事件通道不能让它们全部改签名
     let (command, args) = mock_acp();
-    let outcome = NodeExecutor::new(workdir())
+    let outcome = 执行器(workdir())
         .with_acp_command(&command, &args)
         .with_agent_profiles(&内置角色())
         .execute(&ai_节点(), &mut Scope::new("run_nosink"))
@@ -1731,8 +1785,8 @@ fn 非_ai_节点不往对话流里塞东西() {
     // 脚本节点的 stdout 有自己的 script.* 事件与产物，
     // 混进对话流会把「AI 说了什么」淹掉
     let sink = 收集器::default();
-    NodeExecutor::new(workdir())
-        .with_permission_preset("workspace_safe")
+    执行器(workdir())
+        .with_permission_preset("human_approval")
         .execute_with_sink(
             &node(
                 "sh",
@@ -1806,7 +1860,7 @@ fn 收集(node: &GraphNode, executor: &NodeExecutor) -> (收集器, NodeOutcome)
 #[test]
 fn 脚本节点记下命令与退出码() {
     let dir = workdir();
-    let executor = NodeExecutor::new(dir).with_permission_preset("workspace_safe");
+    let executor = 执行器(dir).with_permission_preset("human_approval");
     let (sink, outcome) = 收集(
         &node(
             "sh",
@@ -1846,7 +1900,7 @@ fn 脚本节点记下命令与退出码() {
 #[test]
 fn 脚本的输出各自成一条_指向各自的产物() {
     let dir = workdir();
-    let executor = NodeExecutor::new(dir).with_permission_preset("workspace_safe");
+    let executor = 执行器(dir).with_permission_preset("human_approval");
     let (sink, _) = 收集(
         &node(
             "sh2",
@@ -1874,7 +1928,7 @@ fn 脚本的输出各自成一条_指向各自的产物() {
 fn 没有输出时不发空的输出事件() {
     // 一条「stdout：」后面什么都没有，比没有这条更糟
     let dir = workdir();
-    let executor = NodeExecutor::new(dir).with_permission_preset("workspace_safe");
+    let executor = 执行器(dir).with_permission_preset("human_approval");
     let (sink, _) = 收集(
         &node(
             "sh3",
@@ -1895,7 +1949,7 @@ fn 脚本失败时日志事件照样发() {
     // 失败时最需要看日志。失败分支提前 return 的话，
     // 恰恰是这时候什么都没有
     let dir = workdir();
-    let executor = NodeExecutor::new(dir).with_permission_preset("workspace_safe");
+    let executor = 执行器(dir).with_permission_preset("human_approval");
     let (sink, outcome) = 收集(
         &node(
             "sh4",
@@ -1944,7 +1998,7 @@ fn worktree_节点记下分支与路径() {
             .unwrap();
     }
 
-    let executor = NodeExecutor::new(dir).with_permission_preset("workspace_safe");
+    let executor = 执行器(dir).with_permission_preset("human_approval");
     let (sink, outcome) = 收集(
         &node(
             "wt",
@@ -1982,7 +2036,7 @@ fn worktree_节点记下分支与路径() {
 mod 分析对象 {
     #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
-    use super::{mock_acp, node, workdir, 收到的提示词};
+    use super::{mock_acp, node, workdir, 收到的提示词, 执行器};
     use aiwf_engine::executor::NodeExecutor;
     use aiwf_engine::interp::Scope;
     use aiwf_engine::runner::NodeOutcome;
@@ -1990,9 +2044,9 @@ mod 分析对象 {
     #[test]
     fn target_要进提示词() {
         let (command, args) = mock_acp();
-        let executor = NodeExecutor::new(workdir())
+        let executor = 执行器(workdir())
             .with_acp_command(&command, &args)
-            .with_permission_preset("workspace_safe");
+            .with_permission_preset("human_approval");
 
         let mut scope = Scope::new("run_target");
         let outcome = executor
@@ -2027,9 +2081,9 @@ mod 分析对象 {
         // 内置模板写的是 `${read_issue.success}` —— 不解析的话，
         // agent 收到的是那串字面量，会把它当成一个真实存在的东西去理解
         let (command, args) = mock_acp();
-        let executor = NodeExecutor::new(workdir())
+        let executor = 执行器(workdir())
             .with_acp_command(&command, &args)
-            .with_permission_preset("workspace_safe");
+            .with_permission_preset("human_approval");
 
         let mut scope = Scope::new("run_target_interp");
         scope.set_node_output(
@@ -2062,9 +2116,9 @@ mod 分析对象 {
     fn 没有_target_的节点照常跑() {
         // ai.decide / ai.execute 的契约里没有 target —— 不能因为缺它就失败
         let (command, args) = mock_acp();
-        let executor = NodeExecutor::new(workdir())
+        let executor = 执行器(workdir())
             .with_acp_command(&command, &args)
-            .with_permission_preset("workspace_safe");
+            .with_permission_preset("human_approval");
 
         let mut scope = Scope::new("run_no_target");
         let outcome = executor
@@ -2104,7 +2158,7 @@ mod 分析对象 {
 mod 权限档说的话要算数 {
     #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
-    use super::{node, workdir};
+    use super::{node, workdir, 执行器};
     use aiwf_engine::catalog;
     use aiwf_engine::executor::NodeExecutor;
     use aiwf_engine::runner::NodeOutcome;
@@ -2142,7 +2196,7 @@ mod 权限档说的话要算数 {
     #[test]
     fn ai_execute_在最严档下要先问一句() {
         // 它是唯一会放一个自主 agent 进 worktree 写文件、跑命令的节点
-        let executor = NodeExecutor::new(workdir()).with_permission_preset("review_every_change");
+        let executor = NodeExecutor::new(workdir()).with_permission_preset("human_approval");
 
         let outcome = executor.precheck(&ai_execute());
         assert!(
@@ -2184,8 +2238,8 @@ mod 权限档说的话要算数 {
         };
         let mut 节点 = ai_execute();
         节点.config["agentProfileId"] = serde_json::json!("ap_ro");
-        let executor = NodeExecutor::new(workdir())
-            .with_permission_preset("workspace_safe")
+        let executor = 执行器(workdir())
+            .with_permission_preset("human_approval")
             .with_agent_profiles(&[只读角色]);
 
         let outcome = executor.precheck(&节点);
@@ -2214,7 +2268,7 @@ mod 权限档说的话要算数 {
 mod 这一轮怎么结束的要算数 {
     #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
-    use super::{node, workdir, 内置角色};
+    use super::{node, workdir, 内置角色, 执行器};
     use aiwf_engine::executor::{NodeEvent, NodeExecutor};
     use aiwf_engine::interp::Scope;
     use aiwf_engine::runner::NodeOutcome;
@@ -2225,8 +2279,8 @@ mod 这一轮怎么结束的要算数 {
             .and_then(|p| p.parent())
             .expect("仓库根")
             .join("tests/fixtures/acp-mock.mjs");
-        let executor = NodeExecutor::new(workdir())
-            .with_permission_preset("workspace_safe")
+        let executor = 执行器(workdir())
+            .with_permission_preset("human_approval")
             .with_agent_profiles(&内置角色())
             .with_acp_command(
                 "node",
@@ -2325,7 +2379,7 @@ mod 这一轮怎么结束的要算数 {
 mod 能力枚举外的值按最严 {
     #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
-    use super::{node, workdir};
+    use super::{node, workdir, 执行器};
     use aiwf_engine::executor::{AgentProfile, NodeExecutor};
     use aiwf_engine::runner::NodeOutcome;
 
@@ -2348,8 +2402,8 @@ mod 能力枚举外的值按最严 {
             capabilities_json: caps.to_string(),
             timeout_ms: 900_000,
         };
-        NodeExecutor::new(workdir())
-            .with_permission_preset("workspace_safe")
+        执行器(workdir())
+            .with_permission_preset("human_approval")
             .with_agent_profiles(&[profile])
             .precheck(&node(
                 "fix",

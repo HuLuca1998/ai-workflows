@@ -53,6 +53,8 @@ pub struct NodeEntry {
     pub dynamic_outputs: Option<DynamicOutputRule>,
     pub default_capabilities: Value,
     pub external_write: bool,
+    /// 审批判定的下限。引擎按脚本内容往上调，不下调 —— 见 `risk.rs`
+    pub base_risk: String,
     pub singleton: bool,
     pub seed: Option<Value>,
 }

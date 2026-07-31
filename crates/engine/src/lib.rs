@@ -18,6 +18,7 @@ pub mod path_guard;
 pub mod plan;
 pub mod preflight;
 pub mod redactor;
+pub mod risk;
 pub mod runner;
 pub mod schema;
 pub mod status;

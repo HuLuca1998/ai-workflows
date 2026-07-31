@@ -26,13 +26,55 @@ export const CapabilitiesSchema = z.object({
 
 export type Capabilities = z.infer<typeof CapabilitiesSchema>;
 
-/** 权限三档（功能文档 §7）。扩权或版本重要变化时自动失效并重新确认。 */
-export const PERMISSION_PRESETS = [
-  'review_every_change',
-  'workspace_safe',
-  'trusted_workflow',
-] as const;
-export type PermissionPreset = (typeof PERMISSION_PRESETS)[number];
+/**
+ * 审批三档 —— 用户在设置里选的是**谁来批**，不是「哪类操作要批」。
+ *
+ * 语义与判定矩阵在 `approval.ts`。常量定义留在这里是为了避开循环依赖：
+ * `approval.ts` 要读节点定义，而节点定义要读本文件。
+ *
+ * 存储字段仍叫 `permissionPreset`（数据库列、API DTO、设置键都是它）——
+ * 那是历史名字，值域已经换成下面这三个。旧值靠
+ * [`migrateApprovalMode`] 在读取时映射，不做数据迁移：
+ * 用户可能在旧版与新版之间来回切，改库反而回不去。
+ */
+export const APPROVAL_MODES = ['human_approval', 'ai_assisted', 'unattended'] as const;
+export type ApprovalMode = (typeof APPROVAL_MODES)[number];
+
+/**
+ * 一步操作会造成什么。分界线是**能不能收回**，详见 `approval.ts`。
+ */
+export const RISK_LEVELS = ['read_only', 'workspace_write', 'external_write'] as const;
+export type RiskLevel = (typeof RISK_LEVELS)[number];
+
+/** 字段值域的名字。与 [`APPROVAL_MODES`] 是同一组值。 */
+export const PERMISSION_PRESETS = APPROVAL_MODES;
+export type PermissionPreset = ApprovalMode;
+
+/**
+ * 上一版三档 → 新三档。
+ *
+ * 用户的库里躺着 `review_every_change` / `workspace_safe` / `trusted_workflow`，
+ * 而这三个值在新的值域里都非法。**在读取处映射，不改库**：
+ * 改了库之后用户装回旧版就读不出来了，而回退是内部分发最常发生的事。
+ *
+ * 映射按**严格程度**对齐，不按名字像不像：
+ * - `review_every_change`（逐项审批）→ `human_approval`
+ * - `workspace_safe`（工作区内放行、外部写仍要确认）→ `ai_assisted`
+ * - `trusted_workflow`（全放行）→ `unattended`
+ *
+ * 认不出的值一律回到最严那档 —— 拼错的档位名不该把审批静默关掉。
+ */
+export function migrateApprovalMode(value: string | null | undefined): ApprovalMode {
+  if ((APPROVAL_MODES as readonly string[]).includes(value ?? '')) return value as ApprovalMode;
+  switch (value) {
+    case 'workspace_safe':
+      return 'ai_assisted';
+    case 'trusted_workflow':
+      return 'unattended';
+    default:
+      return 'human_approval';
+  }
+}
 
 /** MCP / HTTP API 的能力范围（技术选型 §6）。 */
 export const SCOPES = [

@@ -43,7 +43,7 @@ const ISSUE_FIX: WorkflowTemplate = {
         workdirSource: 'prompt',
         inputSchema: {
           type: 'object',
-          required: ['issue', 'repo'],
+          required: ['issue', 'repo', 'repoPath'],
           properties: {
             issue: { type: 'string', title: 'Issue 编号' },
             // `format: 'repo'` —— 启动表单据此渲染仓库与分支两个联动下拉，
@@ -52,6 +52,18 @@ const ISSUE_FIX: WorkflowTemplate = {
             // 用户可以给 A 仓库配上一个 B 仓库才有的分支，
             // 而那要等运行跑到 git checkout 才报错
             repo: { type: 'object', format: 'repo', title: '仓库与分支' },
+            /**
+             * 本地仓库路径。**与上面那个不是一回事**，两个都要。
+             *
+             * `repo.name` 是 GitHub 上的 `owner/name`，`gh issue view --repo`
+             * 和 `gh pr create` 认它；`git worktree add` 认的是这台机器上
+             * 的一个目录。把前者填给 worktree 的话，git 会去找一个叫
+             * `owner/name` 的相对路径 —— 报错发生在运行跑到第四个节点时，
+             * 而原因在第一个节点填的参数里。
+             *
+             * 这正是内置示例此前跑不通的一处：`repoRoot: '${input.repo.name}'`。
+             */
+            repoPath: { type: 'string', format: 'directory', title: '本地仓库路径' },
           },
         },
         injectedFields: ['run.id', 'run.startedAt'],
@@ -65,7 +77,21 @@ const ISSUE_FIX: WorkflowTemplate = {
       position: { x: 290, y: 34 },
       config: {
         interpreter: 'zsh',
-        script: 'gh issue view "$ISSUE" --repo "$REPO" --json title,body,labels',
+        /**
+         * 变量走 `${…}` 插值，不走环境变量。
+         *
+         * 这里原本写的是 `"$ISSUE" --repo "$REPO"` —— 而引擎注入的环境变量
+         * 叫 `AIWF_ISSUE` / `AIWF_REPO`（`interp.rs` 的 `env_vars`）。
+         * 名字对不上，两个都是空串，gh 报 `invalid issue format: ""`。
+         * 就算名字对上也没用：`repo` 是个对象，`AIWF_REPO` 会是一整段 JSON，
+         * `--repo` 吃不下。
+         *
+         * 实测这条：run_18c740d6394b3c70 就死在这一步。
+         *
+         * `${…}` 的值由引擎加过单引号（`interp.rs` 的 `shell_quote`），
+         * 所以外面**不要**再套引号 —— 套了会变成 `"'573'"`。
+         */
+        script: 'gh issue view ${input.issue} --repo ${input.repo.name} --json title,body,labels',
         outputParse: 'json',
         timeoutMs: 60_000,
       },
@@ -102,7 +128,9 @@ const ISSUE_FIX: WorkflowTemplate = {
       title: '创建 Git worktree',
       position: { x: 790, y: 184 },
       config: {
-        repoRoot: '${input.repo.name}',
+        // 本地路径，不是 `owner/name`。原来写的是 `${input.repo.name}`，
+        // git 会拿它当相对路径去找一个叫 `owner/name` 的目录
+        repoRoot: '${input.repoPath}',
         baseBranch: '${input.repo.branch}',
         branchTemplate: 'fix/${input.issue}-${run.id}',
         // 保留到 PR 合并：图纸里那条记忆说的就是这件事
@@ -214,6 +242,24 @@ const ISSUE_FIX: WorkflowTemplate = {
       position: { x: 790, y: 334 },
       config: { outcome: 'success' },
     },
+    /**
+     * 走不下去时的明确终点。
+     *
+     * `ai.analyze` 的 `insufficient_context` 端口此前没有下游 ——
+     * 分析师说「材料不够，没法定位根因」的那一支走到端口就停了，
+     * 运行**以成功状态结束**，而什么都没做。
+     *
+     * 有一个 outcome 为 failed 的终点，用户至少能在运行列表里
+     * 一眼看出这次没成，以及停在哪一步。
+     */
+    {
+      op: 'addNode',
+      nodeId: 'stopped',
+      type: 'end',
+      title: '结束 · 材料不足',
+      position: { x: 1040, y: 34 },
+      config: { outcome: 'failure' },
+    },
 
     // 主线。审批与审查的分支端口在这里显式给出——
     // 这正是「画布上的连线需要能指定端口」的实际用途
@@ -271,6 +317,99 @@ const ISSUE_FIX: WorkflowTemplate = {
       source: { nodeId: 'approve_diff', port: 'approved' },
       target: { nodeId: 'push_pr', port: 'input' },
     },
+    /**
+     * 决策判定为低风险时直接提交，不再多问一次。
+     *
+     * 这条边此前**不存在** —— `decide` 有 `auto_decided` 与 `escalated`
+     * 两个端口，模板只连了后者。于是 AI 判定「这次改动够小，可以自动放行」
+     * 的那一支走到端口就没路了：节点成功、运行结束、PR 没建，
+     * 而事件流里看不出哪里断的。
+     *
+     * 「会不会有人在这里偷偷 push」由审批档管，不靠工作流自己多摆一个审批节点。
+     */
+    {
+      op: 'connect',
+      edgeId: 'e_decide_push',
+      source: { nodeId: 'decide', port: 'auto_decided' },
+      target: { nodeId: 'push_pr', port: 'input' },
+    },
+
+    /**
+     * 两个汇聚点都改成「任一到达即可」。
+     *
+     * 默认策略是 `All`（`graph.rs` 的 `join_strategy`）—— 而这两个节点
+     * 的入边**互斥**：`review` 只走 passed 或 changes_requested 之一，
+     * `decide` 只走 auto_decided 或 escalated 之一。按「等全部到齐」算，
+     * 它们**永远凑不齐**，于是从 `approve_diff` 往后整条尾巴
+     * （审批 → 提交 → PR → 通知 → 结束）一次都执行不到。
+     *
+     * 这一条比变量名写错那处更根本：那个报错至少停在第二个节点上，
+     * 这个是安静地跑完然后什么都没发生。
+     */
+    { op: 'setJoin', nodeId: 'approve_diff', join: { strategy: 'any' } },
+    { op: 'setJoin', nodeId: 'push_pr', join: { strategy: 'any' } },
+
+    /**
+     * 所有「走不下去」的分支都收到同一个终点。
+     *
+     * 这些端口此前**全部悬空**：分析说材料不够、用户拒绝审批、
+     * 用户要求先改改再说 —— 每一种都是「节点成功地走了某个端口，
+     * 而那个端口没有下游」。运行就此结束，状态是**成功**。
+     *
+     * 用户拒绝了一次审批，运行记录上显示这次跑成功了 ——
+     * 这是最典型的「假装成功」，而且它藏在图的形状里，
+     * 不在任何一段代码里。
+     */
+    {
+      op: 'connect',
+      edgeId: 'e_analyze_stopped',
+      source: { nodeId: 'analyze', port: 'insufficient_context' },
+      target: { nodeId: 'stopped', port: 'input' },
+    },
+    {
+      op: 'connect',
+      edgeId: 'e_plan_changes_stopped',
+      source: { nodeId: 'approve_plan', port: 'changes_requested' },
+      target: { nodeId: 'stopped', port: 'input' },
+    },
+    {
+      op: 'connect',
+      edgeId: 'e_plan_rejected_stopped',
+      source: { nodeId: 'approve_plan', port: 'rejected' },
+      target: { nodeId: 'stopped', port: 'input' },
+    },
+    {
+      op: 'connect',
+      edgeId: 'e_plan_expired_stopped',
+      source: { nodeId: 'approve_plan', port: 'expired' },
+      target: { nodeId: 'stopped', port: 'input' },
+    },
+    {
+      op: 'connect',
+      edgeId: 'e_diff_changes_stopped',
+      source: { nodeId: 'approve_diff', port: 'changes_requested' },
+      target: { nodeId: 'stopped', port: 'input' },
+    },
+    {
+      op: 'connect',
+      edgeId: 'e_diff_rejected_stopped',
+      source: { nodeId: 'approve_diff', port: 'rejected' },
+      target: { nodeId: 'stopped', port: 'input' },
+    },
+    {
+      op: 'connect',
+      edgeId: 'e_diff_expired_stopped',
+      source: { nodeId: 'approve_diff', port: 'expired' },
+      target: { nodeId: 'stopped', port: 'input' },
+    },
+    {
+      op: 'connect',
+      edgeId: 'e_fix_needs_decision',
+      source: { nodeId: 'fix', port: 'needs_decision' },
+      target: { nodeId: 'approve_diff', port: 'input' },
+    },
+    // 这些入边一条都不会同时到达 —— 必须是「任一到达即可」
+    { op: 'setJoin', nodeId: 'stopped', join: { strategy: 'any' } },
     {
       op: 'connect',
       edgeId: 'e_push_notify',

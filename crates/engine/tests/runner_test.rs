@@ -42,7 +42,7 @@ fn setup(graph_json: &str) -> (Store, String) {
     // 等审批），而这些用例测的是「跑起来之后发生什么」。
     // 声明比放宽默认好 —— 默认放宽等于替用户做了一个他不知道的决定。
     store
-        .set_workspace_setting("permissionPreset", "workspace_safe")
+        .set_workspace_setting("permissionPreset", "human_approval")
         .unwrap();
     let workflow = store
         .create_workflow_with_graph("测试流程", None, graph_json)
@@ -435,13 +435,24 @@ fn 上游节点的输出在重启后仍能被下游引用() {
 
 // ── 记忆注入的溯源（M4 出口标准）─────────────────────────────────────────
 
-/// 只有一个 AI 节点的图。跑不动 adapter 也没关系 ——
-/// 注入事件在**调用之前**就该写下，那正是要验的。
+/// 只有一个 AI 节点的图。
+///
+/// runtime 故意写一个**不存在**的值：要验的是「注入事件在调用之前
+/// 就写下了」，节点本身跑不跑得起来无所谓。
+///
+/// 这里原本写的是 `acp.claude`，注释说「跑不动 adapter 也没关系」——
+/// 而这条假设在装了 adapter 的机器上不成立：`Runner` 没有
+/// `with_acp_command` 那样的注入口，于是测试会**真的拉起
+/// claude adapter**，连上开发者自己正在用的登录态与配额。
+/// CLAUDE.md 那条「测试与试验不要用 claude 的 adapter」说的就是这个。
+///
+/// 实测：跑一次全量 `cargo test -p aiwf-engine` 会在 `ps` 里
+/// 留下 `claude --session-id=…` 与 `codex app-server` 进程。
 const AI_GRAPH: &str = r#"{
   "nodes": [
     {"id":"entry","type":"entry","title":"入口","position":{"x":0,"y":0},"config":{}},
     {"id":"think","type":"ai.analyze","title":"分析","position":{"x":1,"y":0},
-     "config":{"instruction":"看一眼","runtime":"acp.claude"}}
+     "config":{"instruction":"看一眼","runtime":"provider.api"}}
   ],
   "edges": [
     {"id":"e1","source":{"nodeId":"entry","port":"success"},"target":{"nodeId":"think","port":"input"}}
@@ -563,7 +574,12 @@ fn 建一个分析师(store: &Store) -> String {
             role: "分析".to_string(),
             goal: "定位根因".to_string(),
             persona: "只看证据说话".to_string(),
-            runtime: "acp.codex".to_string(),
+            // 故意用一个装不上的 runtime：这条测的是「运行记录说得清
+            // 用了哪个角色与模型」，而那条事件在选 adapter **之前**就写下了。
+            // 写真实的 `acp.codex` 会让测试真的拉起 codex ——
+            // `Runner` 没有 mock 注入口，跑一次全量测试就在 `ps` 里
+            // 留下一串 adapter 进程，用的是开发者自己的登录态与配额
+            runtime: "provider.api".to_string(),
             model_ref: "model:codex".to_string(),
             fallback_model_ref: None,
             tools: vec![],
@@ -581,7 +597,7 @@ fn 建一个分析师(store: &Store) -> String {
 fn 运行记录说得清这一步用了哪个角色与模型() {
     let store = Store::open_in_memory().unwrap();
     store
-        .set_workspace_setting("permissionPreset", "workspace_safe")
+        .set_workspace_setting("permissionPreset", "human_approval")
         .unwrap();
     let agent = 建一个分析师(&store);
     let workflow = store
@@ -600,7 +616,7 @@ fn 运行记录说得清这一步用了哪个角色与模型() {
         .expect("AI 节点该留一条 system.model_resolved");
 
     assert_eq!(解析.node_id.as_deref(), Some("think"));
-    for 片段 in ["分析师", agent.as_str(), "model:codex", "acp.codex", "cwd "] {
+    for 片段 in ["分析师", agent.as_str(), "model:codex", "provider.api", "cwd "] {
         assert!(
             解析.summary.contains(片段),
             "「{片段}」没写进事件：{}",
@@ -639,7 +655,7 @@ fn ai_节点的对话与工具调用真的落进事件表() {
     // 「对话」tab 会空着 —— 而产物里明明躺着几 KB 的回答。
     let store = Store::open_in_memory().unwrap();
     store
-        .set_workspace_setting("permissionPreset", "workspace_safe")
+        .set_workspace_setting("permissionPreset", "human_approval")
         .unwrap();
     let agent = 建一个分析师(&store);
     let workflow = store
@@ -887,7 +903,7 @@ mod 事件不留明文 {
         let store = Store::open_in_memory().unwrap();
         // 脚本节点在默认档下要审批，这里测的是「写进去的东西长什么样」
         store
-            .set_workspace_setting("permissionPreset", "workspace_safe")
+            .set_workspace_setting("permissionPreset", "human_approval")
             .unwrap();
         let workflow = store
             .create_workflow_with_graph("测试流程", None, &graph)
@@ -993,7 +1009,7 @@ mod 端到端_人工介入 {
         let store = Store::open_in_memory().unwrap();
         // 最严档：脚本节点要先问一句
         store
-            .set_workspace_setting("permissionPreset", "review_every_change")
+            .set_workspace_setting("permissionPreset", "human_approval")
             .unwrap();
         let workflow = store
             .create_workflow_with_graph("人工介入", None, &graph)
@@ -1110,7 +1126,7 @@ mod 超长摘要不该压垮运行 {
 
         let store = Store::open_in_memory().unwrap();
         store
-            .set_workspace_setting("permissionPreset", "workspace_safe")
+            .set_workspace_setting("permissionPreset", "human_approval")
             .unwrap();
         let workflow = store
             .create_workflow_with_graph("长错误", None, &graph)
@@ -1128,6 +1144,15 @@ mod 超长摘要不该压垮运行 {
                     workdir: "/tmp".to_string(),
                 },
             )
+            .unwrap();
+
+        // 这段脚本会写东西（跑 python3、非零退出），最严档下先挂人工。
+        // 走完整的审批流程而不是绕开它：这条测的是「失败了要有 node.failed」，
+        // 而失败发生在批准之后 —— 绕开审批的话测的就是另一条路径了
+        let 挂起 = runner.run_all(&store, &run_id).unwrap();
+        assert_eq!(挂起, "waiting_approval", "会写东西的脚本该先问一句");
+        runner
+            .decide_approval(&store, &run_id, "boom", "approved")
             .unwrap();
         let status = runner.run_all(&store, &run_id).unwrap();
 
@@ -1168,7 +1193,7 @@ mod 超长摘要不该压垮运行 {
 
         let store = Store::open_in_memory().unwrap();
         store
-            .set_workspace_setting("permissionPreset", "workspace_safe")
+            .set_workspace_setting("permissionPreset", "human_approval")
             .unwrap();
         let workflow = store
             .create_workflow_with_graph("长标题", None, &graph)
@@ -1233,7 +1258,7 @@ mod 角色快照要留痕 {
         )
         .unwrap();
         store
-            .set_workspace_setting("permissionPreset", "workspace_safe")
+            .set_workspace_setting("permissionPreset", "human_approval")
             .unwrap();
         let wf = store
             .create_workflow_with_graph("带 AI 的", None, &graph)
@@ -1294,7 +1319,7 @@ mod 角色快照要留痕 {
         .to_string();
         let store = Store::open_in_memory().unwrap();
         store
-            .set_workspace_setting("permissionPreset", "workspace_safe")
+            .set_workspace_setting("permissionPreset", "human_approval")
             .unwrap();
         let wf = store
             .create_workflow_with_graph("纯脚本", None, &graph)

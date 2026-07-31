@@ -3287,7 +3287,8 @@
                 "type": "object",
                 "required": [
                   "issue",
-                  "repo"
+                  "repo",
+                  "repoPath"
                 ],
                 "properties": {
                   "issue": {
@@ -3298,6 +3299,11 @@
                     "type": "object",
                     "format": "repo",
                     "title": "仓库与分支"
+                  },
+                  "repoPath": {
+                    "type": "string",
+                    "format": "directory",
+                    "title": "本地仓库路径"
                   }
                 }
               },
@@ -3318,7 +3324,7 @@
             },
             "config": {
               "interpreter": "zsh",
-              "script": "gh issue view \"$ISSUE\" --repo \"$REPO\" --json title,body,labels",
+              "script": "gh issue view ${input.issue} --repo ${input.repo.name} --json title,body,labels",
               "outputParse": "json",
               "timeoutMs": 60000
             }
@@ -3364,7 +3370,7 @@
               "y": 184
             },
             "config": {
-              "repoRoot": "${input.repo.name}",
+              "repoRoot": "${input.repoPath}",
               "baseBranch": "${input.repo.branch}",
               "branchTemplate": "fix/${input.issue}-${run.id}",
               "cleanupPolicy": "manual"
@@ -3485,6 +3491,19 @@
             }
           },
           {
+            "op": "addNode",
+            "nodeId": "stopped",
+            "type": "end",
+            "title": "结束 · 材料不足",
+            "position": {
+              "x": 1040,
+              "y": 34
+            },
+            "config": {
+              "outcome": "failure"
+            }
+          },
+          {
             "op": "connect",
             "edgeId": "e_entry_read",
             "source": {
@@ -3594,6 +3613,135 @@
           },
           {
             "op": "connect",
+            "edgeId": "e_decide_push",
+            "source": {
+              "nodeId": "decide",
+              "port": "auto_decided"
+            },
+            "target": {
+              "nodeId": "push_pr",
+              "port": "input"
+            }
+          },
+          {
+            "op": "setJoin",
+            "nodeId": "approve_diff",
+            "join": {
+              "strategy": "any"
+            }
+          },
+          {
+            "op": "setJoin",
+            "nodeId": "push_pr",
+            "join": {
+              "strategy": "any"
+            }
+          },
+          {
+            "op": "connect",
+            "edgeId": "e_analyze_stopped",
+            "source": {
+              "nodeId": "analyze",
+              "port": "insufficient_context"
+            },
+            "target": {
+              "nodeId": "stopped",
+              "port": "input"
+            }
+          },
+          {
+            "op": "connect",
+            "edgeId": "e_plan_changes_stopped",
+            "source": {
+              "nodeId": "approve_plan",
+              "port": "changes_requested"
+            },
+            "target": {
+              "nodeId": "stopped",
+              "port": "input"
+            }
+          },
+          {
+            "op": "connect",
+            "edgeId": "e_plan_rejected_stopped",
+            "source": {
+              "nodeId": "approve_plan",
+              "port": "rejected"
+            },
+            "target": {
+              "nodeId": "stopped",
+              "port": "input"
+            }
+          },
+          {
+            "op": "connect",
+            "edgeId": "e_plan_expired_stopped",
+            "source": {
+              "nodeId": "approve_plan",
+              "port": "expired"
+            },
+            "target": {
+              "nodeId": "stopped",
+              "port": "input"
+            }
+          },
+          {
+            "op": "connect",
+            "edgeId": "e_diff_changes_stopped",
+            "source": {
+              "nodeId": "approve_diff",
+              "port": "changes_requested"
+            },
+            "target": {
+              "nodeId": "stopped",
+              "port": "input"
+            }
+          },
+          {
+            "op": "connect",
+            "edgeId": "e_diff_rejected_stopped",
+            "source": {
+              "nodeId": "approve_diff",
+              "port": "rejected"
+            },
+            "target": {
+              "nodeId": "stopped",
+              "port": "input"
+            }
+          },
+          {
+            "op": "connect",
+            "edgeId": "e_diff_expired_stopped",
+            "source": {
+              "nodeId": "approve_diff",
+              "port": "expired"
+            },
+            "target": {
+              "nodeId": "stopped",
+              "port": "input"
+            }
+          },
+          {
+            "op": "connect",
+            "edgeId": "e_fix_needs_decision",
+            "source": {
+              "nodeId": "fix",
+              "port": "needs_decision"
+            },
+            "target": {
+              "nodeId": "approve_diff",
+              "port": "input"
+            }
+          },
+          {
+            "op": "setJoin",
+            "nodeId": "stopped",
+            "join": {
+              "strategy": "any"
+            }
+          },
+          {
+            "op": "connect",
             "edgeId": "e_push_notify",
             "source": {
               "nodeId": "push_pr",
@@ -3651,7 +3799,8 @@
                   "type": "object",
                   "required": [
                     "issue",
-                    "repo"
+                    "repo",
+                    "repoPath"
                   ],
                   "properties": {
                     "issue": {
@@ -3662,6 +3811,11 @@
                       "type": "object",
                       "format": "repo",
                       "title": "仓库与分支"
+                    },
+                    "repoPath": {
+                      "type": "string",
+                      "format": "directory",
+                      "title": "本地仓库路径"
                     }
                   }
                 },
@@ -3681,7 +3835,7 @@
               },
               "config": {
                 "interpreter": "zsh",
-                "script": "gh issue view \"$ISSUE\" --repo \"$REPO\" --json title,body,labels",
+                "script": "gh issue view ${input.issue} --repo ${input.repo.name} --json title,body,labels",
                 "env": {},
                 "secretEnv": {},
                 "outputParse": "json",
@@ -3732,7 +3886,7 @@
                 "y": 184
               },
               "config": {
-                "repoRoot": "${input.repo.name}",
+                "repoRoot": "${input.repoPath}",
                 "baseBranch": "${input.repo.branch}",
                 "branchTemplate": "fix/${input.issue}-${run.id}",
                 "parentDir": "~/worktrees",
@@ -3816,6 +3970,9 @@
                 "interaction": "confirm",
                 "options": [],
                 "waitStrategy": "forever"
+              },
+              "join": {
+                "strategy": "any"
               }
             },
             {
@@ -3837,6 +3994,9 @@
                 ],
                 "outputLimitBytes": 1048576,
                 "timeoutMs": 300000
+              },
+              "join": {
+                "strategy": "any"
               }
             },
             {
@@ -3870,6 +4030,22 @@
               "config": {
                 "outcome": "success",
                 "artifacts": []
+              }
+            },
+            {
+              "id": "stopped",
+              "type": "end",
+              "title": "结束 · 材料不足",
+              "position": {
+                "x": 1040,
+                "y": 34
+              },
+              "config": {
+                "outcome": "failure",
+                "artifacts": []
+              },
+              "join": {
+                "strategy": "any"
               }
             }
           ],
@@ -3974,6 +4150,105 @@
               }
             },
             {
+              "id": "e_decide_push",
+              "source": {
+                "nodeId": "decide",
+                "port": "auto_decided"
+              },
+              "target": {
+                "nodeId": "push_pr",
+                "port": "input"
+              }
+            },
+            {
+              "id": "e_analyze_stopped",
+              "source": {
+                "nodeId": "analyze",
+                "port": "insufficient_context"
+              },
+              "target": {
+                "nodeId": "stopped",
+                "port": "input"
+              }
+            },
+            {
+              "id": "e_plan_changes_stopped",
+              "source": {
+                "nodeId": "approve_plan",
+                "port": "changes_requested"
+              },
+              "target": {
+                "nodeId": "stopped",
+                "port": "input"
+              }
+            },
+            {
+              "id": "e_plan_rejected_stopped",
+              "source": {
+                "nodeId": "approve_plan",
+                "port": "rejected"
+              },
+              "target": {
+                "nodeId": "stopped",
+                "port": "input"
+              }
+            },
+            {
+              "id": "e_plan_expired_stopped",
+              "source": {
+                "nodeId": "approve_plan",
+                "port": "expired"
+              },
+              "target": {
+                "nodeId": "stopped",
+                "port": "input"
+              }
+            },
+            {
+              "id": "e_diff_changes_stopped",
+              "source": {
+                "nodeId": "approve_diff",
+                "port": "changes_requested"
+              },
+              "target": {
+                "nodeId": "stopped",
+                "port": "input"
+              }
+            },
+            {
+              "id": "e_diff_rejected_stopped",
+              "source": {
+                "nodeId": "approve_diff",
+                "port": "rejected"
+              },
+              "target": {
+                "nodeId": "stopped",
+                "port": "input"
+              }
+            },
+            {
+              "id": "e_diff_expired_stopped",
+              "source": {
+                "nodeId": "approve_diff",
+                "port": "expired"
+              },
+              "target": {
+                "nodeId": "stopped",
+                "port": "input"
+              }
+            },
+            {
+              "id": "e_fix_needs_decision",
+              "source": {
+                "nodeId": "fix",
+                "port": "needs_decision"
+              },
+              "target": {
+                "nodeId": "approve_diff",
+                "port": "input"
+              }
+            },
+            {
               "id": "e_push_notify",
               "source": {
                 "nodeId": "push_pr",
@@ -4022,7 +4297,8 @@
                   "type": "object",
                   "required": [
                     "issue",
-                    "repo"
+                    "repo",
+                    "repoPath"
                   ],
                   "properties": {
                     "issue": {
@@ -4033,6 +4309,11 @@
                       "type": "object",
                       "format": "repo",
                       "title": "仓库与分支"
+                    },
+                    "repoPath": {
+                      "type": "string",
+                      "format": "directory",
+                      "title": "本地仓库路径"
                     }
                   }
                 },
@@ -4048,7 +4329,7 @@
               "label": "node script.shell「读取 Issue」",
               "after": {
                 "interpreter": "zsh",
-                "script": "gh issue view \"$ISSUE\" --repo \"$REPO\" --json title,body,labels",
+                "script": "gh issue view ${input.issue} --repo ${input.repo.name} --json title,body,labels",
                 "env": {},
                 "secretEnv": {},
                 "outputParse": "json",
@@ -4087,7 +4368,7 @@
               "id": "worktree",
               "label": "node git.worktree「创建 Git worktree」",
               "after": {
-                "repoRoot": "${input.repo.name}",
+                "repoRoot": "${input.repoPath}",
                 "baseBranch": "${input.repo.branch}",
                 "branchTemplate": "fix/${input.issue}-${run.id}",
                 "parentDir": "~/worktrees",
@@ -4196,6 +4477,15 @@
               "label": "node end「结束」",
               "after": {
                 "outcome": "success",
+                "artifacts": []
+              }
+            },
+            {
+              "kind": "node",
+              "id": "stopped",
+              "label": "node end「结束 · 材料不足」",
+              "after": {
+                "outcome": "failure",
                 "artifacts": []
               }
             },
@@ -4345,6 +4635,150 @@
             },
             {
               "kind": "edge",
+              "id": "e_decide_push",
+              "label": "edge decide.auto_decided → push_pr",
+              "after": {
+                "id": "e_decide_push",
+                "source": {
+                  "nodeId": "decide",
+                  "port": "auto_decided"
+                },
+                "target": {
+                  "nodeId": "push_pr",
+                  "port": "input"
+                }
+              }
+            },
+            {
+              "kind": "edge",
+              "id": "e_analyze_stopped",
+              "label": "edge analyze.insufficient_context → stopped",
+              "after": {
+                "id": "e_analyze_stopped",
+                "source": {
+                  "nodeId": "analyze",
+                  "port": "insufficient_context"
+                },
+                "target": {
+                  "nodeId": "stopped",
+                  "port": "input"
+                }
+              }
+            },
+            {
+              "kind": "edge",
+              "id": "e_plan_changes_stopped",
+              "label": "edge approve_plan.changes_requested → stopped",
+              "after": {
+                "id": "e_plan_changes_stopped",
+                "source": {
+                  "nodeId": "approve_plan",
+                  "port": "changes_requested"
+                },
+                "target": {
+                  "nodeId": "stopped",
+                  "port": "input"
+                }
+              }
+            },
+            {
+              "kind": "edge",
+              "id": "e_plan_rejected_stopped",
+              "label": "edge approve_plan.rejected → stopped",
+              "after": {
+                "id": "e_plan_rejected_stopped",
+                "source": {
+                  "nodeId": "approve_plan",
+                  "port": "rejected"
+                },
+                "target": {
+                  "nodeId": "stopped",
+                  "port": "input"
+                }
+              }
+            },
+            {
+              "kind": "edge",
+              "id": "e_plan_expired_stopped",
+              "label": "edge approve_plan.expired → stopped",
+              "after": {
+                "id": "e_plan_expired_stopped",
+                "source": {
+                  "nodeId": "approve_plan",
+                  "port": "expired"
+                },
+                "target": {
+                  "nodeId": "stopped",
+                  "port": "input"
+                }
+              }
+            },
+            {
+              "kind": "edge",
+              "id": "e_diff_changes_stopped",
+              "label": "edge approve_diff.changes_requested → stopped",
+              "after": {
+                "id": "e_diff_changes_stopped",
+                "source": {
+                  "nodeId": "approve_diff",
+                  "port": "changes_requested"
+                },
+                "target": {
+                  "nodeId": "stopped",
+                  "port": "input"
+                }
+              }
+            },
+            {
+              "kind": "edge",
+              "id": "e_diff_rejected_stopped",
+              "label": "edge approve_diff.rejected → stopped",
+              "after": {
+                "id": "e_diff_rejected_stopped",
+                "source": {
+                  "nodeId": "approve_diff",
+                  "port": "rejected"
+                },
+                "target": {
+                  "nodeId": "stopped",
+                  "port": "input"
+                }
+              }
+            },
+            {
+              "kind": "edge",
+              "id": "e_diff_expired_stopped",
+              "label": "edge approve_diff.expired → stopped",
+              "after": {
+                "id": "e_diff_expired_stopped",
+                "source": {
+                  "nodeId": "approve_diff",
+                  "port": "expired"
+                },
+                "target": {
+                  "nodeId": "stopped",
+                  "port": "input"
+                }
+              }
+            },
+            {
+              "kind": "edge",
+              "id": "e_fix_needs_decision",
+              "label": "edge fix.needs_decision → approve_diff",
+              "after": {
+                "id": "e_fix_needs_decision",
+                "source": {
+                  "nodeId": "fix",
+                  "port": "needs_decision"
+                },
+                "target": {
+                  "nodeId": "approve_diff",
+                  "port": "input"
+                }
+              }
+            },
+            {
+              "kind": "edge",
               "id": "e_push_notify",
               "label": "edge push_pr.success → notify",
               "after": {
@@ -4393,7 +4827,32 @@
             }
           ],
           "removed": [],
-          "changed": []
+          "changed": [
+            {
+              "kind": "node",
+              "id": "approve_diff",
+              "label": "node approve_diff：汇聚策略 → any",
+              "after": {
+                "strategy": "any"
+              }
+            },
+            {
+              "kind": "node",
+              "id": "push_pr",
+              "label": "node push_pr：汇聚策略 → any",
+              "after": {
+                "strategy": "any"
+              }
+            },
+            {
+              "kind": "node",
+              "id": "stopped",
+              "label": "node stopped：汇聚策略 → any",
+              "after": {
+                "strategy": "any"
+              }
+            }
+          ]
         },
         "validation": {
           "ok": true,

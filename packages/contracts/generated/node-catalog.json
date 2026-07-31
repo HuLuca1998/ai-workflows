@@ -31,6 +31,7 @@
       "secret": []
     },
     "externalWrite": false,
+    "baseRisk": "read_only",
     "singleton": false,
     "seed": {
       "agentProfileId": "待选择角色",
@@ -70,6 +71,7 @@
       "secret": []
     },
     "externalWrite": false,
+    "baseRisk": "read_only",
     "singleton": false,
     "seed": {
       "agentProfileId": "待选择角色",
@@ -109,6 +111,7 @@
       "secret": []
     },
     "externalWrite": false,
+    "baseRisk": "read_only",
     "singleton": false,
     "seed": {
       "agentProfileId": "待选择角色",
@@ -151,6 +154,7 @@
       "secret": []
     },
     "externalWrite": false,
+    "baseRisk": "workspace_write",
     "singleton": false,
     "seed": {
       "agentProfileId": "待选择角色",
@@ -180,6 +184,7 @@
       "secret": []
     },
     "externalWrite": false,
+    "baseRisk": "read_only",
     "singleton": true,
     "seed": {
       "trigger": "manual",
@@ -220,6 +225,7 @@
       "secret": []
     },
     "externalWrite": false,
+    "baseRisk": "external_write",
     "singleton": false,
     "seed": {
       "workflowId": "待选择工作流",
@@ -259,6 +265,7 @@
       "secret": []
     },
     "externalWrite": false,
+    "baseRisk": "read_only",
     "singleton": false,
     "seed": {
       "cases": [
@@ -297,6 +304,7 @@
       "secret": []
     },
     "externalWrite": false,
+    "baseRisk": "read_only",
     "singleton": false,
     "seed": {
       "mappings": [
@@ -330,6 +338,7 @@
       "secret": []
     },
     "externalWrite": false,
+    "baseRisk": "read_only",
     "singleton": false,
     "seed": {
       "outcome": "success"
@@ -375,6 +384,7 @@
       "secret": []
     },
     "externalWrite": false,
+    "baseRisk": "read_only",
     "singleton": false,
     "seed": {
       "title": "待填写标题",
@@ -413,6 +423,7 @@
       "secret": []
     },
     "externalWrite": false,
+    "baseRisk": "read_only",
     "singleton": false,
     "seed": {
       "title": "待填写标题",
@@ -451,6 +462,7 @@
       "secret": []
     },
     "externalWrite": false,
+    "baseRisk": "workspace_write",
     "singleton": false,
     "seed": {
       "interpreter": "zsh",
@@ -489,6 +501,7 @@
       "secret": []
     },
     "externalWrite": false,
+    "baseRisk": "workspace_write",
     "singleton": false,
     "seed": {
       "interpreter": "python3",
@@ -527,6 +540,7 @@
       "secret": []
     },
     "externalWrite": false,
+    "baseRisk": "workspace_write",
     "singleton": false,
     "seed": {
       "repoRoot": "待填写仓库根",
@@ -561,6 +575,7 @@
       "secret": []
     },
     "externalWrite": false,
+    "baseRisk": "workspace_write",
     "singleton": false,
     "seed": {
       "operations": [
@@ -605,6 +620,7 @@
       "secret": []
     },
     "externalWrite": true,
+    "baseRisk": "external_write",
     "singleton": false,
     "seed": {
       "serverId": "待选择 Server",

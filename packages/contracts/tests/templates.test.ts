@@ -76,18 +76,71 @@ describe('GitHub Issue 修复模板', () => {
     expect(order).toHaveLength(graph.nodes.length);
   });
 
-  it('外部写操作被审批挡在前面——这是产品的硬约束', () => {
+  it('外部写操作前面要么是审批节点，要么是一次明确的分级决策', () => {
+    // **挡住 push 的主力不是图的形状，是审批档**：`push_pr` 是脚本节点，
+    // 引擎按脚本内容判成 `external_write`，于是「我来审批」与
+    // 「AI 审批 + 关键节点问我」两档下都会挂人工，无人值守档下由 AI 表态
+    // 并留下 approval.decided（`crates/engine/tests/risk_test.rs`）。
+    //
+    // 这条原本要求「指向 push 的每条边都必须来自 approval 节点」。
+    // 那条约束现在会造成**批两次**：图上一次、引擎档位一次 ——
+    // 而用户的原话是「不要有太多用户审批」。
+    //
+    // 留下来的是这一条：不能从一个既没审批、也没做过分级判断的地方
+    // 直接跳到 push。
     const { graph } = build('github-issue-fix');
     const push = graph.nodes.find((n) => n.title.includes('Push'));
     expect(push).toBeTruthy();
 
-    // 找出所有直接指向 push 节点的边，其源头必须是审批
     const incoming = graph.edges.filter((e) => e.target.nodeId === push?.id);
     expect(incoming.length).toBeGreaterThan(0);
     for (const edge of incoming) {
       const from = graph.nodes.find((n) => n.id === edge.source.nodeId);
-      expect(from?.type, 'push / PR 前面必须是审批节点').toBe('approval');
-      expect(edge.source.port, '只有批准分支能往下走').toBe('approved');
+      const 合法 =
+        (from?.type === 'approval' && edge.source.port === 'approved') ||
+        (from?.type === 'ai.decide' && edge.source.port === 'auto_decided');
+      expect(合法, `${from?.id}.${edge.source.port} → push：既不是批准也不是分级放行`).toBe(true);
+    }
+  });
+
+  it('每个输出端口都有下游——断在端口上的分支是安静地什么都不做', () => {
+    // `decide` 曾经只连了 `escalated`：AI 判定「够小，自动放行」的那一支
+    // 走到端口就没路了，节点成功、运行结束、PR 没建，
+    // 而事件流里看不出哪里断的。
+    //
+    // 只查有下游的节点：`end` 与失败分支本来就该是终点
+    const { graph } = build('github-issue-fix');
+    const 有出边的节点 = new Set(graph.edges.map((e) => e.source.nodeId));
+
+    for (const node of graph.nodes) {
+      if (!有出边的节点.has(node.id)) continue;
+      const 用到的端口 = new Set(
+        graph.edges.filter((e) => e.source.nodeId === node.id).map((e) => e.source.port),
+      );
+      const 全部端口 = getNodeDefinition(node.type).ports.outputs.map((p) => p.id);
+      // 失败端口允许悬空：失败就该停下来，接一条边反而是在掩盖
+      const 漏掉的 = 全部端口.filter(
+        (port) => !用到的端口.has(port) && !['failed', 'failure', 'error'].includes(port),
+      );
+      expect(漏掉的, `${node.id}（${node.type}）的端口没有下游：${漏掉的.join(', ')}`).toEqual([]);
+    }
+  });
+
+  it('互斥入边的汇聚点必须是「任一到达」——默认的「等全部」永远凑不齐', () => {
+    // 默认策略是 all（`graph.rs` 的 `join_strategy`）。
+    // `approve_diff` 的两条入边来自 `review` 与 `decide` 的**互斥**端口，
+    // 按「等全部到齐」算它永远执行不到 —— 于是从它往后整条尾巴
+    // （审批 → 提交 → PR → 通知 → 结束）一次都跑不到，而且不报任何错。
+    const { graph } = build('github-issue-fix');
+
+    for (const node of graph.nodes) {
+      const 入边 = graph.edges.filter((e) => e.target.nodeId === node.id);
+      if (入边.length < 2) continue;
+      // 入边来自不同节点的不同端口 —— 判不了互不互斥，一律要求显式声明
+      expect(
+        node.join?.strategy,
+        `${node.id} 有 ${入边.length} 条入边却没声明汇聚策略，默认「等全部」多半凑不齐`,
+      ).toBeDefined();
     }
   });
 

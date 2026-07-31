@@ -304,9 +304,9 @@
         "permissionPreset": {
           "type": "string",
           "enum": [
-            "review_every_change",
-            "workspace_safe",
-            "trusted_workflow"
+            "human_approval",
+            "ai_assisted",
+            "unattended"
           ]
         },
         "envCheckedAt": {
@@ -331,9 +331,9 @@
         "permissionPreset": {
           "type": "string",
           "enum": [
-            "review_every_change",
-            "workspace_safe",
-            "trusted_workflow"
+            "human_approval",
+            "ai_assisted",
+            "unattended"
           ]
         },
         "envCheckedAt": {
@@ -2825,12 +2825,12 @@
                 "minLength": 1
               },
               "permissionPreset": {
-                "default": "workspace_safe",
+                "default": "human_approval",
                 "type": "string",
                 "enum": [
-                  "review_every_change",
-                  "workspace_safe",
-                  "trusted_workflow"
+                  "human_approval",
+                  "ai_assisted",
+                  "unattended"
                 ]
               }
             },
@@ -2954,12 +2954,12 @@
               "minLength": 1
             },
             "permissionPreset": {
-              "default": "workspace_safe",
+              "default": "human_approval",
               "type": "string",
               "enum": [
-                "review_every_change",
-                "workspace_safe",
-                "trusted_workflow"
+                "human_approval",
+                "ai_assisted",
+                "unattended"
               ]
             }
           },
