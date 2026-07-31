@@ -214,7 +214,7 @@ export function ModelsPage() {
     <SplitPane className="models" storageKey="models.listWidth" defaultWidth={262}>
       <aside className="models__list">
         <div className="models__list-head">
-          <span className="runs__label">已配置模型</span>
+          <h2 className="runs__label runs__label--heading">模型</h2>
           <span className="runs__grow" />
           <button
             type="button"

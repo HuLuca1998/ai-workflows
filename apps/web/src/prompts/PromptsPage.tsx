@@ -218,7 +218,7 @@ export function PromptsPage() {
     <SplitPane className="prompts" storageKey="prompts.listWidth" defaultWidth={266}>
       <aside className="prompts__list">
         <div className="prompts__list-head">
-          <span className="runs__label">提示词库</span>
+          <h2 className="runs__label runs__label--heading">提示词库</h2>
           <span className="runs__grow" />
           <button
             type="button"

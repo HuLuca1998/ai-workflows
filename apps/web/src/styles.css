@@ -2195,6 +2195,13 @@
   color: var(--color-neutral-600);
 }
 
+/* 列表头的页面名换成真 h2 给读屏一个标题锚点(第 8 轮实测 P2-9),
+   视觉与原来的小标签一致 */
+.runs__label--heading {
+  margin: 0;
+  font-weight: inherit;
+}
+
 .runs__grow {
   flex: 1;
 }

@@ -366,7 +366,7 @@ export function AgentsPage() {
     <SplitPane className="agents" storageKey="agents.listWidth" defaultWidth={250}>
       <aside className="agents__list">
         <div className="agents__list-head">
-          <span className="runs__label">Agent 角色</span>
+          <h2 className="runs__label runs__label--heading">Agent 角色</h2>
           <span className="runs__grow" />
           <button
             type="button"

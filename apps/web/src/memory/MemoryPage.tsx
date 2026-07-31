@@ -395,6 +395,13 @@ export function MemoryPage() {
                     type="button"
                     className="memory__confirm-delete"
                     aria-label={`确认删除 ${item.key}`}
+                    // 进武装态自动聚焦,Esc 撤销 —— 此前只能刷新页面复位,
+                    // 而键盘用户「Enter 两下」极易误删(第 8 轮实测 P1-6)
+                    ref={(el) => el?.focus()}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Escape') setConfirmDelete(null);
+                    }}
+                    onBlur={() => setConfirmDelete(null)}
                     onClick={() => void remove(item)}
                   >
                     确认删除
