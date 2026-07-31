@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { describeError } from '../data/describeError.js';
 import { ChatInput } from '../chat/ChatInput.js';
 import {
@@ -11,6 +11,7 @@ import {
   type WorkflowGraph,
 } from '@aiwf/contracts';
 import { coreClient } from '../data/workspace.js';
+import { useStreamChunks, type StreamChunk } from './useStreamChunks.js';
 import { DiffLines } from '../editor/DiffLines.js';
 
 /**
@@ -198,6 +199,8 @@ export function SupervisorDrawer({
   /** 推理深度的候选与当前选择。候选由 runtime 给，不写死。 */
   const [efforts, setEfforts] = useState<string[]>([]);
   const [effort, setEffort] = useState<string | null>(null);
+  /** 正在跑的工具调用。它回答的是「它现在在做什么」。 */
+  const [liveTool, setLiveTool] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [proposal, setProposal] = useState<Proposal | null>(null);
   /*
@@ -255,6 +258,29 @@ export function SupervisorDrawer({
    */
   const askSeq = useRef(0);
   const bodyRef = useRef<HTMLDivElement>(null);
+
+  /*
+   * 实时帧落到最后那条 streaming 消息上。
+   *
+   * `busy` 同时当开关用：用户按了取消之后 busy 立刻变 false，
+   * 后续帧就不再往界面上写 —— 不然「已取消」下面还会继续冒字，
+   * 而那正是他刚放弃的那一问。
+   */
+  const onChunk = useCallback((chunk: StreamChunk) => {
+    if (chunk.kind === 'toolCall') {
+      // 工具活动单独显示：它回答的是「它现在在做什么」，
+      // 混进正文会把 agent 的话打断
+      setLiveTool(chunk.status === 'completed' ? null : chunk.title);
+      return;
+    }
+    if (chunk.kind !== 'text') return;
+    setMessages((prev) => {
+      const last = prev.at(-1);
+      if (!last || last.role !== 'agent' || !last.streaming) return prev;
+      return [...prev.slice(0, -1), { ...last, text: last.text + chunk.text }];
+    });
+  }, []);
+  useStreamChunks(busy, onChunk);
 
   useEffect(() => {
     if (!open) return;
@@ -482,7 +508,12 @@ export function SupervisorDrawer({
       setMessages((prev) => prev.filter((message) => !message.streaming));
       setError(describeError(err));
     } finally {
-      if (seq === askSeq.current) setBusy(false);
+      if (seq === askSeq.current) {
+        setBusy(false);
+        // 一轮结束把工具活动清掉：留着的话下一轮的「正在想…」
+        // 会显示上一轮最后调过的那个工具
+        setLiveTool(null);
+      }
     }
   };
 
@@ -728,13 +759,20 @@ export function SupervisorDrawer({
                   <span className="supervisor__system">{message.text}</span>
                 ) : message.streaming && !message.text ? (
                   <span className="supervisor__thinking">
-                    正在想…
+                    {/* 有工具在跑就说它在做什么 —— 「正在想…」挂十几秒
+                        与卡死长得一模一样，而「正在 读取文件」不会 */}
+                    {liveTool ? `正在 ${liveTool}` : '正在想…'}
                     {waited >= 5 ? (
                       <span className="supervisor__waited">已等待 {waited} 秒</span>
                     ) : null}
                   </span>
                 ) : (
-                  message.text
+                  <>
+                    {message.text}
+                    {/* 生成中的信号。没有它的话，一段刚好停在句号上的
+                        流式回答与「说完了」看不出区别 */}
+                    {message.streaming ? <span className="supervisor__caret" /> : null}
+                  </>
                 )}
                 {message.toolCalls ? (
                   <span className="supervisor__toolcalls">
@@ -824,6 +862,7 @@ export function SupervisorDrawer({
                 // 号码一变，回来的答案就会被丢掉
                 askSeq.current += 1;
                 setBusy(false);
+                setLiveTool(null);
                 // 留一条回执。不留的话按了取消界面上什么都没变化 ——
                 // 那和没按上是一样的观感，用户会再按几次
                 setMessages((prev) => [

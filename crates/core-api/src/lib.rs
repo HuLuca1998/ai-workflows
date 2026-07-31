@@ -2014,6 +2014,36 @@ pub struct SupervisorAnswer {
     pub downgraded: Vec<String>,
 }
 
+/// 一轮对话的实时帧。**不落库** —— 它是「正在发生」的投影，
+/// 不是事实来源；事实仍然是那条最终落库的消息。
+///
+/// 断线、刷新、翻历史都靠落库那份恢复，所以丢帧不影响正确性。
+#[derive(Debug, Clone, Serialize)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum StreamChunk {
+    /// Agent 正在说的话。已按时间窗口聚合过。
+    Text { text: String },
+    /// 推理过程。界面上折叠显示，流式时展开成「思考中」。
+    Reasoning { text: String },
+    /// 工具调用。「它到底在做什么」在长对话里只有这个能回答。
+    ToolCall { title: String, status: String },
+}
+
+/// 谁来接实时帧。桌面壳 emit 成 Tauri 事件，测试收进 Vec。
+///
+/// 定义在这里而不是桌面壳里：core-api 不能依赖 Tauri
+/// （Web 形态与 MCP 都用同一份实现）。
+pub trait ChunkSink: Send + Sync {
+    fn push(&self, chunk: &StreamChunk);
+}
+
+/// 攒够一个时间窗口再推。
+///
+/// 每来一个 token 就推一帧的话，一轮几百帧全部穿过 IPC 再触发
+/// React 重渲染 —— 界面会卡在自己的更新上，而模型其实早就说完了。
+/// 30–60ms 是一帧的量级，肉眼看仍然是连续的。
+const 流式窗口: std::time::Duration = std::time::Duration::from_millis(50);
+
 /// 问主管 AI。走与 AI 节点同一套 ACP 客户端。
 ///
 /// 上下文由调用方显式给：把「当前草稿 rev、正在看的运行」这些
@@ -2029,6 +2059,8 @@ pub fn supervisor_ask(
     model_ref: Option<String>,
     // effort：推理深度。同样 None = 不设
     effort: Option<String>,
+    // stream：实时帧往哪推。None = 不推（Web 形态、MCP 调用、测试）
+    stream: Option<&dyn ChunkSink>,
 ) -> ApiResult<SupervisorAnswer> {
     // 要提结构化改动就得先看得见当前的图 ——
     // 让模型凭空造 nodeId 的话，那些操作应用不到任何东西上
@@ -2119,6 +2151,9 @@ pub fn supervisor_ask(
     let mut text = String::new();
     let mut tool_calls = 0_u32;
     let cwd = data_dir.display().to_string();
+    // 流式的攒帧缓冲。见 `流式窗口` 的注释
+    let mut 待推 = String::new();
+    let mut 上次推送 = std::time::Instant::now();
 
     // 用户在抽屉顶上选的那个模型。
     //
@@ -2159,9 +2194,40 @@ pub fn supervisor_ask(
         },
         &prompt,
         |update| match update {
-            SessionUpdate::AgentText { text: chunk } => text.push_str(chunk),
-            SessionUpdate::ToolCall { .. } => tool_calls += 1,
-            _ => {}
+            SessionUpdate::AgentText { text: chunk } => {
+                text.push_str(chunk);
+                // 攒够一个窗口再推。每 token 一帧的话，一轮几百帧
+                // 穿过 IPC 再触发重渲染 —— 界面会卡在自己的更新上
+                待推.push_str(chunk);
+                if 上次推送.elapsed() >= 流式窗口 {
+                    if let Some(sink) = stream {
+                        sink.push(&StreamChunk::Text {
+                            text: std::mem::take(&mut 待推),
+                        });
+                    }
+                    待推.clear();
+                    上次推送 = std::time::Instant::now();
+                }
+            }
+            SessionUpdate::Reasoning { text: chunk } => {
+                if let Some(sink) = stream {
+                    sink.push(&StreamChunk::Reasoning {
+                        text: chunk.to_string(),
+                    });
+                }
+            }
+            SessionUpdate::ToolCall { title, status, .. } => {
+                tool_calls += 1;
+                // 工具调用不攒：它本来就稀疏，而且「它正在读文件」
+                // 是长对话里唯一能回答「还活着吗」的东西
+                if let Some(sink) = stream {
+                    sink.push(&StreamChunk::ToolCall {
+                        title: title.to_string(),
+                        status: status.to_string(),
+                    });
+                }
+            }
+            SessionUpdate::Other { .. } => {}
         },
     )
     .map_err(|error| ApiError {

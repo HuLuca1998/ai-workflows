@@ -4954,6 +4954,34 @@ fieldset.launch__field {
   color: var(--color-neutral-600);
 }
 
+/* 生成中的光标。
+   没有它的话，一段刚好停在句号上的流式回答与「说完了」看不出区别。
+   用细竖条而不是打字机动画 —— 假打字会拖慢快模型，
+   而这里的节奏由模型自己定 */
+.supervisor__caret {
+  display: inline-block;
+  width: 2px;
+  height: 1em;
+  margin-left: 2px;
+  vertical-align: text-bottom;
+  background: var(--color-accent);
+  animation: supervisor-caret 1s step-end infinite;
+}
+
+@keyframes supervisor-caret {
+  50% {
+    opacity: 0;
+  }
+}
+
+/* 尊重系统的「减少动态效果」：闪烁对前庭敏感的用户是负担，
+   而这条信息用静止的光标同样传达得到 */
+@media (prefers-reduced-motion: reduce) {
+  .supervisor__caret {
+    animation: none;
+  }
+}
+
 /* Scope 常驻：「AI 建议 ≠ 执行」在界面上的兜底 */
 .supervisor__scopes {
   flex: none;

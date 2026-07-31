@@ -28,8 +28,27 @@ pub mod tray;
 /// 两端各写一份的话，改了一处忘了另一处，症状是「桌面版好用、Web 版数据不对」。
 type IpcResult<T> = Result<T, ApiError>;
 
+/// 把实时帧 emit 给界面。
+///
+/// 一轮主管对话要几十秒，而在此之前界面上只有一个转圈 ——
+/// 用户唯一能判断「它还活着吗」的方式是继续等。
+/// 这条通道让 agent 说到哪、正在调什么工具都当场看得见。
+///
+/// **不落库**：它是「正在发生」的投影。断线、刷新、翻历史都靠
+/// 落库的那条消息恢复，所以丢帧不影响正确性。
+struct 窗口帧推送(tauri::AppHandle);
+
+impl api::ChunkSink for 窗口帧推送 {
+    fn push(&self, chunk: &api::StreamChunk) {
+        // emit 失败就算了：窗口可能已经关了，而这一轮对话
+        // 照样要跑完并落库 —— 为一帧推送中断整轮问答是本末倒置
+        let _ = self.0.emit("supervisor:chunk", chunk);
+    }
+}
+
 #[tauri::command]
 fn supervisor_ask(
+    app: tauri::AppHandle,
     state: State<'_, AppState>,
     question: String,
     context_json: Option<String>,
@@ -45,6 +64,7 @@ fn supervisor_ask(
         .supervisor_store
         .lock()
         .map_err(|_| ApiError::validation("存储锁已中毒，请重启应用"))?;
+    let 推送 = 窗口帧推送(app);
     api::supervisor_ask(
         &store,
         &state.data_dir,
@@ -53,6 +73,7 @@ fn supervisor_ask(
         session_id,
         model_ref,
         effort,
+        Some(&推送),
     )
 }
 

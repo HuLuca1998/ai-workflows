@@ -48,6 +48,9 @@ pub fn dispatch(
             opt_string(input, "sessionId"),
             opt_string(input, "modelRef"),
             opt_string(input, "effort"),
+            // Web 形态还没有推送通道：dispatch 是一来一回的 HTTP，
+            // 要流式得先有 SSE 端点。桌面壳那条已经通了
+            None,
         )?),
         "supervisor_sessions" => {
             to_value(api::supervisor_sessions(&store, opt_int(input, "limit"))?)
