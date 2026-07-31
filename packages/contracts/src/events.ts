@@ -24,7 +24,8 @@ export type RunEventCategory = (typeof RUN_EVENT_CATEGORIES)[number];
 
 /**
  * 冻结的事件类型清单。前缀即分类，UI 不需要另维护映射表。
- * 新增类型属于契约变更：必须同时升 schemaVer 并更新 docs/adr。
+ * 新增类型不升 schemaVer（见 docs/adr/0011）：桌面形态前后端同包发布；
+ * schemaVer 留给事件记录形状本身的破坏性变更。
  */
 export const RUN_EVENT_TYPES = [
   // 运行生命周期
@@ -122,7 +123,7 @@ export type SensitivityLevel = (typeof SENSITIVITY_LEVELS)[number];
 /** 摘要长度上限：越界内容必须落 artifact，再用 payloadRef 指过去。 */
 export const EVENT_SUMMARY_MAX = 2000;
 
-/** 当前事件 schema 版本。破坏性变更必须递增，读取侧据此做兼容。 */
+/** 事件**记录形状**的版本。字段增删改语义时递增；枚举值的增加不算（ADR-0011）。 */
 export const RUN_EVENT_SCHEMA_VERSION = 1;
 
 const NODE_EVENT_PREFIX = 'node.';
