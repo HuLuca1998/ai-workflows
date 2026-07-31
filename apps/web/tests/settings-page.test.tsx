@@ -64,10 +64,10 @@ const view = () =>
   );
 
 describe('左侧分组导航', () => {
-  it('图纸那八档一项不少，中间那段顺序照旧', async () => {
+  it('中间只列有内容的档 —— 空壳分节已撤(S5)', async () => {
     // 首尾各多一档（首次配置 / 系统版本），
     // 见 docs/adr/0010-settings-holds-setup-and-version.md。
-    // 这条只守图纸那八档没被动过 —— 完整顺序由 settings-tabs.test.tsx 守
+    // 完整顺序由 settings-tabs.test.tsx 守
     view();
     const nav = await screen.findByRole('tablist', { name: '设置分组' });
     const labels = within(nav)
@@ -75,12 +75,8 @@ describe('左侧分组导航', () => {
       .map((el) => el.textContent);
 
     expect(labels.slice(1, -1)).toEqual([
-      '通用',
-      'AI 与 Agent',
-      'Git 与 GitHub',
       '运行环境与工具',
       'MCP 与集成',
-      '通知',
       '安全与隐私',
       '高级',
     ]);
@@ -96,13 +92,14 @@ describe('左侧分组导航', () => {
     expect(active?.textContent).toBe('运行环境与工具');
   });
 
-  it('还没做的分组照实说，不留一片空白', async () => {
-    const user = userEvent.setup();
+  it('空壳分节不再出现在导航里', async () => {
+    // 曾经的做法是留着空档并写「还没有可配置的项」——
+    // 连点四个空壳更像骨架而不是诚实(第 1 轮实测 S5,用户指示撤掉)
     view();
-    await screen.findByText('运行环境健康');
-
-    await user.click(screen.getByRole('tab', { name: 'Git 与 GitHub' }));
-    expect(await screen.findByText(/还没有可配置的项/u)).toBeTruthy();
+    const nav = await screen.findByRole('tablist', { name: '设置分组' });
+    for (const gone of ['通用', 'AI 与 Agent', 'Git 与 GitHub', '通知']) {
+      expect(within(nav).queryByRole('tab', { name: gone })).toBeNull();
+    }
   });
 });
 

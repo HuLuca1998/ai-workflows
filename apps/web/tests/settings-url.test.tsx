@@ -61,9 +61,9 @@ describe('设置页的档位与 URL', () => {
   it('后退回到上一档，而不是跳出整个设置页', async () => {
     const user = userEvent.setup();
     view('/settings?tab=version');
-    await user.click(screen.getByRole('tab', { name: '通用' }));
+    await user.click(screen.getByRole('tab', { name: '安全与隐私' }));
     await waitFor(() => {
-      expect(screen.getByTestId('url').textContent).toContain('tab=general');
+      expect(screen.getByTestId('url').textContent).toContain('tab=security');
     });
 
     await user.click(screen.getByRole('button', { name: '后退' }));
@@ -83,17 +83,17 @@ describe('设置页的档位与 URL', () => {
     const user = userEvent.setup();
     view('/settings?tab=env');
 
-    const first = screen.getByRole('tab', { name: '通用' });
+    const first = screen.getByRole('tab', { name: '安全与隐私' });
     await user.click(first);
     await waitFor(() => {
-      expect(screen.getByTestId('url').textContent).toContain('tab=general');
+      expect(screen.getByTestId('url').textContent).toContain('tab=security');
     });
 
-    // 从「通用」往下连按三次
-    screen.getByRole('tab', { name: '通用' }).focus();
+    // 从「安全与隐私」往下连按三次
+    screen.getByRole('tab', { name: '安全与隐私' }).focus();
     await user.keyboard('{ArrowDown}{ArrowDown}{ArrowDown}');
     await waitFor(() => {
-      expect(screen.getByTestId('url').textContent).not.toContain('tab=general');
+      expect(screen.getByTestId('url').textContent).not.toContain('tab=security');
     });
 
     /*
