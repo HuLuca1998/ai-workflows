@@ -2202,3 +2202,42 @@ mod 这一轮怎么结束的要算数 {
         );
     }
 }
+
+/// 模型设不上时**说出来**，而不是悄悄换一个。
+///
+/// `system.model_downgraded` 这个事件类型契约里一直有，
+/// 而全仓**零发射** —— 与此同时 `AgentsPage.tsx` 上写着
+/// 「降级发生时会写入 RunEvent，不会静默替换模型」。
+/// 那句话一直是假的，这条测试压着它成真。
+#[test]
+fn 模型被_agent_拒掉时发一条降级事件() {
+    // mock 的候选里没有这个值，它会照真实 agent 的行为拒掉
+    // （实测 codex -32602 / claude -32603）
+    let executor = with_mock_adapter(ai_dir("downgrade"))
+        .with_model(Some("这个模型压根不存在".to_string()), None);
+
+    let sink = 收集器::default();
+    let mut scope = Scope::new("run_downgrade");
+    let outcome = executor
+        .execute_with_sink(&ai_节点(), &mut scope, &|event| {
+            if let Ok(mut list) = sink.0.lock() {
+                list.push(event);
+            }
+        })
+        .expect("执行");
+
+    // 关键：**节点照跑不误**。用户说的是「模型失效就用系统默认的」，
+    // 一个设不上的模型不该让整条工作流停在这儿
+    assert!(
+        matches!(outcome, NodeOutcome::Succeeded { .. }),
+        "模型设不上不该让节点失败：{outcome:?}"
+    );
+
+    let 降级 = sink.某类("system.model_downgraded");
+    assert_eq!(降级.len(), 1, "模型被拒了却没发降级事件");
+    assert!(
+        降级[0].summary.contains("这个模型压根不存在"),
+        "降级事件要说清是哪个值没设上：{}",
+        降级[0].summary
+    );
+}

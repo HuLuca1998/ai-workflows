@@ -7,7 +7,7 @@
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use crate::acp::{AcpClient, SessionUpdate, adapter_command, adapter_installed, env_to_remove};
+use crate::acp::{SessionUpdate, adapter_command, adapter_installed};
 use crate::artifacts::{ArtifactKind, ArtifactStore};
 use crate::exec::{ExecOutcome, ScriptRequest, run_script};
 use crate::graph::GraphNode;
@@ -36,6 +36,18 @@ pub struct NodeExecutor {
     run_id: String,
     /// 覆盖 ACP adapter 的命令。测试用 mock，生产走注册表。
     acp_override: Option<(String, Vec<String>)>,
+    /// 这次运行用哪个模型 / 哪个推理深度。
+    ///
+    /// `None` = 不设，用 agent 自己的默认（实测 codex 是 `gpt-5.6-sol[high]`）。
+    /// 值必须来自 agent 报的候选 —— 它自己会校验，设错了走降级而不是失败。
+    model: Option<String>,
+    effort: Option<String>,
+    /// 接给 AI 节点的系统 MCP。
+    ///
+    /// 空 = agent 手上没有任何工具，只能凭提示词里的文字工作：
+    /// 读不到工作流、改不动草稿、也看不到自己上一步跑出了什么。
+    /// 主管 AI 一直是接着的，AI 节点一直不是 —— 而这件事没有任何地方写着。
+    mcp: Vec<crate::acp::McpHttpServer>,
     /**
      * 会注入 AI 节点的记忆快照。
      *
@@ -352,6 +364,9 @@ impl NodeExecutor {
             artifacts,
             run_id: "run".to_string(),
             acp_override: None,
+            model: None,
+            effort: None,
+            mcp: Vec::new(),
             memories: Vec::new(),
             injected: std::sync::Mutex::new(Vec::new()),
             // 没设过就按最严的办
@@ -701,22 +716,34 @@ impl NodeExecutor {
         prompt: &str,
         timeout: Duration,
     ) -> std::result::Result<String, String> {
-        let (command, args) = match &self.acp_override {
-            Some((command, args)) => (command.clone(), args.clone()),
-            None => match adapter_command(runtime) {
-                Some((command, args)) => match adapter_installed(runtime) {
-                    Some(path) => (path, args),
-                    None => return Err(format!("{runtime} 的 adapter（{command}）没装")),
-                },
-                None => return Err(format!("不认识的 runtime {runtime}")),
-            },
-        };
+        // 与 AI 节点、主管 AI、连通性测试**同一个入口**。
+        //
+        // 原先这里自己写了一遍「找 adapter → connect → new_session」，
+        // 四处各写一份的结果是：模型、推理深度、权限档那三格四处全是空的，
+        // 而每次想补一格都得改四个地方（于是一格都没补）。
+        let opened = crate::acp::open_session(&crate::acp::SessionSpec {
+            runtime: runtime.to_string(),
+            cwd: cwd.to_string(),
+            model: self.model.clone(),
+            effort: self.effort.clone(),
+            mode: None,
+            mcp: Vec::new(),
+            timeout,
+            adapter_override: self.acp_override.clone(),
+        })
+        .map_err(|error| format!("连不上 adapter：{error}"))?;
 
-        let mut client = AcpClient::connect(&command, &args, &env_to_remove(runtime), timeout)
-            .map_err(|error| format!("连不上 adapter：{error}"))?;
-        let session = client
-            .new_session(cwd)
-            .map_err(|error| format!("建会话失败：{error}"))?;
+        let crate::acp::OpenedSession {
+            mut client,
+            session,
+            downgraded,
+        } = opened;
+        // 审批者的降级只记日志：它的一问一答不进工作流的对话流
+        // （见这个方法的文档注释），往事件表里塞一条用户没配过的降级
+        // 会让运行详情多出一段他看不懂的东西
+        for 降级 in &downgraded {
+            eprintln!("[approval] {降级}");
+        }
 
         let mut text = String::new();
         let outcome = client.prompt(&session.id, prompt, |update| {
@@ -757,6 +784,24 @@ impl NodeExecutor {
     #[must_use]
     pub fn with_acp_command(mut self, command: &str, args: &[String]) -> Self {
         self.acp_override = Some((command.to_string(), args.to_vec()));
+        self
+    }
+
+    /// 这次运行用哪个模型、哪个推理深度。
+    ///
+    /// 两个都是 `Option`：不给就是不设，用 agent 自己的默认 ——
+    /// 「模型失效就不设置，用系统默认的」那条路要真的存在。
+    #[must_use]
+    pub fn with_model(mut self, model: Option<String>, effort: Option<String>) -> Self {
+        self.model = model;
+        self.effort = effort;
+        self
+    }
+
+    /// 把系统 MCP 接给 AI 节点。
+    #[must_use]
+    pub fn with_mcp(mut self, servers: &[crate::acp::McpHttpServer]) -> Self {
+        self.mcp = servers.to_vec();
         self
     }
 
@@ -1352,27 +1397,26 @@ impl NodeExecutor {
             }
         }
 
-        let (command, args) = match &self.acp_override {
-            Some((command, args)) => (command.clone(), args.clone()),
-            None => match adapter_command(runtime) {
-                Some((command, args)) => match adapter_installed(runtime) {
-                    Some(path) => (path, args),
-                    None => {
-                        return Ok(NodeOutcome::Failed {
-                            message: format!(
-                                "{runtime} 的 adapter（{command}）没有安装。\
-                                 装上它才能跑 AI 节点：pnpm --filter @aiwf/acp-sidecar add {command}"
-                            ),
-                        });
-                    }
-                },
+        // adapter 没装是最常见的一种失败，那句「装什么」要留着 ——
+        // open_session 只会说「没有安装」，说不出这个仓库该敲哪条命令
+        if self.acp_override.is_none() {
+            match adapter_command(runtime) {
+                Some((command, _)) if adapter_installed(runtime).is_none() => {
+                    return Ok(NodeOutcome::Failed {
+                        message: format!(
+                            "{runtime} 的 adapter（{command}）没有安装。\
+                             装上它才能跑 AI 节点：pnpm --filter @aiwf/acp-sidecar add {command}"
+                        ),
+                    });
+                }
                 None => {
                     return Ok(NodeOutcome::Failed {
                         message: format!("不认识的 runtime {runtime}"),
                     });
                 }
-            },
-        };
+                Some(_) => {}
+            }
+        }
 
         // 超时：节点上写了就听节点的（那是针对这一步调的），
         // 否则用角色的 —— 执行者跑得久，审查者不该等那么长
@@ -1383,13 +1427,23 @@ impl NodeExecutor {
             .or_else(|| profile.and_then(|p| u64::try_from(p.timeout_ms).ok()))
             .unwrap_or(900_000);
 
-        let mut client = match AcpClient::connect(
-            &command,
-            &args,
-            &env_to_remove(runtime),
-            Duration::from_millis(timeout_ms),
-        ) {
-            Ok(client) => client,
+        // 与审批者、主管 AI、连通性测试同一个入口。
+        //
+        // **MCP 从这里接上**：原先 AI 节点走的是不带 MCP 的 `new_session`，
+        // 于是工作流里的 agent 读不到工作流、改不动草稿、看不到自己上一步
+        // 跑出了什么 —— 而主管 AI 一直是接着的。同一个应用里两种 AI
+        // 看到的系统不一样，这件事没有任何地方写着。
+        let opened = match crate::acp::open_session(&crate::acp::SessionSpec {
+            runtime: runtime.to_string(),
+            cwd: agent_cwd.clone(),
+            model: self.model.clone(),
+            effort: self.effort.clone(),
+            mode: None,
+            mcp: self.mcp.clone(),
+            timeout: Duration::from_millis(timeout_ms),
+            adapter_override: self.acp_override.clone(),
+        }) {
+            Ok(opened) => opened,
             Err(error) => {
                 return Ok(NodeOutcome::Failed {
                     message: format!("连不上 adapter：{error}"),
@@ -1397,14 +1451,25 @@ impl NodeExecutor {
             }
         };
 
-        let session = match client.new_session(&agent_cwd) {
-            Ok(session) => session,
-            Err(error) => {
-                return Ok(NodeOutcome::Failed {
-                    message: format!("建会话失败：{error}"),
-                });
-            }
-        };
+        let crate::acp::OpenedSession {
+            mut client,
+            session,
+            downgraded,
+        } = opened;
+
+        // 降级进事件流。
+        //
+        // 「降级发生时会写入 RunEvent，不会静默替换模型」写在
+        // `AgentsPage.tsx` 上，而 `system.model_downgraded` 至今零发射 ——
+        // 那句话一直是假的。这是它第一次成真。
+        for 降级 in &downgraded {
+            sink(NodeEvent {
+                kind: "system.model_downgraded",
+                node_id: node.id.clone(),
+                summary: 降级.to_string(),
+                payload_ref: None,
+            });
+        }
 
         // 发出去的提示词进对话流 —— 那是「往返」的另一半。
         //
