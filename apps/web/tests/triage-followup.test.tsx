@@ -84,7 +84,10 @@ describe('工作目录路径', () => {
         <TitleBar onAskAi={() => {}} workdir="/Users/x/work/ai-workflows" />
       </MemoryRouter>,
     );
-    expect(screen.getByText('/Users/x/work/ai-workflows').title).toBe('/Users/x/work/ai-workflows');
+    // 文本包在 bdi[dir=ltr] 里（防 bidi 重排），title 挂在外层容器上 ——
+    // 浏览器悬停时取最近祖先的 title，行为不变
+    const text = screen.getByText('/Users/x/work/ai-workflows');
+    expect(text.closest('[title]')?.getAttribute('title')).toBe('/Users/x/work/ai-workflows');
   });
 
   it('面包屑那一整条都能拖动窗口 —— 只有被标记的元素本身能拖，子元素不冒泡', async () => {
