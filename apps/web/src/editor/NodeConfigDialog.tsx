@@ -10,13 +10,18 @@ import {
 } from './editorDeps.js';
 import { Button } from '@aiwf/ui';
 import { iconFor } from './nodeVisuals.js';
-import { SchemaField } from './SchemaField.jsx';
+import { SchemaField, type ReferenceOption } from './SchemaField.jsx';
 
 export interface NodeConfigDialogProps {
   node: GraphNode;
   graph: WorkflowGraph;
   onClose: () => void;
   onSave: (config: unknown, title: string) => void;
+  /**
+   * 引用字段的候选（按 reference 类型分组）。EditorPage 从库里查好传进来 ——
+   * 弹层自己不碰数据层，几十处测试都是按值构造它的。
+   */
+  references?: Partial<Record<'agentProfile' | 'prompt', ReferenceOption[]>>;
 }
 
 const TABS = ['配置', '输入 / 输出', '权限与能力', '重试与超时'] as const;
@@ -29,7 +34,7 @@ type Tab = (typeof TABS)[number];
  * 配置页的表单**完全由 Schema 驱动**（fieldDescriptors），
  * 新增节点类型只要写 Schema 与 describe，这里一行都不用改。
  */
-export function NodeConfigDialog({ node, graph, onClose, onSave }: NodeConfigDialogProps) {
+export function NodeConfigDialog({ node, graph, onClose, onSave, references }: NodeConfigDialogProps) {
   const dialogRef = useRef<HTMLDivElement>(null);
 
   /**
@@ -178,6 +183,9 @@ export function NodeConfigDialog({ node, graph, onClose, onSave }: NodeConfigDia
                   key={field.key}
                   field={field}
                   value={draft[field.key]}
+                  {...(field.reference && references?.[field.reference]
+                    ? { referenceOptions: references[field.reference] }
+                    : {})}
                   {...(fieldErrors[field.key] ? { error: fieldErrors[field.key] } : {})}
                   onChange={(next) => setDraft((prev) => ({ ...prev, [field.key]: next }))}
                   onParseError={(parseError) => {

@@ -32,6 +32,13 @@ export interface FieldDescriptor {
   /** enum 的可选值。 */
   options?: string[] | undefined;
   defaultValue?: unknown;
+  /**
+   * `z.string().meta({ reference: 'agentProfile' })` 带过来的：
+   * 这个字段存的是库里某条记录的 id，表单该渲染成「从库里选」——
+   * 自由文本要用户手打 `builtin:analyst` 这类内部 id，
+   * 是三轮浏览器实测里最一致的阻断点。
+   */
+  reference?: 'agentProfile' | 'prompt' | undefined;
 }
 
 /**
@@ -48,6 +55,8 @@ interface JsonSchemaNode {
   type?: string | string[];
   /** `z.string().meta({ long: true })` 带过来的：这个框要多行。 */
   long?: boolean;
+  /** `.meta({ reference })` 带过来的：这个字段引用库里的记录。 */
+  reference?: string;
   enum?: unknown[];
   default?: unknown;
   description?: string;
@@ -77,6 +86,7 @@ function describeField(key: string, node: JsonSchemaNode, isRequired: boolean): 
   const [label = key, ...hintLines] = (node.description ?? key).split('\n');
   const hint = hintLines.join('\n').trim();
 
+  const reference = node.reference ?? unwrap(node)?.reference;
   return {
     key,
     label,
@@ -85,6 +95,7 @@ function describeField(key: string, node: JsonSchemaNode, isRequired: boolean): 
     required: isRequired,
     ...(enumOptions(node) ? { options: enumOptions(node) } : {}),
     ...(node.default === undefined ? {} : { defaultValue: node.default }),
+    ...(reference === 'agentProfile' || reference === 'prompt' ? { reference } : {}),
   };
 }
 

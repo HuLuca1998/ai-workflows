@@ -1,11 +1,22 @@
 import { useId, useState } from 'react';
 import type { FieldDescriptor } from './editorDeps.js';
 
+export interface ReferenceOption {
+  value: string;
+  label: string;
+}
+
 export interface SchemaFieldProps {
   field: FieldDescriptor;
   value: unknown;
   error?: string;
   onChange: (next: unknown) => void;
+  /**
+   * 引用字段（field.reference）的候选。给了就渲染成下拉 ——
+   * 自由文本要用户手打 `builtin:analyst` 这类内部 id，
+   * 是三轮浏览器实测里最一致的阻断点（S4/P5/#3）。
+   */
+  referenceOptions?: ReferenceOption[];
   /**
    * JSON 控件的解析状态上报。不上报的话，「红字报错」与「保存放行」
    * 会同时成立 —— 保存的是上一次能解析的旧值，用户看到的和存下的不一致。
@@ -19,7 +30,14 @@ export interface SchemaFieldProps {
  *
  * 布局照图纸的弹层字段：标签 11.5px · 控件行 34px · 提示 11.5px。
  */
-export function SchemaField({ field, value, error, onChange, onParseError }: SchemaFieldProps) {
+export function SchemaField({
+  field,
+  value,
+  error,
+  onChange,
+  onParseError,
+  referenceOptions,
+}: SchemaFieldProps) {
   const id = useId();
   const describedBy = [field.hint ? `${id}-hint` : null, error ? `${id}-err` : null]
     .filter(Boolean)
@@ -39,6 +57,7 @@ export function SchemaField({ field, value, error, onChange, onParseError }: Sch
         onChange={onChange}
         {...(describedBy ? { describedBy } : {})}
         {...(onParseError ? { onParseError } : {})}
+        {...(referenceOptions ? { referenceOptions } : {})}
       />
 
       {field.hint ? (
@@ -62,6 +81,7 @@ function Control({
   onChange,
   describedBy,
   onParseError,
+  referenceOptions,
 }: {
   id: string;
   field: FieldDescriptor;
@@ -69,7 +89,42 @@ function Control({
   onChange: (next: unknown) => void;
   describedBy?: string | undefined;
   onParseError?: ((error: string | null) => void) | undefined;
+  referenceOptions?: ReferenceOption[] | undefined;
 }) {
+  // 引用字段优先于按类型分派:它在 Schema 里就是 string,
+  // 但值必须来自库 —— 自由文本填出幽灵引用只能等到 Dry Run 才发现
+  if (field.reference && referenceOptions) {
+    const current = typeof value === 'string' ? value : '';
+    const known = referenceOptions.some((option) => option.value === current);
+    return (
+      <select
+        id={id}
+        required={field.required}
+        aria-describedby={describedBy}
+        className="cfg__control"
+        value={current}
+        onChange={(e) => onChange(e.target.value === '' ? undefined : e.target.value)}
+      >
+        {field.required ? (
+          current === '' ? (
+            <option value="">请选择</option>
+          ) : null
+        ) : (
+          <option value="">未设置（用内建）</option>
+        )}
+        {/* 当前值不在库里也要显示出来 —— 静默换掉等于替用户改配置 */}
+        {current !== '' && !known ? (
+          <option value={current}>{current}（在库里找不到）</option>
+        ) : null}
+        {referenceOptions.map((option) => (
+          <option key={option.value} value={option.value}>
+            {option.label}
+          </option>
+        ))}
+      </select>
+    );
+  }
+
   const common = {
     id,
     required: field.required,
@@ -157,7 +212,11 @@ function Control({
           type="text"
           className="cfg__control"
           value={String(value ?? '')}
-          onChange={(e) => onChange(e.target.value)}
+          // 可选字段清空 = 回到「未设置」。存空串的话 Zod 的 min(1) 会拒,
+          // 用户按应用自己的自救指引「清空该字段」都做不到(第 4 轮实测 #2)
+          onChange={(e) =>
+            onChange(e.target.value === '' && !field.required ? undefined : e.target.value)
+          }
         />
       );
   }

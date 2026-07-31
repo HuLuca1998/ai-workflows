@@ -6,6 +6,7 @@
       "agentProfileId": {
         "type": "string",
         "minLength": 1,
+        "reference": "agentProfile",
         "description": "Agent 角色\n节点引用角色而不是复制 Prompt；角色升级后引用它的节点一并生效"
       },
       "instruction": {
@@ -15,6 +16,7 @@
         "description": "任务指令"
       },
       "promptId": {
+        "reference": "prompt",
         "description": "提示词\n留空则用该节点类型的内建提示词",
         "type": "string",
         "minLength": 1
@@ -93,6 +95,7 @@
       "agentProfileId": {
         "type": "string",
         "minLength": 1,
+        "reference": "agentProfile",
         "description": "Agent 角色\n节点引用角色而不是复制 Prompt；角色升级后引用它的节点一并生效"
       },
       "instruction": {
@@ -102,6 +105,7 @@
         "description": "任务指令"
       },
       "promptId": {
+        "reference": "prompt",
         "description": "提示词\n留空则用该节点类型的内建提示词",
         "type": "string",
         "minLength": 1
@@ -206,6 +210,7 @@
       "agentProfileId": {
         "type": "string",
         "minLength": 1,
+        "reference": "agentProfile",
         "description": "Agent 角色\n节点引用角色而不是复制 Prompt；角色升级后引用它的节点一并生效"
       },
       "instruction": {
@@ -215,6 +220,7 @@
         "description": "任务指令"
       },
       "promptId": {
+        "reference": "prompt",
         "description": "提示词\n留空则用该节点类型的内建提示词",
         "type": "string",
         "minLength": 1
@@ -345,6 +351,7 @@
       "agentProfileId": {
         "type": "string",
         "minLength": 1,
+        "reference": "agentProfile",
         "description": "Agent 角色\n节点引用角色而不是复制 Prompt；角色升级后引用它的节点一并生效"
       },
       "instruction": {
@@ -354,6 +361,7 @@
         "description": "任务指令"
       },
       "promptId": {
+        "reference": "prompt",
         "description": "提示词\n留空则用该节点类型的内建提示词",
         "type": "string",
         "minLength": 1
@@ -705,6 +713,7 @@
         ]
       },
       "deciderAgentProfileId": {
+        "reference": "agentProfile",
         "description": "审批者角色\n留空用内置审批者；别填成执行那一个 —— 自己批自己等于没有门",
         "type": "string"
       },

@@ -336,3 +336,86 @@ describe('键值对控件能添加新行', () => {
     expect(saved.env['FOO']).toBe('bar');
   });
 });
+
+describe('引用字段渲染成下拉(S4/P5/#3 —— 三轮实测最一致的阻断点)', () => {
+  const aiNode: GraphNode = {
+    id: 'analyze',
+    type: 'ai.analyze',
+    title: '分析',
+    position: { x: 0, y: 0 },
+    config: { agentProfileId: 'builtin:analyst', instruction: '分析', target: 'x', turnLimit: 12 },
+  };
+  const references = {
+    agentProfile: [
+      { value: 'builtin:analyst', label: '分析师（builtin:analyst）' },
+      { value: 'agent_abc', label: '我的角色（agent_abc）' },
+    ],
+    prompt: [{ value: 'prompt_1', label: '风险分级（prompt_1）' }],
+  };
+
+  it('Agent 角色是下拉,按名称选,存的是 id', () => {
+    const onSave = vi.fn();
+    render(
+      <NodeConfigDialog
+        node={aiNode}
+        graph={graph}
+        references={references}
+        onClose={vi.fn()}
+        onSave={onSave}
+      />,
+    );
+    const select = screen.getByLabelText(/Agent 角色/u) as HTMLSelectElement;
+    expect(select.tagName).toBe('SELECT');
+    fireEvent.change(select, { target: { value: 'agent_abc' } });
+    fireEvent.click(screen.getByRole('button', { name: '保存到草稿' }));
+    const saved = onSave.mock.calls[0]?.[0] as { agentProfileId: string };
+    expect(saved.agentProfileId).toBe('agent_abc');
+  });
+
+  it('提示词可选「未设置」回到内建 —— 应用自己的自救指引要走得通', () => {
+    const onSave = vi.fn();
+    const withPrompt: GraphNode = {
+      ...aiNode,
+      config: { ...(aiNode.config as object), promptId: 'prompt_1' },
+    };
+    render(
+      <NodeConfigDialog
+        node={withPrompt}
+        graph={graph}
+        references={references}
+        onClose={vi.fn()}
+        onSave={onSave}
+      />,
+    );
+    const select = screen.getByLabelText(/^提示词/u) as HTMLSelectElement;
+    fireEvent.change(select, { target: { value: '' } });
+    fireEvent.click(screen.getByRole('button', { name: '保存到草稿' }));
+    const saved = onSave.mock.calls[0]?.[0] as { promptId?: string };
+    expect(saved.promptId).toBeUndefined();
+  });
+
+  it('幽灵引用显示「在库里找不到」而不是被静默换掉', () => {
+    const ghost: GraphNode = {
+      ...aiNode,
+      config: { ...(aiNode.config as object), agentProfileId: 'TEST-ROLE' },
+    };
+    render(
+      <NodeConfigDialog
+        node={ghost}
+        graph={graph}
+        references={references}
+        onClose={vi.fn()}
+        onSave={vi.fn()}
+      />,
+    );
+    const select = screen.getByLabelText(/Agent 角色/u) as HTMLSelectElement;
+    expect(select.value).toBe('TEST-ROLE');
+    expect(screen.getByText(/TEST-ROLE（在库里找不到）/u)).toBeTruthy();
+  });
+
+  it('没给候选时退回自由文本 —— 数据层读失败功能不断', () => {
+    render(<NodeConfigDialog node={aiNode} graph={graph} onClose={vi.fn()} onSave={vi.fn()} />);
+    const input = screen.getByLabelText(/Agent 角色/u) as HTMLInputElement;
+    expect(input.tagName).toBe('INPUT');
+  });
+});

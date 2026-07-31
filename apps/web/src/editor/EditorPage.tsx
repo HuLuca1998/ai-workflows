@@ -19,7 +19,7 @@ import {
 import '@xyflow/react/dist/style.css';
 import type { NodeType } from '@aiwf/contracts';
 import { Button } from '@aiwf/ui';
-import { useWorkspace } from '../data/workspace.js';
+import { coreClient, useWorkspace } from '../data/workspace.js';
 import type { MenuTarget } from './menuActions.js';
 import { useEditor } from './editorStore.js';
 import { EditorToolbar } from './EditorToolbar.jsx';
@@ -182,6 +182,41 @@ function EditorCanvas() {
   );
   const [versionsOpen, setVersionsOpen] = useState(false);
   const [launchOpen, setLaunchOpen] = useState(false);
+  /**
+   * 引用字段（Agent 角色 / 提示词）的候选。查一次给弹层用 ——
+   * 自由文本要用户手打 builtin:analyst 这类内部 id，
+   * 是三轮浏览器实测里最一致的阻断点（S4/P5/#3）。
+   * 读失败落成空 —— 弹层会退回自由文本输入，功能不断。
+   */
+  const [references, setReferences] = useState<
+    Partial<Record<'agentProfile' | 'prompt', { value: string; label: string }[]>>
+  >({});
+  useEffect(() => {
+    let cancelled = false;
+    void Promise.all([
+      coreClient.call('agent.list', { limit: 200 }),
+      coreClient.call('prompt.list', { limit: 200 }),
+    ])
+      .then(([agents, prompts]) => {
+        if (cancelled) return;
+        const agentItems = (agents as { items: { id: string; name: string }[] }).items;
+        const promptItems = (prompts as { items: { id: string; name: string }[] }).items;
+        setReferences({
+          agentProfile: agentItems.map((item) => ({
+            value: item.id,
+            label: `${item.name}（${item.id}）`,
+          })),
+          prompt: promptItems.map((item) => ({
+            value: item.id,
+            label: `${item.name}（${item.id}）`,
+          })),
+        });
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [workflowId]);
 
   useEffect(() => {
     if (workflowId) void load(workflowId);
@@ -586,6 +621,7 @@ function EditorCanvas() {
 
           {configNode ? (
             <NodeConfigDialog
+              references={references}
               node={configNode}
               graph={graph}
               onClose={() => setConfigNodeId(null)}

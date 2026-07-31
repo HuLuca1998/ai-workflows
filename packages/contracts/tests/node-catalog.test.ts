@@ -129,3 +129,18 @@ describe('动态输出端口是声明，不是闭包', () => {
     }
   });
 });
+
+describe('引用字段的描述符', () => {
+  it('agentProfileId / promptId 带 reference —— 表单据此渲染成「从库里选」', async () => {
+    const { fieldDescriptors } = await import('../src/nodes/index.js');
+    const ai = fieldDescriptors('ai.analyze');
+    expect(ai.find((f) => f.key === 'agentProfileId')?.reference).toBe('agentProfile');
+    expect(ai.find((f) => f.key === 'promptId')?.reference).toBe('prompt');
+
+    const approval = fieldDescriptors('approval');
+    expect(approval.find((f) => f.key === 'deciderAgentProfileId')?.reference).toBe('agentProfile');
+
+    // 非引用字段不带
+    expect(ai.find((f) => f.key === 'instruction')?.reference).toBeUndefined();
+  });
+});

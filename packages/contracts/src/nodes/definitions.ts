@@ -123,9 +123,17 @@ const AiBaseSchema = z.object({
   agentProfileId: z
     .string()
     .min(1)
+    // reference：表单据此渲染成「从库里选」而不是自由文本 ——
+    // 手打内部 id 是三轮实测里最一致的阻断点（S4/P5/#3）
+    .meta({ reference: 'agentProfile' })
     .describe('Agent 角色\n节点引用角色而不是复制 Prompt；角色升级后引用它的节点一并生效'),
   instruction: z.string().min(1).meta({ long: true }).describe('任务指令'),
-  promptId: z.string().min(1).optional().describe('提示词\n留空则用该节点类型的内建提示词'),
+  promptId: z
+    .string()
+    .min(1)
+    .optional()
+    .meta({ reference: 'prompt' })
+    .describe('提示词\n留空则用该节点类型的内建提示词'),
   modelPolicy: ModelPolicySchema.optional().describe(
     '模型策略\n按档位（fast / balanced / quality）从「模型」页已启用的条目里挑；' +
       '要的给不了会写入 RunEvent 降级事件，不静默替换',
@@ -405,6 +413,7 @@ const DEFINITIONS: Record<NodeType, NodeDefinition> = {
       deciderAgentProfileId: z
         .string()
         .optional()
+        .meta({ reference: 'agentProfile' })
         .describe('审批者角色\n留空用内置审批者；别填成执行那一个 —— 自己批自己等于没有门'),
       options: z
         .array(
