@@ -67,20 +67,40 @@
 只读 `configOptions` 的实现，在 codex 上会丢掉「模型 × 推理强度」的组合
 （codex 的 `models.availableModels` 是二者的笛卡尔积，如 `gpt-5.6-sol[high]`）。
 
-### 差异 3 · configOption 的 id 不一样
+**但真要取清单，答案是只读 `configOptions`** —— 见下面差异 3 的
+`category`：它把「模型」与「强度」拆成两个正交的维度，而 `models`
+给的是二者的笛卡尔积。要在界面上做成两个下拉（模型一个、强度一个，
+Claude Code 自己的输入框底部就是这么做的），正交的那份才是对的形状；
+笛卡尔积那份 25 条平铺在一个下拉里，反而要再拆一次。
 
-| 概念 | claude | codex |
-|---|---|---|
-| 权限档 | `mode` | `mode` ✅ 一致 |
-| 模型 | `model` | `model` ✅ 一致 |
-| **推理强度** | **`effort`** | **`reasoning_effort`** |
-| **快速模式** | **`fast`** | **`fast-mode`** |
-| 规划模式 | （在 `mode` 里，`plan` 档） | **`collaboration_mode`**（`default` / `plan`） |
-| 子 agent | **`agent`** | — |
+### 差异 3 · configOption 的 id 不一样 —— 但 `category` 一样
+
+| 概念 | claude 的 `id` | codex 的 `id` | 两端的 `category` |
+|---|---|---|---|
+| 权限档 | `mode` | `mode` | `mode` ✅ |
+| 模型 | `model` | `model` | `model` ✅ |
+| **推理强度** | **`effort`** | **`reasoning_effort`** | **`thought_level`** ✅ |
+| **快速模式** | **`fast`** | **`fast-mode`** | — |
+| 规划模式 | （在 `mode` 里，`plan` 档） | **`collaboration_mode`**（`default` / `plan`） | — |
+| 子 agent | **`agent`** | — | — |
+
+**别按 `id` 建映射表 —— 按 `category` 取。** 我们真正要的三项
+（权限档 / 模型 / 推理强度）在两端的 `category` 上完全一致，
+`id` 的差异按 category 取就自动吃掉了；而映射表是要跟着
+adapter 版本维护的，漏一条就是静默失效。
+
+```rust
+// ✓ 两端通用，新 runtime 接进来也不用改
+fn by_category<'a>(session: &'a Value, category: &str) -> Option<&'a Value> {
+    session.get("configOptions")?.as_array()?
+        .iter().find(|o| o["category"] == category)
+}
+```
 
 **「规划模式」这一项尤其阴险**：claude 把它做成一个权限档（`mode=plan`），
 codex 做成一个独立配置项（`collaboration_mode=plan`）。
-同一个用户意图，两端要走两条不同的路。
+同一个用户意图，两端要走两条不同的路。这一项没有共同的 `category`，
+是真的要分支 —— 与上面三项不同。
 
 ### 差异 4 · usage 字段集不同，`cost` 只有一端有
 
@@ -232,24 +252,52 @@ pub enum PlanMode {
    而且这个默认值**会漂移**（codex 0.16 → 1.1.7 已经改过一次）。
    不显式设，「我们要什么权限」这件事在代码里就没有任何一行表达过。
 
-### 统一的模型清单
+### 统一的模型清单与模型设置
+
+**读清单：只读 `configOptions`，按 `category` 取。**
 
 ```rust
-/// 两个来源合一：codex 在 models.availableModels，claude 在 configOptions[model]。
-pub fn available_models(session_new_result: &Value) -> Vec<ModelChoice> {
-    if let Some(models) = session_new_result.get("models") {
-        // codex：modelId 已经是「模型×强度」的组合
-        return parse_available_models(models);
-    }
-    // claude：退到 configOptions 里那一项
-    config_option(session_new_result, "model")
-        .map(parse_config_options)
-        .unwrap_or_default()
+/// 两端同构：模型与强度是两个正交维度，各自一个 select。
+pub fn model_choices(session: &Value) -> (Vec<Choice>, Vec<Choice>) {
+    (
+        by_category(session, "model").map(parse_options).unwrap_or_default(),
+        by_category(session, "thought_level").map(parse_options).unwrap_or_default(),
+    )
 }
 ```
 
-**先查 `models`，没有再退 `configOptions`**——反过来写会在 codex 上
-丢掉强度维度。
+不走 `models.availableModels`：它只有 codex 有，而且是二者的笛卡尔积
+（25 条 = 5 模型 × 5 强度），拿来做界面还要再拆一次。
+
+**写设置：`session/new` 之后调 `session/set_config_option`。**
+
+三件事是实测出来的（`transcripts/{codex,claude}-model.jsonl`）：
+
+| | 实测结果 |
+|---|---|
+| `session/new` 的 params 里带 `model` | **两端都静默忽略**：不报错、不采纳。照直觉这么实现，测试全绿而模型从没被切过 |
+| 参数名 | **`configId`**，不是 `optionId`。写错时报 `configId: expected string, received undefined` |
+| 响应 | **回全量 `configOptions`** —— 设了是否生效当场能回读，不必再查一次 |
+| 设一个不存在的值 | 两端都拒（codex `-32602`，claude `-32603`）。**校验不必我们自己做，agent 就是校验器** |
+| `session/set_model` | codex 有、claude `Method not found`。**且与 `set_config_option` 写同一个状态，后调的覆盖先调的** —— 用不得 |
+
+最后一条是这个探针自己踩出来的：先 `set_config_option(model=terra)`
+回读也是 terra，中间又调了一次 `set_model(availableModels[0])`，
+真跑一轮时 agent 报的是 `sol`。两个方法不是互补的，是同一个开关的两个把手。
+
+### 「它到底用了哪个模型」——两端拿不到同一种证据
+
+| | codex | claude |
+|---|---|---|
+| prompt 响应里 `_meta.quota.model_usage[].model` | ✅ **直接报模型名** | ❌ **没有这个字段** |
+| `usage_update.size` | 会话水位（`258400`） | 模型上下文窗口（`1000000` / `200000`） |
+
+**别拿 `model_usage` 当跨端方案** —— 它是 codex 私有的，claude 侧照做会写出一条空事件。
+`usage_update.size` 也合不了：两端语义根本不同（水位 vs 窗口大小）。
+
+两端唯一都成立的证据是 **`set_config_option` 响应里回读到的 `currentValue`**。
+`system.model_resolved` 该写这个值：它是「我们设进去并被 agent 确认过的」，
+而不是「数据库里登记的字符串」。
 
 ### 统一的 usage
 
@@ -296,9 +344,9 @@ pub fn supports(caps: &Value, group: &str, key: &str) -> bool {
 |---|---|---|
 | 1 | **档位映射 + `session/new` 后强制 `set_mode`** | 差异 1 是安全问题，而且现在跑在没防线的那侧（[07 H-6](07-violations.md)） |
 | 2 | 能力探测改成判键存在性 | 一行的事，现在的写法在两端都返回 false |
-| 3 | 统一模型清单 | [07 H-8](07-violations.md) 的正解，顺带让下拉列出真能用的模型 |
+| 3 | 统一模型清单 + `set_config_option` | [07 H-8](07-violations.md) 的正解。**清单与写入是一件事**，只做清单等于下拉换了数据源而仍然不生效 |
 | 4 | 统一 usage（含 `cost: Option`） | [07 O-1](07-violations.md)，数据已经在手上 |
-| 5 | configOption id 映射 | 等真要暴露「推理强度」时再做 |
+| ~~5~~ | ~~configOption id 映射~~ | **不用做**：按 `category` 取就吃掉了 id 差异（差异 3） |
 
 **每一步都要在两个 runtime 上各跑一遍探针**，别只测 codex——
 这一整页的差异，就是只测一端发现不了的那些。

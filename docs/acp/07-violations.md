@@ -385,11 +385,26 @@ grep -rn "modelRef" crates/core-api/src/dispatch.rs apps/desktop/src-tauri/src/l
 
 **还清判据**：三选一。
 
-1. **真接**：下拉的数据源换成 `session/new` 回的 `availableModels`，
-   选择走 `session/set_config_option`（`model` 与 `reasoning_effort` 两项）；
+1. **真接**：下拉的数据源换成 `session/new` 回的 `configOptions`，
+   选择走 `session/set_config_option`；
 2. **诚实降级**：照 `NodeConfigDialog.tsx:269` 的写法，在下拉旁边直说
    「引擎目前不读它」；
 3. **删掉它**，等真做的时候再加。
+
+**方案 1 已经全程实测过，不再是纸面方案**
+（[codex-model.jsonl](transcripts/codex-model.jsonl) /
+[claude-model.jsonl](transcripts/claude-model.jsonl)，探针场景 `model`）：
+
+- 清单按 `configOptions` 的 **`category`** 取（`model` / `thought_level`），
+  两端同构，**不用 id 映射表**；
+- 设置用 `session/set_config_option`（参数名是 **`configId`**），
+  响应回全量 `configOptions` 可当场回读；
+- 设错值 agent 自己会拒 —— 校验不必我们做；
+- **`session/new` 的 params 里带 `model` 是没用的**：两端都静默忽略。
+
+顺带修正一条：`system.model_resolved` 该写**回读到的 `currentValue`**。
+codex 的 `_meta.quota.model_usage[].model` 虽然直接报模型名，
+但 **claude 没有这个字段** —— 拿它当跨端方案会在 claude 侧写出空事件。
 
 ---
 

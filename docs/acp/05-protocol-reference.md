@@ -50,7 +50,8 @@ runtime 实际发的可能更多（比如两个官方 schema 里没有的 `sessi
 | `session/prompt` | 发一轮，阻塞到整个 turn 结束 | ✅ `acp.rs:348` |
 | `session/cancel` | 中止当前 turn（**通知，不是请求**） | ⚠️ `acp.rs:388` 实现了但**零调用点** |
 | `session/set_mode` | 切权限档 / 沙箱档 | ⛔ 未用（见 [07 O-3](07-violations.md)） |
-| `session/set_config_option` | 逐项设置会话配置 | ⛔ 未用 |
+| `session/set_config_option` | 逐项设置会话配置（**参数是 `configId`**，不是 `optionId`） | ⛔ 未用 —— 但**已实测可用**，见下 |
+| `session/set_model` | 单设模型 | ⛔ 未用。codex 有、**claude `Method not found`**，且与上一条写同一状态 |
 
 **实测可用性**（codex 1.1.7，[codex-new-methods.jsonl](transcripts/codex-new-methods.jsonl)）：
 
@@ -60,6 +61,18 @@ runtime 实际发的可能更多（比如两个官方 schema 里没有的 `sessi
 | `session/set_mode` | ✅ 返回 `{}` |
 | `session/close` | ✅ 返回 `{}` |
 | `session/resume` | ❌ 刚建、没跑过 turn 的会话上失败：`no rollout found for thread id …`。**要 resume 的会话必须已经落过盘** |
+
+**模型相关**（两端，[codex-model.jsonl](transcripts/codex-model.jsonl) /
+[claude-model.jsonl](transcripts/claude-model.jsonl)）：
+
+| 做法 | 结果 |
+|---|---|
+| `session/new` 的 params 里带 `model` | ❌ **两端都静默忽略** —— 不报错、不采纳 |
+| `session/set_config_option` 设模型 / 强度 | ✅ 两端都成功，**响应回全量 `configOptions`**，当场可回读 |
+| 设一个不存在的值 | ✅ 两端都拒（codex `-32602` / claude `-32603`）—— agent 自己就是校验器 |
+| 配置的作用域 | 会话级：新建的下一条会话回到默认值 |
+
+清单与设置的完整设计见 [08 §统一的模型清单与模型设置](08-runtime-abstraction.md)。
 
 > ⚠️ **`session/list` 是一条数据泄漏通道**。实测一调下去，codex 回了本机
 > **25 条会话，全部属于别的项目**，`title` 字段是那些会话的完整 prompt 正文。
