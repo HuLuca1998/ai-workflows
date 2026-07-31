@@ -80,3 +80,18 @@ describe('时间可读性', () => {
     expect(runDuration('不是时间', undefined, now)).toBe('');
   });
 });
+
+describe('失败节点耗时是那一步自己的,不是整条运行墙钟(第 9 轮实测 #4)', () => {
+  it('取最后一次 node.started 到 node.failed 之间', async () => {
+    const { nodeDurationForTest } = await import('../src/runs/RunsPage.js');
+    const events = [
+      { type: 'node.started', nodeId: 'a', ts: '2026-08-01T07:13:50Z', id: '1' },
+      { type: 'node.failed', nodeId: 'a', ts: '2026-08-01T07:14:23Z', id: '2' },
+      // 用户在别处点了 24 分钟后重试
+      { type: 'node.started', nodeId: 'a', ts: '2026-08-01T07:38:00Z', id: '3' },
+      { type: 'node.failed', nodeId: 'a', ts: '2026-08-01T07:38:24Z', id: '4' },
+    ] as never;
+    // 以最后一次尝试为准:24s,不是从头算的 24m34s
+    expect(nodeDurationForTest(events, 'a')).toBe('24s');
+  });
+});

@@ -463,11 +463,13 @@ export function RunsPage() {
                   <span className="runs__grow" />
                   <span className="runs__failed-meta">
                     {attemptOf(runs.events, progress.failed)}
-                    {/* 两头都得有：排队中被取消的运行没有 startedAt，
-                        那时算出来的「时长」会是从 1970 年起 */}
-                    {selected.startedAt && selected.endedAt
-                      ? ` · ${formatDuration(selected.startedAt, selected.endedAt)}`
-                      : ''}
+                    {/* 这一步自己跑了多久,不是整条运行的墙钟 ——
+                        用后者的话,33 秒就失败的节点会显示成 24 分钟
+                        (中间是用户在别处点来点去的时间,第 9 轮实测 #4) */}
+                    {(() => {
+                      const dur = nodeDuration(runs.events, progress.failed);
+                      return dur ? ` · ${dur}` : '';
+                    })()}
                   </span>
                 </p>
                 <p className="runs__failed-body">{failureDetail(runs.events, progress.failed)}</p>
@@ -1178,6 +1180,27 @@ function nodeLabelOf(events: readonly RunEvent[], nodeId: string): string {
 }
 
 /** 图纸写的是「attempt 2 / 2」。只有一次尝试时也照样写出来。 */
+/** 一个节点自己那段的耗时:它最后一次 node.started 到随后的终态事件。 */
+function nodeDuration(events: readonly RunEvent[], nodeId: string): string {
+  let startedTs: string | undefined;
+  let endedTs: string | undefined;
+  for (const event of events) {
+    if (event.nodeId !== nodeId) continue;
+    if (event.type === 'node.started') {
+      startedTs = event.ts;
+      endedTs = undefined; // 重试:以最后一次 started 为准
+    } else if (
+      event.type === 'node.failed' ||
+      event.type === 'node.succeeded' ||
+      event.type === 'node.cancelled'
+    ) {
+      endedTs = event.ts;
+    }
+  }
+  if (!startedTs || !endedTs) return '';
+  return formatDuration(startedTs, endedTs);
+}
+
 function attemptOf(events: readonly RunEvent[], nodeId: string): string {
   const failure = [...events]
     .reverse()
@@ -1295,3 +1318,6 @@ function nodeIsRunning(events: readonly RunEvent[], nodeId: string): boolean {
   );
   return started && !ended;
 }
+
+/** 给测试用:nodeDuration 是内部函数,导出一个别名。 */
+export const nodeDurationForTest = nodeDuration;
