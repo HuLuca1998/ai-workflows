@@ -48,7 +48,15 @@ export function TitleBar({ onAskAi, activeRuns = 0, workdir }: TitleBarProps) {
           // 截断的是前面那截，完整路径挂在 title 上
           title={workdir ?? '尚未授权工作目录'}
         >
-          {workdir ?? '尚未授权工作目录'}
+          {/*
+           * bdi[dir=ltr] 不能省：容器是 direction:rtl（为了从前面截断），
+           * 而 `~` 与 `/` 是 bidi 中性字符 —— 不隔离的话首尾的中性符会被
+           * 双向算法重排，`~/a/b` 显示成 `a/b/~`（第 1 轮实测抓到的）。
+           * data-tauri-drag-region 要跟进来：只有被标记的元素本身能拖。
+           */}
+          <bdi dir="ltr" data-tauri-drag-region>
+            {workdir ?? '尚未授权工作目录'}
+          </bdi>
         </span>
         <span className="title-bar__slash" aria-hidden="true" data-tauri-drag-region>
           /
