@@ -545,3 +545,63 @@ mod 运行摘要的契约字段 {
         assert_eq!(item["inputs"]["issue"], serde_json::json!("7"));
     }
 }
+
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+mod 入口固定工作目录 {
+    use aiwf_engine::supervisor::Supervisor;
+    use aiwf_store::Store;
+
+    #[test]
+    fn workdir_source_为_fixed_时运行目录用固定值() {
+        // 第 3 轮实测 P14:入口设了 fixed + 具体目录,运行对话框与 Dry Run
+        // 显示的都是默认运行目录 —— 字段填了不生效(B-5 形态)
+        let dir = tempfile::tempdir().unwrap();
+        let db = dir.path().join("aiwf.sqlite");
+        let store = Store::open(&db).unwrap();
+        store
+            .set_workspace_setting("permissionPreset", "human_approval")
+            .unwrap();
+        let fixed = dir.path().join("固定目录");
+        std::fs::create_dir_all(&fixed).unwrap();
+
+        let graph = serde_json::json!({
+            "nodes": [
+                {"id": "entry", "type": "entry", "title": "入口",
+                 "config": {"trigger": "manual", "workdirSource": "fixed",
+                            "workdir": fixed.display().to_string(),
+                            "inputSchema": {"type": "object"}}},
+                {"id": "done", "type": "end", "title": "结束", "config": {}}
+            ],
+            "edges": [
+                {"id": "e1", "source": {"nodeId": "entry", "port": "success"},
+                 "target": {"nodeId": "done", "port": "input"}}
+            ],
+            "groups": []
+        })
+        .to_string();
+        let workflow = store
+            .create_workflow_with_graph("固定目录流", None, &graph)
+            .unwrap();
+
+        let supervisor = Supervisor::new(db);
+        let run_id = aiwf_core_api::run_start(
+            &store,
+            &supervisor,
+            dir.path(),
+            workflow,
+            None,
+            Some(0),
+            "{}".to_string(),
+            // 调用方(界面)照旧传一个别的目录 —— 固定值要压过它
+            Some(dir.path().join("别的目录").display().to_string()),
+        )
+        .unwrap();
+
+        let workdir = store.run_workdir(&run_id).unwrap().unwrap();
+        assert_eq!(
+            workdir,
+            fixed.display().to_string(),
+            "fixed 目录要压过调用方传的"
+        );
+    }
+}

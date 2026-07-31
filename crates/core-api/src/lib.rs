@@ -740,7 +740,40 @@ pub fn run_start(
         ));
     }
 
-    let workdir = resolve_run_workdir(workdir.as_deref(), data_dir);
+    // 入口节点的「工作目录来源 = fixed」在这里生效：这是全部调用方
+    // （界面 / MCP / HTTP）的必经之路。此前它填了不生效（第 3 轮实测 P14）——
+    // 用户在入口上固定了目录，运行对话框与 Dry Run 显示的却是默认运行目录
+    let fixed_workdir = match &version_id {
+        Some(id) => store.get_version(id)?.map(|v| v.graph_json),
+        None => store.get_draft(&workflow_id, draft_rev.unwrap_or(0))?,
+    }
+    .and_then(|graph_json| {
+        let graph: serde_json::Value = serde_json::from_str(&graph_json).ok()?;
+        let entry =
+            graph.get("nodes")?.as_array()?.iter().find(|node| {
+                node.get("type").and_then(serde_json::Value::as_str) == Some("entry")
+            })?;
+        let config = entry.get("config")?;
+        if config
+            .get("workdirSource")
+            .and_then(serde_json::Value::as_str)
+            != Some("fixed")
+        {
+            return None;
+        }
+        config
+            .get("workdir")
+            .and_then(serde_json::Value::as_str)
+            .map(str::trim)
+            .filter(|dir| !dir.is_empty())
+            .map(str::to_string)
+    });
+
+    let workdir = match &fixed_workdir {
+        // 固定目录压过调用方传的：「固定」说的就是不随这次启动变
+        Some(dir) => std::path::PathBuf::from(dir),
+        None => resolve_run_workdir(workdir.as_deref(), data_dir),
+    };
     let run_id = supervisor.start(
         store,
         RunRequest {
