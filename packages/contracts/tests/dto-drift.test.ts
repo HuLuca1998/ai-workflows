@@ -199,9 +199,6 @@ describe('引擎 DTO 与契约 output 不能漂移', () => {
       'RewindResult',
       'ModelTestResult',
       'ConfirmStatusDto',
-      // MCP 内建 ask_user 的内部读出口，不对应契约方法、不经前端 Zod ——
-      // 消费方是 crates/mcp 的等待循环，形状由 ask_user_test 与 mcp_ask_test 守着
-      'AskResultDto',
       // 错误体走 normalizeIpcError，不经过 output 校验
       'ApiError',
       // 入参结构体（Deserialize 那一侧），不是出参

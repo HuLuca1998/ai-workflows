@@ -3182,23 +3182,32 @@ pub fn mcp_ask_user(store: &Store, spec_json: String) -> ApiResult<String> {
 
 /// 用户回答了。
 pub fn mcp_answer_ask(store: &Store, id: String, answer_json: String) -> ApiResult<()> {
-    // 桌面 IPC 不经 Zod 直达 dispatch：缺 answer 时那边序列化出的是空字符串。
-    // 坏答案落库的话，炸的是 agent 解析答案的那一刻 —— 离病因最远的地方
-    serde_json::from_str::<serde_json::Value>(&answer_json)
+    // 必须是 JSON **对象**。「合法 JSON」不够 —— 双重编码出来的
+    // 裸字符串（`"{\"selected\":…}"`）也是合法 JSON，正好漏过去，
+    // 而 agent 拿到它就得自己再剥一层。桌面 IPC 缺 answer 时
+    // 序列化出的空串同样在这里被拒
+    let parsed = serde_json::from_str::<serde_json::Value>(&answer_json)
         .map_err(|error| ApiError::validation(format!("回答不是合法 JSON：{error}")))?;
+    if !parsed.is_object() {
+        return Err(ApiError::validation(
+            "回答必须是 JSON 对象（{selected, selectedMany, fields}），别把它再编码一层".to_string(),
+        ));
+    }
     store.answer_ask(&id, &answer_json)?;
     Ok(())
 }
 
 /// 一条提问的结果。答案只在回答之后有。
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
+///
+/// **刻意不 derive Serialize**：它不进任何契约方法的 output，
+/// 唯一消费方是 MCP 层的等待循环（直接读字段）。挂上 Serialize
+/// 会把它拽进 dto-drift 的扫描范围，白白多一条没人敢删的豁免。
+#[derive(Debug)]
 pub struct AskResultDto {
     /// pending / approved / rejected / expired。回答过了就是 `approved`。
     pub status: String,
     /// 用户提交的结构化回答。被拒绝或过期的提问没有 ——
     /// 那时 agent 该拿到「被拒绝」，而不是一个伪造的空对象。
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub answer_json: Option<String>,
 }
 
