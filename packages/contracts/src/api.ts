@@ -769,6 +769,8 @@ const SPECS = {
       /** 续接一个已有会话。不给就新开一条。 */
       sessionId: z.string().min(1).optional(),
       modelRef: z.string().min(1).optional(),
+      /** 推理深度。值必须来自 model.sync 的候选 —— 不给就用 agent 自己的默认。 */
+      effort: z.string().min(1).optional(),
       context: z
         .object({
           draftRev: z.number().int().min(0).optional(),

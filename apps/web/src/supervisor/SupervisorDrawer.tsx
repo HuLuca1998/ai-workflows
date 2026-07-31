@@ -4,6 +4,7 @@ import { ChatInput } from '../chat/ChatInput.js';
 import {
   applyPatch,
   migrateApprovalMode,
+  AGENT_RUNTIMES,
   LIST_PAGE_LIMIT_MAX,
   type PatchOperation,
   type WorkflowDiff,
@@ -103,6 +104,15 @@ interface Proposal {
   diff: WorkflowDiff | null;
 }
 
+/**
+ * 推理深度候选的模块级缓存。
+ *
+ * `model.sync` 会起一个 adapter 进程（实测约 300ms）。抽屉每开一次
+ * 同步一次的话，用户开关三下就起了三个进程 —— 而这份清单在一次
+ * 应用会话里几乎不会变（变了就去模型页点同步）。
+ */
+let cachedEfforts: string[] = [];
+
 interface ModelOption {
   id: string;
   name: string;
@@ -185,6 +195,9 @@ export function SupervisorDrawer({
   const [busy, setBusy] = useState(false);
   const [models, setModels] = useState<ModelOption[]>([]);
   const [modelId, setModelId] = useState<string | null>(null);
+  /** 推理深度的候选与当前选择。候选由 runtime 给，不写死。 */
+  const [efforts, setEfforts] = useState<string[]>([]);
+  const [effort, setEffort] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [proposal, setProposal] = useState<Proposal | null>(null);
   /*
@@ -258,6 +271,35 @@ export function SupervisorDrawer({
       })
       .catch(() => setModels([]));
   }, [open]);
+
+  // 推理深度的候选。
+  //
+  // **不能写死**：codex 现在 6 档（low…ultra）、claude 也是 6 档，
+  // 而两边的值不一样，本机 CLI 升级还会再变。只能问 runtime。
+  //
+  // 缓存在模块级：`model.sync` 会起一个 adapter 进程（实测 ~300ms），
+  // 每次开抽屉都来一次的话，用户开关三次就起了三个进程。
+  useEffect(() => {
+    if (!open || efforts.length > 0) return;
+    if (cachedEfforts.length > 0) {
+      setEfforts(cachedEfforts);
+      return;
+    }
+    void coreClient
+      .call('model.sync', { runtime: AGENT_RUNTIMES[0] })
+      .then((result) => {
+        const list = (result as { efforts: { value: string }[] }).efforts.map((e) => e.value);
+        cachedEfforts = list;
+        setEfforts(list);
+        // 默认值也用 runtime 自报的那个，不硬编码 ——
+        // 实测 codex 是 high，正好是我们想要的默认
+        const current = (result as { currentEffort?: string }).currentEffort;
+        if (current) setEffort((now) => now ?? current);
+      })
+      // 拿不到就不显示这个下拉：**不给一份编出来的清单** ——
+      // 设一个 agent 不认的深度会被当场拒掉，而用户以为自己选上了
+      .catch(() => setEfforts([]));
+  }, [open, efforts.length]);
 
   useEffect(() => {
     if (!open) return;
@@ -340,6 +382,8 @@ export function SupervisorDrawer({
         // 同一次对话在历史里散成好几段
         ...(sessionId ? { sessionId } : {}),
         ...(modelId ? { modelRef: modelId } : {}),
+        // 不选就不发 —— 后端据此走「不设置，用 agent 自己的默认」那条路
+        ...(effort ? { effort } : {}),
         context: {
           ...(dropped('draft') || context.draftRev === undefined
             ? {}
@@ -516,6 +560,24 @@ export function SupervisorDrawer({
               </option>
             ))}
           </select>
+
+          {/* 推理深度。候选由 runtime 给 —— 拿不到就不显示这个下拉，
+              **不给一份编出来的清单**：设一个 agent 不认的值会被当场拒掉，
+              而用户以为自己选上了 */}
+          {efforts.length > 0 ? (
+            <select
+              className="supervisor__model"
+              aria-label="推理深度"
+              value={effort ?? ''}
+              onChange={(event) => setEffort(event.target.value)}
+            >
+              {efforts.map((value) => (
+                <option key={value} value={value}>
+                  {value}
+                </option>
+              ))}
+            </select>
+          ) : null}
 
           <button
             type="button"

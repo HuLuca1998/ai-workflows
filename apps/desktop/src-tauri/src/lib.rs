@@ -37,6 +37,7 @@ fn supervisor_ask(
     // 抽屉顶上那个下拉选的模型。少了这个参数，Tauri 会静默丢掉它 ——
     // 于是界面传了、映射层也透传了，而这里收不到（H-8 的最后一格）
     model_ref: Option<String>,
+    effort: Option<String>,
 ) -> IpcResult<api::SupervisorAnswer> {
     // 走主管 AI 自己那条连接 —— 这一整轮对话可能几分钟，
     // 占着主锁的话界面上连「取消运行」都点不动
@@ -51,6 +52,7 @@ fn supervisor_ask(
         context_json,
         session_id,
         model_ref,
+        effort,
     )
 }
 

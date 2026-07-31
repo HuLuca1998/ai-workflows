@@ -198,6 +198,7 @@ function shapeFor(method: CoreApiMethod, record: Record<string, unknown>): Recor
       // 后端一直支持续接，钥匙掉在这一层（docs/acp/07-violations.md H-1）
       ...(record.sessionId ? { sessionId: record.sessionId } : {}),
       ...(record.modelRef ? { modelRef: record.modelRef } : {}),
+      ...(record.effort ? { effort: record.effort } : {}),
       contextJson: JSON.stringify(record.context ?? {}),
     };
   }

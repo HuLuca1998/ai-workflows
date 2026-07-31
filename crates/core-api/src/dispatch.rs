@@ -47,6 +47,7 @@ pub fn dispatch(
                 .or_else(|| opt_string(input, "contextJson")),
             opt_string(input, "sessionId"),
             opt_string(input, "modelRef"),
+            opt_string(input, "effort"),
         )?),
         "supervisor_sessions" => {
             to_value(api::supervisor_sessions(&store, opt_int(input, "limit"))?)

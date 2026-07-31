@@ -2027,6 +2027,8 @@ pub fn supervisor_ask(
     session_id: Option<String>,
     // model_ref：抽屉顶上那个下拉选的模型。None = 用 agent 自己的默认
     model_ref: Option<String>,
+    // effort：推理深度。同样 None = 不设
+    effort: Option<String>,
 ) -> ApiResult<SupervisorAnswer> {
     // 要提结构化改动就得先看得见当前的图 ——
     // 让模型凭空造 nodeId 的话，那些操作应用不到任何东西上
@@ -2126,9 +2128,11 @@ pub fn supervisor_ask(
     let 选的模型 = model_ref
         .as_deref()
         .and_then(|id| store.get_model(id).ok().flatten());
-    let (要的模型, 要的深度) = 选的模型.as_ref().map_or((None, None), |m| {
-        (Some(m.model_id.clone()), Some(m.effort.clone()))
-    });
+    let 要的模型 = 选的模型.as_ref().map(|m| m.model_id.clone());
+    // 抽屉里选的深度优先，没选才用模型条目上记的那个 ——
+    // 模型与推理深度是**两个正交的维度**（两端的 configOptions 就是这么分的），
+    // 把深度焊在模型条目上的话，换个深度就得再登记一条模型
+    let 要的深度 = effort.or_else(|| 选的模型.as_ref().map(|m| m.effort.clone()));
 
     // 建会话时被 agent 拒掉的配置项。闭包里产生，闭包外要用 ——
     // 池的 `建` 只交出 (client, session_id)，降级信息得自己捞出来
