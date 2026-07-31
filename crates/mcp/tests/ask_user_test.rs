@@ -25,7 +25,8 @@ use serde_json::{Value, json};
 static GATE: Mutex<()> = Mutex::new(());
 
 fn 排队() -> std::sync::MutexGuard<'static, ()> {
-    GATE.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+    GATE.lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
 }
 
 fn 建库(dir: &std::path::Path) -> std::path::PathBuf {
@@ -204,7 +205,11 @@ fn 坏问题在门口就被拒_不挂起不入队() {
     let text = result["content"][0]["text"].as_str().unwrap();
     assert!(text.contains("title"), "报错没说清缺什么：{text}");
     assert!(
-        Store::open(&db).unwrap().pending_confirmations().unwrap().is_empty(),
+        Store::open(&db)
+            .unwrap()
+            .pending_confirmations()
+            .unwrap()
+            .is_empty(),
         "被拒的问题不该留在队列里"
     );
 }
