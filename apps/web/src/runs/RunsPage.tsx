@@ -1025,12 +1025,18 @@ function ApprovalPanel({
   /** 拒绝不可撤销，先确认再发（§5.4：危险操作只用红色文字 + 确认）。 */
   const [confirmReject, setConfirmReject] = useState(false);
 
+  // approval.requested 的摘要是「标题\n\n正文(插值后)」——
+  // 正文塞进标题行会挤成一坨,拆开渲染(第 3 轮实测 P10 的界面半边)
+  const [heading = '', ...bodyLines] = (summary || nodeId).split('\n');
+  const body = bodyLines.join('\n').trim();
+
   return (
     <div className="runs__approval">
       <p className="runs__approval-title">
         <i className="ph ph-hand-palm" aria-hidden="true" />
-        审批 · {summary || nodeId}
+        审批 · {heading || nodeId}
       </p>
+      {body ? <p className="runs__approval-body">{body}</p> : null}
       <div className="runs__approval-actions">
         <button
           type="button"

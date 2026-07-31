@@ -2697,6 +2697,17 @@
   color: var(--color-accent-200);
 }
 
+/* 门里写的说明与插值后的上游内容。保留换行 —— 审批人看的是正文不是一行摘要 */
+.runs__approval-body {
+  margin: 0 0 12px;
+  font-size: 12.5px;
+  line-height: 1.7;
+  color: var(--color-neutral-200);
+  white-space: pre-wrap;
+  max-height: 220px;
+  overflow-y: auto;
+}
+
 .runs__approval-actions {
   display: flex;
   gap: 8px;
