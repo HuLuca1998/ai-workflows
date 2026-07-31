@@ -629,7 +629,7 @@ impl Runner {
             })
             .collect();
 
-        let mut executor = NodeExecutor::new(workdir)
+        let mut executor = NodeExecutor::new(workdir.clone())
             .with_run_id(run_id)
             .with_memories(&memories)
             .with_permission_preset(&preset)
@@ -715,7 +715,10 @@ impl Runner {
             match self.step_with(store, run_id, &executor, &mut scope)? {
                 StepResult::Advanced { .. } => continue,
                 StepResult::WaitingApproval { .. } => return self.status(store, run_id),
-                StepResult::Finished { status } => return Ok(status),
+                StepResult::Finished { status } => {
+                    self.cleanup_worktrees(store, run_id, &status, &scope, &workdir);
+                    return Ok(status);
+                }
             }
         }
     }
@@ -959,6 +962,91 @@ impl Runner {
             RunError::GraphInvalid(format!("无法创建运行目录 {}：{e}", dir.display()))
         })?;
         Ok(dir)
+    }
+
+    /// 运行结束时按 `cleanupPolicy` 清理这次运行建出的 worktree（DEBT B-4）。
+    ///
+    /// - `on_success`（默认）：运行成功才清 —— 失败保留现场供排查
+    /// - `on_run_end`：成败都清
+    /// - `keep` / `manual` / 认不出的值：不清（删用户磁盘上的东西，宁可保守）
+    ///
+    /// 取消与线程硬错误不走这里 —— 那两条路保留现场。
+    /// 分支一律不删：提交在分支上，删了工作就丢了。
+    /// 清理失败（比如 agent 留下了未提交改动）不影响运行结果，只记 stderr ——
+    /// `cleanup_worktree_in` 的两道闸门本来就会拒绝脏 worktree。
+    fn cleanup_worktrees(
+        &self,
+        store: &Store,
+        run_id: &str,
+        status: &str,
+        scope: &Scope,
+        workdir: &std::path::Path,
+    ) {
+        if !matches!(status, "succeeded" | "failed") {
+            return;
+        }
+        let Ok((graph, _plan)) = self.load_plan(store, run_id) else {
+            return;
+        };
+        let snapshot = scope.snapshot();
+        let parent = workdir.join(crate::worktree::ENGINE_WORKTREE_DIR);
+
+        for node in graph
+            .nodes
+            .iter()
+            .filter(|node| node.node_type == "git.worktree")
+        {
+            let policy = node
+                .config
+                .get("cleanupPolicy")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or("on_success");
+            let should_clean = match policy {
+                "on_run_end" => true,
+                "on_success" => status == "succeeded",
+                _ => false,
+            };
+            if !should_clean {
+                continue;
+            }
+
+            // 这次运行真建出来的才清 —— 没跑到的节点在 outputs 里没有条目
+            let Some(output) = snapshot
+                .get("outputs")
+                .and_then(|outputs| outputs.get(format!("{}.success", node.id)))
+            else {
+                continue;
+            };
+            let (Some(path), Some(repo_root)) = (
+                output.get("path").and_then(serde_json::Value::as_str),
+                output.get("repoRoot").and_then(serde_json::Value::as_str),
+            ) else {
+                continue;
+            };
+
+            match crate::worktree::cleanup_worktree_in(
+                std::path::Path::new(repo_root),
+                std::path::Path::new(path),
+                Some(&parent),
+            ) {
+                Ok(()) => {
+                    // 删的是用户磁盘上的目录，必须留痕
+                    if let Err(error) = self.emit(
+                        store,
+                        run_id,
+                        "system.worktree_cleaned",
+                        Some(&node.id),
+                        "engine",
+                        &format!("按策略 {policy} 移除了 worktree {path}（分支保留）"),
+                    ) {
+                        eprintln!("运行 {run_id} 的 worktree 清理事件写不进去：{error}");
+                    }
+                }
+                Err(error) => {
+                    eprintln!("运行 {run_id} 的 worktree {path} 未清理：{error}");
+                }
+            }
+        }
     }
 
     fn last_seq(&self, store: &Store, run_id: &str) -> Result<i64> {

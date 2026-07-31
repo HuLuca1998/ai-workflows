@@ -150,7 +150,6 @@ const 引擎不消费: Record<string, string> = {
   'git.worktree.parentDir': '欠账：worktree 位置固定在运行目录下',
   'git.worktree.fetch': '欠账：创建前不 fetch',
   'git.worktree.conflictPolicy': '欠账：冲突策略不生效',
-  'git.worktree.cleanupPolicy': '欠账：worktree 不清理，会在用户磁盘上一直堆着',
 };
 
 describe('节点配置字段的接缝', () => {

@@ -1390,7 +1390,7 @@ impl NodeExecutor {
         };
 
         match create_worktree(WorktreeRequest {
-            repo_root: repo_path,
+            repo_root: repo_path.clone(),
             base_branch,
             branch,
             parent_dir: self.worktree_parent.clone(),
@@ -1416,6 +1416,9 @@ impl NodeExecutor {
                     serde_json::json!({
                         "path": result.path.display().to_string(),
                         "branch": result.branch,
+                        // 运行结束时按 cleanupPolicy 清理要知道主仓库在哪 ——
+                        // checkpoint 会把它跨重启保住，别的地方拿不到这个值
+                        "repoRoot": repo_path.display().to_string(),
                     }),
                 );
                 Ok(NodeOutcome::Succeeded {
