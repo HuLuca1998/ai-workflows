@@ -52,20 +52,23 @@ fn branch_exists(repo: &Path, branch: &str) -> bool {
 fn run_worktree_flow(
     name: &str,
     repo: &Path,
-    cleanup_policy: &str,
+    cleanup_policy: Option<&str>,
     tail_script: Option<&str>,
 ) -> (Store, String, String, PathBuf) {
     let workdir = std::env::temp_dir().join(format!("aiwf_wtclean_run_{name}"));
     let _ = std::fs::remove_dir_all(&workdir);
 
+    let mut wt_config = serde_json::json!({
+        "repoRoot": repo.display().to_string(),
+        "baseBranch": "main",
+        "branchTemplate": format!("aiwf/{name}"),
+    });
+    if let Some(policy) = cleanup_policy {
+        wt_config["cleanupPolicy"] = serde_json::json!(policy);
+    }
     let mut nodes = vec![
         serde_json::json!({"id": "entry", "type": "entry", "title": "入口", "config": {}}),
-        serde_json::json!({"id": "wt", "type": "git.worktree", "title": "建工作区", "config": {
-            "repoRoot": repo.display().to_string(),
-            "baseBranch": "main",
-            "branchTemplate": format!("aiwf/{name}"),
-            "cleanupPolicy": cleanup_policy,
-        }}),
+        serde_json::json!({"id": "wt", "type": "git.worktree", "title": "建工作区", "config": wt_config}),
     ];
     let mut edges = vec![serde_json::json!(
         {"id": "e1", "source": {"nodeId": "entry", "port": "success"},
@@ -128,7 +131,7 @@ fn worktree_path(store: &Store, run_id: &str) -> PathBuf {
 fn 默认策略_运行成功后worktree被清理_分支保留_事件留痕() {
     let repo = fixture_repo("ok_default");
     let (store, run_id, status, _workdir) =
-        run_worktree_flow("ok_default", &repo, "on_success", None);
+        run_worktree_flow("ok_default", &repo, Some("on_success"), None);
     assert_eq!(status, "succeeded");
 
     let wt = worktree_path(&store, &run_id);
@@ -154,7 +157,7 @@ fn 默认策略_运行成功后worktree被清理_分支保留_事件留痕() {
 #[test]
 fn keep策略_运行成功也不清理() {
     let repo = fixture_repo("keep");
-    let (store, run_id, status, _workdir) = run_worktree_flow("keep", &repo, "keep", None);
+    let (store, run_id, status, _workdir) = run_worktree_flow("keep", &repo, Some("keep"), None);
     assert_eq!(status, "succeeded");
 
     let wt = worktree_path(&store, &run_id);
@@ -173,7 +176,7 @@ fn keep策略_运行成功也不清理() {
 fn 默认策略_运行失败保留现场() {
     let repo = fixture_repo("fail_keep");
     let (store, run_id, status, _workdir) =
-        run_worktree_flow("fail_keep", &repo, "on_success", Some("exit 1"));
+        run_worktree_flow("fail_keep", &repo, Some("on_success"), Some("exit 1"));
     assert_eq!(status, "failed");
 
     let wt = worktree_path(&store, &run_id);
@@ -188,7 +191,7 @@ fn 默认策略_运行失败保留现场() {
 fn on_run_end策略_运行失败也清理() {
     let repo = fixture_repo("end_clean");
     let (store, run_id, status, _workdir) =
-        run_worktree_flow("end_clean", &repo, "on_run_end", Some("exit 1"));
+        run_worktree_flow("end_clean", &repo, Some("on_run_end"), Some("exit 1"));
     assert_eq!(status, "failed");
 
     let wt = worktree_path(&store, &run_id);
@@ -202,7 +205,7 @@ fn 脏worktree拒绝清理_安全闸门在真实路径上生效() {
     let (store, run_id, status, _workdir) = run_worktree_flow(
         "dirty",
         &repo,
-        "on_success",
+        Some("on_success"),
         Some("echo droppings > ${wt.success.path}/uncommitted.txt"),
     );
     assert_eq!(status, "succeeded");
@@ -288,6 +291,22 @@ fn 审批被拒的终止路径也按_on_run_end_清理() {
     assert!(
         !wt.exists(),
         "on_run_end ⇒ 拒批这种结束也要清:{}",
+        wt.display()
+    );
+}
+
+#[test]
+fn 字段缺省时的默认策略是_on_success_真的会清() {
+    // 假测试复核抓到的盲区:「默认策略」用例其实显式注入了 on_success,
+    // 生产代码里 unwrap_or 的缺省值从没被测过 —— 改成 keep 也全绿
+    let repo = fixture_repo("real_default");
+    let (store, run_id, status, _workdir) = run_worktree_flow("real_default", &repo, None, None);
+    assert_eq!(status, "succeeded");
+
+    let wt = worktree_path(&store, &run_id);
+    assert!(
+        !wt.exists(),
+        "配置里不写 cleanupPolicy 时,缺省 on_success 也要清:{}",
         wt.display()
     );
 }
