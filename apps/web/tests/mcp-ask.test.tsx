@@ -248,6 +248,33 @@ describe('确认', () => {
   });
 });
 
+describe('一条坏 spec 不能让整条队列消失', () => {
+  it('形状不合的 ask 退化成普通确认卡摊开原文', async () => {
+    /*
+     * 门口有校验，但门口与读出侧的判据将来再分叉时，代价不该是：
+     * 整个 pendingConfirms 响应被 Zod 拒掉 → poll 的 catch 静默吞掉 →
+     * 所有卡（包括同期不相关的写操作确认）一起消失三分钟。
+     * 契约层的 catch(undefined) 把坏 ask 退化成普通确认卡。
+     */
+    const badAsk = { kind: 'choice', title: '选一个', options: [{ value: 'a' }] };
+    respond([
+      {
+        id: 'mcpc_bad',
+        tool: 'ask_user',
+        inputJson: JSON.stringify(badAsk),
+        createdAt: '2026-07-28T10:00:00Z',
+        ask: badAsk,
+      },
+    ]);
+    render(<McpConfirmCard />);
+
+    // 渲染成「写入确认」形态（ask 被 catch 掉了），原文摊开可读
+    const card = await screen.findByRole('alertdialog', { name: /MCP 写入确认/u });
+    expect(card.textContent).toContain('choice');
+    expect(card.textContent).toContain('选一个');
+  });
+});
+
 describe('白名单里的每种 kind 都真的渲染得出来', () => {
   /*
    * 接缝守卫。`confirm` 曾经在 ASK_KINDS 里却没有渲染分支：

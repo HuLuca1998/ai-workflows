@@ -172,8 +172,14 @@ const SPECS = {
            * 两者共用同一条队列（机制一样：TTL、过期、轮询），
            * 但渲染成两种卡：确认卡给的是批准/拒绝，
            * 提问卡给的是选项或输入框。
+           *
+           * `catch(undefined)`：形状不合的 ask 退化成普通确认卡摊开原文，
+           * 与「认不出的 kind 摊开原文」同一条策略 —— 否则一条坏 spec
+           * 会让**整个** pendingConfirms 响应被拒，同期排队的写操作
+           * 确认卡一起消失三分钟。门口有校验，但门口与读出侧再分叉时，
+           * 代价不该是全队列毒丸。
            */
-          ask: AskSpecSchema.optional(),
+          ask: AskSpecSchema.optional().catch(undefined),
         }),
       ),
     }),
