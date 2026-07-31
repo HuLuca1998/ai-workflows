@@ -209,7 +209,15 @@ impl Supervisor {
                     if let Err(error) = runner.run_until_pause(&store, &run_id, &flag) {
                         // 后台错误必须留下痕迹：吞掉的话运行会永远停在
                         // running 却没有线程在推进它，用户只看到「一直在跑」
-                        record_background_failure(&store, &run_id, &error.to_string());
+                        if let Err(record_error) =
+                            record_background_failure(&store, &run_id, &error.to_string())
+                        {
+                            // 连痕迹都留不下（磁盘满、锁死）—— stderr 是最后一条通道。
+                            // 孤儿扫描（store::mark_orphan_runs）下次启动会把它标成 interrupted
+                            eprintln!(
+                                "运行 {run_id} 失败（{error}），而失败记录也写不进去：{record_error}"
+                            );
+                        }
                     }
                 }
                 Err(error) => {
@@ -241,8 +249,13 @@ impl Supervisor {
 ///
 /// 不写的话，运行会停在 running 但已经没有线程在推进它 ——
 /// 界面显示「运行中」，实际永远不会有下一步，而日志里也没有线索。
-fn record_background_failure(store: &Store, run_id: &str, message: &str) {
-    let _ = store.append_event(&aiwf_store::NewRunEvent {
+/// 把后台线程的失败写进事件流与运行状态。
+///
+/// 写不进去（磁盘满、锁竞争）时把错误**传播出去**由调用方记日志 ——
+/// 这里曾经是两个 `let _ =`：数据库暂时不可写时运行「表面上正常结束」
+/// 而事件流缺档，事件流是唯一事实来源，缺了就无法重建（DEBT L-1）。
+fn record_background_failure(store: &Store, run_id: &str, message: &str) -> aiwf_store::Result<()> {
+    store.append_event(&aiwf_store::NewRunEvent {
         run_id: run_id.to_string(),
         kind: "run.failed".to_string(),
         node_id: None,
@@ -256,6 +269,59 @@ fn record_background_failure(store: &Store, run_id: &str, message: &str) {
         parent_event_id: None,
         sensitivity: "internal".to_string(),
         schema_ver: 1,
-    });
-    let _ = store.advance_run_status(run_id, "failed", None);
+    })?;
+    store.advance_run_status(run_id, "failed", None)?;
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// DEBT L-1：这里曾是两个 `let _ =`。数据库暂时不可写时
+    /// 失败记录悄悄丢失，运行「表面上正常结束」而事件流缺档。
+    /// 把实现改回吞错（返回 Ok），这条会红（已做过元测试）。
+    #[test]
+    fn 失败记录写不进去时错误要传播出来() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("aiwf.sqlite");
+        let run_id = {
+            let store = Store::open(&path).unwrap();
+            let workflow = store.create_workflow("会失败的流程", None).unwrap();
+            store.create_run_for_test(&workflow).unwrap()
+        };
+
+        // 模拟磁盘满 / 权限丢失：库文件设为只读（目录仍可写）
+        let mut perms = std::fs::metadata(&path).unwrap().permissions();
+        perms.set_readonly(true);
+        std::fs::set_permissions(&path, perms).unwrap();
+
+        let store = Store::open(&path).unwrap();
+        let result = record_background_failure(&store, &run_id, "线程 panic");
+        assert!(result.is_err(), "写不进去必须报错，不能悄悄返回成功");
+    }
+
+    /// 对照组：库可写时记录成功，事件与状态都落了。
+    #[test]
+    fn 失败记录可写时事件与状态都落库() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("aiwf.sqlite");
+        let store = Store::open(&path).unwrap();
+        let workflow = store.create_workflow("会失败的流程", None).unwrap();
+        let run_id = store.create_run_for_test(&workflow).unwrap();
+
+        record_background_failure(&store, &run_id, "线程 panic").unwrap();
+
+        assert_eq!(
+            store.run_status(&run_id).unwrap().as_deref(),
+            Some("failed")
+        );
+        assert!(
+            store
+                .events(&run_id, 0, 100)
+                .unwrap()
+                .iter()
+                .any(|e| e.kind == "run.failed")
+        );
+    }
 }
