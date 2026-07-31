@@ -3172,9 +3172,17 @@ impl Store {
             params![id, answer_json, now_iso()],
         )?;
         if changed == 0 {
-            return Err(StoreError::Invalid(format!(
-                "提问 {id} 不存在或已经回答过了"
-            )));
+            // 回读一次把话说准。「已经回答过了」对着一条刚过期的提问，
+            // 用户会确信见了鬼 —— 他明明没答过
+            let status = self
+                .get_confirmation(id)?
+                .map(|row| row.status)
+                .unwrap_or_default();
+            return Err(StoreError::Invalid(match status.as_str() {
+                "expired" => format!("提问 {id} 已经过期 —— agent 那边等了三分钟没人回答"),
+                "approved" | "rejected" => format!("提问 {id} 已经决定过了"),
+                _ => format!("提问 {id} 不存在"),
+            }));
         }
         Ok(())
     }

@@ -110,6 +110,15 @@ fn initialize(params: &Value) -> Value {
     })
 }
 
+/// 对外报数的唯一出口：契约派生的 + 内建 ask_user。
+///
+/// 各处自己算 `catalog::tools().len()` 的话，内建那 1 个必然被漏掉 ——
+/// 设置页写 50、`tools/list` 回 51，读的人以为哪里坏了。
+#[must_use]
+pub fn tool_count() -> usize {
+    catalog::tools().len() + 1
+}
+
 fn tools_list() -> Vec<Value> {
     let mut tools: Vec<Value> = catalog::tools()
         .iter()
@@ -268,11 +277,37 @@ fn call_tool(ctx: &McpContext<'_>, params: &Value) -> Value {
     }
 }
 
+/// 同时挂着等回答的提问数。
+///
+/// HTTP 层一共 `WORKER_COUNT = 8` 个工作线程，一次 ask_user 最长占 190 秒。
+/// 不设上限的话，8 条并发提问就让整个 MCP 端点三分钟不响应任何请求 ——
+/// 包括 tools/list 和别的客户端。`idempotentHint: false` 挡的是自动重试，
+/// 挡不住 agent 主动并发提问。
+static ASK_IN_FLIGHT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+const ASK_MAX_IN_FLIGHT: usize = 4;
+
+/// 计数的 RAII 守卫 —— ask_user 的返回路径有六条，手动减必漏。
+struct AskSlot;
+impl Drop for AskSlot {
+    fn drop(&mut self) {
+        ASK_IN_FLIGHT.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
+    }
+}
+
 /// 向用户提问，挂起到有答案。
 ///
 /// 等待期间**不持库锁** —— 用户提交答案的那条调用要拿同一把锁。
 /// 入队与每次轮询各自短暂拿锁，中间放开。
 fn ask_user(ctx: &McpContext<'_>, input: &Value) -> Value {
+    if ASK_IN_FLIGHT.fetch_add(1, std::sync::atomic::Ordering::SeqCst) >= ASK_MAX_IN_FLIGHT {
+        ASK_IN_FLIGHT.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
+        return error_result(format!(
+            "同时挂起的提问已有 {ASK_MAX_IN_FLIGHT} 条。把要问的合并成一个问题，\
+             或等用户回答了前面的再问"
+        ));
+    }
+    let _slot = AskSlot;
+
     let id = {
         let Ok(store) = ctx.store.lock() else {
             return error_result("数据库锁已损坏，需要重启应用".to_string());
@@ -297,7 +332,24 @@ fn ask_user(ctx: &McpContext<'_>, input: &Value) -> Value {
 
         let result = match result {
             Ok(result) => result,
-            Err(error) => return error_result(format!("[{}] {}", error.code, error.message)),
+            Err(error) => {
+                // 查不到这一条了（多半是 workspace_reset 清了表）—— 没什么可等的。
+                // 判据对应 StoreError::NotFound 的文案「找不到 {kind} {id}」，
+                // kind 由 mcp_ask_result 定为「提问」。
+                // 其余错误（SQLITE_BUSY 之类）是暂时的：问题还挂在用户屏幕上，
+                // 现在放弃的话，他两秒后提交的答案就没有人读了
+                if error.message.contains("找不到 提问") {
+                    return error_result(format!("[{}] {}", error.code, error.message));
+                }
+                eprintln!("[mcp] 轮询提问 {id} 出错（继续等）：{}", error.message);
+                if Instant::now() >= deadline {
+                    return ask_outcome(json!({
+                        "outcome": "no_answer",
+                        "note": "等待超时，没有等到回答。按你的最优判断继续，或稍后再问",
+                    }));
+                }
+                continue;
+            }
         };
 
         match result.status.as_str() {

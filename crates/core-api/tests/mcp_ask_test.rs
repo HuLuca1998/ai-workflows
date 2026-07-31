@@ -101,6 +101,31 @@ fn 缺_title_或_kind_的问题不入队() {
 }
 
 #[test]
+fn 缺_label_的选项和字段也在门口拒() {
+    // 界面按 AskSpecSchema 校验 pendingConfirms 的**整个响应** ——
+    // 一条缺 label 的 option 入了队，同时排队的写操作确认卡
+    // 会跟着一起消失三分钟。门口的校验必须不比读出来那一侧松
+    let store = 库();
+    for 坏的 in [
+        r#"{"kind":"choice","title":"选","options":[{"value":"a"}]}"#,
+        r#"{"kind":"choice","title":"选","options":[{"label":"甲"}]}"#,
+        r#"{"kind":"form","title":"填","fields":[{"name":"x"}]}"#,
+        r#"{"kind":"form","title":"填","fields":[{"label":"分支"}]}"#,
+    ] {
+        let err = aiwf_core_api::mcp_ask_user(&store, 坏的.to_string()).unwrap_err();
+        assert_eq!(err.code, "VALIDATION", "{坏的} 进队列了");
+    }
+    assert!(store.pending_confirmations().unwrap().is_empty());
+
+    // 完整的照常入队 —— 校验不能严到把好问题也挡了
+    aiwf_core_api::mcp_ask_user(
+        &store,
+        r#"{"kind":"choice","title":"选","options":[{"value":"a","label":"甲"}]}"#.to_string(),
+    )
+    .unwrap();
+}
+
+#[test]
 fn 回答不是合法_json_时不落库() {
     // 桌面 IPC 不经 Zod 直达 dispatch，缺 answer 时那边序列化出的是
     // 空字符串 —— 落库的话 agent 解析答案会当场炸掉

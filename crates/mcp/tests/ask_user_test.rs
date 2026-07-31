@@ -19,6 +19,15 @@ use aiwf_mcp::{McpContext, handle_message};
 use aiwf_store::Store;
 use serde_json::{Value, json};
 
+/// 发起提问的用例逐条跑。挂起的提问有**全局**并发上限（防 8 条并发
+/// 把 MCP 工作线程占光）—— 并行跑的话，上限用例挂着的 4 条会把
+/// 别的用例的提问顶出去，两边都 flaky。
+static GATE: Mutex<()> = Mutex::new(());
+
+fn 排队() -> std::sync::MutexGuard<'static, ()> {
+    GATE.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
 fn 建库(dir: &std::path::Path) -> std::path::PathBuf {
     let db = dir.join("aiwf.sqlite");
     // 先开一次把表建起来：两条连接同时跑迁移会撞锁
@@ -103,6 +112,7 @@ fn 工具清单里有_ask_user_且标注防自动重试() {
 
 #[test]
 fn 用户回答后答案原样回到_agent_手上() {
+    let _gate = 排队();
     let dir = tempfile::tempdir().unwrap();
     let db = 建库(dir.path());
     let started = Instant::now();
@@ -111,12 +121,15 @@ fn 用户回答后答案原样回到_agent_手上() {
     // 扮演用户：第二条连接，看到提问卡，选了 cache
     let store = Store::open(&db).unwrap();
     let id = 等到提问(&store);
+    // 用户看了 1.2 秒才点。等待循环一拍是 500ms —— 只断言一拍的话，
+    // 「睡一觉顺手捡到答案」与「真的在等用户」分不出来
+    std::thread::sleep(Duration::from_millis(1200));
     aiwf_core_api::mcp_answer_ask(&store, id, r#"{"selected":"cache"}"#.to_string()).unwrap();
 
     let result = agent.join().unwrap();
     assert!(
-        started.elapsed() >= Duration::from_millis(400),
-        "毫秒级就返回了 —— 它没有真的在等用户"
+        started.elapsed() >= Duration::from_millis(1200),
+        "比用户按下按钮还早返回 —— 它没有真的在等"
     );
     assert_eq!(result["isError"], false);
     assert_eq!(result["structuredContent"]["outcome"], "answered");
@@ -128,6 +141,7 @@ fn 用户回答后答案原样回到_agent_手上() {
 
 #[test]
 fn 用户拒绝回答时_agent_拿到的是_declined_不是空答案() {
+    let _gate = 排队();
     let dir = tempfile::tempdir().unwrap();
     let db = 建库(dir.path());
     let agent = 后台调用(db.clone(), dir.path().to_path_buf(), 单选问题());
@@ -152,6 +166,7 @@ fn 用户拒绝回答时_agent_拿到的是_declined_不是空答案() {
 
 #[test]
 fn 没人回答过期后_agent_拿到_no_answer() {
+    let _gate = 排队();
     let dir = tempfile::tempdir().unwrap();
     let db = 建库(dir.path());
     let agent = 后台调用(db.clone(), dir.path().to_path_buf(), 单选问题());
@@ -169,6 +184,7 @@ fn 没人回答过期后_agent_拿到_no_answer() {
 
 #[test]
 fn 坏问题在门口就被拒_不挂起不入队() {
+    let _gate = 排队();
     let dir = tempfile::tempdir().unwrap();
     let db = 建库(dir.path());
     let started = Instant::now();
@@ -191,4 +207,44 @@ fn 坏问题在门口就被拒_不挂起不入队() {
         Store::open(&db).unwrap().pending_confirmations().unwrap().is_empty(),
         "被拒的问题不该留在队列里"
     );
+}
+
+#[test]
+fn 挂起的提问有并发上限_超了直接说() {
+    // 8 个 HTTP 工作线程，一次 ask_user 最长占 190 秒 —— 不设上限，
+    // 8 条并发提问就让整个 MCP 端点三分钟不响应任何请求
+    let _gate = 排队();
+    let dir = tempfile::tempdir().unwrap();
+    let db = 建库(dir.path());
+
+    let hung: Vec<_> = (0..4)
+        .map(|_| 后台调用(db.clone(), dir.path().to_path_buf(), 单选问题()))
+        .collect();
+
+    // 等 4 条都进队列 —— 说明 4 个名额都真的被占着
+    let store = Store::open(&db).unwrap();
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while store.pending_confirmations().unwrap().len() < 4 {
+        assert!(Instant::now() < deadline, "4 条提问没有全部进队列");
+        std::thread::sleep(Duration::from_millis(20));
+    }
+
+    let started = Instant::now();
+    let fifth = 后台调用(db.clone(), dir.path().to_path_buf(), 单选问题())
+        .join()
+        .unwrap();
+    assert!(
+        started.elapsed() < Duration::from_millis(400),
+        "第 5 条该立刻被拒，而不是也挂着"
+    );
+    assert_eq!(fifth["isError"], true);
+    let text = fifth["content"][0]["text"].as_str().unwrap();
+    assert!(text.contains("同时挂起"), "要说清是并发上限：{text}");
+
+    // 收尾：全部过期，4 条挂着的线程拿到 no_answer 收工
+    store.expire_confirmations(0).unwrap();
+    for handle in hung {
+        let result = handle.join().unwrap();
+        assert_eq!(result["structuredContent"]["outcome"], "no_answer");
+    }
 }

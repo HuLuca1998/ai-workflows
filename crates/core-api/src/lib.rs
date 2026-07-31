@@ -3143,16 +3143,38 @@ pub fn mcp_ask_user(store: &Store, spec_json: String) -> ApiResult<String> {
     // 认不出的值摊开原文，这里不越权去认
     let spec: serde_json::Value = serde_json::from_str(&spec_json)
         .map_err(|error| ApiError::validation(format!("问题定义不是合法 JSON：{error}")))?;
-    let has_text = |key: &str| {
-        spec.get(key)
+    let has_text = |value: &serde_json::Value, key: &str| {
+        value
+            .get(key)
             .and_then(serde_json::Value::as_str)
             .is_some_and(|text| !text.is_empty())
     };
-    if !has_text("kind") || !has_text("title") {
+    if !has_text(&spec, "kind") || !has_text(&spec, "title") {
         return Err(ApiError::validation(
             "问题定义至少要有非空的 kind 与 title —— 一张没有标题的卡片，用户什么都决定不了"
                 .to_string(),
         ));
+    }
+    // options / fields 的每一项也在门口验。这里松一条，堵住的是**整条队列**：
+    // 界面按 AskSpecSchema 校验 pendingConfirms 的响应，一条缺 label 的
+    // option 会让整个响应被拒 —— 同时排队的写操作确认卡一起消失三分钟
+    if let Some(options) = spec.get("options").and_then(serde_json::Value::as_array) {
+        for (at, option) in options.iter().enumerate() {
+            if !has_text(option, "value") || !has_text(option, "label") {
+                return Err(ApiError::validation(format!(
+                    "options[{at}] 要有非空的 value 与 label —— 没有标签的选项用户没法选"
+                )));
+            }
+        }
+    }
+    if let Some(fields) = spec.get("fields").and_then(serde_json::Value::as_array) {
+        for (at, field) in fields.iter().enumerate() {
+            if !has_text(field, "name") || !has_text(field, "label") {
+                return Err(ApiError::validation(format!(
+                    "fields[{at}] 要有非空的 name 与 label —— 没有标签的输入框用户不知道填什么"
+                )));
+            }
+        }
     }
     store.expire_confirmations(CONFIRM_TTL_SECS)?;
     Ok(store.create_ask(ASK_TOOL, &spec_json)?)
