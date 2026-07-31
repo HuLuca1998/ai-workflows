@@ -71,7 +71,7 @@ console.log(零.length+' / '+m.eventTypes.length);console.log(零.join('\n'));
 | `system.checkpoint_saved`                        | 「每个节点完成后落一次带 Scope 快照的检查点」                                                      | 检查点真的落了，但事件流里看不到   |
 | `artifact.created` / `artifact.truncated`        | 产物确实在落盘、确实会截断                                                                         | 「产物视图」这个投影没有源事件     |
 | `system.memory_written`                          | 记忆提议写入已实现                                                                                 | 写入不留痕                         |
-| `run.paused` / `run.resumed` / `run.interrupted` | 状态机里有这些状态                                                                                 | 见 B-7                             |
+| `run.paused` / `run.resumed`                     | 状态机里有这些状态（`run.interrupted` 已有发射点：孤儿扫描）                                       | 暂停/恢复机制整体未实现            |
 | `node.queued` / `node.retried` / `node.skipped`  | 调度器真的会排队、真的会跳过                                                                       | 节点进度投影缺档                   |
 | `approval.reminded` / `approval.expired`         | 对应 `approval` 节点的 `reminderAfterMs` / `waitStrategy` 字段（见 B-5）                           | 提醒与超时都不存在                 |
 | `conversation.agent_delta`                       | 流式增量                                                                                           | 对话只有整条消息，无流式           |
@@ -265,59 +265,6 @@ B-1 就是这么发生的：`notify` 在清单里，match 分支里也「有」�
 **还清的判据**：一条测试，对 `NODE_TYPES` 的每一种，断言
 「在 `IMPLEMENTED` 里 ⇔ executor 有专门的分派分支且不是空操作」。
 空操作节点（`entry` / `end` 确实什么都不用做）显式登记，写明理由。
-
----
-
-### B-7 · 杀掉 App，正在跑的运行永远卡在「运行中」
-
-**用户可见，而且没有出路。**
-
-契约定义 11 个运行状态。引擎实际写入的只有 5 个：
-
-```bash
-rg -n 'advance_run_status\([^)]*' crates/engine/src crates/core-api/src --no-filename
-# 字面量只有 running / waiting_approval / failed；runner.rs:257 的变量取 succeeded|failed
-```
-
-`paused`、`interrupted`、`resuming` **从未被写入**（`status.rs` 里那几行是枚举到
-字符串的映射定义，`supervisor.rs:96` 是读不是写）。
-
-于是这条路走死了：
-
-| 步骤 | 发生什么                                                                                                          |
-| ---- | ----------------------------------------------------------------------------------------------------------------- |
-| 1    | 用户跑一条工作流，运行状态 = `running`                                                                            |
-| 2    | 用户 Cmd+Q / App 崩溃 / 断电 —— 进程没有机会执行任何代码                                                          |
-| 3    | 重启 App。`Store::open_workspace` 只做迁移 + 种内置数据，**没有孤儿运行扫描**                                     |
-| 4    | 那条运行**永远显示「运行中」**，没有线程在推进它                                                                  |
-| 5    | 想恢复？`supervisor.rs:96` 只接受 `failed` / `interrupted` / `paused` —— 状态是 `running`，**连「恢复」都点不了** |
-
-`interrupted` 这个状态就是为这个场景定义的。没有任何代码写它，
-所以第 5 步那个判断在等一个永远不会到来的状态。
-
-**掩护它的是什么**（三层，这条的掩护最厚）：
-
-1. **出口标准写着「杀掉 App 后重启能回到同一审批点」，而且真的验过** ——
-   `supervisor_test.rs` drop 全部内存对象后重开数据库，批准并跑完。
-   但那验的是卡在 `waiting_approval` 的运行，**那个状态本来就是等人的**，
-   重启后当然还在。**正在跑**的运行被杀，出口标准没覆盖
-2. `record_background_failure`（`supervisor.rs:190`）的注释精确描述了这个后果：
-
-   > 不写的话，运行会停在 running 但已经没有线程在推进它 ——
-   > 界面显示「运行中」，实际永远不会有下一步，而日志里也没有线索。
-
-   **写这段注释的人完全清楚这个失败形态。** 但那个函数只处理
-   「线程 panic 而进程还活着」，进程被杀时它根本不会被调用
-
-3. 前端投影有 `run.interrupted` 分支（见 B-2），界面大概率也有对应样式 ——
-   一切看起来都准备好了，只是没有东西触发它
-
-**还清的判据**：`open_workspace`（或 Supervisor 启动）扫一次
-「状态是 `running` / `resuming` 但没有活线程」的运行，标成 `interrupted`
-并发 `run.interrupted` 事件。一条测试：写一条 `running` 的运行 →
-不经过任何清理直接重开 Store → 断言它变成 `interrupted` 且可恢复。
-
-这条同时把出口标准补全 —— 现在那条标准只验了两种崩溃场景里的一种。
 
 ---
 
@@ -572,7 +519,6 @@ MCP / `workflow_patch` 路径可以写对象形态，所以这不是「填了不
 
 | 顺序 | 条目                    | 为什么排这里                                                                            |
 | ---- | ----------------------- | --------------------------------------------------------------------------------------- |
-| 2    | **B-7** 运行卡死        | 用户可见，而且连「恢复」都点不了。Cmd+Q 是最常见的退出方式                              |
 | 3    | **B-4** worktree 不清理 | 唯一一条**在用户磁盘上持续累积**的。每跑一次多一个目录和分支                            |
 | 4    | **B-6** + **B-5** 守卫  | 这两条是**成因**。不补守卫，notify 那类问题与 B-5 会以新形态重新长出来                  |
 | 5    | **B-2** 事件发射        | 违反的是架构第一原则。界面明确承诺的 `node.cancelled` 先补（`model_downgraded` 已还清） |
