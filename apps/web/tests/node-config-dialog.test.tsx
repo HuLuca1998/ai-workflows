@@ -244,3 +244,34 @@ describe('校验文案是中文', () => {
     expect(onSave).not.toHaveBeenCalled();
   });
 });
+
+describe('JSON 字段的空值', () => {
+  const aiNode: GraphNode = {
+    id: 'analyze',
+    type: 'ai.analyze',
+    title: '分析',
+    position: { x: 0, y: 0 },
+    config: {
+      agentProfileId: 'builtin:analyst',
+      instruction: '分析这个 issue',
+      target: '${read_issue.success}',
+      turnLimit: 12,
+    },
+  };
+
+  it('未设置的可选 JSON 字段显示为空，不是字符串「null」', () => {
+    // 第 1 轮浏览器实测：输出契约文本域里赫然显示 "null" ——
+    // JSON.stringify(undefined ?? null) 把空值字符串化了
+    renderDialog(aiNode);
+    const box = screen.getByLabelText(/输出契约/u) as HTMLTextAreaElement;
+    expect(box.value).toBe('');
+  });
+
+  it('清空 JSON 字段回到「未设置」，不报「JSON 无法解析」', () => {
+    renderDialog(aiNode);
+    const box = screen.getByLabelText(/输出契约/u) as HTMLTextAreaElement;
+    fireEvent.change(box, { target: { value: '{"documents":"single"}' } });
+    fireEvent.change(box, { target: { value: '' } });
+    expect(screen.queryByText(/JSON 无法解析/u)).toBeNull();
+  });
+});

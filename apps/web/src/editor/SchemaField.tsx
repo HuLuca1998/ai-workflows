@@ -282,7 +282,10 @@ function JsonControl({
   onChange: (next: unknown) => void;
   describedBy?: string | undefined;
 }) {
-  const [text, setText] = useState(() => JSON.stringify(value ?? null, null, 2));
+  // 未设置就显示空 —— stringify(null) 会在文本域里印出字符串「null」
+  const [text, setText] = useState(() =>
+    value === undefined || value === null ? '' : JSON.stringify(value, null, 2),
+  );
   const [parseError, setParseError] = useState<string | null>(null);
 
   return (
@@ -295,6 +298,12 @@ function JsonControl({
         aria-describedby={describedBy}
         onChange={(e) => {
           setText(e.target.value);
+          // 清空 = 回到「未设置」，不是一次 JSON 解析失败
+          if (e.target.value.trim() === '') {
+            onChange(undefined);
+            setParseError(null);
+            return;
+          }
           try {
             onChange(JSON.parse(e.target.value));
             setParseError(null);
