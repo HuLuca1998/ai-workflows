@@ -223,3 +223,124 @@ fn 用户删掉的内置记忆不会自己长回来() {
         .any(|m| m.id == id);
     assert!(!还在, "删掉的记忆又长回来了");
 }
+
+// ── sample.v1-fix:老库里带坏脚本的示例工作流 ─────────────────────────────
+//
+// 模板与生成物早已修好($ISSUE → ${input.issue}),但种子「只种一次」——
+// 老工作区里的示例还带着坏脚本,一跑就 `invalid issue format: ""`
+// (第 3 轮浏览器实测撞上的就是它)。照 builtins.v1-fix 的先例,
+// 用一个修复批次把「从未被用户动过」的旧样例修到新终点。
+//
+// 这里用独立的 rusqlite 连接伪造「老库」的原始行 ——
+// 公共 API 刻意没有这种口子。
+
+const BROKEN_MARKER: &str = r#"view \"$ISSUE\""#;
+
+fn raw(path: &std::path::Path) -> rusqlite::Connection {
+    rusqlite::Connection::open(path).unwrap()
+}
+
+fn sample_graph(path: &std::path::Path) -> String {
+    raw(path)
+        .query_row(
+            "SELECT graph_json FROM workflow_revision
+             WHERE workflow_id='workflow:sample' ORDER BY rev DESC LIMIT 1",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap()
+}
+
+/// 模拟老种子:rev 1 的脚本还是带引号的 $ISSUE 环境变量形态,
+/// 且修复批次「还没跑过」。
+fn break_sample(path: &std::path::Path) {
+    let conn = raw(path);
+    let broken = sample_graph(path).replace("${input.issue}", "\\\"$ISSUE\\\"");
+    assert!(broken.contains(BROKEN_MARKER), "前提:构造出了坏形态");
+    conn.execute(
+        "UPDATE workflow_revision SET graph_json = ?1
+         WHERE workflow_id='workflow:sample' AND rev = 1",
+        rusqlite::params![broken],
+    )
+    .unwrap();
+    conn.execute("DELETE FROM bootstrap WHERE name = 'sample.v1-fix'", [])
+        .unwrap();
+}
+
+#[test]
+fn 未被动过的坏样例在下次打开时被修好() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("aiwf.sqlite");
+    drop(Store::open_workspace(&path).unwrap());
+    break_sample(&path);
+
+    drop(Store::open_workspace(&path).unwrap());
+    let graph = sample_graph(&path);
+    assert!(!graph.contains(BROKEN_MARKER), "坏脚本该被修掉");
+    assert!(graph.contains("${input.issue}"), "修到与新种子同一个终点");
+}
+
+#[test]
+fn 用户编辑过的样例不动_哪怕还带着坏脚本() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("aiwf.sqlite");
+    drop(Store::open_workspace(&path).unwrap());
+    break_sample(&path);
+    // 用户存过一版(rev 2)——不管内容如何,他的东西不能被冲掉
+    let broken = sample_graph(&path);
+    raw(&path)
+        .execute(
+            "INSERT INTO workflow_revision (workflow_id, rev, graph_json, updated_at)
+             VALUES ('workflow:sample', 2, ?1, strftime('%Y-%m-%dT%H:%M:%fZ','now'))",
+            rusqlite::params![broken],
+        )
+        .unwrap();
+
+    drop(Store::open_workspace(&path).unwrap());
+    // 每一版都不许动:只看最高 rev 的话,「只改 rev 1」的越界改动会漏过去
+    // (第一版这条测试就是这么假的 —— 元测试抓出来的)
+    let untouched: Vec<String> = raw(&path)
+        .prepare(
+            "SELECT graph_json FROM workflow_revision
+             WHERE workflow_id='workflow:sample' ORDER BY rev",
+        )
+        .unwrap()
+        .query_map([], |row| row.get(0))
+        .unwrap()
+        .collect::<std::result::Result<Vec<_>, _>>()
+        .unwrap();
+    assert_eq!(untouched.len(), 2);
+    assert!(
+        untouched.iter().all(|graph| graph.contains(BROKEN_MARKER)),
+        "编辑过的一版都不许动 —— 用户的东西不能被冲掉"
+    );
+}
+
+#[test]
+fn 用户删掉的样例不复活() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("aiwf.sqlite");
+    drop(Store::open_workspace(&path).unwrap());
+    {
+        let conn = raw(&path);
+        conn.execute(
+            "DELETE FROM workflow_revision WHERE workflow_id='workflow:sample'",
+            [],
+        )
+        .unwrap();
+        conn.execute("DELETE FROM workflow WHERE id='workflow:sample'", [])
+            .unwrap();
+        conn.execute("DELETE FROM bootstrap WHERE name = 'sample.v1-fix'", [])
+            .unwrap();
+    }
+
+    drop(Store::open_workspace(&path).unwrap());
+    let count: i64 = raw(&path)
+        .query_row(
+            "SELECT COUNT(*) FROM workflow WHERE id='workflow:sample'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(count, 0, "删掉的不复活");
+}

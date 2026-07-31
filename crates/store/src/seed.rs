@@ -47,6 +47,10 @@ const BATCHES: &[(&str, Body)] = &[
         Body::Sql(include_str!("sql/seed_builtins_FIX.sql")),
     ),
     ("sample.v1", Body::Code(crate::sample::seed_sample)),
+    // sample.v1 的图曾带坏脚本（$ISSUE 环境变量，引擎注入的叫 AIWF_*）。
+    // 生成物早已修好，这一批把老库里「从未被用户动过」的样例修到同一终点。
+    // 与 builtins.v1-fix 同一条理由与同一份克制：用户动过的一概不碰。
+    ("sample.v1-fix", Body::Code(crate::sample::fix_sample)),
 ];
 
 /// 把没种过的批次种上。

@@ -48,3 +48,51 @@ pub(crate) fn seed_sample(conn: &Connection) -> Result<()> {
 
     Ok(())
 }
+
+/// `sample.v1-fix`：把「从未被用户动过」的坏样例修到与新种子同一个终点。
+///
+/// 老种子的 `read_issue` 脚本写的是 `"$ISSUE"` 环境变量（引擎注入的叫
+/// `AIWF_*`），一跑就 `invalid issue format: ""`。模板与生成物早已修好，
+/// 但「只种一次」让老工作区永远留着坏的。
+///
+/// 判据从紧，两条都满足才动：
+/// 1. 只有种子那一版（rev 1 且再无别版）—— 用户存过任何一版就不碰；
+/// 2. 那一版还带着坏脚本的标记 —— 已经被别的途径修过就不重复改。
+/// 用户删掉的也不复活（查不到行自然什么都不做）。
+pub(crate) fn fix_sample(conn: &Connection) -> Result<()> {
+    let broken_marker = r#"view \"$ISSUE\""#;
+
+    let state: Option<(i64, String)> = conn
+        .query_row(
+            "SELECT (SELECT COUNT(*) FROM workflow_revision WHERE workflow_id='workflow:sample'),
+                    graph_json
+             FROM workflow_revision
+             WHERE workflow_id='workflow:sample' AND rev = 1",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .map(Some)
+        .or_else(|error| match error {
+            rusqlite::Error::QueryReturnedNoRows => Ok(None),
+            other => Err(other),
+        })?;
+
+    let Some((rev_count, graph)) = state else {
+        return Ok(());
+    };
+    if rev_count != 1 || !graph.contains(broken_marker) {
+        return Ok(());
+    }
+
+    let data: Sample = serde_json::from_str(SAMPLE).map_err(|error| {
+        crate::StoreError::Invalid(format!(
+            "示例工作流的生成物读不动：{error}。跑 pnpm contracts:gen"
+        ))
+    })?;
+    conn.execute(
+        "UPDATE workflow_revision SET graph_json = ?1, updated_at = ?2
+         WHERE workflow_id='workflow:sample' AND rev = 1",
+        rusqlite::params![data.graph.to_string(), crate::now_iso()],
+    )?;
+    Ok(())
+}

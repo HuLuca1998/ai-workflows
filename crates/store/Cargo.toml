@@ -18,3 +18,5 @@ workspace = true
 
 [dev-dependencies]
 tempfile = "3.27.0"
+# seed 修复批次的测试要伪造「老库」的原始行,公共 API 刻意不提供这种口子
+rusqlite = { version = "0.40.1", features = ["bundled"] }
