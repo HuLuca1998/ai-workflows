@@ -233,15 +233,23 @@ function KeyValueControl({
   onChange: (next: unknown) => void;
   describedBy?: string | undefined;
 }) {
-  const entries = Object.entries((value ?? {}) as Record<string, string>);
+  // 行在本地渲染，配置只收非空键的行。第一版没有本地行：
+  // 新行键是空串，被空键过滤当场丢掉 ——「+ 添加一项」是个死按钮（P9）
+  const [rows, setRows] = useState<[string, string][]>(() =>
+    Object.entries((value ?? {}) as Record<string, string>),
+  );
+  const entries = rows;
 
-  const update = (next: [string, string][]) =>
+  const update = (next: [string, string][]) => {
+    setRows(next);
     onChange(Object.fromEntries(next.filter(([k]) => k.trim() !== '')));
+  };
 
   return (
     <div className="cfg__kv" id={id} aria-describedby={describedBy}>
+      {/* key 不能含键名：那样键每敲一个字符整行重挂、焦点丢失 */}
       {entries.map(([key, val], index) => (
-        <div key={`${key}-${index}`} className="cfg__kv-row">
+        <div key={index} className="cfg__kv-row">
           <input
             className="cfg__control"
             value={key}

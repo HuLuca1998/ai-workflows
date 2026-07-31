@@ -306,3 +306,33 @@ describe('JSON 字段解析失败时拦保存', () => {
     expect(onSave).toHaveBeenCalled();
   });
 });
+
+describe('键值对控件能添加新行', () => {
+  it('点「+ 添加一项」出现新的键值输入行', () => {
+    // 第 2 轮实测 P9:新行的键是空串,update 的空键过滤把它立即丢掉 ——
+    // 「+ 添加一项」点了无新行、无报错,是个死按钮
+    renderDialog();
+    const before = screen.queryAllByLabelText(/^键 \d+/u).length;
+    const addButtons = screen.getAllByRole('button', { name: '+ 添加一项' });
+    fireEvent.click(addButtons[0] as HTMLElement);
+    const after = screen.queryAllByLabelText(/^键 \d+/u).length;
+    expect(after).toBe(before + 1);
+  });
+
+  it('新行填上键值后真的进配置;清掉键等于删行', () => {
+    const { onSave } = renderDialog();
+    const addButtons = screen.getAllByRole('button', { name: '+ 添加一项' });
+    fireEvent.click(addButtons[0] as HTMLElement);
+
+    const keys = screen.getAllByLabelText(/^键 \d+/u);
+    fireEvent.change(keys[keys.length - 1] as HTMLElement, { target: { value: 'FOO' } });
+    // 键改动会触发重渲染,值输入框要重新查 —— 拿旧引用会打在已卸载的节点上
+    const vals = screen.getAllByLabelText(/^值 \d+/u);
+    fireEvent.change(vals[vals.length - 1] as HTMLElement, { target: { value: 'bar' } });
+    fireEvent.click(screen.getByRole('button', { name: '保存到草稿' }));
+
+    expect(onSave).toHaveBeenCalled();
+    const saved = onSave.mock.calls[0]?.[0] as { env: Record<string, string> };
+    expect(saved.env['FOO']).toBe('bar');
+  });
+});
