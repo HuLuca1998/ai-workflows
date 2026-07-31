@@ -39,7 +39,12 @@ pub struct DryRunReport {
 
 /// 引擎已经能真实执行的节点类型。其余的在 Dry Run 阶段就要说清楚 ——
 /// 跑到一半才说「尚未实现」太晚了，那时已经产生了副作用。
-const IMPLEMENTED: &[&str] = &[
+///
+/// `pub` 是给 `implemented_dispatch_test` 的：这份清单与 executor 的
+/// match 分派曾经是两份各自维护的清单、零一致性检查（DEBT B-6），
+/// `notify` 就是那么混进去的 —— 清单里有、分派里也「有」（和 entry/end
+/// 并列什么都不做），Dry Run 还替它背书。
+pub const IMPLEMENTED: &[&str] = &[
     "entry",
     "end",
     "notify",
