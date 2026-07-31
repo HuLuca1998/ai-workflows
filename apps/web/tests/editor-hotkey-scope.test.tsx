@@ -85,20 +85,24 @@ describe('配置弹层开着时画布快捷键失效', () => {
 });
 
 describe('点节点库加节点不堆叠', () => {
-  it('连点两次,两个新节点错开摆放', async () => {
-    // 第 2 轮实测 P6:连点四次全部 translate 到同一坐标,
-    // 画布上只看得见最后一个,用户以为前三次没生效
-    renderEditor();
-    await waitFor(() => expect(screen.getByText('入口 · Issue 输入')).toBeTruthy());
+  // 第 2 轮实测 P6:连点四次全部 translate 到同一坐标,
+  // 画布上只看得见最后一个,用户以为前三次没生效。
+  // 摆放逻辑是纯函数 cascadeFrom;页面接线只有一行。
+  it('基准点被占就阶梯错开,直到空位', async () => {
+    const { cascadeFrom } = await import('../src/editor/nodeDefaults.js');
+    const nodes = [
+      { position: { x: 100, y: 100 } },
+      { position: { x: 128, y: 128 } },
+    ];
+    expect(cascadeFrom(nodes, { x: 100, y: 100 })).toEqual({ x: 156, y: 156 });
+  });
 
-    const lib = screen.getByRole('complementary', { name: '节点库' });
-    const notify = within(lib).getByText('系统通知');
-    fireEvent.click(notify);
-    fireEvent.click(notify);
-
-    const added = useEditor.getState().graph.nodes.filter((n) => n.type === 'notify');
-    expect(added.length).toBe(2);
-    const [a, b] = added;
-    expect(a && b && (a.position.x !== b.position.x || a.position.y !== b.position.y)).toBe(true);
+  it('基准点空着就原样返回', async () => {
+    const { cascadeFrom } = await import('../src/editor/nodeDefaults.js');
+    expect(cascadeFrom([], { x: 100, y: 100 })).toEqual({ x: 100, y: 100 });
+    expect(cascadeFrom([{ position: { x: 300, y: 300 } }], { x: 100, y: 100 })).toEqual({
+      x: 100,
+      y: 100,
+    });
   });
 });

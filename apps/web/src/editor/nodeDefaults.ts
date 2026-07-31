@@ -26,3 +26,23 @@ export function minimalConfigFor(type: NodeType): unknown {
   const parsed = getNodeDefinition(type).configSchema.safeParse(seed);
   return parsed.success ? parsed.data : seed;
 }
+
+/**
+ * 从节点库**点**出来的节点落在哪：基准点没被占就用基准点，
+ * 被占就阶梯错开（+28,+28）直到空位。
+ *
+ * 没有它时连点几次全叠在同一坐标 —— 画布只看得见最后一个，
+ * 用户以为前几次点击没生效（第 2 轮实测 P6）。
+ */
+export function cascadeFrom(
+  nodes: readonly { position: { x: number; y: number } }[],
+  base: { x: number; y: number },
+): { x: number; y: number } {
+  const occupied = (p: { x: number; y: number }) =>
+    nodes.some((node) => Math.abs(node.position.x - p.x) < 8 && Math.abs(node.position.y - p.y) < 8);
+  let position = base;
+  while (occupied(position)) {
+    position = { x: position.x + 28, y: position.y + 28 };
+  }
+  return position;
+}
