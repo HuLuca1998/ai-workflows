@@ -387,3 +387,19 @@ describe('刷新前拦一下未保存的草稿', () => {
     expect(event.defaultPrevented).toBe(false);
   });
 });
+
+describe('打不开的工作流(第 6 轮实测 #4)', () => {
+  it('加载失败时给明确空态,不渲染可用的空白编辑器', () => {
+    useEditor.setState({
+      workflowId: 'wf_不存在',
+      loading: false,
+      error: '工作流 wf_不存在 不存在',
+      rev: 0,
+      graph: { nodes: [], edges: [], groups: [] },
+    });
+    renderEditor('/editor/wf_不存在');
+    expect(screen.getByRole('heading', { name: '打不开这个工作流' })).toBeInTheDocument();
+    // 不该出现编辑器工具栏的「发布版本」
+    expect(screen.queryByRole('button', { name: '发布版本' })).toBeNull();
+  });
+});

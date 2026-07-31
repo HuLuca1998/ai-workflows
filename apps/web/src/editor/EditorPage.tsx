@@ -483,6 +483,23 @@ function EditorCanvas() {
     return <div className="editor-loading">正在读取草稿…</div>;
   }
 
+  // 加载失败(多半是 /editor/<不存在的 id>)：给明确的空态,
+  // 而不是把错误条挂在一个照样能画能点、点运行才漏出
+  // `FOREIGN KEY constraint failed` 的空白编辑器上(第 6 轮实测 #4)
+  if (error && rev === 0 && graph.nodes.length === 0) {
+    return (
+      <article className="page">
+        <header className="page__head">
+          <h1>打不开这个工作流</h1>
+          <p className="page__summary">{error}</p>
+        </header>
+        <p className="page__todo">
+          它可能已被删除，或链接里的 id 不对。<Link to="/">回到工作流列表</Link>。
+        </p>
+      </article>
+    );
+  }
+
   return (
     <div className="editor">
       <EditorToolbar

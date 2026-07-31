@@ -694,6 +694,8 @@
 .wf-table__name {
   margin: 0 0 3px;
   color: var(--color-text);
+  /* 超长名字不许把行高撑到上千 px(第 6 轮实测) */
+  overflow-wrap: anywhere;
 }
 
 .wf-table__desc {
@@ -879,6 +881,11 @@
   margin: 0;
   font-size: 14px;
   font-weight: inherit;
+  /* 超长名字不许撑破顶栏(第 6 轮实测:2839 字挤成竖排单字) */
+  max-width: 340px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .editor-bar__rev {
