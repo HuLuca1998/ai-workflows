@@ -3517,6 +3517,7 @@
 }
 
 .models__label {
+  display: block;
   font-size: 11.5px;
   color: var(--color-neutral-500);
   margin: 0 0 6px;
@@ -3591,6 +3592,8 @@
 }
 
 .models__caps li {
+  display: inline-flex;
+  align-items: center;
   padding: 4px 9px;
   border-radius: 6px;
   background: rgba(233, 233, 237, 0.06);
@@ -5565,6 +5568,7 @@ fieldset.launch__field {
 }
 
 .agents__tool-add-btn {
+  display: block;
   padding: 2px 8px;
   border: 1px dashed var(--color-divider);
   border-radius: var(--radius-sm);
