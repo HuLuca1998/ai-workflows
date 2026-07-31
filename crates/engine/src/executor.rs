@@ -281,6 +281,36 @@ fn pick_tier<'a>(candidates: &[&'a ModelEntry], tier: &str) -> Option<&'a ModelE
     }
 }
 
+/// 「回答」其实是 adapter 吐回来的上游报错。
+///
+/// 第 3 轮实测的事故：LLM 网关 502，codex adapter 把
+/// `unexpected status 502 Bad Gateway: …` 当**普通 agent 消息**发回来，
+/// stopReason 还是正常的 end_turn —— 协议层看不出任何异常，节点绿了，
+/// 下游把这段报错当「纪要」写进了用户的文件。
+///
+/// 判据从紧：整段回答**以已知报错形态开头**且很短（真实分析不会只有一行
+/// HTTP 报错）。宁可放过一条真报错，也不能把正常回答误杀。
+pub fn adapter_error_in_answer(text: &str) -> Option<String> {
+    let trimmed = text.trim();
+    if trimmed.is_empty() || trimmed.chars().count() > 500 {
+        return None;
+    }
+    let known_shapes = [
+        "unexpected status ",
+        "error sending request",
+        "API Error:",
+        "api error:",
+        "stream error:",
+        "connection refused",
+        "connection reset",
+    ];
+    let lowered = trimmed.to_lowercase();
+    known_shapes
+        .iter()
+        .any(|shape| lowered.starts_with(&shape.to_lowercase()))
+        .then(|| trimmed.to_string())
+}
+
 /// 摘要的长度上限。
 ///
 /// 存储层的硬上限是 2000 字符，但对话流里一条几千字的气泡也没法看。
@@ -1871,6 +1901,18 @@ impl NodeExecutor {
                 })
             }
             Ok(stop) => {
+                // 「回答」其实是 adapter 吐回来的上游报错 —— 节点必须失败，
+                // 不能让下游把一段 502 当成分析结果继续加工（第 3 轮实测）
+                if let Some(error_text) = adapter_error_in_answer(&text) {
+                    return Ok(NodeOutcome::Failed {
+                        message: format!(
+                            "模型服务报错，这一轮没有产出：{}。\
+                             检查「模型」页的连通性测试，或稍后重试",
+                            summarize(&error_text)
+                        ),
+                    });
+                }
+
                 // 回答落产物：几十 KB 的分析不该进事件表
                 let answer_ref = self.save_output(&node.id, "agent.md", &text, sink);
                 let reasoning_ref = if reasoning.is_empty() {

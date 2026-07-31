@@ -2689,3 +2689,29 @@ mod 模型选择 {
         assert_eq!(解析.effort, "");
     }
 }
+
+// ── adapter 把上游报错当普通回答(第 3 轮实测的 502 事故) ──────────────────
+
+#[test]
+fn 整段回答是_http_报错时判为_adapter_错误() {
+    let hit = aiwf_engine::executor::adapter_error_in_answer(
+        "unexpected status 502 Bad Gateway: error code: 502, \
+         url: https://llm.example.com/xxx/v1/responses, cf-ray: abc-NRT",
+    );
+    assert!(hit.is_some(), "已知报错形态要认出来");
+}
+
+#[test]
+fn 正常回答不会被误杀() {
+    // 长分析、以及提到报错但不是以报错开头的回答,都不该被判成 adapter 错误
+    assert!(
+        aiwf_engine::executor::adapter_error_in_answer(
+            "根因分析:上游服务在高峰期返回 unexpected status 502,建议加重试。\
+         具体方案有三条:一、……二、……三、……"
+        )
+        .is_none()
+    );
+    let long = "分析结论:".to_string() + &"内容 ".repeat(300);
+    assert!(aiwf_engine::executor::adapter_error_in_answer(&long).is_none());
+    assert!(aiwf_engine::executor::adapter_error_in_answer("").is_none());
+}
