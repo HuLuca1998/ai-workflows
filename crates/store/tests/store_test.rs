@@ -3390,3 +3390,74 @@ fn 同步不碰另一个_runtime_的条目() {
     let 全部 = store.list_models(false).unwrap();
     assert_eq!(全部.len(), 2, "同步一端把另一端的条目弄没了");
 }
+
+/// Agent 向用户提问 —— 与「确认一次写操作」共用同一条队列。
+///
+/// 机制完全一样（队列、TTL、过期、认领），差别只在**回答的形状**：
+/// 确认只要一个是/否，而「三个方案挑一个」「这 7 处修哪几个」
+/// 要把用户选的东西带回给 agent。
+///
+/// 两条通道各写一份的话，就是两份轮询、两份过期逻辑、两处 TTL ——
+/// 而它们在界面上都是「打断你、要你做个决定」的同一张卡。
+mod 向用户提问 {
+    #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+
+    use aiwf_store::Store;
+
+    #[test]
+    fn 提问带着问题定义_回答带着结构化结果() {
+        let store = Store::open_in_memory().unwrap();
+        let spec =
+            r#"{"kind":"multiChoice","title":"修哪几处","options":[{"value":"a"},{"value":"b"}]}"#;
+
+        let id = store.create_ask("ask_user", spec).unwrap();
+
+        // agent 在等：还没人回答
+        let row = store.get_confirmation(&id).unwrap().unwrap();
+        assert_eq!(row.status, "pending");
+        assert!(row.answer_json.is_none(), "还没回答就有答案了");
+
+        // 用户选了两项
+        store.answer_ask(&id, r#"{"selected":["a","b"]}"#).unwrap();
+
+        let row = store.get_confirmation(&id).unwrap().unwrap();
+        assert_eq!(row.status, "approved", "回答了就算这条已决");
+        assert_eq!(
+            row.answer_json.as_deref(),
+            Some(r#"{"selected":["a","b"]}"#),
+            "用户选的东西没带回来 —— agent 拿到的会是一个空回答"
+        );
+    }
+
+    #[test]
+    fn 提问和确认在同一条队列里() {
+        // 界面只轮询一条队列。分两条的话，先来的那条要等另一条轮询到
+        let store = Store::open_in_memory().unwrap();
+        store.create_confirmation("workflow_patch", "{}").unwrap();
+        store
+            .create_ask("ask_user", r#"{"kind":"choice"}"#)
+            .unwrap();
+
+        assert_eq!(
+            store.pending_confirmations().unwrap().len(),
+            2,
+            "两种打断没出现在同一条队列里"
+        );
+    }
+
+    #[test]
+    fn 拒绝的提问没有答案() {
+        // 用户可以关掉这张卡不回答。那时 agent 该拿到「被拒绝」，
+        // 而不是一个空对象 —— 空对象会被它当成「用户什么都没选」
+        let store = Store::open_in_memory().unwrap();
+        let id = store
+            .create_ask("ask_user", r#"{"kind":"choice"}"#)
+            .unwrap();
+
+        store.decide_confirmation(&id, false).unwrap();
+
+        let row = store.get_confirmation(&id).unwrap().unwrap();
+        assert_eq!(row.status, "rejected");
+        assert!(row.answer_json.is_none());
+    }
+}

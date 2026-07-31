@@ -3111,6 +3111,12 @@ pub struct ConfirmationRow {
     pub status: String,
     pub created_at: String,
     pub decided_at: Option<String>,
+    /// 用户给的结构化回答。
+    ///
+    /// 确认类没有（是/否已经在 `status` 里），被拒绝的提问也没有 ——
+    /// 那时 agent 该拿到「被拒绝」，而不是一个空对象：
+    /// 空对象会被它当成「用户什么都没选」。
+    pub answer_json: Option<String>,
 }
 
 impl Store {
@@ -3130,11 +3136,54 @@ impl Store {
         Ok(id)
     }
 
+    /// Agent 向用户提一个问题（选一个、选几个、补一段）。
+    ///
+    /// 与 [`Self::create_confirmation`] 进同一条队列：机制完全一样
+    /// （TTL、过期、轮询），差别只在回答的形状 —— 确认要的是是/否，
+    /// 提问要把用户选的东西带回给 agent。
+    ///
+    /// `spec_json` 是问题本身（`{kind, title, options}`），存在
+    /// `input_json` 那一列：对界面来说它同样是「这张卡要显示什么」。
+    pub fn create_ask(&self, tool: &str, spec_json: &str) -> Result<String> {
+        // 与确认同一条：问题里不该出现看着像密钥的东西
+        reject_secret_like(spec_json)?;
+
+        let id = new_id("mcpc");
+        self.conn.execute(
+            "INSERT INTO mcp_confirmation (id, tool, input_json, status, created_at)
+             VALUES (?1, ?2, ?3, 'pending', ?4)",
+            params![id, tool, spec_json, now_iso()],
+        )?;
+        Ok(id)
+    }
+
+    /// 用户回答了。**只能回答一次** —— 与决定同一条理由：
+    /// agent 可能已经读到第一个答案继续往下做了。
+    ///
+    /// # Errors
+    /// 这条不存在、或者已经决定过了。
+    pub fn answer_ask(&self, id: &str, answer_json: &str) -> Result<()> {
+        reject_secret_like(answer_json)?;
+
+        let changed = self.conn.execute(
+            "UPDATE mcp_confirmation
+                SET status = 'approved', decided_at = ?3, answer_json = ?2
+              WHERE id = ?1 AND status = 'pending'",
+            params![id, answer_json, now_iso()],
+        )?;
+        if changed == 0 {
+            return Err(StoreError::Invalid(format!(
+                "提问 {id} 不存在或已经回答过了"
+            )));
+        }
+        Ok(())
+    }
+
     pub fn get_confirmation(&self, id: &str) -> Result<Option<ConfirmationRow>> {
         let row = self
             .conn
             .query_row(
-                "SELECT id, tool, input_json, status, created_at, decided_at
+                "SELECT id, tool, input_json, status, created_at, decided_at, answer_json
                  FROM mcp_confirmation WHERE id = ?1",
                 params![id],
                 map_confirmation,
@@ -3146,7 +3195,7 @@ impl Store {
     /// 还没决定的那些。应用轮询它来显示确认卡。
     pub fn pending_confirmations(&self) -> Result<Vec<ConfirmationRow>> {
         let mut stmt = self.conn.prepare(
-            "SELECT id, tool, input_json, status, created_at, decided_at
+            "SELECT id, tool, input_json, status, created_at, decided_at, answer_json
              FROM mcp_confirmation WHERE status = 'pending' ORDER BY created_at",
         )?;
         let rows = stmt.query_map([], map_confirmation)?;
@@ -3223,5 +3272,6 @@ fn map_confirmation(row: &rusqlite::Row<'_>) -> rusqlite::Result<ConfirmationRow
         status: row.get(3)?,
         created_at: row.get(4)?,
         decided_at: row.get(5)?,
+        answer_json: row.get(6)?,
     })
 }

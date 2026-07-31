@@ -8,7 +8,7 @@ use rusqlite::Connection;
 use crate::Result;
 
 /// 当前 schema 版本。新增迁移时同时更新这里与 `MIGRATIONS`。
-pub const EXPECTED_SCHEMA_VERSION: i64 = 13;
+pub const EXPECTED_SCHEMA_VERSION: i64 = 14;
 
 /// (版本号, 说明, SQL)
 const MIGRATIONS: &[(i64, &str, &str)] = &[
@@ -72,6 +72,11 @@ const MIGRATIONS: &[(i64, &str, &str)] = &[
         13,
         "清掉 provider.api 的残留",
         include_str!("sql/013_drop_provider_api.sql"),
+    ),
+    (
+        14,
+        "Agent 向用户提问，回答与确认共用一条队列",
+        include_str!("sql/014_ask_user.sql"),
     ),
 ];
 
