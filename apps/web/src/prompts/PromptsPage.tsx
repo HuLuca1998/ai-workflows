@@ -99,7 +99,10 @@ export function PromptsPage() {
   const hasUnsaved = sections !== null;
 
   const goTo = (id: string) => {
-    if (hasUnsaved && id !== selectedId) {
+    if (hasUnsaved) {
+      // 点的就是当前这条:什么都不做 —— 第一版在这里把 sections 置空,
+      // 未保存的改动被静默丢弃,而警告横幅还挂着(第 4 轮实测 #5)
+      if (id === selectedId) return;
       setPendingSelect(id);
       return;
     }

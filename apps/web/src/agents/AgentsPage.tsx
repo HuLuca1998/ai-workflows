@@ -241,7 +241,9 @@ export function AgentsPage() {
    * 切换，于是改了名字没保存、点右上角的「+」，改动照样没了。
    */
   const goTo = (target: GoTarget) => {
-    if (hasUnsaved && (target.kind === 'new' || target.id !== selectedId)) {
+    if (hasUnsaved) {
+      // 点的就是当前这条:什么都不做,不静默重置(第 5 轮实测 P9)
+      if (target.kind === 'agent' && target.id === selectedId) return;
       setPendingSelect(target);
       return;
     }

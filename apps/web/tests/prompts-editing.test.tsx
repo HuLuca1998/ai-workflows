@@ -180,3 +180,16 @@ describe('新建提示词', () => {
     expect((screen.getByLabelText('分组') as HTMLInputElement).value).toBe('分析');
   });
 });
+
+describe('未保存改动的守卫不吃当前项', () => {
+  it('再点当前这条不重置未保存的分段(第 4 轮实测 #5)', async () => {
+    const user = userEvent.setup();
+    render(<PromptsPage />);
+    await user.click(await screen.findByRole('button', { name: /根因分析/u }));
+    await user.type(screen.getByLabelText('Role'), '(改)');
+
+    // 再点同一条
+    await user.click(screen.getByRole('button', { name: /根因分析/u }));
+    expect((screen.getByLabelText('Role') as HTMLTextAreaElement).value).toContain('(改)');
+  });
+});
