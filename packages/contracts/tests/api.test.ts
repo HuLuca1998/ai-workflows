@@ -937,6 +937,45 @@ describe('模型连通性测试', () => {
   });
 });
 
+describe('model.sync 写出的值要能过 model.list 的出参', () => {
+  /**
+   * 第 1 轮浏览器实测抓到的接缝断裂：`sync_models` 对 ACP 同步来的条目
+   * 故意写 contextWindow=0（两端语义不同，编一个数字更糟 ——
+   * 见 store sync_models 的注释），而 ModelSchema 曾要求 positive。
+   * 结果是「同步成功新增 5 条」与「model.list 的返回值不合契约」
+   * 同屏出现，列表纹丝不动。0 在这里的语义是「未知」。
+   */
+  it('同步来源的 contextWindow=0（未知）能过 model.list', () => {
+    const spec = getMethodSpec('model.list');
+    const synced = {
+      id: 'model_x',
+      name: 'GPT-5.2',
+      runtime: 'acp.codex',
+      modelId: 'gpt-5.2',
+      effort: 'medium',
+      contextWindow: 0,
+      capabilities: [],
+      enabled: true,
+    };
+    expect(spec.output.safeParse({ items: [synced], total: 1 }).success).toBe(true);
+  });
+
+  it('手动登记仍然拒绝 0 —— 表单里的人知道自己在登记什么', () => {
+    const spec = getMethodSpec('model.create');
+    const manual = {
+      name: '某模型',
+      runtime: 'acp.codex',
+      modelId: 'm-1',
+      effort: 'medium',
+      contextWindow: 0,
+      capabilities: [],
+      enabled: true,
+    };
+    expect(spec.input.safeParse(manual).success).toBe(false);
+    expect(spec.input.safeParse({ ...manual, contextWindow: 400000 }).success).toBe(true);
+  });
+});
+
 describe('MCP 写操作的确认通道', () => {
   /**
    * M4 剩下的那一件事。「AI 的改动一律先出 Diff，用户确认才落草稿」

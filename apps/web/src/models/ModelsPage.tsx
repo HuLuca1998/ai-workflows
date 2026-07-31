@@ -452,7 +452,14 @@ export function ModelsPage() {
                 </p>
                 <p className="models__note">同一模型的不同档位登记为不同条目，运行记录能区分</p>
               </div>
-              <Field label="上下文窗口" value={selected.contextWindow.toLocaleString('en-US')} />
+              <Field
+                label="上下文窗口"
+                value={
+                  selected.contextWindow === 0
+                    ? '未知（同步来源不报窗口大小）'
+                    : selected.contextWindow.toLocaleString('en-US')
+                }
+              />
             </div>
 
             <div className="models__cards">

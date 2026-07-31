@@ -1010,7 +1010,12 @@ const SPECS = {
     summary: '列出已登记模型',
   },
   'model.create': {
-    input: ModelSchema.omit({ id: true }),
+    // contextWindow 在 ModelSchema 里允许 0（同步来源的「未知」），
+    // 手动登记的人知道自己在登记什么，这里收紧回「必须为正」，
+    // 与 store 侧 create_model 的校验一致。
+    input: ModelSchema.omit({ id: true }).extend({
+      contextWindow: z.number().int().positive(),
+    }),
     output: idOnly,
     mutates: true,
     audited: true,

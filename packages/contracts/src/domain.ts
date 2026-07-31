@@ -279,7 +279,12 @@ export const ModelSchema = z.object({
   modelId: z.string().min(1),
   /** 同一模型的不同推理档位登记为不同条目，运行记录才能区分。 */
   effort: z.enum(['minimal', 'low', 'medium', 'high']).default('medium'),
-  contextWindow: z.number().int().positive(),
+  /**
+   * 0 = 未知。`model.sync` 同步来的条目拿不到窗口大小（claude 报模型窗口、
+   * codex 报会话水位，两端语义不同，编一个数字更糟），store 端故意写 0。
+   * 手动登记仍要求为正 —— model.create 的入参单独收紧了这个字段。
+   */
+  contextWindow: z.number().int().nonnegative(),
   capabilities: z.array(z.string()).default([]),
   credentialRef: z.string().min(1).optional(),
   enabled: z.boolean().default(true),
