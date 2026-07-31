@@ -747,10 +747,11 @@ fn workflow_diff(
 
 #[tauri::command]
 fn mcp_status(state: State<'_, AppState>) -> IpcResult<api::McpStatusDto> {
-    // 工具与资源的条数由 MCP crate 知道 —— 它依赖 core-api，反过来不行
+    // 工具与资源的条数由 MCP crate 知道 —— 它依赖 core-api，反过来不行。
+    // tool_count 含内建 ask_user：自己数 catalog 会少报 1 个
     api::mcp_status(
         &state.data_dir,
-        aiwf_mcp::catalog::tools().len() as i64,
+        aiwf_mcp::protocol::tool_count() as i64,
         aiwf_mcp::knowledge::resources().len() as i64,
     )
 }
