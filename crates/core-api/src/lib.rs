@@ -787,7 +787,15 @@ pub fn run_dry_run(
     // 角色的 runtime 压过节点上那个 M2 遗留字段（`resolve_runtime`）。
     // 症状是「装了 codex 的机器上每个 AI 节点都报 claude 没安装」，
     // 反过来则是「说通过，一跑就挂」
-    let profiles = aiwf_engine::runner::agent_profiles_for_graph(store, &graph).unwrap_or_default();
+    // 加载失败要报错,不能吞成空列表 —— 空列表会让下游的角色引用检查
+    // 把「数据库读不动」误报成「角色不存在」(codex 复核抓到的)
+    let profiles =
+        aiwf_engine::runner::agent_profiles_for_graph(store, &graph).map_err(|error| ApiError {
+            code: "INTERNAL".to_string(),
+            message: format!("读取 Agent 角色失败：{error}"),
+            retriable: true,
+            hint: None,
+        })?;
 
     Ok(DryRunDto {
         report: aiwf_engine::preflight::dry_run_with_profiles(&graph, &workdir, &profiles),
