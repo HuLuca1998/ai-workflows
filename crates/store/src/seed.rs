@@ -47,6 +47,18 @@ const BATCHES: &[(&str, Body)] = &[
         Body::Sql(include_str!("sql/seed_builtins_FIX.sql")),
     ),
     ("sample.v1", Body::Code(crate::sample::seed_sample)),
+    // 内置角色的降级模型曾指向跨 runtime 的 model:claude（角色是 codex）——
+    // 界面按 runtime 过滤后显示「不降级」，引擎也没法把 claude 的模型
+    // 交给 codex 的 adapter（第 5 轮实测 P3）。只清「还保持坏形态」的：
+    // 用户改成过别的值就不碰
+    (
+        "builtins.v2-fallback-fix",
+        Body::Sql(
+            "UPDATE agent_profile SET fallback_model_ref = NULL
+             WHERE id LIKE 'builtin:%' AND runtime = 'acp.codex'
+               AND fallback_model_ref = 'model:claude';",
+        ),
+    ),
     // sample.v1 的图曾带坏脚本（$ISSUE 环境变量，引擎注入的叫 AIWF_*）。
     // 生成物早已修好，这一批把老库里「从未被用户动过」的样例修到同一终点。
     // 与 builtins.v1-fix 同一条理由与同一份克制：用户动过的一概不碰。

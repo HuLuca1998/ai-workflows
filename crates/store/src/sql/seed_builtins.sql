@@ -63,7 +63,7 @@ VALUES
    '读懂问题，定位根因，给出 2–3 个可选方案，每个都写清风险与验证方式。',
    '只看证据说话。拿不准的地方明说「这里我不确定，需要先确认 X」，'
    || '而不是给一个听起来完整的猜测。方案按「改动面 × 风险」排序，最小的在前。',
-   'acp.codex', 'model:codex', 'model:claude',
+   'acp.codex', 'model:codex', NULL,
    '["read_file","search"]',
    -- 分析只读：它不该改任何东西
    '{"file":"read","command":"none","network":"none","memory":"read","secret":[]}',
@@ -74,7 +74,7 @@ VALUES
    '按选定方案改代码，小步提交，每一步都能单独验证。',
    '一次只做一件事。改完立刻跑一遍验证命令，红了就地修，不往下堆。'
    || '不确定要不要动的文件先不动，回来问。',
-   'acp.codex', 'model:codex', 'model:claude',
+   'acp.codex', 'model:codex', NULL,
    '["read_file","write_file","run_command","search"]',
    -- 执行者要写文件、跑命令，但命令必须是节点里显式声明过的；
    -- network 关着 —— 要联网的活儿由脚本节点显式声明
@@ -86,7 +86,7 @@ VALUES
    '只读检查改动：正确性、测试覆盖、风险，按严重度排序，最多 5 条。',
    '挑毛病，但每一条都要能落到具体某一行。说不出「怎么复现」的就不算问题。'
    || '没问题时直接说没问题，不凑数。',
-   'acp.codex', 'model:codex', 'model:claude',
+   'acp.codex', 'model:codex', NULL,
    '["read_file","search"]',
    -- 审查是只读的。给它写权限就等于让它顺手把问题「改掉」，
    -- 而那样用户永远看不到那条问题
@@ -97,7 +97,7 @@ VALUES
   ('builtin:operator', '决策者', '决策',
    '按影响面给出 L1–L3 分级，并说清这一级为什么。',
    '保守。拿不准就往高了报 —— 报高了只是多一次人工确认，报低了是直接放行。',
-   'acp.codex', 'model:codex', 'model:claude',
+   'acp.codex', 'model:codex', NULL,
    '["read_file"]',
    '{"file":"read","command":"none","network":"none","memory":"read","secret":[]}',
    '一个等级（L1 / L2 / L3）+ 一句理由 + 需要人工确认的具体事项。',

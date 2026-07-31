@@ -344,3 +344,87 @@ fn 用户删掉的样例不复活() {
         .unwrap();
     assert_eq!(count, 0, "删掉的不复活");
 }
+
+#[test]
+fn 内置角色的降级模型不跨_runtime() {
+    // 第 5 轮实测 P3:四个内置角色 runtime=codex 而 fallback=model:claude ——
+    // 界面下拉按 runtime 过滤后显示「不降级」,引擎也无法把 claude 的
+    // 模型 id 交给 codex 的 adapter。降级要么同 runtime,要么就没有
+    let (_dir, store) = 新库();
+    for id in [
+        "builtin:analyst",
+        "builtin:builder",
+        "builtin:reviewer",
+        "builtin:operator",
+    ] {
+        let agent = store.get_agent(id).unwrap().unwrap();
+        let Some(fallback) = agent.fallback_model_ref.clone() else {
+            continue;
+        };
+        let model = store
+            .get_model(&fallback)
+            .unwrap()
+            .unwrap_or_else(|| panic!("{id} 的降级模型 {fallback} 不存在"));
+        assert_eq!(
+            model.runtime, agent.runtime,
+            "{id} 的降级模型跨了 runtime:角色 {} vs 模型 {}",
+            agent.runtime, model.runtime
+        );
+    }
+}
+
+#[test]
+fn 老库里跨_runtime_的内置降级会被修复批次清掉() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("aiwf.sqlite");
+    drop(Store::open_workspace(&path).unwrap());
+    {
+        // 伪造老库形态:骨干四角色的 fallback 又指回 model:claude,
+        // 且修复批次「还没跑过」
+        let conn = raw(&path);
+        conn.execute(
+            "UPDATE agent_profile SET fallback_model_ref = 'model:claude'
+             WHERE id LIKE 'builtin:%' AND runtime = 'acp.codex'",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "DELETE FROM bootstrap WHERE name = 'builtins.v2-fallback-fix'",
+            [],
+        )
+        .unwrap();
+    }
+
+    let store = Store::open_workspace(&path).unwrap();
+    let agent = store.get_agent("builtin:analyst").unwrap().unwrap();
+    assert_eq!(
+        agent.fallback_model_ref, None,
+        "跨 runtime 的降级引用要被清成「不降级」"
+    );
+}
+
+#[test]
+fn 用户自己设过的降级不被修复批次动() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("aiwf.sqlite");
+    drop(Store::open_workspace(&path).unwrap());
+    {
+        let conn = raw(&path);
+        // 用户把降级改成了一个同 runtime 的模型 —— 不是坏形态,不许动
+        conn.execute(
+            "UPDATE agent_profile SET fallback_model_ref = 'model:codex'
+             WHERE id = 'builtin:analyst'",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "DELETE FROM bootstrap WHERE name = 'builtins.v2-fallback-fix'",
+            [],
+        )
+        .unwrap();
+    }
+
+    let store = Store::open_workspace(&path).unwrap();
+    let agent = store.get_agent("builtin:analyst").unwrap().unwrap();
+    assert_eq!(agent.fallback_model_ref.as_deref(), Some("model:codex"));
+}
