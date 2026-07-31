@@ -16,4 +16,5 @@ export {
   type StatusBadgeProps,
 } from './components/StatusBadge.js';
 export { Table, type TableColumn, type TableProps } from './components/Table.js';
+export { RichText, type RichTextProps } from './components/RichText.js';
 export { Tag, type TagProps, type TagTone } from './components/Tag.js';

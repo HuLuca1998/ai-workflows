@@ -319,3 +319,112 @@
   padding: var(--space-8) 0;
   text-align: center;
 }
+
+/* ── RichText ───────────────────────────────────────────────────────────── */
+/* AI 输出的展示。行高与间距压得比正文紧：它出现在对话流里，
+   一条消息常常整段 markdown，撑开了会把上下文挤出屏幕 */
+.aiwf-richtext {
+  font-size: 12.5px;
+  line-height: 1.65;
+  color: var(--color-text);
+  overflow-wrap: break-word;
+}
+
+.aiwf-richtext > * + * {
+  margin-top: var(--space-3);
+}
+
+.aiwf-richtext h1,
+.aiwf-richtext h2,
+.aiwf-richtext h3,
+.aiwf-richtext h4 {
+  font-family: var(--font-heading);
+  font-weight: var(--font-heading-weight);
+  font-size: 13px;
+  margin-top: var(--space-6);
+}
+
+.aiwf-richtext > h1:first-child,
+.aiwf-richtext > h2:first-child,
+.aiwf-richtext > h3:first-child,
+.aiwf-richtext > h4:first-child {
+  margin-top: 0;
+}
+
+.aiwf-richtext ul,
+.aiwf-richtext ol {
+  padding-left: var(--space-6);
+  display: grid;
+  gap: var(--space-1);
+}
+
+.aiwf-richtext code {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  padding: 0 var(--space-1);
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--color-text) 8%, transparent);
+}
+
+.aiwf-richtext pre {
+  position: relative;
+  padding: var(--space-3);
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--color-text) 6%, transparent);
+  overflow-x: auto;
+}
+
+.aiwf-richtext pre > code {
+  padding: 0;
+  background: transparent;
+  white-space: pre;
+}
+
+/* 语言标签：读代码的人第一眼要知道这是什么语言 */
+.aiwf-richtext pre[data-lang]::after {
+  content: attr(data-lang);
+  position: absolute;
+  top: var(--space-1);
+  right: var(--space-2);
+  font-size: 10px;
+  color: var(--color-text-muted);
+}
+
+.aiwf-richtext blockquote {
+  padding-left: var(--space-3);
+  border-left: 2px solid var(--color-divider);
+  color: var(--color-text-muted);
+}
+
+.aiwf-richtext p {
+  white-space: pre-wrap;
+}
+
+/* 宽表格在自己的容器里滚，不许把整个对话流撑出横条 */
+.aiwf-richtext__scroll {
+  overflow-x: auto;
+}
+
+.aiwf-richtext table {
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.aiwf-richtext th,
+.aiwf-richtext td {
+  text-align: left;
+  padding: var(--space-1) var(--space-4) var(--space-1) 0;
+  border-bottom: 1px solid color-mix(in srgb, var(--color-divider) 60%, transparent);
+  vertical-align: top;
+}
+
+.aiwf-richtext th {
+  color: var(--color-text-muted);
+  font-weight: 500;
+}
+
+.aiwf-richtext a {
+  color: var(--color-accent-300);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
