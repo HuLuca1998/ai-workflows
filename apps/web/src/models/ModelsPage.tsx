@@ -129,6 +129,47 @@ export function ModelsPage() {
     }
   };
 
+  /**
+   * 从 runtime 同步模型清单。
+   *
+   * **这是模型清单的唯一来源。** 在这之前模型要手工登记 ——
+   * 用户自己敲模型 ID、上下文窗口、能力清单，而敲进去的值多半是错的：
+   * 内置种子那两条（`gpt-5-codex` / `claude-opus-5`）实测都不在
+   * agent 认的候选里，设下去会被当场拒掉。
+   *
+   * 清单也不能写死在代码里：本机 CLI 一升级就会多出模型
+   * （实测 codex 现在 5 个模型族 × 6 档深度），而写死的那份不会跟着变。
+   */
+  const syncing = useAsyncAction();
+  const [syncNote, setSyncNote] = useState<string | null>(null);
+  const [syncRuntime, setSyncRuntime] = useState<string>(AGENT_RUNTIMES[0]);
+
+  const runSync = () =>
+    syncing.run(async () => {
+      setSyncNote(null);
+      setError(null);
+      try {
+        const result = (await coreClient.call('model.sync', { runtime: syncRuntime })) as {
+          models: { value: string }[];
+          efforts: { value: string }[];
+          currentModel: string;
+          added: number;
+        };
+        setSyncNote(
+          `${runtimeLabel(syncRuntime)}：${result.models.length} 个模型 / ` +
+            `${result.efforts.length} 档推理深度` +
+            (result.added > 0 ? `，新增 ${result.added} 条` : '，清单没有变化') +
+            (result.currentModel ? ` · 当前默认 ${result.currentModel}` : ''),
+        );
+        // 同步完必须重拉：不拉的话用户点完什么都没变，
+        // 而条目其实已经进库了 —— 他会以为没点上，再点几次
+        await load(0);
+      } catch (err) {
+        // 空列表与「adapter 没装」在界面上长得一样，而要做的事完全不同
+        setError(describeError(err));
+      }
+    });
+
   useEffect(() => {
     void load();
   }, []);
@@ -188,6 +229,28 @@ export function ModelsPage() {
           </button>
         </div>
 
+        {/* 同步：先选接入方式，再问它现在能用什么。
+            清单只能从 runtime 拿 —— 手工敲的值多半不在它认的候选里 */}
+        <div className="models__sync">
+          <select
+            aria-label="接入方式"
+            value={syncRuntime}
+            onChange={(event) => setSyncRuntime(event.target.value)}
+            disabled={syncing.running}
+          >
+            {AGENT_RUNTIMES.map((runtime) => (
+              <option key={runtime} value={runtime}>
+                {runtimeLabel(runtime)}
+              </option>
+            ))}
+          </select>
+          <button type="button" onClick={() => void runSync()} disabled={syncing.running}>
+            <i className="ph ph-arrows-clockwise" aria-hidden="true" />
+            {syncing.running ? '同步中…' : '同步'}
+          </button>
+        </div>
+        {syncNote ? <p className="models__sync-note">{syncNote}</p> : null}
+
         {/* 输入即搜（300ms 防抖）—— 与其余五个列表页同一套交互。
             模型 ID 也参与匹配：那是用户从文档里抄来的字符串 */}
         <label className="runs__search models__search">
@@ -203,11 +266,18 @@ export function ModelsPage() {
           />
         </label>
 
-        <div className="models__list-body">
+        {/* 有名字的区域：分组标题（「Codex（ACP）」）与上面接入方式下拉里的
+            选项文字一模一样，不圈定范围的话连测试都分不清哪个是哪个 ——
+            用屏幕阅读器的人同样分不清 */}
+        <div className="models__list-body" role="region" aria-label="模型列表">
           {items !== null && items.length === 0 ? (
             <ListEmpty query={search.value} noun="模型" onClear={() => search.onChange('')}>
-              还没有登记模型。ACP 握手不返回模型列表，所以模型要在这里手工登记， 或从本机 CLI
-              配置导入。
+              {/* 原来这里写着「ACP 握手不返回模型列表，所以模型要在这里手工登记」。
+                  **那句话是错的**：`session/new` 的 configOptions 里就带着模型清单，
+                  两端实测都有（docs/acp/transcripts/{codex,claude}-model.jsonl）。
+                  照那句话去手工敲，敲出来的值多半不在 agent 认的候选里。 */}
+              还没有模型。选好上面的接入方式点「同步」—— 清单由 runtime 自己给出，
+              比手工敲准，而且本机 CLI 升级后再同步一次就能拿到新模型。
             </ListEmpty>
           ) : null}
 

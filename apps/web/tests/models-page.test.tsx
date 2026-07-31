@@ -61,8 +61,10 @@ describe('模型列表', () => {
       }),
     });
     view();
-    expect(await screen.findByText('Claude Code（ACP）')).toBeTruthy();
-    expect(screen.getByText('Codex（ACP）')).toBeTruthy();
+    // 限定在列表区域：接入方式下拉里也有同样的文字
+    const 列表 = await screen.findByRole('region', { name: '模型列表' });
+    expect(within(列表).getByText('Claude Code（ACP）')).toBeTruthy();
+    expect(within(列表).getByText('Codex（ACP）')).toBeTruthy();
   });
 
   it('底部常驻那句关于「只列已启用」的说明', async () => {
@@ -74,11 +76,15 @@ describe('模型列表', () => {
     ).toBeTruthy();
   });
 
-  it('一个模型都没有时说明要先登记，并解释 ACP 为什么不自动发现', async () => {
+  it('一个模型都没有时，指向「同步」而不是让人手工敲', async () => {
+    // 这条原先断言的是「ACP 握手不返回模型列表，所以要手工登记」——
+    // **那句话是错的**，session/new 的 configOptions 里就带着清单
+    // （两端实测）。照它去手敲，敲出来的值多半不在 agent 认的候选里，
+    // 设下去当场被拒。守一句错的承诺比不守更糟
     respond({ 'model.list': () => ({ items: [], total: 0 }) });
     view();
-    expect(await screen.findByText(/还没有登记模型/u)).toBeTruthy();
-    expect(screen.getByText(/ACP 握手不返回模型列表/u)).toBeTruthy();
+    expect(await screen.findByText(/还没有模型/u)).toBeTruthy();
+    expect(screen.getByText(/点「同步」/u)).toBeTruthy();
   });
 
   it('停用的条目在列表里标出来', async () => {
@@ -388,5 +394,70 @@ describe('失败时要说话', () => {
       expect(call).toHaveBeenCalledWith('model.update', expect.anything());
     });
     expect(screen.queryByRole('alert')).toBeNull();
+  });
+});
+
+describe('从 runtime 同步模型清单', () => {
+  /*
+   * 「先同步，然后选择」。
+   *
+   * 在这之前模型要**手工登记**：用户自己敲模型 ID、上下文窗口、能力清单。
+   * 那套做法的问题不是麻烦，是**敲进去的值多半是错的** —— 内置种子里那两条
+   * （gpt-5-codex / claude-opus-5）实测都不在 agent 认的候选里，
+   * 设下去会被当场拒掉。清单只能问 runtime 要。
+   */
+  it('点同步会去问 runtime，然后刷新列表', async () => {
+    const 同步入参: unknown[] = [];
+    respond({
+      'model.list': () => ({ items: [MODEL], total: 1 }),
+      'model.sync': (input) => {
+        同步入参.push(input);
+        return {
+          models: [{ value: 'gpt-5.6-sol', label: 'GPT-5.6-Sol', description: '' }],
+          efforts: [{ value: 'high', label: 'High', description: '' }],
+          currentModel: 'gpt-5.6-sol',
+          currentEffort: 'high',
+          added: 1,
+        };
+      },
+    });
+    view();
+
+    await userEvent.click(await screen.findByRole('button', { name: /同步/ }));
+
+    await waitFor(() => expect(同步入参.length).toBe(1));
+    expect(同步入参[0]).toMatchObject({ runtime: expect.any(String) });
+    // 同步完必须重拉列表：不拉的话用户点完什么都没变，
+    // 而条目其实已经进库了 —— 他会再点几次
+    await waitFor(() =>
+      expect(call.mock.calls.filter((c) => c[0] === 'model.list').length).toBeGreaterThan(1),
+    );
+  });
+
+  it('同步失败时说清怎么办，而不是留一个空列表', async () => {
+    respond({
+      'model.list': () => ({ items: [], total: 0 }),
+      'model.sync': () => {
+        throw new Error('acp.codex 的 adapter 没有安装');
+      },
+    });
+    view();
+
+    await userEvent.click(await screen.findByRole('button', { name: /同步/ }));
+
+    // 空列表与「adapter 没装」在界面上长得一样，而用户要做的事完全不同
+    expect(await screen.findByText(/没有安装/)).toBeTruthy();
+  });
+
+  it('空态不再说「ACP 握手不返回模型列表」—— 那句话是错的', async () => {
+    respond({ 'model.list': () => ({ items: [], total: 0 }) });
+    view();
+
+    await screen.findByRole('button', { name: /同步/ });
+    expect(
+      screen.queryByText(/握手不返回模型列表/),
+      'session/new 的 configOptions 里就带着模型清单（两端实测），\n' +
+        '这句话会让用户以为只能手工敲',
+    ).toBeNull();
   });
 });
