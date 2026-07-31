@@ -64,7 +64,11 @@ fn main() {
     println!("  端点：{}", handle.plain_url());
     println!("  带令牌：{}", handle.url());
     println!("  数据库：{}", db_path.display());
-    println!("  工具：{} 个", aiwf_mcp::catalog::tools().len());
+    // +1 是内建 ask_user —— 它不在契约派生清单里,少报一个会让人以为没接
+    println!(
+        "  工具：{} 个（含内建 ask_user）",
+        aiwf_mcp::catalog::tools().len() + 1
+    );
     println!();
     println!("接入 Claude Code：");
     println!(
