@@ -87,11 +87,20 @@ cargo run -p aiwf-mcp --bin aiwf-mcp -- --db ~/Library/Application\ Support/aiwf
 
 ## 暴露了什么
 
-### 工具（50 个）
+### 工具（50 个契约派生 + 1 个内建）
 
 清单 = 契约里声明的方法 ∩ 引擎真的能分派的命令。**由契约派生，不手工维护**——
 手写一份的结局是「界面上能做的事，Agent 说它做不到」，而这种缺口只有
 用户碰上了才知道。`crates/mcp/tests/catalog_test.rs` 守着这条。
+
+清单之外有一个内建工具 `ask_user`：agent 向用户提一个问题
+（choice / multiChoice / form / confirm），调用挂起直到用户在应用里回答
+（最长三分钟），答案原样带回。它不是某个 Core API 命令的镜像，
+所以不走派生 —— `dispatch` 从进门持库锁到返回，挂着等回答的调用放进去，
+用户提交答案的那条会被同一把锁挡在门外。入参 schema 来自契约生成物
+`ask-spec.schema.json`，行为由 `crates/mcp/tests/ask_user_test.rs` 守着。
+用户拒绝回答报 `declined`、没人理会报 `no_answer`，两者都不是空答案 ——
+空对象会被 agent 当成「用户什么都没选」。
 
 | 类别    | 覆盖                                                                                                    |
 | ------- | ------------------------------------------------------------------------------------------------------- |

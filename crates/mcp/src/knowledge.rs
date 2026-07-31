@@ -366,6 +366,22 @@ run_events { runId, fromSeq: 0, limit: 200 } → 完整事件流
 | 想改审批时的选择 | `run_rewind_to_approval { runId }` —— 会开一条新运行，从那个审批点起 |
 | 卡住了 | `run_cancel { runId }`，在下一个节点边界生效 |
 | 要带走现场 | `run_diagnostics { runId }` 导出诊断包（已脱敏） |
+
+## 拿不准的时候：问用户
+
+两个方案都走得通、或者缺一个只有用户知道的信息时，
+问一句比替他选更好：
+
+```
+ask_user { kind: "choice", title: "先修哪个方向",
+           options: [{ value: "cache", label: "先改缓存层" }] }
+→ { outcome: "answered", answer: { selected: "cache" } }
+```
+
+kind 四种：choice（选一个）/ multiChoice（选几个）/ form（补几段输入）/
+confirm（是/否）。这次调用会挂起直到用户在应用里回答，最长三分钟。
+`declined` 是用户拒绝回答 —— 别换个说法再问同一件事；
+`no_answer` 是没人在电脑前，按你的最优判断继续。
 "#;
 
 const READ_RUN_DATA: &str = r#"# 怎么读一次运行的完整数据

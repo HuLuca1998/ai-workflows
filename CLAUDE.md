@@ -282,9 +282,10 @@ AI 的改动一律先进 `DraftStore.propose()`（出 Diff），用户确认才 
 
 ### 4. 系统级 MCP 是对外的唯一门
 
-`crates/mcp` 把整个应用通过 MCP Streamable HTTP 开出去：50 个工具
-（清单 = 契约方法 ∩ 可分派命令，由契约派生）、7 份系统知识资源、
-2 条提示词模板。详见 [`docs/MCP.md`](docs/MCP.md)。
+`crates/mcp` 把整个应用通过 MCP Streamable HTTP 开出去：50 个契约派生工具
+（清单 = 契约方法 ∩ 可分派命令）、1 个内建 `ask_user`（agent 向用户提问，
+挂起等答案；不走 dispatch —— 那里持库锁，挂着等会锁死回答那条路）、
+7 份系统知识资源、2 条提示词模板。详见 [`docs/MCP.md`](docs/MCP.md)。
 
 三件事必须记住：
 
