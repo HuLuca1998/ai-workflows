@@ -161,7 +161,7 @@ impl From<aiwf_store::StoreError> for ApiError {
         // 提示按错误种类给：它要能照着做，不是把 message 换个说法
         let hint = match &error {
             aiwf_store::StoreError::NotFound { kind, .. } => {
-                Some(format!("这个{kind}可能已被删除。回列表页看看还在不在"))
+                Some(format!("这个 {kind} 可能已被删除。回列表页看看还在不在"))
             }
             aiwf_store::StoreError::RevisionConflict { base, current } => Some(format!(
                 "别处已经把它改到 rev{current}，而你这次基于 rev{base}。\

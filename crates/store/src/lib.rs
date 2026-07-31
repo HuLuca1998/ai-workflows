@@ -1425,9 +1425,15 @@ impl Store {
             |row| row.get(0),
         )?;
         if exists > 0 {
+            // scope 的内部值(workspace)对用户没意义,翻成界面上的说法
+            let scope_label = match memory.scope.as_str() {
+                "workspace" => "工作区",
+                "run" => "本次运行",
+                other => other,
+            };
             return Err(StoreError::Invalid(format!(
-                "{} 作用域下已存在 key {}",
-                memory.scope, memory.key
+                "{scope_label}里已经有一条 key 是「{}」的记忆了。换个 key,或去改那一条",
+                memory.key
             )));
         }
 

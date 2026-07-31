@@ -1169,7 +1169,7 @@ fn 同一作用域下_key_唯一() {
         .unwrap_err()
         .to_string();
     assert!(
-        error.contains("已存在") || error.contains("唯一"),
+        error.contains("已经有一条 key") || error.contains("已存在"),
         "错误实际：{error}"
     );
 }
