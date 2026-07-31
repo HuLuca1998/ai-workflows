@@ -108,10 +108,8 @@ const 引擎不消费: Record<string, string> = {
   'ai.review.promptId': '欠账：提示词库没接执行路径（DEBT B-3）',
   'ai.decide.promptId': '欠账：提示词库没接执行路径（DEBT B-3）',
   'ai.execute.promptId': '欠账：提示词库没接执行路径（DEBT B-3）',
-  'ai.analyze.modelPolicy': '欠账：降级策略没实现，runtime 只按角色/节点选，不看这里',
-  'ai.review.modelPolicy': '欠账：降级策略没实现',
-  'ai.decide.modelPolicy': '欠账：降级策略没实现',
-  'ai.execute.modelPolicy': '欠账：降级策略没实现',
+  // modelPolicy 四条接上了：executor 的 resolve_model 按
+  // 钉住/档位 → 角色主选 → 后备 的顺序解析，降级发 system.model_downgraded
   'ai.analyze.turnLimit': '欠账：Turn 上限不被强制，agent 想跑多少轮就多少轮',
   'ai.review.turnLimit': '欠账：Turn 上限不被强制',
   'ai.decide.turnLimit': '欠账：Turn 上限不被强制',

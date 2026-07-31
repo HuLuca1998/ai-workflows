@@ -30,7 +30,7 @@
 
 ## 一、坏账
 
-### B-2 · 50 个事件类型，23 个从未被发射
+### B-2 · 50 个事件类型，22 个从未被发射
 
 **这是本次盘点最大的一条。**
 
@@ -59,12 +59,11 @@ console.log(零.length+' / '+m.eventTypes.length);console.log(零.join('\n'));
 
 （已确认没有变量拼接发射的情况：`rg 'format!\("(node|run|system)\.' crates/` 零命中。）
 
-零发射的 23 个，按危害排：
+零发射的 22 个，按危害排：
 
 | 事件                                             | 谁在承诺它                                                                                         | 后果                               |
 | ------------------------------------------------ | -------------------------------------------------------------------------------------------------- | ---------------------------------- |
 | `node.cancelled`                                 | **界面明写**：`NodeConfigDialog.tsx:269`「收到取消信号后先停止子进程，再写入 node.cancelled 事件」 | 界面上的一句话，实现为零           |
-| `system.model_downgraded`                        | **界面明写**：`AgentsPage.tsx:482`「降级发生时会写入 RunEvent，不会静默替换模型」                  | 降级真的会静默发生                 |
 | `system.prompt_resolved`                         | 「提示词与模型在运行记录中可追溯到具体版本」                                                       | 见 B-3，提示词那一半完全没有       |
 | `system.audit`                                   | 契约里 40+ 个方法标着 `audited: true`                                                              | 审计标记没有任何落点               |
 | `system.permission_granted` / `_denied`          | 权限档确实在拦（实证过），但**拦了不留痕**                                                         | 事后无法回答「这次运行被拦了什么」 |
@@ -92,8 +91,9 @@ rg -o "'(run|node|approval|conversation|tool|artifact|system|reasoning)\.[a-z_]+
 
 `node.queued`、`node.retried`、`node.skipped`、`node.cancelled`、`approval.expired`、
 `run.paused`、`run.resumed`、`run.interrupted`、`artifact.created`、
-`system.model_downgraded`、`system.prompt_resolved` —— 这 11 个在
+`system.prompt_resolved` —— 这 10 个在
 `event-store.ts` 里都有真正的投影分支，而引擎一个都不发。
+（`system.model_downgraded` 已还清：解析期与 adapter 拒绝两种降级都发。）
 
 而 `packages/client-core/tests/event-store.test.ts:68` 是这么测的：
 
@@ -547,7 +547,7 @@ rg -c 'tools/call' crates/mcp/tests/http_test.rs   # 6
 | 2    | **B-7** 运行卡死        | 用户可见，而且连「恢复」都点不了。Cmd+Q 是最常见的退出方式                            |
 | 3    | **B-4** worktree 不清理 | 唯一一条**在用户磁盘上持续累积**的。每跑一次多一个目录和分支                          |
 | 4    | **B-6** + **B-5** 守卫  | 这两条是**成因**。不补守卫，B-1 / B-5 会以新形态重新长出来                            |
-| 5    | **B-2** 事件发射        | 违反的是架构第一原则。界面明确承诺的两条（`node.cancelled` / `model_downgraded`）先补 |
+| 5    | **B-2** 事件发射        | 违反的是架构第一原则。界面明确承诺的 `node.cancelled` 先补（`model_downgraded` 已还清） |
 | 6    | **B-3** 提示词          | 一整屏功能没有出口；出口标准只兑现一半                                                |
 | 7    | **L-1** 吞错            | 概率低但后果不可逆（事件流缺档 = 无法重建）                                           |
 | 8    | O-3 WKWebView           | 用户唯一的真实体感反馈至今没有定论                                                    |
