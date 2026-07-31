@@ -520,7 +520,6 @@ impl Store {
     pub fn open_workspace(path: &Path) -> Result<Self> {
         let store = Self::open(path)?;
         seed::seed(&store.conn)?;
-        store.mark_orphan_runs()?;
         Ok(store)
     }
 
@@ -529,14 +528,19 @@ impl Store {
     /// 实际没有任何线程在推进它，而恢复入口只接受
     /// failed / interrupted / paused，用户连「恢复」都点不了。
     ///
-    /// 放在 `open_workspace` 是因为它一辈子只做一次、且先于任何新线程：
-    /// 此刻处于 `running` 的运行**必然**没有活线程。工作线程用
-    /// [`Store::open`] 建自己的连接，不会重复扫。
+    /// **只在「执行宿主」启动时调**（桌面壳、devserver —— 拥有 Supervisor
+    /// 的进程），不在 `open_workspace` 里：`aiwf-mcp --db <同一个库>` 也走
+    /// open_workspace，扫描放在那里会把**别的进程**正在推进的运行误标成
+    /// interrupted，随后一次 resume 就是第二条执行线程（codex 复核抓到的）。
+    ///
+    /// 残余风险要知道：两个执行宿主共用一个库时（比如 devserver 重启而
+    /// aiwf-mcp 正在跑工作流），本进程启动时的扫描仍会误伤对方 ——
+    /// 跨进程活性检测（心跳/锁）是那一步的前置，还没做。
     ///
     /// `waiting_approval` 不碰 —— 那是「等人」的状态，重启后照样能批。
     /// `resuming` 目前没有任何代码写入（见 DEBT B-7），等恢复机制
     /// 真的写它时，这里要跟着把它纳入扫描。
-    fn mark_orphan_runs(&self) -> Result<()> {
+    pub fn mark_orphan_runs(&self) -> Result<()> {
         let orphans: Vec<(String, Option<String>)> = {
             let mut stmt = self
                 .conn

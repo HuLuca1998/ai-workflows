@@ -3467,7 +3467,8 @@ mod 向用户提问 {
 // Cmd+Q / 崩溃 / 断电时进程没有机会执行任何代码,正在跑的运行会停在
 // `running`,而重启后没有线程在推进它 —— 界面永远显示「运行中」,
 // 连「恢复」都点不了(supervisor 只接受 failed / interrupted / paused)。
-// `open_workspace` 是应用入口唯一必经的一次初始化,孤儿扫描放在那里。
+// 扫描只在执行宿主(拥有 Supervisor 的进程)启动时显式调用 ——
+// 放进 open_workspace 会让共库的 aiwf-mcp 误伤别的进程正在跑的运行。
 
 #[test]
 fn 重开工作区_孤儿running运行标为interrupted并留下事件() {
@@ -3478,12 +3479,14 @@ fn 重开工作区_孤儿running运行标为interrupted并留下事件() {
         let s = Store::open_workspace(&path).unwrap();
         let wf = s.create_workflow("会被杀的流程", None).unwrap();
         let run = s.create_run_for_test(&wf).unwrap();
-        s.advance_run_status(&run, "running", Some("node_a")).unwrap();
+        s.advance_run_status(&run, "running", Some("node_a"))
+            .unwrap();
         run
         // drop(s):进程被杀时连接也随之消失,数据库里留下 status='running'
     };
 
     let s = Store::open_workspace(&path).unwrap();
+    s.mark_orphan_runs().unwrap();
     assert_eq!(
         s.run_status(&run).unwrap().as_deref(),
         Some("interrupted"),
@@ -3520,6 +3523,7 @@ fn 重开工作区_等审批的运行原样保留() {
     };
 
     let s = Store::open_workspace(&path).unwrap();
+    s.mark_orphan_runs().unwrap();
     assert_eq!(
         s.run_status(&run).unwrap().as_deref(),
         Some("waiting_approval")
@@ -3548,5 +3552,32 @@ fn 重开工作区_终态运行不动() {
     };
 
     let s = Store::open_workspace(&path).unwrap();
+    s.mark_orphan_runs().unwrap();
     assert_eq!(s.run_status(&run).unwrap().as_deref(), Some("succeeded"));
+}
+
+#[test]
+fn 只开工作区不扫描_共库的旁观进程不会误伤活运行() {
+    // codex 复核抓到的:扫描曾放在 open_workspace 里,
+    // aiwf-mcp --db <桌面正在用的库> 一启动就把人家正在跑的运行标成 interrupted,
+    // 随后一次 resume 就是第二条执行线程
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("aiwf.sqlite");
+
+    let run = {
+        let s = Store::open_workspace(&path).unwrap();
+        let wf = s.create_workflow("别的进程在跑", None).unwrap();
+        let run = s.create_run_for_test(&wf).unwrap();
+        s.advance_run_status(&run, "running", Some("node_a"))
+            .unwrap();
+        run
+    };
+
+    // 旁观进程(MCP)只 open_workspace,不调 mark_orphan_runs
+    let s = Store::open_workspace(&path).unwrap();
+    assert_eq!(
+        s.run_status(&run).unwrap().as_deref(),
+        Some("running"),
+        "旁观进程不该动别人的运行"
+    );
 }

@@ -34,9 +34,18 @@ fn main() {
     // 让 16 个线程同时跑迁移会撞锁
     // open_workspace 而不是 open：这一次是初始化工作区（迁移 + 内置数据），
     // 下面每个工作线程只是再开一条连接
-    if let Err(error) = Store::open_workspace(&path) {
-        eprintln!("无法打开数据库 {db_path}：{error}");
-        std::process::exit(1);
+    match Store::open_workspace(&path) {
+        Ok(store) => {
+            // 孤儿扫描只在执行宿主启动时做（devserver 拥有 Supervisor）。
+            // aiwf-mcp 共库时不扫 —— 它会误伤这里正在跑的运行
+            if let Err(error) = store.mark_orphan_runs() {
+                eprintln!("孤儿运行扫描失败（不影响启动）：{error}");
+            }
+        }
+        Err(error) => {
+            eprintln!("无法打开数据库 {db_path}：{error}");
+            std::process::exit(1);
+        }
     }
     // 默认运行目录跟着数据库走：一个测试库对应一份运行数据，互不干扰
     let data_dir = path

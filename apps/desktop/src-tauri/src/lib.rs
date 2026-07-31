@@ -940,6 +940,12 @@ pub fn run() {
             // open_workspace：首次启动把内置的模型、Agent 角色、提示词与记忆种上。
             // 只种一次 —— 用户改过或删过的条目不会在下次启动被冲回去
             let store = Store::open_workspace(&path)?;
+            // 孤儿扫描只在执行宿主（拥有 Supervisor 的进程）启动时做 ——
+            // aiwf-mcp 连同一个库时不能扫，否则会误伤这里正在跑的运行。
+            // 失败不拦启动：留日志，下次启动还有机会
+            if let Err(error) = store.mark_orphan_runs() {
+                eprintln!("孤儿运行扫描失败（不影响启动）：{error}");
+            }
             let data_dir = path
                 .parent()
                 .map_or_else(std::env::temp_dir, std::path::Path::to_path_buf);
