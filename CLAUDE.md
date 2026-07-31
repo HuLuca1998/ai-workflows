@@ -424,7 +424,30 @@ codex 侧 25 条带完整 prompt 正文。
 
 ## 风格
 
-- 注释与文档用中文，标识符用英文；注释解释「为什么」，不复述「是什么」
+### 标识符一律英文 —— 这条有门禁，别绕
+
+**注释与文档用中文，标识符用英文。** 注释解释「为什么」，不复述「是什么」。
+
+这条曾经在 Rust 侧被违反 **168 处**（`let 材料`、`fn 审批提示词`、`struct 窗口帧推送`），
+而没有任何一次门禁变红 —— 因为守卫只有 TS 侧有
+（`apps/web/tests/no-internal-jargon.test.ts`）。现在两侧都有：
+
+| 语言 | 守卫                                         |
+| ---- | -------------------------------------------- |
+| Rust | `crates/engine/tests/ident_language_test.rs` |
+| TS   | `apps/web/tests/no-internal-jargon.test.ts`  |
+
+代价不是「不好看」，是三件具体的事：
+
+- `rustc` 的报错、建议、panic 栈全变成半中半英
+- **重构工具改不干净**：`format!("{中文变量}")` 里那个名字是真的标识符引用，
+  而正则的 `\b` 在中文边界上不成立 —— 改完编译器才告诉你漏了哪个
+- 换一个不读中文的协作者或工具链，这些名字全是不可读的
+
+**例外只有一个**：测试函数名（`fn 握手拿到协议版本与能力()`）。
+那是刻意的 —— 测试名就是需求描述，中文说得比任何英文名都清楚。
+守卫据此跳过 `#[cfg(test)]` 之后的内容与 `tests/` 目录。
+
 - Rust：`unsafe` 在 workspace 级禁用；`unwrap`/`expect`/`panic` 在生产代码里是警告（测试已豁免）
 - TypeScript：`strict` + `noUncheckedIndexedAccess` + `exactOptionalPropertyTypes` 全开，别关
 - Secret 只进 Keychain；仓库、事件、日志、导出物里一律用 `keychain://` 引用
