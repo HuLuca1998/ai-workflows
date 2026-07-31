@@ -2005,6 +2005,12 @@ pub struct SupervisorAnswer {
     /// AI 想做的改动。界面据此算 Diff，用户确认后才落草稿。
     #[serde(skip_serializing_if = "Option::is_none")]
     pub proposal: Option<Proposal>,
+    /// 选的模型没设上时的说明。空 = 用的就是选的那个。
+    ///
+    /// **不能只在后端日志里说**：抽屉顶上那个下拉是用户刚点过的，
+    /// 他有权知道这一轮实际跑在哪个模型上。
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
+    pub downgraded: Vec<String>,
 }
 
 /// 问主管 AI。走与 AI 节点同一套 ACP 客户端。
@@ -2018,6 +2024,8 @@ pub fn supervisor_ask(
     question: String,
     context_json: Option<String>,
     session_id: Option<String>,
+    // model_ref：抽屉顶上那个下拉选的模型。None = 用 agent 自己的默认
+    model_ref: Option<String>,
 ) -> ApiResult<SupervisorAnswer> {
     // 要提结构化改动就得先看得见当前的图 ——
     // 让模型凭空造 nodeId 的话，那些操作应用不到任何东西上
@@ -2035,7 +2043,7 @@ pub fn supervisor_ask(
             store.get_draft(&workflow_id, rev).ok().flatten()
         });
 
-    use aiwf_engine::acp::{AcpClient, SessionUpdate, adapter_installed, env_to_remove};
+    use aiwf_engine::acp::{SessionUpdate, adapter_installed};
 
     // 优先 codex：这个应用本身跑在 Claude Code 里开发，用 claude 的 adapter
     // 会与开发环境互相干扰（嵌套的 agent 会话、共用的登录态、同一份配额）。
@@ -2109,17 +2117,40 @@ pub fn supervisor_ask(
     let mut tool_calls = 0_u32;
     let cwd = data_dir.display().to_string();
 
+    // 用户在抽屉顶上选的那个模型。
+    //
+    // 这条链路以前断在最后一格：界面传了 modelRef、映射层也透传了，
+    // 而 `dispatch.rs` 与桌面壳都不读它 —— 用户换个模型什么都不会变，
+    // 界面上也没有任何提示（`docs/acp/07-violations.md` H-8）。
+    let 选的模型 = model_ref
+        .as_deref()
+        .and_then(|id| store.get_model(id).ok().flatten());
+    let (要的模型, 要的深度) = 选的模型.as_ref().map_or((None, None), |m| {
+        (Some(m.model_id.clone()), Some(m.effort.clone()))
+    });
+
+    // 建会话时被 agent 拒掉的配置项。闭包里产生，闭包外要用 ——
+    // 池的 `建` 只交出 (client, session_id)，降级信息得自己捞出来
+    let 降级记录 = std::sync::Mutex::new(Vec::new());
+
     pool.prompt(
         &池键,
         || {
-            let mut client = AcpClient::connect(
-                &command,
-                &[],
-                &env_to_remove(runtime),
-                std::time::Duration::from_secs(180),
-            )?;
-            let session = client.new_session_with_mcp(&cwd, mcp.as_slice())?;
-            Ok((client, session.id))
+            let opened = aiwf_engine::acp::open_session(&aiwf_engine::acp::SessionSpec {
+                runtime: runtime.to_string(),
+                cwd: cwd.clone(),
+                model: 要的模型.clone(),
+                effort: 要的深度.clone(),
+                mode: None,
+                mcp: mcp.clone(),
+                timeout: std::time::Duration::from_secs(180),
+                adapter_override: Some((command.clone(), Vec::new())),
+            })?;
+            if let Ok(mut 记录) = 降级记录.lock() {
+                记录.clear();
+                记录.extend(opened.downgraded.iter().map(ToString::to_string));
+            }
+            Ok((opened.client, opened.session.id))
         },
         &prompt,
         |update| match update {
@@ -2192,6 +2223,7 @@ pub fn supervisor_ask(
         proposal,
         session_id: session,
         history_saved,
+        downgraded: 降级记录.into_inner().unwrap_or_default(),
     })
 }
 

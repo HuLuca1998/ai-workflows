@@ -38,8 +38,15 @@ pub fn dispatch(
             &store,
             data_dir,
             string(input, "question")?,
-            input.get("context").map(ToString::to_string),
+            // 两个名字都认：桌面壳的 IPC 映射发的是 contextJson，
+            // 而这里原先只读 context —— Web 形态下上下文整段丢失
+            // （`docs/acp/07-violations.md` H-10）
+            input
+                .get("context")
+                .map(ToString::to_string)
+                .or_else(|| opt_string(input, "contextJson")),
             opt_string(input, "sessionId"),
+            opt_string(input, "modelRef"),
         )?),
         "supervisor_sessions" => {
             to_value(api::supervisor_sessions(&store, opt_int(input, "limit"))?)

@@ -34,6 +34,9 @@ fn supervisor_ask(
     question: String,
     context_json: Option<String>,
     session_id: Option<String>,
+    // 抽屉顶上那个下拉选的模型。少了这个参数，Tauri 会静默丢掉它 ——
+    // 于是界面传了、映射层也透传了，而这里收不到（H-8 的最后一格）
+    model_ref: Option<String>,
 ) -> IpcResult<api::SupervisorAnswer> {
     // 走主管 AI 自己那条连接 —— 这一整轮对话可能几分钟，
     // 占着主锁的话界面上连「取消运行」都点不动
@@ -41,7 +44,14 @@ fn supervisor_ask(
         .supervisor_store
         .lock()
         .map_err(|_| ApiError::validation("存储锁已中毒，请重启应用"))?;
-    api::supervisor_ask(&store, &state.data_dir, question, context_json, session_id)
+    api::supervisor_ask(
+        &store,
+        &state.data_dir,
+        question,
+        context_json,
+        session_id,
+        model_ref,
+    )
 }
 
 #[tauri::command]

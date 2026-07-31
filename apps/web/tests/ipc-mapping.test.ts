@@ -268,3 +268,34 @@ describe('分页参数不能被转换层吃掉', () => {
     }
   });
 });
+
+describe('supervisor.ask 的入参不能在映射层掉字段', () => {
+  /*
+   * 这一层是白名单式的：每个分支只挑自己认识的字段，漏一个就静默丢掉。
+   * 这个形态已经吃掉过三次字段（ver、run.list 的分页、supervisor 的 sessionId），
+   * 而**症状都是「数据莫名为空」而不是报错**。
+   */
+  it('续接会话时带上 sessionId —— 丢了就是每问一句新建一条会话', () => {
+    const out = toIpcInput('supervisor.ask', {
+      question: '那第二个方案呢',
+      sessionId: 'sess_1',
+      context: {},
+    });
+    expect(out.sessionId, 'sessionId 被映射层吃掉了，agent 会当成新对话').toBe('sess_1');
+  });
+
+  it('选了模型就带上 modelRef', () => {
+    const out = toIpcInput('supervisor.ask', {
+      question: '你好',
+      modelRef: 'model:codex',
+      context: {},
+    });
+    expect(out.modelRef).toBe('model:codex');
+  });
+
+  it('没有的字段不硬塞 —— 后端据此判断「用默认」', () => {
+    const out = toIpcInput('supervisor.ask', { question: '你好', context: {} });
+    expect('sessionId' in out, '第一问不该带 sessionId').toBe(false);
+    expect('modelRef' in out, '没选模型不该带 modelRef').toBe(false);
+  });
+});

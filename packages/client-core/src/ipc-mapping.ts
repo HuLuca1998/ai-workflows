@@ -192,6 +192,10 @@ function shapeFor(method: CoreApiMethod, record: Record<string, unknown>): Recor
     // 不需要为每个字段建一个参数
     return {
       question: record.question,
+      // sessionId 这一格原先是空的，症状是**每问一句就新建一条 ACP 会话**：
+      // 用户问「那第二个方案呢」，agent 手上是一张白纸。
+      // 后端一直支持续接，钥匙掉在这一层（docs/acp/07-violations.md H-1）
+      ...(record.sessionId ? { sessionId: record.sessionId } : {}),
       ...(record.modelRef ? { modelRef: record.modelRef } : {}),
       contextJson: JSON.stringify(record.context ?? {}),
     };
