@@ -3461,3 +3461,92 @@ mod 向用户提问 {
         assert!(row.answer_json.is_none());
     }
 }
+
+// ── B-7:杀进程后的孤儿运行 ────────────────────────────────────────────────
+//
+// Cmd+Q / 崩溃 / 断电时进程没有机会执行任何代码,正在跑的运行会停在
+// `running`,而重启后没有线程在推进它 —— 界面永远显示「运行中」,
+// 连「恢复」都点不了(supervisor 只接受 failed / interrupted / paused)。
+// `open_workspace` 是应用入口唯一必经的一次初始化,孤儿扫描放在那里。
+
+#[test]
+fn 重开工作区_孤儿running运行标为interrupted并留下事件() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("aiwf.sqlite");
+
+    let run = {
+        let s = Store::open_workspace(&path).unwrap();
+        let wf = s.create_workflow("会被杀的流程", None).unwrap();
+        let run = s.create_run_for_test(&wf).unwrap();
+        s.advance_run_status(&run, "running", Some("node_a")).unwrap();
+        run
+        // drop(s):进程被杀时连接也随之消失,数据库里留下 status='running'
+    };
+
+    let s = Store::open_workspace(&path).unwrap();
+    assert_eq!(
+        s.run_status(&run).unwrap().as_deref(),
+        Some("interrupted"),
+        "重启后没有线程在推进它,不标 interrupted 用户连恢复都点不了"
+    );
+
+    let events = s.events(&run, 0, 100).unwrap();
+    let interrupted: Vec<_> = events
+        .iter()
+        .filter(|e| e.kind == "run.interrupted")
+        .collect();
+    assert_eq!(interrupted.len(), 1, "要留下一条 run.interrupted 事件");
+    assert_eq!(
+        interrupted[0].node_id.as_deref(),
+        Some("node_a"),
+        "事件要带上被打断时正在跑的节点"
+    );
+}
+
+#[test]
+fn 重开工作区_等审批的运行原样保留() {
+    // waiting_approval 是「等人」的状态,重启后照样能批 ——
+    // supervisor_test 验证过这条路;孤儿扫描不能把它误伤成 interrupted
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("aiwf.sqlite");
+
+    let run = {
+        let s = Store::open_workspace(&path).unwrap();
+        let wf = s.create_workflow("等审批的流程", None).unwrap();
+        let run = s.create_run_for_test(&wf).unwrap();
+        s.advance_run_status(&run, "waiting_approval", Some("approve"))
+            .unwrap();
+        run
+    };
+
+    let s = Store::open_workspace(&path).unwrap();
+    assert_eq!(
+        s.run_status(&run).unwrap().as_deref(),
+        Some("waiting_approval")
+    );
+    assert!(
+        s.events(&run, 0, 100)
+            .unwrap()
+            .iter()
+            .all(|e| e.kind != "run.interrupted"),
+        "等审批不是孤儿,不该被打断"
+    );
+}
+
+#[test]
+fn 重开工作区_终态运行不动() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("aiwf.sqlite");
+
+    let run = {
+        let s = Store::open_workspace(&path).unwrap();
+        let wf = s.create_workflow("已完成的流程", None).unwrap();
+        let run = s.create_run_for_test(&wf).unwrap();
+        s.advance_run_status(&run, "running", None).unwrap();
+        s.advance_run_status(&run, "succeeded", None).unwrap();
+        run
+    };
+
+    let s = Store::open_workspace(&path).unwrap();
+    assert_eq!(s.run_status(&run).unwrap().as_deref(), Some("succeeded"));
+}

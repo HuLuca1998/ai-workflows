@@ -520,7 +520,53 @@ impl Store {
     pub fn open_workspace(path: &Path) -> Result<Self> {
         let store = Self::open(path)?;
         seed::seed(&store.conn)?;
+        store.mark_orphan_runs()?;
         Ok(store)
+    }
+
+    /// 孤儿运行扫描：Cmd+Q / 崩溃 / 断电时进程没有机会执行任何代码，
+    /// 正在跑的运行会永远停在 `running` —— 界面显示「运行中」，
+    /// 实际没有任何线程在推进它，而恢复入口只接受
+    /// failed / interrupted / paused，用户连「恢复」都点不了。
+    ///
+    /// 放在 `open_workspace` 是因为它一辈子只做一次、且先于任何新线程：
+    /// 此刻处于 `running` 的运行**必然**没有活线程。工作线程用
+    /// [`Store::open`] 建自己的连接，不会重复扫。
+    ///
+    /// `waiting_approval` 不碰 —— 那是「等人」的状态，重启后照样能批。
+    /// `resuming` 目前没有任何代码写入（见 DEBT B-7），等恢复机制
+    /// 真的写它时，这里要跟着把它纳入扫描。
+    fn mark_orphan_runs(&self) -> Result<()> {
+        let orphans: Vec<(String, Option<String>)> = {
+            let mut stmt = self
+                .conn
+                .prepare("SELECT id, current_node FROM run WHERE status = 'running'")?;
+            let rows = stmt.query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?;
+            rows.collect::<std::result::Result<Vec<_>, _>>()?
+        };
+
+        for (run_id, current_node) in orphans {
+            // 先写事件再改状态，与引擎侧「emit 后 set_status」同序 ——
+            // 中途失败宁可多一条事件，也不能少一条（事件流是唯一事实来源）
+            self.append_event(&NewRunEvent {
+                run_id: run_id.clone(),
+                kind: "run.interrupted".to_string(),
+                node_id: current_node.clone(),
+                node_label: None,
+                attempt: None,
+                actor: "engine".to_string(),
+                status: Some("interrupted".to_string()),
+                summary: "应用退出时它还在运行 —— 没有线程在推进，已标为「已中断」，可从检查点恢复"
+                    .to_string(),
+                payload_ref: None,
+                artifact_refs: Vec::new(),
+                parent_event_id: None,
+                sensitivity: "normal".to_string(),
+                schema_ver: 1,
+            })?;
+            self.advance_run_status(&run_id, "interrupted", current_node.as_deref())?;
+        }
+        Ok(())
     }
 
     /// 一键初始化：把库清空重来 —— 迁移重跑一遍，内置数据重新种上。
