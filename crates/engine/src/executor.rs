@@ -1277,14 +1277,33 @@ impl NodeExecutor {
                 stderr,
                 parsed,
                 parse_error,
-                truncated,
+                stdout_truncated,
+                stderr_truncated,
                 ..
             } => {
+                let truncated = stdout_truncated || stderr_truncated;
                 // 落产物必须在判断成败**之前**：脚本失败时最需要看日志，
                 // 而失败分支提前 return 的话，恰恰是这时候没有日志可看。
                 // 事件同理 —— 下面这三条也在成败判断之前发
                 let out_ref = self.save_output(&node.id, "stdout.log", &stdout, sink);
                 let err_ref = self.save_output(&node.id, "stderr.log", &stderr, sink);
+
+                // 一份被砍掉的日志和一份完整的在产物列表里长得一样 ——
+                // 截断必须在事件流里指名道姓（B-2）
+                for (stream_truncated, stream_ref) in
+                    [(stdout_truncated, &out_ref), (stderr_truncated, &err_ref)]
+                {
+                    if stream_truncated {
+                        if let Some(rel) = stream_ref {
+                            sink(NodeEvent {
+                                kind: "artifact.truncated",
+                                node_id: node.id.clone(),
+                                summary: format!("产物 {rel} 超出上限，只保留了前面的部分"),
+                                payload_ref: Some(rel.clone()),
+                            });
+                        }
+                    }
+                }
 
                 if !stdout.trim().is_empty() {
                     sink(NodeEvent {

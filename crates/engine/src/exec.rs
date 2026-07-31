@@ -54,7 +54,9 @@ pub enum ExecOutcome {
         parsed: Option<serde_json::Value>,
         /// 解析失败的原因。**不算脚本失败** —— 该查的是 outputParse 配置，不是脚本。
         parse_error: Option<String>,
-        truncated: bool,
+        /// 分流记：截断的是哪条流决定了 artifact.truncated 指向哪份产物
+        stdout_truncated: bool,
+        stderr_truncated: bool,
         duration: Duration,
     },
     TimedOut {
@@ -145,7 +147,8 @@ pub fn run_script(request: ScriptRequest) -> Result<ExecOutcome> {
         stderr,
         parsed,
         parse_error,
-        truncated: out_truncated || err_truncated,
+        stdout_truncated: out_truncated,
+        stderr_truncated: err_truncated,
         duration: started.elapsed(),
     })
 }

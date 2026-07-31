@@ -142,9 +142,11 @@ fn 超长输出被截断而不是撑爆内存() {
     .unwrap();
     match result {
         ExecOutcome::Completed {
-            stdout, truncated, ..
+            stdout,
+            stdout_truncated,
+            ..
         } => {
-            assert!(truncated, "应当标记已截断");
+            assert!(stdout_truncated, "应当标记已截断");
             assert!(stdout.len() <= 1_100_000, "实际 {} 字节", stdout.len());
         }
         other => panic!("实际：{other:?}"),

@@ -1468,3 +1468,46 @@ fn 产物落盘时发_artifact_created_事件() {
         "artifact.created 必须带 payload_ref,界面拿它读内容"
     );
 }
+
+#[test]
+fn 输出被截断时发_artifact_truncated_事件() {
+    // B-2:截断真的在做(防跑飞的 Agent 刷爆内存),但事件流里看不到 ——
+    // 一份被砍掉的日志和一份完整的日志在产物列表里长得一样
+    let graph = serde_json::json!({
+        "nodes": [
+            {"id": "entry", "type": "entry", "title": "入口", "config": {}},
+            {"id": "a", "type": "script.shell", "title": "刷日志",
+             "config": {"interpreter": "bash",
+                        "script": "for i in $(seq 1 200000); do echo aaaaaaaaaaaaaaaaaaaa; done",
+                        "timeoutMs": 60000}}
+        ],
+        "edges": [
+            {"id": "e1", "source": {"nodeId": "entry", "port": "success"}, "target": {"nodeId": "a", "port": "input"}}
+        ],
+        "groups": []
+    })
+    .to_string();
+
+    let (store, workflow) = setup(&graph);
+    let runner = Runner::new();
+    let run_id = runner.start(&store, request(&workflow)).unwrap();
+    assert_eq!(runner.run_all(&store, &run_id).unwrap(), "succeeded");
+
+    let events = store.events(&run_id, 0, 300).unwrap();
+    let truncated: Vec<_> = events
+        .iter()
+        .filter(|e| e.kind == "artifact.truncated")
+        .collect();
+    assert!(
+        !truncated.is_empty(),
+        "stdout 超上限被截断,事件流里要有 artifact.truncated"
+    );
+    assert!(
+        truncated[0]
+            .payload_ref
+            .as_deref()
+            .is_some_and(|r| r.contains("stdout")),
+        "要指明截断的是哪份产物:{:?}",
+        truncated[0].payload_ref
+    );
+}
