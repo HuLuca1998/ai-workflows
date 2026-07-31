@@ -1023,7 +1023,13 @@ const SPECS = {
     summary: '登记模型（ACP 握手不返回模型列表，需手动登记或从 CLI 导入）',
   },
   'model.update': {
-    input: patchOf(ModelSchema).extend({ id: z.string().min(1) }),
+    // contextWindow 收紧回「必须为正」：0 是 model.sync 专属的「未知」哨兵，
+    // 允许 update 写 0 的话手动登记的模型能被改成「未知」，
+    // 界面还会谎称它是同步来源（codex 复核抓到的）
+    input: patchOf(ModelSchema).extend({
+      id: z.string().min(1),
+      contextWindow: z.number().int().positive().optional(),
+    }),
     output: ok,
     mutates: true,
     audited: true,

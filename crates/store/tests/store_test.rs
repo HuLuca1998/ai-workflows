@@ -3581,3 +3581,30 @@ fn 只开工作区不扫描_共库的旁观进程不会误伤活运行() {
         "旁观进程不该动别人的运行"
     );
 }
+
+#[test]
+fn 更新模型拒绝非正的上下文窗口() {
+    // 0 是 model.sync 专属的「未知」哨兵;MCP 能绕过 Zod,这里是真正的边界
+    let s = store();
+    let id = s
+        .create_model(&NewModel {
+            name: "m".to_string(),
+            runtime: "acp.codex".to_string(),
+            model_id: "m-1".to_string(),
+            effort: "medium".to_string(),
+            context_window: 400000,
+            capabilities: vec![],
+            credential_ref: None,
+            enabled: true,
+        })
+        .unwrap();
+
+    for bad in [0i64, -1] {
+        let err = s
+            .update_model(&id, None, None, None, None, Some(bad), None, None)
+            .unwrap_err();
+        assert!(err.to_string().contains("正数"), "{err}");
+    }
+    s.update_model(&id, None, None, None, None, Some(200000), None, None)
+        .unwrap();
+}

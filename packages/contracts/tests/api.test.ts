@@ -960,6 +960,16 @@ describe('model.sync 写出的值要能过 model.list 的出参', () => {
     expect(spec.output.safeParse({ items: [synced], total: 1 }).success).toBe(true);
   });
 
+  it('update 也拒绝把窗口改成 0 或负数 —— 0 是同步来源专属的「未知」', () => {
+    // codex 复核抓到的:patchOf(ModelSchema) 曾放行 contextWindow: 0,
+    // 手动登记的模型能被改成「未知」,界面还会谎称它是同步来源
+    const spec = getMethodSpec('model.update');
+    expect(spec.input.safeParse({ id: 'm1', contextWindow: 0 }).success).toBe(false);
+    expect(spec.input.safeParse({ id: 'm1', contextWindow: -1 }).success).toBe(false);
+    expect(spec.input.safeParse({ id: 'm1', contextWindow: 400000 }).success).toBe(true);
+    expect(spec.input.safeParse({ id: 'm1', name: '改名' }).success).toBe(true);
+  });
+
   it('手动登记仍然拒绝 0 —— 表单里的人知道自己在登记什么', () => {
     const spec = getMethodSpec('model.create');
     const manual = {

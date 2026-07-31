@@ -2240,6 +2240,13 @@ impl Store {
         capabilities: Option<&[String]>,
         enabled: Option<bool>,
     ) -> Result<()> {
+        // MCP/HTTP 能绕过 Zod,这里才是真正的边界:0 是同步来源专属的
+        // 「未知」哨兵,负数任何时候都不合法(codex 复核抓到的)
+        if let Some(window) = context_window {
+            if window <= 0 {
+                return Err(StoreError::Invalid("上下文窗口必须是正数".to_string()));
+            }
+        }
         let caps = capabilities
             .map(serde_json::to_string)
             .transpose()
