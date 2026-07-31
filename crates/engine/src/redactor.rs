@@ -132,6 +132,8 @@ impl Redactor {
             (r"\bgh[pousr]_[A-Za-z0-9]{16,}\b", Mode::Whole),
             (r"\bgithub_pat_[A-Za-z0-9_]{20,}\b", Mode::Whole),
             (r"\bsk-[A-Za-z0-9_-]{16,}\b", Mode::Whole),
+            // 第 3 轮实测泄漏的形态：adapter 502 报错把上游 key 带在 URL 路径里
+            (r"\bsec-[A-Za-z0-9_-]{16,}\b", Mode::Whole),
             (r"\bxox[baprs]-[A-Za-z0-9-]{10,}\b", Mode::Whole),
             (r"\bAKIA[0-9A-Z]{16}\b", Mode::Whole),
             (r"\bAIza[0-9A-Za-z_-]{30,}\b", Mode::Whole),
