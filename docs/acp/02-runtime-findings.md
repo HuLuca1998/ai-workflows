@@ -7,7 +7,18 @@
 > **2026-07-27 在新版本上的复验**（SDK `1.3.0` + `@agentclientprotocol/claude-agent-acp 0.62.0`）：
 > 参考实现在新包上编译并端到端跑通，`handshake` / `auth` 结果见下方
 > [§8 新版本复验数据](#8-新版本复验数据2026-07-27)。协议层结论未变。
-> codex 侧未在新版本复验，接入时请自行跑一遍 `probe.ts --agent codex`。
+>
+> **2026-07-31 codex 侧复验**（`@agentclientprotocol/codex-acp 1.1.7`）：
+> 8 个场景实跑，往返记录在 [transcripts/](transcripts/README.md)。
+> **两条结论被推翻**——
+>
+> 1. **档位名变了**：不再是 `read-only` / `auto` / `full-access`，
+>    现在是 `read-only` / `agent` / `agent-full-access`，**默认 `agent`**（见 §6）；
+> 2. **权限触发点变了**：`agent` 档下建文件**完全不触发**
+>    `request_permission`（见 §2）。
+>
+> 新增：codex 的 `usage` **没有 `cost` 字段**（claude 有），多一个
+> `thoughtTokens`；`sessionCapabilities` 五项全支持。
 
 ## 速查表
 
@@ -43,6 +54,23 @@ prompt 让它复述之前的标记。
 - **codex**：在**跑 shell 命令前**触发，`toolCall.kind` 是 `execute`。
 
 两侧 reject 都真实生效（文件确实没被创建 / 命令确实没执行）。
+
+> ⚠️ **2026-07-31 修正（codex-acp 1.1.7）：触发与否取决于档位。**
+>
+> | 档位 | `request_permission` 次数 | 文件建了吗 |
+> |---|---|---|
+> | `agent`（**默认**） | **0** | ✅ 建了 |
+> | `read-only` | 2 | ❌ 没建 |
+>
+> 上面那句「codex 在跑 shell 命令前触发」只在 `read-only` 档下成立。
+> **默认档下它自己做主，客户端的裁决回调一次都不会被调用**——
+> 所以「先 `set_mode` 再谈裁决」不是优化建议，是前提条件
+> （[06 规则 8](06-repo-rules.md)、[07 H-6](07-violations.md)）。
+>
+> `read-only` 档下拒绝仍然真实生效，且 agent 会明说「写入权限请求被拒绝，
+> `hello.txt` 未创建」。证据：
+> [codex-permission.jsonl](transcripts/codex-permission.jsonl) 与
+> [codex-permission-readonly.jsonl](transcripts/codex-permission-readonly.jsonl)。
 
 这意味着：把裁决逻辑接到 `requestPermission` 回调上，就得到了一条跨 runtime
 统一的逐工具调用执法通道。裁决结果建议全部落事件流做审计。
@@ -122,10 +150,28 @@ prompt 让它复述之前的标记。
 
 - claude 的 permission mode（`default` / `acceptEdits` / `plan` / `dontAsk` /
   `bypassPermissions`）
-- codex 的 sandbox 档位（`read-only` / `auto` / `full-access`）
+- codex 的 sandbox 档位（~~`read-only` / `auto` / `full-access`~~ **已过时**，
+  见下方修正）
 
 **都作为标准 ACP session modes 返回**（在 `session/new` 的响应 `modes` 字段里），
 可以用 `session/set_mode` 切换。
+
+> ⚠️ **2026-07-31 修正（codex-acp 1.1.7）**，实测
+> [codex-handshake.jsonl](transcripts/codex-handshake.jsonl)：
+>
+> | modeId | 名称 | 说明 |
+> |---|---|---|
+> | `read-only` | Read-only | Requires approval to edit files and run commands. |
+> | `agent` | Agent | Read and edit files, and run commands. |
+> | `agent-full-access` | Agent (full access) | 可以改工作区外的文件、跑带网络的命令 |
+>
+> **`currentModeId` 默认是 `agent`**，不是只读。
+>
+> 而且 `session/new` 的响应里**不只有 `modes`**，还有 `models`
+> （25 个可选模型 + `currentModelId`）与 `configOptions`
+> （`mode` / `collaboration_mode` / `model` / `reasoning_effort` / `fast-mode`
+> 五项，配 `session/set_config_option` 使用）。
+> 完整形状见 [05 §2](05-protocol-reference.md)。
 
 所以权限姿态可以按任务需要标准化设置，不需要碰 runtime 的配置文件。
 这大幅简化了 adapter 层。

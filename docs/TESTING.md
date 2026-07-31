@@ -261,5 +261,5 @@ pnpm test:e2e          # Playwright
 「尽可能」不是「绝不」：只装了 claude adapter 的机器上仍然要能用 ——
 `preferred_acp_runtime()` 会退回到它，而不是报「没装」。
 
-接入前先跑 `docs/reference/acp/reference/probe.ts`：那份经验里 codex 侧
+接入前先跑 `docs/acp/reference/probe.ts`：那份经验里 codex 侧
 只在旧版本验证过，「某能力不支持」的结论会过期。

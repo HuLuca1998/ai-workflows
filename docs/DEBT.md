@@ -370,6 +370,92 @@ rg -n 'advance_run_status\([^)]*' crates/engine/src crates/core-api/src --no-fil
 
 ---
 
+### B-8 · 主管 AI 的 ACP 用法：10 条硬性错误
+
+**位置**：`packages/client-core/src/ipc-mapping.ts:189` 起，链路见下
+**明细**：[`docs/acp/07-violations.md`](acp/07-violations.md)（这里只记索引与成因）
+
+用户报的三个症状 ——「每条消息都是一个 session」「页面卡死没有流式」
+「提示词每轮都重发」—— 是同一条链路上三处独立的断点，逐条实证如下：
+
+| 编号 | 事项                                                            | 位置                       |
+| ---- | --------------------------------------------------------------- | -------------------------- |
+| H-1  | **会话 id 在映射层被丢**，每问一句新建一条 ACP 会话             | `ipc-mapping.ts:189`       |
+| H-2  | **流式断在 core-api**，chunk 攒成整段；两端无推送通道           | `core-api/src/lib.rs:2112` |
+| H-3  | **系统提示词每轮重发**（含整张草稿图）                          | `core-api/src/lib.rs:2063` |
+| H-4  | **翻开历史会话继续问，agent 一无所知**（从不用 `session/load`） | `SupervisorDrawer.tsx:299` |
+| H-5  | **`stopReason` 被丢弃**，截断的答案当成功交出去                 | `core-api/src/lib.rs:2099` |
+| H-6  | **权限裁决硬编码全拒**，与界面上的权限档无关且不可见            | `engine/src/acp.rs:423`    |
+| H-7  | **「取消」不取消远端**，`session/cancel` 零调用点               | `engine/src/acp.rs:388`    |
+| H-8  | **模型下拉是装饰**，`modelRef` 无消费点                         | `SupervisorDrawer.tsx:508` |
+| H-9  | **池键用问题原文**，问同一句话会撞进同一条会话                  | `core-api/src/lib.rs:2091` |
+| H-10 | Web 形态下 `context` 与 `contextJson` 对不上 ⚠️ 待实证          | `dispatch.rs:41`           |
+
+**H-6 值得单独说 —— 它是「够不着的防线」，实测出来的**：
+
+`acp.rs:423` 收到权限请求一律挑 reject，看起来是道很严的门。
+对 `codex-acp 1.1.7` 与 `claude-agent-acp 0.63.0` 各跑一遍同一件事
+（在 cwd 里建个文件），结果相反：
+
+| runtime · 档位                       | 请求权限次数 | 文件建了吗  |
+| ------------------------------------ | ------------ | ----------- |
+| codex · `agent`（**默认**）          | **0**        | ✅ **建了** |
+| codex · `read-only`（`set_mode` 后） | 2            | ❌ 没建     |
+| claude · `default`（默认）           | 1            | ❌ 没建     |
+
+**那段拒绝代码在 codex 上一次都没被调用过**，而 codex 是首选 runtime，
+cwd 传的是应用数据目录。修法很短：`session/new` 之后调一次
+`session/set_mode`。
+
+这也解释了为什么它一直没被发现：**只用 claude 测会看到一切正常。**
+
+**三层掩护**：
+
+| 掩护                                       | 说明                                                                                                                                          |
+| ------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| `supervisor-history.test.tsx:150` 绿着     | 名字叫「第二问带上后端给的 sessionId」。它 `vi.mock` 掉整个 `workspace.js`，断言的是**组件传给 `coreClient` 的参数**，根本不经过 `toIpcInput` |
+| `ipc-mapping.test.ts` 覆盖了 run.\* 与分页 | **没有一条测 supervisor.ask**                                                                                                                 |
+| `acp_pool_test.rs` 11 条用真 mock 进程验   | 池本身是对的 —— **钥匙在半路掉了，测池测不出来**                                                                                              |
+
+**验证**：
+
+```bash
+grep -A 8 "method === 'supervisor.ask'" packages/client-core/src/ipc-mapping.ts | grep -c sessionId
+# 0 —— 白名单里没有它
+
+grep -rn "\.cancel(" --include="*.rs" crates/ | grep -v "fn cancel" | grep -v "supervisor\|runner\|run_cancel"
+# 无输出 —— session/cancel 零调用点
+
+grep -rn "modelRef" crates/core-api/src/dispatch.rs apps/desktop/src-tauri/src/lib.rs | grep -i supervisor
+# 无输出 —— 模型下拉无消费点
+```
+
+**成因与 B-5 / B-6 同源**：`ipc-mapping.ts` 那层是**白名单式**的，
+只挑出列出来的字段、其余静默丢弃。这个形态已经吃掉过三次字段 ——
+`ver`、`run.list` 的分页参数、现在是 `sessionId`，
+而**症状都是「数据莫名为空」而不是报错**。文件里第 183 行的注释
+自己就写着这件事，然后在下面第 189 行又犯了一次。
+
+**还清的判据**：H-1 先修（H-3 依赖它 —— 每轮都是新会话时，
+不发提示词等于什么都没说）。同时补两道守卫：
+
+1. 一条**不 mock transport** 的端到端用例，断言第二问落在同一个池键上
+   （用 `pid_for_test`，session id 靠不住）；
+2. `ipc-mapping` 的接缝守卫：契约里声明了的入参字段，映射层必须发得出去 ——
+   这条守卫能一次性挡住上面那三次同形态的丢字段。
+
+规范与逐条明细在 [`docs/acp/`](acp/)：
+[06-repo-rules](acp/06-repo-rules.md) 是 22 条准则，
+[07-violations](acp/07-violations.md) 是违反清单（含 13 条可优化项），
+[08-runtime-abstraction](acp/08-runtime-abstraction.md) 是两端差异与抽象层设计。
+
+**这一条的证据不是读代码读出来的**：对两个 runtime 各跑了一遍探针，
+12 份完整往返记录在 [`docs/acp/transcripts/`](acp/transcripts/README.md)。
+其中三条修法**已在真实 runtime 上验证可行**——同一条会话里系统提示词
+只发一次就够、`session/load` 能真恢复上下文、`session/cancel` 真停得住。
+
+---
+
 ## 二、烂账
 
 ### L-1 · Supervisor 两处吞错

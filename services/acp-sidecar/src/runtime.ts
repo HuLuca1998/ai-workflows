@@ -3,7 +3,7 @@ import path from 'node:path';
 /**
  * ACP runtime 注册表与进程环境构造。
  *
- * 完整背景见 docs/reference/acp/。这里只留下引擎真正需要的那部分，
+ * 完整背景见 docs/acp/。这里只留下引擎真正需要的那部分，
  * 并把踩过的坑写成代码里的硬约束而不是注释里的提醒。
  *
  * 新增一个 ACP 兼容 runtime = 追加一条记录，不写新代码。

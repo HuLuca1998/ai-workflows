@@ -7,7 +7,7 @@ import {
 } from '../src/runtime.js';
 
 /**
- * 这些用例全部来自 docs/reference/acp/03-pitfalls.md ——
+ * 这些用例全部来自 docs/acp/03-pitfalls.md ——
  * 每条都是真实踩过并修复的坑。固化成测试，避免重构时又踩回去。
  */
 

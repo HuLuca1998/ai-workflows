@@ -268,9 +268,27 @@ AI 的改动一律先进 `DraftStore.propose()`（出 Diff），用户确认才 
 还没开始做的能力（`branch` / `mcp.tool` / `subworkflow` 等节点、WKWebView 性能基准、
 Web 形态）排在还账之后，理由见 ROADMAP。
 
-## ACP：测试与试验优先用 codex
+## ACP：全部 AI 能力的唯一入口
 
-**不要用 claude 的 adapter 做测试和试验**（`acp.claude`）。这个应用本身
+**改任何 ACP 代码之前先读 [`docs/acp/`](docs/acp/)** ——
+那里有协议参考、22 条使用规范、当前违反清单、两个 runtime 的差异表，
+以及 12 份**真实往返记录**（`docs/acp/transcripts/`，不是示例，是跑出来的字节）。
+
+三件必须先知道的事：
+
+1. **协议一致，语义不一致**。claude 与 codex 的档位名零交集，
+   默认档一个会问权限、一个不问；模型清单在两个不同字段；
+   `cost` 只有 claude 报。差异表与抽象层设计在
+   [`08-runtime-abstraction.md`](docs/acp/08-runtime-abstraction.md)
+2. **一条对话 = 一条 ACP 会话，系统提示词只在首轮发**。
+   ACP 会话自带上下文，两端实测都成立。每轮新建会话 = agent 手上永远是白纸
+3. **`session/new` 之后必须 `set_mode`**。不设就是 runtime 的默认档，
+   而 codex 的默认档是 `agent`（可读写、可跑命令、**不问权限**）——
+   客户端那套裁决代码在那一档下一次都不会被调用
+
+### 测试与试验优先用 codex
+
+**不要用 claude 的 adapter 做日常测试**（`acp.claude`）。这个应用本身
 跑在 Claude Code 里开发，用它去测会与开发环境撞在一起：嵌套的 agent 会话、
 共用的登录态、同一份配额 —— 跑一次测试就可能把正在进行的开发会话搅乱。
 
@@ -279,6 +297,17 @@ Web 形态）排在还账之后，理由见 ROADMAP。
 都跟着它。详见 `docs/TESTING.md`。
 
 只装了 claude adapter 的机器上仍然要能用 —— 那是退路，不是首选。
+**但退路也要验**：涉及跨 runtime 语义的改动（权限、模型、配置项）
+必须两端各跑一遍探针，那类差异只测一端发现不了。
+
+```bash
+PATH="$PWD/node_modules/.bin:$PATH" \
+  node docs/acp/reference/transcript-probe.mjs handshake --agent codex
+```
+
+⚠️ **落盘的往返记录进仓库前必须脱敏**（探针会自动调）。
+`session/list` 返回本机全部会话、跨项目——实测 claude 侧 766 条，
+codex 侧 25 条带完整 prompt 正文。
 
 ## 风格
 

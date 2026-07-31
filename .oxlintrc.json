@@ -11,7 +11,7 @@
     "target/**",
     "coverage/**",
     "docs/archive/**",
-    "docs/reference/acp/**",
+    "docs/acp/**",
     "packages/contracts/generated/**"
   ],
   "rules": {

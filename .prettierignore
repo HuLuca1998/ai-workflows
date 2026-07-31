@@ -4,7 +4,9 @@ dist/
 target/
 coverage/
 docs/archive/
-docs/reference/acp/
+# ACP 参考实现与**真实往返记录**。
+# jsonl 尤其不能格式化 —— 那是原样落盘的字节，改一个空格就不是「记录」了
+docs/acp/
 packages/contracts/generated/
 apps/desktop/src-tauri/gen/
 

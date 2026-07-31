@@ -1,18 +1,18 @@
 # 文档索引
 
-| 文档                               | 什么时候读                                     |
-| ---------------------------------- | ---------------------------------------------- |
-| [DEBT.md](DEBT.md)                 | **接活之前**——现在欠着什么、哪条最该先修       |
-| [ROADMAP.md](ROADMAP.md)           | 想知道现在做到哪、下一步做什么                 |
-| [PROJECT.md](PROJECT.md)           | 想知道这个软件是什么、边界在哪                 |
-| [ARCHITECTURE.md](ARCHITECTURE.md) | 动手改代码前，先看清分层与依赖方向             |
-| [TESTING.md](TESTING.md)           | 写任何功能之前                                 |
-| [CONTRIBUTING.md](CONTRIBUTING.md) | 提交代码、改契约、加组件前                     |
-| [MCP.md](MCP.md)                   | 接入外部 AI 客户端，或改 MCP 工具清单          |
-| [INSTALL.md](INSTALL.md)           | 装应用、检查环境、用自动更新                   |
-| [RELEASE.md](RELEASE.md)           | 发版、配置更新通道、排查更新问题               |
-| [adr/](adr/)                       | 想知道某个技术选择「为什么是这样」             |
-| [reference/acp/](reference/acp/)   | ACP 协议实测经验：生命周期、踩坑清单、参考实现 |
+| 文档                               | 什么时候读                                                                              |
+| ---------------------------------- | --------------------------------------------------------------------------------------- |
+| [DEBT.md](DEBT.md)                 | **接活之前**——现在欠着什么、哪条最该先修                                                |
+| [ROADMAP.md](ROADMAP.md)           | 想知道现在做到哪、下一步做什么                                                          |
+| [PROJECT.md](PROJECT.md)           | 想知道这个软件是什么、边界在哪                                                          |
+| [ARCHITECTURE.md](ARCHITECTURE.md) | 动手改代码前，先看清分层与依赖方向                                                      |
+| [TESTING.md](TESTING.md)           | 写任何功能之前                                                                          |
+| [CONTRIBUTING.md](CONTRIBUTING.md) | 提交代码、改契约、加组件前                                                              |
+| [MCP.md](MCP.md)                   | 接入外部 AI 客户端，或改 MCP 工具清单                                                   |
+| [INSTALL.md](INSTALL.md)           | 装应用、检查环境、用自动更新                                                            |
+| [RELEASE.md](RELEASE.md)           | 发版、配置更新通道、排查更新问题                                                        |
+| [adr/](adr/)                       | 想知道某个技术选择「为什么是这样」                                                      |
+| [acp/](acp/)                       | **改任何 ACP 代码之前**：协议参考、22 条使用规范、违反清单、两端差异、12 份真实往返记录 |
 
 ## archive/
 

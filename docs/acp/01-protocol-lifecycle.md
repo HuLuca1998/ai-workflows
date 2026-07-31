@@ -40,10 +40,16 @@ await conn.initialize({
   protocolVersion: PROTOCOL_VERSION,
   clientCapabilities: {
     fs: { readTextFile: true, writeTextFile: true },  // 声明后 agent 才会走 fs 代理
-    terminal: false,
+    terminal: false,        // ← 不是简单开关：它开启的是整个 terminal/* 家族（5 个方法）
+    // elicitation: { … }   // 让 agent 能向用户要结构化输入（表单 / URL）
   },
 });
 ```
+
+**声明是一份承诺，两个方向都要兑现**：声明了不实现，agent 调过来吃到
+`-32601`，整轮可能失败；该声明的不声明，等于自断一条能力——
+`fs` 给 false 就意味着 claude 不走你的 fs 代理，path guard 没有落点。
+全部字段见 [05-protocol-reference §5](05-protocol-reference.md)。
 
 返回值里最有用的三个字段：
 - `agentCapabilities.loadSession` — 能否跨进程恢复会话（两个 runtime 实测都是 `true`）
@@ -71,10 +77,16 @@ ACP session modes 暴露，可以用 `session/set_mode` 切换。**这意味着�
 | 你的接口 | ACP 调用 |
 |---|---|
 | `createSession` | `initialize` → (`authenticate`) → `session/new` |
-| `resumeSession` | `session/load`（capability 缺失时降级为新建 + 用结构化状态重建 prompt） |
+| `resumeSession` | `session/load`（要重放历史）或 `session/resume`（不重放）；capability 缺失时降级为新建 + 用结构化状态重建 prompt |
 | `runTurn` | `session/prompt`，事件来自 `session/update` 通知流 |
 | `cancel` | `session/cancel` |
-| `close` | 结束子进程（先等未完成的 update 刷完） |
+| `close` | `session/close` 关单条会话；要收进程才结束子进程（先等未完成的 update 刷完） |
+
+**这张表只是常用的五个。** 协议实际有 13 个 agent 侧方法与 11 个 client 侧方法
+（`session/list`、`session/delete`、`session/set_mode`、整个 `terminal/*`
+与 `elicitation/*` 家族都不在上面）。完整清单见
+[05-protocol-reference](05-protocol-reference.md)——
+**没列在这张表上不等于协议没有**。
 
 ## 4. `session/update` 事件类型
 
@@ -89,13 +101,20 @@ ACP session modes 暴露，可以用 `session/set_mode` 切换。**这意味着�
 | `tool_call` | 工具调用开始（`toolCallId`/`title`/`status`/`rawInput`） | 展示"正在做什么" |
 | `tool_call_update` | 工具调用状态变化（`status`/`rawOutput`/`content`） | 按 `toolCallId` 更新同一条 |
 | `plan` | agent 的执行计划 | 原样保留 |
+| `current_mode_update` | **agent 自己切了档**，带新的 `modeId` | 更新界面上显示的权限档 |
+| `available_commands_update` | 可用斜杠命令清单变了（会话中途可多次推） | 刷新命令列表 |
+| `config_option_update` | 会话配置项变了 | 更新对应设置 |
 
 `tool_call` 的 `status` 流转：`pending` → `in_progress` → `completed` / `failed`。
 UI 上要按 `toolCallId` 合并同一个工具调用的多条更新，否则会显示成一堆重复条目。
+`tool_call_update` 里**除 `toolCallId` 外全是可选**，只带变了的字段。
 
-注意 `rawInput` / `rawOutput` 不在 SDK 的 TypeScript 类型里（属于扩展字段），
-取的时候要 `as unknown as { rawInput?: unknown }` 绕过类型检查——但它们确实存在
-且很有用（工具调用的实际参数与结果）。
+`rawInput` / `rawOutput` 是**官方 schema 里的正式字段**（工具调用的实际参数与结果），
+不是扩展字段。
+
+> 这里原先写着「它们不在 SDK 的 TypeScript 类型里，取的时候要 `as unknown`
+> 绕过类型检查」——那是 0.4.5 时代的情况，2026-07-31 对照官方 schema 已不成立。
+> 各字段的完整形状见 [05-protocol-reference §4](05-protocol-reference.md)。
 
 ## 5. 反向调用：权限与文件
 
@@ -125,6 +144,18 @@ runtime 不问就不经过你。所以沙箱兜底不可省（见
 **但边界必须诚实**：fs 代理只覆盖"编辑器型"文件操作。runtime 自己的
 shell/terminal 写文件不走这里。实测 claude 走 fs 代理，**codex 完全不走**
 （用自带 shell）——详见 [02-runtime-findings #3](02-runtime-findings.md)。
+
+### 还有两条反向通道
+
+- **`terminal/*`**（create / output / wait_for_exit / kill / release）：
+  声明 `terminal: true` 之后，agent 跑命令会经过你——**这正是补上 codex
+  那个缺口的地方**，它自带 shell 绕过 fs 代理，但终端可以由你提供。
+  终端还能嵌进 `tool_call` 的 content 实时显示输出。
+- **`elicitation/*`**（create / complete）：agent 向用户要结构化输入。
+  与权限请求的分工是「这件事让不让做」对「这件事要你补一个值」。
+
+两条本仓库都没声明。字段细节见
+[05-protocol-reference §3](05-protocol-reference.md)。
 
 ## 6. 会话恢复（`session/load`）
 
@@ -161,18 +192,23 @@ await client({ name: "my-app" }).connectWith(stream, async (ctx) => {
 `PROTOCOL_VERSION`、`Client` 接口形状都没变——参考实现就是用它在 1.3.0 上
 编译并跑通的。新项目如果想跟上游走，建议先用旧写法跑通、再择机迁移。
 
-### SDK 1.x 新增的会话管理方法
+### 会话管理方法（**是协议方法，不是 SDK 便利封装**）
 
-0.4.5 没有、1.3.0 有的（都需要 agent 侧声明对应 capability 才可用）：
+0.4.5 时代没有、现在有的一组。SDK 里的名字与协议方法是一一对应的：
 
-| 方法 | 用途 |
-|---|---|
-| `listSessions` | 列出该 agent 下已有的会话 |
-| `resumeSession` | 恢复会话（与 `loadSession` 并存，语义更明确） |
-| `closeSession` | 显式关闭单个会话，不必杀整个进程 |
-| `deleteSession` | 删除会话及其历史 |
-| `setSessionConfigOption` | 逐项设置会话配置 |
+| SDK 方法名 | 协议方法 | 用途 |
+|---|---|---|
+| `listSessions` | `session/list` | 列出该 agent 下已有的会话 |
+| `resumeSession` | `session/resume` | 恢复会话，**不重放历史**（与 `load` 并存） |
+| `closeSession` | `session/close` | 关掉单条会话，不必杀整个进程 |
+| `deleteSession` | `session/delete` | 删除会话及其历史 |
+| `setSessionConfigOption` | `session/set_config_option` | 逐项设置会话配置 |
 
-`closeSession` 值得注意：有了它就能**一个子进程复用多个会话**而不泄漏——
-可以重新考虑"一会话一进程"的取舍（那个设计是在没有 `closeSession` 的年代
-定下的）。用之前先确认 runtime 是否声明了对应 capability。
+**这个区分对本仓库有实际后果**：Rust 侧没有 SDK，`crates/engine/src/acp.rs`
+是手写 JSON-RPC。所以「SDK 有没有这个方法」是个假问题——**协议有，
+我们就能直接发那行 JSON**。用之前确认 agent 声明了对应 capability。
+
+`session/close` 值得注意：有了它就能**一个子进程复用多条会话**而不泄漏——
+可以重新考虑「一会话一进程」的取舍（那个设计是在它还不存在的年代定下的）。
+本仓库的会话池目前仍是一会话一进程，见
+[07 O-5](07-violations.md)。
