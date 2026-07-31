@@ -149,38 +149,6 @@ done
 
 ---
 
-### B-4 · `cleanup_worktree` 是死代码，worktree 无限累积
-
-**位置**：`crates/engine/src/worktree.rs:87`
-
-```bash
-rg -n 'cleanup_worktree' crates apps -g '!node_modules' | grep -v 'worktree.rs'
-# 全部命中都在 crates/engine/tests/worktree_test.rs —— 生产代码零调用
-```
-
-那个函数写得很好：有「有未提交的改动，已拒绝清理」和「不是引擎建的 worktree，已拒绝清理」
-两条安全检查，还处理了「分支名斜杠转短横，避免清理时误删同级 worktree」。
-**只是没有人调用它。**
-
-`git.worktree` 节点的 `cleanupPolicy` 配置字段零消费方（`conflictPolicy` / `fetch` /
-`parentDir` 同样）。所以：**每跑一次带 worktree 节点的工作流，
-磁盘上就留一个 worktree 目录 + 一个 git 分支，永不回收。**
-
-**掩护它的是什么**：交付清单里写着
-
-> **Git worktree 节点**：分支已存在拒绝复用、**有未提交改动拒绝清理**、
-> 分支名斜杠转短横（避免清理时误删同级 worktree）
-
-第二条描述的是一个从未被调用的函数。而 `worktree_test.rs` 里 6 条测试全绿 ——
-它们测的是函数本身，函数确实是对的。
-
-**还清的判据**：`cleanupPolicy` 真的驱动清理（运行结束 / 节点成功 / 从不，按配置），
-一条测试断言「跑完一个带 worktree 的运行后，按策略该清的清了、该留的留了」。
-另外给现存的孤儿 worktree 一个回收入口（概览页已经在统计 `.aiwf-worktrees` 的占用，
-统计了却没有清理入口本身也是个断头路）。
-
----
-
 ### B-5 · 42 个配置字段静默忽略：填了不报错，也不生效
 
 用户在配置弹层里填了，保存成功，校验通过，运行时被无视。
@@ -204,7 +172,7 @@ rg -n 'cleanup_worktree' crates apps -g '!node_modules' | grep -v 'worktree.rs'
 | `script.shell` | `env`、`secretEnv`、`successExitCodes`、`outputLimitBytes`、`workdir` | 环境变量只给 `scope.env_vars()`；退出码硬编码 `!=0` 判失败；输出上限硬编码；工作目录用运行级的 |
 | `approval`     | `bodyMarkdown`、`interaction`、`waitStrategy`、`reminderAfterMs`      | 全仓零命中（连界面都不读）                                                                     |
 | `ai.*`         | `promptId`、`turnLimit`、`outputContract`                             | 见 B-3                                                                                         |
-| `git.worktree` | `parentDir`、`fetch`、`conflictPolicy`、`cleanupPolicy`               | 见 B-4                                                                                         |
+| `git.worktree` | `parentDir`、`fetch`、`conflictPolicy`                                | 位置固定/不 fetch/冲突策略不生效（`cleanupPolicy` 已生效）                                     |
 | `entry`        | `trigger`、`injectedFields`                                           | 只有 `inputSchema` 与 `workdirSource` 生效                                                     |
 | `end`          | `artifacts`                                                           | 零命中                                                                                         |
 
@@ -497,6 +465,7 @@ sync 拿不到「每模型的 effort」，只能编一个。
 | O-9  | **没有离线 / 连接断开的全局提示**                                                                     | 只对 Web 形态有意义，而 Web 形态本身是 O-2 |
 | O-10 | **主管 AI 历史会话固定拿 50 条**：无搜索、无翻页，`supervisor.sessions` 也不传 limit                  | 与另外五个列表页同一套分页要一起做         |
 | O-11 | **设置十档没有搜索**，其中四档落到「这一档还没有可配置的项」                                          | 空档要先有内容，搜索才有意义               |
+| O-13 | **现存孤儿 worktree 没有回收入口**：概览页统计了 `.aiwf-worktrees` 占用，但没有清理动作（清理策略已生效，只有历史遗留的堆着） | 界面功能，与 O-6 那批列表操作一起做 |
 | O-12 | **主管 AI 抽屉的遮罩挡住整个画布**：`inset:0` + `z-index:20`，看 Diff 时对不上画布上是哪几个节点      | 与 O-8（ghost 呈现）是同一件事的两半       |
 
 ---
@@ -519,7 +488,6 @@ MCP / `workflow_patch` 路径可以写对象形态，所以这不是「填了不
 
 | 顺序 | 条目                    | 为什么排这里                                                                            |
 | ---- | ----------------------- | --------------------------------------------------------------------------------------- |
-| 3    | **B-4** worktree 不清理 | 唯一一条**在用户磁盘上持续累积**的。每跑一次多一个目录和分支                            |
 | 4    | **B-6** + **B-5** 守卫  | 这两条是**成因**。不补守卫，notify 那类问题与 B-5 会以新形态重新长出来                  |
 | 5    | **B-2** 事件发射        | 违反的是架构第一原则。界面明确承诺的 `node.cancelled` 先补（`model_downgraded` 已还清） |
 | 6    | **B-3** 提示词          | 一整屏功能没有出口；出口标准只兑现一半                                                  |
