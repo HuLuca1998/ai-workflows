@@ -44,6 +44,8 @@ interface Agent {
 interface ModelOption {
   id: string;
   name: string;
+  /** 下拉按角色 runtime 过滤用 —— 跨 runtime 的引用引擎解析不了。 */
+  runtime: string;
 }
 
 const RUNTIME_LABELS: Record<(typeof AGENT_RUNTIMES)[number], string> = {
