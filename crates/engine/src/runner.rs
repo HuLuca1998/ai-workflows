@@ -924,6 +924,19 @@ impl Runner {
             .map_err(|e| RunError::GraphInvalid(e.to_string()))?;
         let pending_json = pending.map(|node| format!(r#"{{"nodeId":"{node}"}}"#));
         store.save_checkpoint(run_id, seq, &env_json, pending_json.as_deref())?;
+        // 「杀掉 App 能从这里恢复」对用户可见的唯一载体就是这条事件（B-2）。
+        // 落成功才发 —— 事件声称的必须已经发生
+        self.emit(
+            store,
+            run_id,
+            "system.checkpoint_saved",
+            pending,
+            "engine",
+            &match pending {
+                Some(node) => format!("已落检查点（至事件 #{seq}，挂起等待节点 {node} 的审批）"),
+                None => format!("已落检查点（至事件 #{seq}，含全部上游输出）"),
+            },
+        )?;
         Ok(())
     }
 

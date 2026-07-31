@@ -41,7 +41,6 @@ const NOT_YET_EMITTED: &[(&str, &str)] = &[
     ("approval.expired", "waitStrategy 字段未实现（B-5）"),
     ("artifact.created", "产物真的在落盘 —— 待补发射点"),
     ("artifact.truncated", "截断真的在做 —— 待补发射点"),
-    ("system.checkpoint_saved", "检查点真的在落 —— 待补发射点"),
     ("system.memory_written", "记忆提议写入已实现 —— 待补发射点"),
     ("system.prompt_resolved", "提示词库还没接上执行路径（B-3）"),
     (

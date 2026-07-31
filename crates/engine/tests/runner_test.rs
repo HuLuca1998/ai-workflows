@@ -1394,3 +1394,38 @@ mod 角色快照要留痕 {
         );
     }
 }
+
+#[test]
+fn 每次落检查点都在事件流留痕() {
+    // B-2:检查点真的在落(每个节点完成后一次),但事件流里看不到 ——
+    // 「杀掉 App 能恢复」这个能力对用户完全不可见,直到他真的杀一次
+    let graph = serde_json::json!({
+        "nodes": [
+            {"id": "entry", "type": "entry", "title": "入口", "config": {}},
+            {"id": "a", "type": "script.shell", "title": "干活",
+             "config": {"interpreter": "bash", "script": "echo ok", "timeoutMs": 5000}}
+        ],
+        "edges": [
+            {"id": "e1", "source": {"nodeId": "entry", "port": "success"}, "target": {"nodeId": "a", "port": "input"}}
+        ],
+        "groups": []
+    })
+    .to_string();
+
+    let (store, workflow) = setup(&graph);
+    let runner = Runner::new();
+    let run_id = runner.start(&store, request(&workflow)).unwrap();
+    let status = runner.run_all(&store, &run_id).unwrap();
+    assert_eq!(status, "succeeded");
+
+    let checkpoints = store
+        .events(&run_id, 0, 200)
+        .unwrap()
+        .into_iter()
+        .filter(|e| e.kind == "system.checkpoint_saved")
+        .count();
+    assert!(
+        checkpoints >= 2,
+        "两个节点各落一次检查点,事件流里应当至少两条留痕,实际 {checkpoints}"
+    );
+}
