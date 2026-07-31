@@ -676,6 +676,15 @@
   vertical-align: middle;
 }
 
+/* 整行可点(点了进编辑器),但此前没有任何可点提示(第 7 轮实测 #4) */
+.wf-table tbody tr {
+  cursor: pointer;
+}
+
+.wf-table tbody tr:hover td {
+  background: rgba(233, 233, 237, 0.045);
+}
+
 .wf-table__name {
   margin: 0 0 3px;
   color: var(--color-text);
@@ -2152,7 +2161,10 @@
 
 .runs__list-head {
   flex: none;
-  padding: 16px 14px 10px;
+  /* 顶部 padding 与右邻「节点进度」一致,分隔线补齐 ——
+     此前标题错位 4.5px、分隔线走到栏边界就断(第 7 轮实测 #5) */
+  padding: 14px 14px 10px;
+  border-bottom: 1px solid var(--color-divider);
 }
 
 .runs__list-title {
@@ -2348,7 +2360,8 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 10px 14px;
+  /* 底部多 4px:它贴着视口底边,行高或字号一动就会复发被裁(第 7 轮提醒) */
+  padding: 10px 14px 14px;
   border-top: 1px solid var(--color-divider);
   font-size: 11px;
   color: var(--color-neutral-600);
@@ -5319,14 +5332,17 @@ fieldset.launch__field {
 }
 
 .wf-table__actions {
-  display: flex;
-  gap: 4px;
-  justify-content: flex-end;
+  /* 不能用 flex:它打在 <td> 上会把单元格踢出表格布局,
+     行分隔线画在自己的高度上,比同行其它格高 15px(第 7 轮实测 #3) */
+  text-align: right;
+  white-space: nowrap;
 }
 
 .wf-table__actions button {
-  display: grid;
+  display: inline-grid;
   place-items: center;
+  vertical-align: middle;
+  margin-left: 4px;
   width: 26px;
   height: 26px;
   border: none;

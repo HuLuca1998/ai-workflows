@@ -7,6 +7,10 @@
  */
 
 :root {
+  /* 这套皮肤只有深色一份(产品现状,见第 7 轮实测报告)。
+     声明 color-scheme 让原生控件(select 弹层、滚动条)跟着深色渲染,
+     不声明的话深色应用里会弹出白底原生列表 */
+  color-scheme: dark;
   /* ── 角色色 ─────────────────────────────────────────────────────────── */
   --nocturne-bg: #161826;
   --nocturne-surface: #232532;
@@ -26,9 +30,12 @@
   --color-neutral-200: #e4e7f5;
   --color-neutral-300: #cfd3e5;
   --color-neutral-400: #b2b6ca;
-  --color-neutral-500: #9397ab;
-  --color-neutral-600: #75798c;
-  --color-neutral-700: #595d6c;
+  /* 500–700 在 2026-08-01 抬亮过一档:第 7 轮实测(WCAG 按公式算的)
+     表头/副行/页脚全线 1.9–3.7:1,小字号下读不出来。
+     梯度仍单调:400 > 500 > 600 > 700 */
+  --color-neutral-500: #a2a7ba;
+  --color-neutral-600: #939aad;
+  --color-neutral-700: #868da1;
   --color-neutral-800: #3f424d;
   --color-neutral-900: #292b31;
 
