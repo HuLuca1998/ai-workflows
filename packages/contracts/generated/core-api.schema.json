@@ -5155,8 +5155,7 @@
                 "type": "string",
                 "enum": [
                   "acp.codex",
-                  "acp.claude",
-                  "provider.api"
+                  "acp.claude"
                 ]
               },
               "modelId": {
@@ -5237,8 +5236,7 @@
           "type": "string",
           "enum": [
             "acp.codex",
-            "acp.claude",
-            "provider.api"
+            "acp.claude"
           ]
         },
         "modelId": {
@@ -5323,8 +5321,7 @@
           "type": "string",
           "enum": [
             "acp.codex",
-            "acp.claude",
-            "provider.api"
+            "acp.claude"
           ]
         },
         "modelId": {
@@ -5515,8 +5512,7 @@
                 "type": "string",
                 "enum": [
                   "acp.codex",
-                  "acp.claude",
-                  "provider.api"
+                  "acp.claude"
                 ]
               },
               "modelRef": {
@@ -5661,8 +5657,7 @@
           "type": "string",
           "enum": [
             "acp.codex",
-            "acp.claude",
-            "provider.api"
+            "acp.claude"
           ]
         },
         "modelRef": {
@@ -5803,8 +5798,7 @@
           "type": "string",
           "enum": [
             "acp.codex",
-            "acp.claude",
-            "provider.api"
+            "acp.claude"
           ]
         },
         "modelRef": {

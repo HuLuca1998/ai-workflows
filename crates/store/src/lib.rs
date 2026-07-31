@@ -2871,7 +2871,7 @@ fn validate_sections(sections_json: &str) -> Result<()> {
 ///
 /// Rust 侧留一份镜像，是为了让绕过界面的调用路径（MCP、脚本、HTTP 桥接）
 /// 同样写不进脏数据。contract_sync_test 守住它不脱离契约。
-pub const AGENT_RUNTIMES: &[&str] = &["acp.claude", "acp.codex", "provider.api"];
+pub const AGENT_RUNTIMES: &[&str] = &["acp.claude", "acp.codex"];
 
 fn validate_runtime(runtime: &str) -> Result<()> {
     if AGENT_RUNTIMES.contains(&runtime) {

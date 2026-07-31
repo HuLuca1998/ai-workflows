@@ -125,15 +125,21 @@ export const MemorySchema = z.object({
 export type Memory = z.infer<typeof MemorySchema>;
 
 /**
- * Agent 的接入方式。
+ * Agent 的接入方式。**只有 ACP。**
  *
  * **`acp.codex` 排在前面是有意的**：这个应用本身跑在 Claude Code 里开发，
  * 用 claude 的 adapter 做测试会与开发环境互相干扰 —— 嵌套的 agent 会话、
  * 共用的登录态、同一份配额。默认值、探测顺序都跟着这个顺序走。
  *
  * 「尽可能」不是「绝不」：只装了 claude adapter 的机器上仍然要能用。
+ *
+ * 这里曾经还有第三格 `provider.api`（直连模型厂商的 HTTP API）。
+ * 它**一行实现都没有**，而界面能选、库里能存、跑起来必然失败；
+ * `Model` 上的 `credentialRef` / `contextWindow` 也是为它准备的 ——
+ * ACP 的登录态由 CLI 自己管，上下文窗口由 agent 自己知道。
+ * 要重新支持直连 API 时，连同那几个字段一起加回来，别只加枚举值。
  */
-export const AGENT_RUNTIMES = ['acp.codex', 'acp.claude', 'provider.api'] as const;
+export const AGENT_RUNTIMES = ['acp.codex', 'acp.claude'] as const;
 
 export const AgentProfileSchema = z.object({
   id: z.string().min(1),

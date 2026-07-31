@@ -783,14 +783,29 @@ fn 不认识的接入方式被拒绝() {
 #[test]
 fn 契约里的每一种接入方式都能登记() {
     let store = Store::open_in_memory().unwrap();
-    for runtime in ["acp.claude", "acp.codex", "provider.api"] {
+    for runtime in ["acp.claude", "acp.codex"] {
         let mut entry = model(runtime);
         entry.runtime = runtime.to_string();
         store
             .create_model(&entry)
             .unwrap_or_else(|e| panic!("{runtime} 应当可以登记：{e}"));
     }
-    assert_eq!(store.list_models(false).unwrap().len(), 3);
+    assert_eq!(store.list_models(false).unwrap().len(), 2);
+}
+
+#[test]
+fn provider_api_不再是合法的接入方式() {
+    // 这个应用只走 ACP。`provider.api` 曾经占着枚举里的第三格，
+    // 而它**一行实现都没有** —— 界面能选、库里能存、跑起来必然失败。
+    //
+    // 留着它的代价不只是死代码：`credentialRef`、`contextWindow`
+    // 那几个字段都是为它准备的，而 ACP 的登录态由 CLI 自己管。
+    let store = Store::open_in_memory().unwrap();
+    let mut entry = model("旧的 API 提供商");
+    entry.runtime = "provider.api".to_string();
+
+    let error = store.create_model(&entry).unwrap_err().to_string();
+    assert!(error.contains("不认识的接入方式"), "错误信息实际：{error}");
 }
 
 // ── Agent 角色（M3）────────────────────────────────────────────────────────

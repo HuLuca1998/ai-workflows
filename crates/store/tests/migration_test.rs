@@ -163,3 +163,62 @@ fn 每张表塞一行(path: &std::path::Path) -> usize {
     }
     成功
 }
+
+#[test]
+fn 老库里的_provider_api_残留会被迁走() {
+    // v13 干的事。**必须在有数据的老库上验** —— 迁移写对没写对，
+    // 空库上跑一遍是看不出来的。
+    //
+    // 顺序尤其要验：先删模型再改角色的话，`agent_profile.model_ref`
+    // 会指向一个不存在的模型，而那种悬空引用的症状是「Agent 角色页
+    // 打开就报不合契约」，离迁移已经隔了三层。
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("aiwf.sqlite");
+
+    // 停在 v12：provider.api 那时还是合法值
+    aiwf_store::migrate_to_for_test(&path, 12).unwrap();
+
+    {
+        let conn = rusqlite::Connection::open(&path).unwrap();
+        conn.execute_batch(
+            "INSERT INTO model (id, name, runtime, model_id, effort, ctx, caps_json, enabled)
+             VALUES ('model:老的api', 'GPT-4 直连', 'provider.api', 'gpt-4', 'medium', 128000, '[]', 1);
+
+             INSERT INTO agent_profile
+               (id, name, persona, model_ref, fallback_model_ref, tools_json, policy_json,
+                ver, builtin, role, goal, runtime, output_contract, turn_limit, timeout_ms)
+             VALUES
+               ('agent:用了它', '老角色', '只看证据说话', 'model:老的api', 'model:老的api',
+                '[]', '{}', 1, 0, '分析师', '定位根因', 'provider.api', '根因清单', 12, 900000);",
+        )
+        .unwrap();
+    }
+
+    // 迁到最新
+    aiwf_store::Store::open(&path).expect("有 provider.api 数据的老库迁不动");
+
+    let conn = rusqlite::Connection::open(&path).unwrap();
+
+    let 还剩几条: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM model WHERE runtime = 'provider.api'",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(还剩几条, 0, "provider.api 的模型行没被清掉");
+
+    let (runtime, model_ref, fallback, goal): (String, String, Option<String>, String) = conn
+        .query_row(
+            "SELECT runtime, model_ref, fallback_model_ref, goal
+               FROM agent_profile WHERE id = 'agent:用了它'",
+            [],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
+        )
+        .expect("角色被连坐删掉了 —— 上面有用户自己写的 goal / persona");
+
+    assert_eq!(runtime, "acp.codex", "角色的接入方式没迁走");
+    assert_eq!(model_ref, "model:codex", "角色的模型引用悬空了");
+    assert_eq!(fallback, None, "降级模型引用悬空了");
+    assert_eq!(goal, "定位根因", "用户自己写的字段被迁移弄丢了");
+}

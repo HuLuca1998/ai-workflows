@@ -31,7 +31,6 @@ type ModelRow = Model & { lastLatencyMs?: number };
 const RUNTIME_LABELS: Record<(typeof AGENT_RUNTIMES)[number], string> = {
   'acp.claude': 'Claude Code（ACP）',
   'acp.codex': 'Codex（ACP）',
-  'provider.api': 'API 提供商',
 };
 
 const EFFORTS = ['minimal', 'low', 'medium', 'high'] as const;

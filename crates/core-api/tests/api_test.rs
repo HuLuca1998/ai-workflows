@@ -106,27 +106,35 @@ mod 模型连通性 {
 
     #[test]
     fn 非_acp_运行时也给得出说明() {
-        let store = Store::open_in_memory().unwrap();
-        // provider.api 是合法的接入方式，但不是 ACP —— 连通性测试只支持 ACP
-        let id = 模型(&store, "provider.api");
+        // `provider.api` 从枚举里删掉之后，这条分支**只剩历史数据够得着**：
+        // 老库迁移前的行、或者有人手工改过库。够不着不等于可以删 ——
+        // 那时用户会拿到一个含糊的失败，而不是「这不是 ACP 运行时」。
+        //
+        // 所以不再经过 store（它现在会拒绝这个值），直接测那条分支本身。
+        let 话 = probe_runtime(
+            "provider.api",
+            |_| panic!("非 ACP 就不该去找 adapter"),
+            |_| panic!("非 ACP 就不该去探测"),
+        )
+        .expect_err("非 ACP 的运行时却报告成功");
 
-        let 结果 = aiwf_core_api::model_test(&store, id).unwrap();
-        assert!(!结果.ok);
-        assert!(!结果.detail.is_empty());
+        assert!(话.contains("ACP"), "没说清是不是 ACP 的问题：{话}");
     }
 
     #[test]
     fn 测过之后延迟写回模型行() {
         // 图纸的凭据卡里有一行「延迟 · 1.4s（最近一次测试）」。
         //
-        // 用 provider.api：它在第一道分支就被挡下，测的是「失败也记延迟」，
-        // 而不用去起一个真的 adapter 进程
+        // 「探测失败」这个条件由测试自己造（`找_adapter` 返回 None），
+        // 不靠一个非 ACP 的 runtime 在第一道分支被挡下 ——
+        // 那条路径随 provider.api 一起没了，而这条断言要留下
         let store = Store::open_in_memory().unwrap();
-        let id = 模型(&store, "provider.api");
+        let id = 模型(&store, "acp.codex");
 
-        let _ = aiwf_core_api::model_test(&store, id.clone()).unwrap();
+        let 结果 = aiwf_core_api::model_test_with(&store, id.clone(), |_| None).unwrap();
+        assert!(!结果.ok, "adapter 没装却报告成功");
+
         let 模型行 = store.get_model(&id).unwrap().unwrap();
-
         // 失败也记：那同样是「最近一次测试」的结果
         assert!(模型行.last_latency_ms.is_some(), "没记下延迟");
     }

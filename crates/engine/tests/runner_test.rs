@@ -452,7 +452,7 @@ const AI_GRAPH: &str = r#"{
   "nodes": [
     {"id":"entry","type":"entry","title":"入口","position":{"x":0,"y":0},"config":{}},
     {"id":"think","type":"ai.analyze","title":"分析","position":{"x":1,"y":0},
-     "config":{"instruction":"看一眼","runtime":"provider.api"}}
+     "config":{"instruction":"看一眼","runtime":"acp.codex"}}
   ],
   "edges": [
     {"id":"e1","source":{"nodeId":"entry","port":"success"},"target":{"nodeId":"think","port":"input"}}
@@ -579,7 +579,7 @@ fn 建一个分析师(store: &Store) -> String {
             // 写真实的 `acp.codex` 会让测试真的拉起 codex ——
             // `Runner` 没有 mock 注入口，跑一次全量测试就在 `ps` 里
             // 留下一串 adapter 进程，用的是开发者自己的登录态与配额
-            runtime: "provider.api".to_string(),
+            runtime: "acp.codex".to_string(),
             model_ref: "model:codex".to_string(),
             fallback_model_ref: None,
             tools: vec![],
@@ -593,6 +593,24 @@ fn 建一个分析师(store: &Store) -> String {
         .unwrap()
 }
 
+/// 用 mock adapter 起 Runner。
+///
+/// 图里有 AI 节点的 Runner 级测试**必须**走这条：不然它会真的拉起
+/// codex，用开发者自己的登录态与配额跑一轮，跑一次全量测试就在 `ps` 里
+/// 留下一串 `codex app-server`（CLAUDE.md「测试与试验优先用 codex」
+/// 那条说的是被测的 adapter，不是「可以随便拉起真的」）。
+fn mock_adapter_runner() -> Runner {
+    let script = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .and_then(|p| p.parent())
+        .expect("仓库根")
+        .join("tests/fixtures/acp-mock.mjs");
+    Runner::new().with_acp_command(
+        "node",
+        &[script.display().to_string(), "normal".to_string()],
+    )
+}
+
 #[test]
 fn 运行记录说得清这一步用了哪个角色与模型() {
     let store = Store::open_in_memory().unwrap();
@@ -604,9 +622,10 @@ fn 运行记录说得清这一步用了哪个角色与模型() {
         .create_workflow_with_graph("测试流程", None, &挂角色的图(&agent))
         .unwrap();
 
-    let runner = Runner::new();
+    let runner = mock_adapter_runner();
     let run_id = runner.start(&store, request(&workflow)).unwrap();
-    // adapter 多半没装，跑失败也没关系 —— 解析事件在连 adapter 之前就写下了
+    // 解析事件在连 adapter 之前就写下，跑成跑不成都不影响这条断言 ——
+    // 但 adapter 得是 mock 的，不然这条测试会真的拉起 codex
     let _ = runner.run_all(&store, &run_id);
 
     let events = store.events(&run_id, 0, 200).unwrap();
@@ -616,13 +635,7 @@ fn 运行记录说得清这一步用了哪个角色与模型() {
         .expect("AI 节点该留一条 system.model_resolved");
 
     assert_eq!(解析.node_id.as_deref(), Some("think"));
-    for 片段 in [
-        "分析师",
-        agent.as_str(),
-        "model:codex",
-        "provider.api",
-        "cwd ",
-    ] {
+    for 片段 in ["分析师", agent.as_str(), "model:codex", "acp.codex", "cwd "] {
         assert!(
             解析.summary.contains(片段),
             "「{片段}」没写进事件：{}",
@@ -668,21 +681,25 @@ fn ai_节点的对话与工具调用真的落进事件表() {
         .create_workflow_with_graph("测试流程", None, &挂角色的图(&agent))
         .unwrap();
 
-    let runner = Runner::new();
+    let runner = mock_adapter_runner();
     let run_id = runner.start(&store, request(&workflow)).unwrap();
     let _ = runner.run_all(&store, &run_id);
 
     let events = store.events(&run_id, 0, 200).unwrap();
     let 类型: Vec<&str> = events.iter().map(|e| e.kind.as_str()).collect();
 
-    // adapter 装了才跑得到对话；没装的话节点会失败，那时这条不该误报
-    let 连上了 = events
-        .iter()
-        .any(|e| e.kind == "node.succeeded" && e.node_id.as_deref() == Some("think"));
-    if !连上了 {
-        eprintln!("跳过：ACP adapter 没装，跑不到对话那一步");
-        return;
-    }
+    // 这里原先有一句「adapter 没装就 eprintln 一句然后 return」。
+    //
+    // 那是条**永远可能不执行断言**的测试：CI 上没装 adapter，于是它
+    // 每次都从这儿返回，绿着，而下面那四条断言一次都没跑过。
+    // 现在 adapter 是 mock 的，条件由测试自己造 —— 跑不到对话
+    // 就是真的坏了，该红。
+    assert!(
+        events
+            .iter()
+            .any(|e| e.kind == "node.succeeded" && e.node_id.as_deref() == Some("think")),
+        "mock adapter 下 AI 节点没跑成功：{类型:?}"
+    );
 
     assert!(
         类型.contains(&"conversation.user_message"),

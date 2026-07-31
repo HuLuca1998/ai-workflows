@@ -163,17 +163,37 @@ pub struct Runner {
     /// 谁把系统通知发出去。桌面壳注入；无头环境是 None，
     /// 那时 `notify` 节点明确报「这个环境发不了」而不是假装成功。
     notifier: Option<std::sync::Arc<dyn crate::notify::Notifier>>,
+    /// 用哪个 adapter 命令起 ACP。只有测试会设。
+    acp_override: Option<(String, Vec<String>)>,
 }
 
 impl Runner {
     pub fn new() -> Self {
-        Self { notifier: None }
+        Self {
+            notifier: None,
+            acp_override: None,
+        }
     }
 
     /// 接上系统通知的发送器。
     #[must_use]
     pub fn with_notifier(mut self, notifier: std::sync::Arc<dyn crate::notify::Notifier>) -> Self {
         self.notifier = Some(notifier);
+        self
+    }
+
+    /// 换掉 adapter 命令。**给测试用**，与 `NodeExecutor::with_acp_command` 同一个口子。
+    ///
+    /// 没有它的时候，任何一条「图里有 AI 节点」的 Runner 级测试都会
+    /// **真的拉起 adapter**，连上开发者自己的登录态与配额 ——
+    /// 跑一次全量测试就在 `ps` 里留下一串 `codex app-server`。
+    ///
+    /// 以前靠「把 runtime 写成一个装不上的值」绕开，而 `provider.api`
+    /// 从枚举里删掉之后，合法的 runtime 全都是真能拉起来的 ——
+    /// 那条绕法连同它一起没了。
+    #[must_use]
+    pub fn with_acp_command(mut self, command: &str, args: &[String]) -> Self {
+        self.acp_override = Some((command.to_string(), args.to_vec()));
         self
     }
 
@@ -579,6 +599,11 @@ impl Runner {
         // 明确报「这个环境发不了」—— 那正是 B-1 要修的
         if let Some(notifier) = &self.notifier {
             executor = executor.with_notifier(notifier.clone());
+        }
+
+        // 测试注入的 adapter 命令。生产路径上永远是 None
+        if let Some((command, args)) = &self.acp_override {
+            executor = executor.with_acp_command(command, args);
         }
 
         // 「记忆注入可在事件中溯源」：在**取快照时**就写下，

@@ -8,7 +8,7 @@ use rusqlite::Connection;
 use crate::Result;
 
 /// 当前 schema 版本。新增迁移时同时更新这里与 `MIGRATIONS`。
-pub const EXPECTED_SCHEMA_VERSION: i64 = 12;
+pub const EXPECTED_SCHEMA_VERSION: i64 = 13;
 
 /// (版本号, 说明, SQL)
 const MIGRATIONS: &[(i64, &str, &str)] = &[
@@ -67,6 +67,11 @@ const MIGRATIONS: &[(i64, &str, &str)] = &[
         12,
         "FTS 级联删除走索引，不再全表扫",
         include_str!("sql/012_fts_ref_index.sql"),
+    ),
+    (
+        13,
+        "清掉 provider.api 的残留",
+        include_str!("sql/013_drop_provider_api.sql"),
     ),
 ];
 

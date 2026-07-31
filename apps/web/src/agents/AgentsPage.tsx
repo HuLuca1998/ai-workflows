@@ -49,7 +49,6 @@ interface ModelOption {
 const RUNTIME_LABELS: Record<(typeof AGENT_RUNTIMES)[number], string> = {
   'acp.claude': 'Claude Code（ACP）',
   'acp.codex': 'Codex（ACP）',
-  'provider.api': 'API 提供商',
 };
 
 /**

@@ -2728,6 +2728,24 @@ pub struct ModelTestResult {
 /// adapter 没装**不算错误**：那是最常见的情况，用户需要的是「装什么」，
 /// 不是一个红色的异常。所以它走 ok=false 而不是 Err。
 pub fn model_test(store: &Store, id: String) -> ApiResult<ModelTestResult> {
+    model_test_with(store, id, aiwf_engine::acp::adapter_installed)
+}
+
+/// [`model_test`]，但 adapter 的查找可以注入。
+///
+/// 与 [`probe_runtime`] 同一个理由：「探测失败时延迟也要写回」这条
+/// 原先只能靠一个**非 ACP 的 runtime** 在第一道分支被挡下来触发 ——
+/// 而 `provider.api` 删掉之后，合法的 runtime 全都是 ACP，
+/// 那条路径再也走不到，测试只能去真起一个 adapter 进程（最长 30 秒）。
+///
+/// 「够不着的防线比没有防线糟」：与其让那条断言悄悄失效，不如把
+/// 这一格开出来。
+#[doc(hidden)]
+pub fn model_test_with(
+    store: &Store,
+    id: String,
+    找_adapter: impl FnOnce(&str) -> Option<String>,
+) -> ApiResult<ModelTestResult> {
     use aiwf_engine::acp::{AcpClient, env_to_remove};
 
     let model = store
@@ -2738,29 +2756,25 @@ pub fn model_test(store: &Store, id: String) -> ApiResult<ModelTestResult> {
         })?;
 
     let started = std::time::Instant::now();
-    let 结果 = probe_runtime(
-        &model.runtime,
-        aiwf_engine::acp::adapter_installed,
-        |command| {
-            let mut client = AcpClient::connect(
-                command,
-                &[],
-                &env_to_remove(&model.runtime),
-                std::time::Duration::from_secs(30),
-            )
-            .map_err(|error| format!("连不上 adapter：{error}"))?;
+    let 结果 = probe_runtime(&model.runtime, 找_adapter, |command| {
+        let mut client = AcpClient::connect(
+            command,
+            &[],
+            &env_to_remove(&model.runtime),
+            std::time::Duration::from_secs(30),
+        )
+        .map_err(|error| format!("连不上 adapter：{error}"))?;
 
-            let session = client
-                .new_session(&std::env::temp_dir().display().to_string())
-                .map_err(|error| format!("握手成功但建会话失败：{error}"))?;
+        let session = client
+            .new_session(&std::env::temp_dir().display().to_string())
+            .map_err(|error| format!("握手成功但建会话失败：{error}"))?;
 
-            Ok(format!(
-                "握手成功 · 协议 v{} · 会话已建立（{} 个权限档）",
-                client.protocol_version(),
-                session.modes.len()
-            ))
-        },
-    );
+        Ok(format!(
+            "握手成功 · 协议 v{} · 会话已建立（{} 个权限档）",
+            client.protocol_version(),
+            session.modes.len()
+        ))
+    });
     let latency_ms = i64::try_from(started.elapsed().as_millis()).unwrap_or(i64::MAX);
 
     // 失败也记：用户看到一个停在上周的延迟会以为现在还是那么快
