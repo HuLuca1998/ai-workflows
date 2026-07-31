@@ -605,3 +605,52 @@ mod 入口固定工作目录 {
         );
     }
 }
+
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+mod 记忆更新走契约字段名 {
+    use std::sync::Mutex;
+
+    use aiwf_engine::supervisor::Supervisor;
+    use aiwf_store::Store;
+
+    #[test]
+    fn dispatch_按契约收_ver_而不是_baseVer() {
+        // 第 4 轮实测阻断:契约与前端发 `ver`,dispatch 曾读 `baseVer` ——
+        // 「缺少参数 baseVer」让记忆完全不可编辑,只能删了重建
+        let dir = tempfile::tempdir().unwrap();
+        let db = dir.path().join("aiwf.sqlite");
+        let store = Store::open(&db).unwrap();
+        let id = store
+            .create_memory(&aiwf_store::NewMemory {
+                scope: "workspace".to_string(),
+                scope_id: None,
+                key: "r4-回归".to_string(),
+                value: "旧内容".to_string(),
+                summary: None,
+                source: "user".to_string(),
+                created_by: "user".to_string(),
+                sensitivity: "internal".to_string(),
+                tags: vec![],
+            })
+            .unwrap();
+
+        let supervisor = Supervisor::new(db.clone());
+        let locked = Mutex::new(Store::open(&db).unwrap());
+        let result = aiwf_core_api::dispatch::dispatch(
+            "memory_update",
+            &serde_json::json!({"id": id, "ver": 1, "value": "新内容"}),
+            &locked,
+            &supervisor,
+            dir.path(),
+        );
+        assert!(result.is_ok(), "契约形状的入参必须能走通:{result:?}");
+
+        let row = locked
+            .lock()
+            .unwrap()
+            .get_memory(&id)
+            .unwrap()
+            .expect("还在");
+        assert_eq!(row.value, "新内容");
+    }
+}

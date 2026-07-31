@@ -79,7 +79,9 @@ pub fn dispatch(
         "memory_update" => to_value(api::memory_update(
             &store,
             string(input, "id")?,
-            int(input, "baseVer")?,
+            // 契约与前端发的都是 `ver`(乐观锁);这里曾读 `baseVer`,
+            // 「缺少参数 baseVer」让记忆完全不可编辑(第 4 轮实测阻断)
+            int(input, "ver")?,
             opt_string(input, "value"),
             opt_strings(input, "tags"),
         )?),
