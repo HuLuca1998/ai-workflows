@@ -146,3 +146,38 @@ fn 不存在的提问报错而不是空结果() {
     assert_eq!(err.code, "VALIDATION");
     assert!(err.message.contains("提问"), "报错要说清是哪类东西没找到");
 }
+
+#[test]
+fn 经_ipc_映射来的字符串形态回答_不被再编码一层() {
+    // 界面 → IPC 映射把 answer JSON.stringify 成字符串（Tauri 的命令参数
+    // 必须扁平）。dispatch 对它直接 to_string 的话，字符串被再编码一层：
+    // agent 拿到的是「字符串套 JSON」，得自己再解析一次 ——
+    // 而工具描述说好了 answer 是对象。桌面壳直传 String 没这个问题，
+    // Web 形态（devserver 走 dispatch）实测中招
+    let store = std::sync::Mutex::new(库());
+    let id = {
+        let guard = store.lock().unwrap();
+        aiwf_core_api::mcp_ask_user(&guard, 问题.to_string()).unwrap()
+    };
+
+    let dir = tempfile::tempdir().unwrap();
+    let supervisor = aiwf_engine::supervisor::Supervisor::new(dir.path().join("aiwf.sqlite"));
+    aiwf_core_api::dispatch::dispatch(
+        "mcp_answer_ask",
+        &serde_json::json!({ "id": id, "answer": "{\"selected\":\"cache\"}" }),
+        &store,
+        &supervisor,
+        dir.path(),
+    )
+    .unwrap();
+
+    let guard = store.lock().unwrap();
+    let 结果 = aiwf_core_api::mcp_ask_result(&guard, id).unwrap();
+    let 答案: serde_json::Value =
+        serde_json::from_str(结果.answer_json.as_deref().unwrap()).unwrap();
+    assert!(
+        答案.is_object(),
+        "答案被再编码成了字符串，agent 还得自己剥一层：{答案}"
+    );
+    assert_eq!(答案["selected"], "cache");
+}

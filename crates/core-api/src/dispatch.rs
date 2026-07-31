@@ -289,14 +289,17 @@ pub fn dispatch(
         )?),
         "mcp_confirm_status" => to_value(api::mcp_confirm_status(&store, string(input, "id")?)?),
         "mcp_pending_confirms" => to_value(api::mcp_pending_confirms(&store)?),
-        "mcp_answer_ask" => to_value(api::mcp_answer_ask(
-            &store,
-            string(input, "id")?,
-            input
-                .get("answer")
-                .map(ToString::to_string)
-                .unwrap_or_default(),
-        )?),
+        "mcp_answer_ask" => {
+            // IPC 映射把 answer 序列化成了字符串（Tauri 的命令参数必须扁平）。
+            // 对字符串再 to_string 会把它编码成「字符串套 JSON」——
+            // agent 还得自己剥一层，而工具描述说好了 answer 是对象
+            let answer = match input.get("answer") {
+                Some(serde_json::Value::String(text)) => text.clone(),
+                Some(value) => value.to_string(),
+                None => String::new(),
+            };
+            to_value(api::mcp_answer_ask(&store, string(input, "id")?, answer)?)
+        }
         "mcp_decide_confirm" => to_value(api::mcp_decide_confirm(
             &store,
             string(input, "id")?,
