@@ -376,3 +376,82 @@ mod 发布前先校验 {
         assert!(错.message.contains("JSON"), "{}", 错.message);
     }
 }
+
+/// 模型清单从 runtime 现问现拿。
+///
+/// **这是所有模型下拉的唯一数据源。** 写死在契约或界面里的话，
+/// 本机 CLI 升级多出来的模型永远看不到 —— 而那种失效是静默的：
+/// 界面照常显示旧清单，用户以为那就是全部。
+mod 模型同步 {
+    #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+
+    /// 让 mock adapter 能当成一条命令直接跑。
+    ///
+    /// `probe_runtime` 的 `找_adapter` 只交出一个命令字符串（没有 args），
+    /// 而 mock 是个 .mjs —— 包一层可执行的 shell 脚本把它接起来。
+    fn mock_命令() -> (tempfile::TempDir, String) {
+        let 脚本 = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|p| p.parent())
+            .expect("仓库根")
+            .join("tests/fixtures/acp-mock.mjs");
+        let dir = tempfile::tempdir().expect("临时目录");
+        let wrapper = dir.path().join("mock-adapter");
+        std::fs::write(
+            &wrapper,
+            format!("#!/bin/sh\nexec node {} normal\n", 脚本.display()),
+        )
+        .expect("写 wrapper");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mut perms = std::fs::metadata(&wrapper).expect("元数据").permissions();
+            perms.set_mode(0o755);
+            std::fs::set_permissions(&wrapper, perms).expect("加执行权限");
+        }
+        let 路径 = wrapper.display().to_string();
+        (dir, 路径)
+    }
+
+    #[test]
+    fn 拿到模型与深度两份清单_以及_runtime_自己的当前值() {
+        let (_guard, 命令) = mock_命令();
+        let 结果 = aiwf_core_api::model_sync_with("acp.codex".to_string(), |_| Some(命令.clone()))
+            .expect("同步失败");
+
+        // 两份清单是**正交**的：模型一份、深度一份。
+        // 不是笛卡尔积 —— 那样 5 个模型 × 6 档会平铺成 30 条，
+        // 而界面上是两个独立下拉
+        assert!(!结果.models.is_empty(), "没拿到模型清单");
+        assert!(!结果.efforts.is_empty(), "没拿到推理深度清单");
+
+        // 默认值从 runtime 自己的当前值来，不硬编码 ——
+        // CLI 升级后同步一次就跟着变
+        assert!(
+            !结果.current_model.is_empty(),
+            "没拿到 runtime 当前用的模型，默认值就无从谈起"
+        );
+        assert!(!结果.current_effort.is_empty(), "没拿到当前推理深度");
+
+        // 当前值必须在候选里，否则界面上那个「选中项」指向一个不存在的选项
+        assert!(
+            结果.models.iter().any(|m| m.value == 结果.current_model),
+            "当前模型 {} 不在候选里：{:?}",
+            结果.current_model,
+            结果.models.iter().map(|m| &m.value).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn adapter_没装时说清楚_而不是给一份空清单() {
+        // 空清单与「没装」在界面上长得一样（下拉都是空的），
+        // 而用户要做的事完全不同
+        let 错 = aiwf_core_api::model_sync_with("acp.codex".to_string(), |_| None)
+            .expect_err("adapter 没装却报告成功");
+        assert!(
+            错.message.contains("adapter"),
+            "没说清是 adapter 的问题：{}",
+            错.message
+        );
+    }
+}
