@@ -369,12 +369,23 @@ function EditorCanvas() {
         x: window.innerWidth / 2,
         y: window.innerHeight / 2,
       });
+      let position = { x: center.x - NODE_WIDTH / 2, y: center.y - NODE_HEIGHT / 2 };
+      // 落点已有节点就阶梯错开 —— 连点几次全叠在同一坐标上，
+      // 画布只看得见最后一个，用户以为前几次点击没生效（P6）
+      const nodes = useEditor.getState().graph.nodes;
+      const occupied = (p: { x: number; y: number }) =>
+        nodes.some(
+          (node) => Math.abs(node.position.x - p.x) < 8 && Math.abs(node.position.y - p.y) < 8,
+        );
+      while (occupied(position)) {
+        position = { x: position.x + 28, y: position.y + 28 };
+      }
       apply([
         {
           op: 'addNode',
           type,
           title: titleFor(type),
-          position: { x: center.x - NODE_WIDTH / 2, y: center.y - NODE_HEIGHT / 2 },
+          position,
           config: minimalConfigFor(type),
         },
       ]);
