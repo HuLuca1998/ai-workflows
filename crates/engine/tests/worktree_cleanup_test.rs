@@ -222,3 +222,72 @@ fn 脏worktree拒绝清理_安全闸门在真实路径上生效() {
         "没清成不能谎报清理事件"
     );
 }
+
+#[test]
+fn 审批被拒的终止路径也按_on_run_end_清理() {
+    // codex 复核抓到的:decide_approval 拒绝时直接置 failed,
+    // 不经过 run_until_pause 的收尾 —— on_run_end 的清理承诺漏了这条路
+    let repo = fixture_repo("reject_clean");
+    let workdir = std::env::temp_dir().join("aiwf_wtclean_run_reject");
+    let _ = std::fs::remove_dir_all(&workdir);
+
+    let graph = serde_json::json!({
+        "nodes": [
+            {"id": "entry", "type": "entry", "title": "入口", "config": {}},
+            {"id": "wt", "type": "git.worktree", "title": "建工作区", "config": {
+                "repoRoot": repo.display().to_string(),
+                "baseBranch": "main",
+                "branchTemplate": "aiwf/reject_clean",
+                "cleanupPolicy": "on_run_end",
+            }},
+            {"id": "gate", "type": "approval", "title": "把关", "config": {"title": "确认"}},
+            {"id": "done", "type": "end", "title": "结束", "config": {}}
+        ],
+        "edges": [
+            {"id": "e1", "source": {"nodeId": "entry", "port": "success"}, "target": {"nodeId": "wt", "port": "input"}},
+            {"id": "e2", "source": {"nodeId": "wt", "port": "success"}, "target": {"nodeId": "gate", "port": "input"}},
+            {"id": "e3", "source": {"nodeId": "gate", "port": "approved"}, "target": {"nodeId": "done", "port": "input"}}
+        ],
+        "groups": []
+    })
+    .to_string();
+
+    let store = Store::open_in_memory().unwrap();
+    store
+        .set_workspace_setting("permissionPreset", "human_approval")
+        .unwrap();
+    let workflow = store
+        .create_workflow_with_graph("拒批清理", None, &graph)
+        .unwrap();
+    let runner = Runner::new();
+    let run_id = runner
+        .start(
+            &store,
+            RunRequest {
+                workflow_id: workflow,
+                version_id: None,
+                draft_rev: Some(0),
+                inputs_json: "{}".to_string(),
+                workdir: workdir.display().to_string(),
+            },
+        )
+        .unwrap();
+    let status = runner.run_all(&store, &run_id).unwrap();
+    assert_eq!(status, "waiting_approval", "先挂在审批上");
+
+    let wt = worktree_path(&store, &run_id);
+    assert!(wt.exists(), "挂着时 worktree 还在");
+
+    runner
+        .decide_approval(&store, &run_id, "gate", "rejected")
+        .unwrap();
+    assert_eq!(
+        store.run_status(&run_id).unwrap().as_deref(),
+        Some("failed")
+    );
+    assert!(
+        !wt.exists(),
+        "on_run_end ⇒ 拒批这种结束也要清:{}",
+        wt.display()
+    );
+}

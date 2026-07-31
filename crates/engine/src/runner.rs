@@ -820,6 +820,13 @@ impl Runner {
             )?;
             self.emit(store, run_id, "run.failed", None, "engine", "审批未通过")?;
             let _ = store.advance_run_status(run_id, "failed", Some(node_id))?;
+            // 拒批也是一种「运行结束」：这条路不经过 run_until_pause 的收尾，
+            // on_run_end 的清理承诺曾漏掉它（codex 复核抓到的）
+            if let (Ok(scope), Ok(workdir)) =
+                (self.restore_scope(store, run_id), self.workdir(store, run_id))
+            {
+                self.cleanup_worktrees(store, run_id, "failed", &scope, &workdir);
+            }
         }
         Ok(())
     }
