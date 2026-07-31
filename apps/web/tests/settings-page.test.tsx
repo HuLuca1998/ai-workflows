@@ -74,12 +74,7 @@ describe('左侧分组导航', () => {
       .getAllByRole('tab')
       .map((el) => el.textContent);
 
-    expect(labels.slice(1, -1)).toEqual([
-      '运行环境与工具',
-      'MCP 与集成',
-      '安全与隐私',
-      '高级',
-    ]);
+    expect(labels.slice(1, -1)).toEqual(['运行环境与工具', 'MCP 与集成', '安全与隐私', '高级']);
   });
 
   it('默认停在「运行环境与工具」—— 图纸画的就是这一档', async () => {

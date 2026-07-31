@@ -288,8 +288,7 @@ export function PromptsPage() {
 
         <p className="models__foot">
           AI 节点在配置里选了「提示词」的，运行时用库里那份做框架；
-          没选的用内建框架。每次运行用了哪一版，看运行记录的
-          system.prompt_resolved 事件。
+          没选的用内建框架。每次运行用了哪一版，看运行记录的 system.prompt_resolved 事件。
         </p>
       </aside>
 

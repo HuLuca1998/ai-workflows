@@ -517,11 +517,12 @@ fn 真实的_codex_能同步出模型清单() {
     assert!(耗时.as_millis() > 50, "快得不像真的连上了：{耗时:?}");
 }
 
+#[allow(clippy::unwrap_used, clippy::expect_used)]
 mod 运行摘要的契约字段 {
     use aiwf_store::Store;
 
     #[test]
-    fn run_list_序列化出_versionId_draftRev_与解析后的_inputs() {
+    fn run_list_序列化出契约要的版本与参数字段() {
         // 第 3 轮实测 P3 的根因:DTO 只发 inputsJson,客户端 Zod 用默认值
         // 静默补齐(inputs 恒空、draftRev 恒缺),「用相同参数重跑」
         // 拿着空参数和不存在的 rev 0 去跑,报「缺少入口节点」

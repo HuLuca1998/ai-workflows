@@ -276,6 +276,8 @@ fn record_background_failure(store: &Store, run_id: &str, message: &str) -> aiwf
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+
     use super::*;
 
     /// DEBT L-1：这里曾是两个 `let _ =`。数据库暂时不可写时

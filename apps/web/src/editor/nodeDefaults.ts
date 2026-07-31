@@ -39,7 +39,9 @@ export function cascadeFrom(
   base: { x: number; y: number },
 ): { x: number; y: number } {
   const occupied = (p: { x: number; y: number }) =>
-    nodes.some((node) => Math.abs(node.position.x - p.x) < 8 && Math.abs(node.position.y - p.y) < 8);
+    nodes.some(
+      (node) => Math.abs(node.position.x - p.x) < 8 && Math.abs(node.position.y - p.y) < 8,
+    );
   let position = base;
   while (occupied(position)) {
     position = { x: position.x + 28, y: position.y + 28 };

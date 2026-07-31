@@ -82,9 +82,7 @@ describe('Run 状态机', () => {
     // 引擎(supervisor.resume)只接受 failed/interrupted/paused;
     // 契约曾把 waiting_approval 也算可恢复,界面于是在等审批时
     // 摆出一个点了必报错的「恢复运行」(第 3 轮实测 P11)
-    expect(RUN_STATUSES.filter(isRunResumable).sort()).toEqual(
-      ['interrupted', 'paused'].sort(),
-    );
+    expect(RUN_STATUSES.filter(isRunResumable).sort()).toEqual(['interrupted', 'paused'].sort());
   });
 });
 

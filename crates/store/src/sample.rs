@@ -58,6 +58,7 @@ pub(crate) fn seed_sample(conn: &Connection) -> Result<()> {
 /// 判据从紧，两条都满足才动：
 /// 1. 只有种子那一版（rev 1 且再无别版）—— 用户存过任何一版就不碰；
 /// 2. 那一版还带着坏脚本的标记 —— 已经被别的途径修过就不重复改。
+///
 /// 用户删掉的也不复活（查不到行自然什么都不做）。
 pub(crate) fn fix_sample(conn: &Connection) -> Result<()> {
     let broken_marker = r#"view \"$ISSUE\""#;

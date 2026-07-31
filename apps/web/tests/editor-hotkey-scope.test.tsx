@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { MemoryRouter, Route, Routes } from 'react-router';
 import { EditorPage } from '../src/editor/EditorPage.js';
@@ -90,10 +90,7 @@ describe('点节点库加节点不堆叠', () => {
   // 摆放逻辑是纯函数 cascadeFrom;页面接线只有一行。
   it('基准点被占就阶梯错开,直到空位', async () => {
     const { cascadeFrom } = await import('../src/editor/nodeDefaults.js');
-    const nodes = [
-      { position: { x: 100, y: 100 } },
-      { position: { x: 128, y: 128 } },
-    ];
+    const nodes = [{ position: { x: 100, y: 100 } }, { position: { x: 128, y: 128 } }];
     expect(cascadeFrom(nodes, { x: 100, y: 100 })).toEqual({ x: 156, y: 156 });
   });
 
