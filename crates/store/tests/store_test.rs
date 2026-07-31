@@ -3324,3 +3324,69 @@ mod 删模型先看引用 {
         assert!(store.get_model(&id).unwrap().is_none());
     }
 }
+
+#[test]
+fn 同步来的模型按_runtime_加值去重_重复同步不长条目() {
+    // 「同步」是可以反复点的 —— 用户装了新版 CLI、换了登录态，
+    // 都会再点一次。每点一次长一批重复条目的话，下拉里会出现
+    // 五个一模一样的 GPT-5.6-Sol，而删哪个都说不清。
+    let store = Store::open_in_memory().unwrap();
+
+    let 第一批 = vec![
+        aiwf_store::SyncedModel {
+            value: "gpt-5.6-sol".to_string(),
+            label: "GPT-5.6-Sol".to_string(),
+        },
+        aiwf_store::SyncedModel {
+            value: "gpt-5.6-terra".to_string(),
+            label: "GPT-5.6-Terra".to_string(),
+        },
+    ];
+    let 新增 = store.sync_models("acp.codex", &第一批).unwrap();
+    assert_eq!(新增, 2, "第一次同步该建两条");
+
+    // 再同步一次：条目数不变
+    let 又新增 = store.sync_models("acp.codex", &第一批).unwrap();
+    assert_eq!(又新增, 0, "重复同步不该再建条目");
+    assert_eq!(store.list_models(false).unwrap().len(), 2);
+
+    // 新版 CLI 多出一个模型：只加那一个
+    let 第二批 = {
+        let mut v = 第一批.clone();
+        v.push(aiwf_store::SyncedModel {
+            value: "gpt-6".to_string(),
+            label: "GPT-6".to_string(),
+        });
+        v
+    };
+    assert_eq!(store.sync_models("acp.codex", &第二批).unwrap(), 1);
+    assert_eq!(store.list_models(false).unwrap().len(), 3);
+}
+
+#[test]
+fn 同步不碰另一个_runtime_的条目() {
+    // codex 侧同步了一次，不该把 claude 的条目清掉 ——
+    // 用户多半只装了一个 adapter，另一个的条目要留着
+    let store = Store::open_in_memory().unwrap();
+    store
+        .sync_models(
+            "acp.claude",
+            &[aiwf_store::SyncedModel {
+                value: "opus".to_string(),
+                label: "Opus".to_string(),
+            }],
+        )
+        .unwrap();
+    store
+        .sync_models(
+            "acp.codex",
+            &[aiwf_store::SyncedModel {
+                value: "gpt-5.6-sol".to_string(),
+                label: "GPT-5.6-Sol".to_string(),
+            }],
+        )
+        .unwrap();
+
+    let 全部 = store.list_models(false).unwrap();
+    assert_eq!(全部.len(), 2, "同步一端把另一端的条目弄没了");
+}

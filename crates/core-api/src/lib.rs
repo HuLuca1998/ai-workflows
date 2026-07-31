@@ -2850,6 +2850,8 @@ pub struct ModelSyncResult {
     /// runtime 自己的当前值 —— 默认值从这来，不硬编码。
     pub current_model: String,
     pub current_effort: String,
+    /// 这次同步新建了几条模型条目。0 = 清单没变过。
+    pub added: i64,
 }
 
 #[derive(Debug, Serialize)]
@@ -2867,13 +2869,14 @@ pub struct ConfigChoiceDto {
 ///
 /// 起一次 adapter、建一条会话、读 `configOptions`、关掉。
 /// 实测 codex 约 335ms，与 `model.test` 同量级。
-pub fn model_sync(runtime: String) -> ApiResult<ModelSyncResult> {
-    model_sync_with(runtime, aiwf_engine::acp::adapter_installed)
+pub fn model_sync(store: &Store, runtime: String) -> ApiResult<ModelSyncResult> {
+    model_sync_with(store, runtime, aiwf_engine::acp::adapter_installed)
 }
 
 /// [`model_sync`]，但 adapter 的查找可以注入 —— 理由同 [`model_test_with`]。
 #[doc(hidden)]
 pub fn model_sync_with(
+    store: &Store,
     runtime: String,
     找_adapter: impl FnOnce(&str) -> Option<String>,
 ) -> ApiResult<ModelSyncResult> {
@@ -2923,11 +2926,32 @@ pub fn model_sync_with(
         })
     };
 
+    let models = 转(&模型项);
+    let efforts = 转(&深度项);
+
+    // 落库：同步是「把 runtime 现在能用的东西记下来」，不落的话
+    // 用户点完同步、关掉页面，下次回来还是空的
+    let 新增 = store.sync_models(
+        &runtime,
+        &models
+            .iter()
+            .map(|m| aiwf_store::SyncedModel {
+                value: m.value.clone(),
+                label: if m.label.is_empty() {
+                    m.value.clone()
+                } else {
+                    m.label.clone()
+                },
+            })
+            .collect::<Vec<_>>(),
+    )?;
+
     Ok(ModelSyncResult {
-        models: 转(&模型项),
-        efforts: 转(&深度项),
+        models,
+        efforts,
         current_model: 模型项.map(|o| o.current_value).unwrap_or_default(),
         current_effort: 深度项.map(|o| o.current_value).unwrap_or_default(),
+        added: i64::try_from(新增).unwrap_or(0),
     })
 }
 

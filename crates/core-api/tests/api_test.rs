@@ -416,8 +416,12 @@ mod 模型同步 {
     #[test]
     fn 拿到模型与深度两份清单_以及_runtime_自己的当前值() {
         let (_guard, 命令) = mock_命令();
-        let 结果 = aiwf_core_api::model_sync_with("acp.codex".to_string(), |_| Some(命令.clone()))
-            .expect("同步失败");
+        let 结果 = aiwf_core_api::model_sync_with(
+            &aiwf_store::Store::open_in_memory().unwrap(),
+            "acp.codex".to_string(),
+            |_| Some(命令.clone()),
+        )
+        .expect("同步失败");
 
         // 两份清单是**正交**的：模型一份、深度一份。
         // 不是笛卡尔积 —— 那样 5 个模型 × 6 档会平铺成 30 条，
@@ -446,8 +450,12 @@ mod 模型同步 {
     fn adapter_没装时说清楚_而不是给一份空清单() {
         // 空清单与「没装」在界面上长得一样（下拉都是空的），
         // 而用户要做的事完全不同
-        let 错 = aiwf_core_api::model_sync_with("acp.codex".to_string(), |_| None)
-            .expect_err("adapter 没装却报告成功");
+        let 错 = aiwf_core_api::model_sync_with(
+            &aiwf_store::Store::open_in_memory().unwrap(),
+            "acp.codex".to_string(),
+            |_| None,
+        )
+        .expect_err("adapter 没装却报告成功");
         assert!(
             错.message.contains("adapter"),
             "没说清是 adapter 的问题：{}",
@@ -465,10 +473,14 @@ mod 模型同步 {
 /// 对得上自己写的 mock。这一条证明它对得上真实 adapter。
 #[test]
 #[ignore = "要装了 codex-acp 才跑，会起真实进程"]
-#[allow(clippy::expect_used)]
+#[allow(clippy::expect_used, clippy::unwrap_used)]
 fn 真实的_codex_能同步出模型清单() {
     let 开始 = std::time::Instant::now();
-    let 结果 = aiwf_core_api::model_sync("acp.codex".to_string()).expect("同步失败");
+    let 结果 = aiwf_core_api::model_sync(
+        &aiwf_store::Store::open_in_memory().unwrap(),
+        "acp.codex".to_string(),
+    )
+    .expect("同步失败");
     let 耗时 = 开始.elapsed();
 
     println!("耗时 {耗时:?}");

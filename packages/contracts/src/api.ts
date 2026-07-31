@@ -1047,6 +1047,8 @@ const SPECS = {
        */
       currentModel: z.string().default(''),
       currentEffort: z.string().default(''),
+      /** 这次同步新建了几条模型条目。0 = 清单跟上次一样。 */
+      added: z.number().int().min(0).default(0),
     }),
     // 只问不写。落库是「勾选哪些可见」那一步的事，不在这里
     mutates: false,

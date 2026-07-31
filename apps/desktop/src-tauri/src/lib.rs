@@ -497,8 +497,9 @@ fn model_test(state: State<'_, AppState>, id: String) -> IpcResult<api::ModelTes
 /// adapter 进程（最长 30 秒）的话，这期间界面上什么都点不动 ——
 /// 主管 AI 那条已经因为同一个原因单开了一条连接。
 #[tauri::command]
-fn model_sync(runtime: String) -> IpcResult<api::ModelSyncResult> {
-    api::model_sync(runtime)
+fn model_sync(state: State<'_, AppState>, runtime: String) -> IpcResult<api::ModelSyncResult> {
+    let store = lock(&state)?;
+    api::model_sync(&store, runtime)
 }
 
 #[tauri::command]

@@ -208,6 +208,18 @@ pub struct RunEventRow {
 ///
 /// 「ACP 握手只返回协议能力与 session modes，不返回可用模型」——
 /// 所以模型必须在这里手工登记或从 CLI 配置导入。
+/// 从 runtime 同步来的一个模型。
+///
+/// 只有两个字段：**值**（发给 agent 的那个）与**给人看的名字**。
+/// 上下文窗口、能力清单、凭据都不在这里 —— 那三样是
+/// `provider.api` 时代的遗留，ACP 下要么 agent 自己知道、
+/// 要么语义两端对不上（见 `sync_models` 的注释）。
+#[derive(Debug, Clone)]
+pub struct SyncedModel {
+    pub value: String,
+    pub label: String,
+}
+
 pub struct NewModel {
     pub name: String,
     pub runtime: String,
@@ -2060,6 +2072,58 @@ impl Store {
     ///
     /// 按 runtime 再按名字排序：图纸左栏按接入方式分组，
     /// 顺序跳来跳去会让人找不到刚建的那条。
+    /// 把从 runtime 同步来的模型清单写进库，返回新增了几条。
+    ///
+    /// **按 (runtime, model_id) 去重**：同步是可以反复点的（换了登录态、
+    /// 装了新版 CLI 都会再点一次），每次长一批重复条目的话，下拉里会出现
+    /// 五个一模一样的 GPT-5.6-Sol，而删哪个都说不清。
+    ///
+    /// **不删已有条目**：清单里消失的那些（CLI 降级、换了账号）留着，
+    /// 因为可能有 Agent 角色正引用它。悄悄删掉的话，那些角色的
+    /// `model_ref` 会悬空，症状是角色页打开就报「不合契约」——
+    /// 离「我刚点了同步」已经隔了三层。
+    ///
+    /// `ctx` / `caps_json` / `cred_ref` 这几列给的是占位值：ACP 不用凭据
+    /// （登录态由 CLI 自己管），上下文窗口 agent 自己知道且两端语义不同
+    /// （claude 报模型窗口、codex 报会话水位），填一个手编的数字更糟。
+    pub fn sync_models(&self, runtime: &str, models: &[SyncedModel]) -> Result<usize> {
+        validate_runtime(runtime)?;
+
+        let mut 已有 = std::collections::HashSet::new();
+        {
+            let mut stmt = self
+                .conn
+                .prepare("SELECT model_id FROM model WHERE runtime = ?1")?;
+            let rows = stmt.query_map(params![runtime], |row| row.get::<_, String>(0))?;
+            for row in rows {
+                已有.insert(row?);
+            }
+        }
+
+        let mut 新增 = 0;
+        for model in models {
+            if 已有.contains(&model.value) {
+                // 名字可能变了（adapter 更新了描述），跟着更新
+                self.conn.execute(
+                    "UPDATE model SET name = ?3, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
+                      WHERE runtime = ?1 AND model_id = ?2",
+                    params![runtime, model.value, model.label],
+                )?;
+                continue;
+            }
+            self.conn.execute(
+                "INSERT INTO model(id, name, runtime, model_id, effort, ctx, caps_json, cred_ref,
+                                   enabled, created_at, updated_at)
+                 VALUES(?1, ?2, ?3, ?4, 'medium', 0, '[]', NULL, 1,
+                        strftime('%Y-%m-%dT%H:%M:%fZ','now'),
+                        strftime('%Y-%m-%dT%H:%M:%fZ','now'))",
+                params![new_id("model"), model.label, runtime, model.value],
+            )?;
+            新增 += 1;
+        }
+        Ok(新增)
+    }
+
     pub fn list_models(&self, enabled_only: bool) -> Result<Vec<ModelRow>> {
         let mut stmt = self.conn.prepare(
             "SELECT id, name, runtime, model_id, effort, ctx, caps_json, cred_ref, enabled, last_latency_ms
