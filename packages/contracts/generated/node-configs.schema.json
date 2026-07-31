@@ -20,7 +20,7 @@
         "minLength": 1
       },
       "modelPolicy": {
-        "description": "模型策略\n只能选「模型」页里已启用的条目；降级会写入 RunEvent，不静默替换",
+        "description": "模型策略\n按档位（fast / balanced / quality）从「模型」页已启用的条目里挑；要的给不了会写入 RunEvent 降级事件，不静默替换",
         "anyOf": [
           {
             "type": "string",
@@ -107,7 +107,7 @@
         "minLength": 1
       },
       "modelPolicy": {
-        "description": "模型策略\n只能选「模型」页里已启用的条目；降级会写入 RunEvent，不静默替换",
+        "description": "模型策略\n按档位（fast / balanced / quality）从「模型」页已启用的条目里挑；要的给不了会写入 RunEvent 降级事件，不静默替换",
         "anyOf": [
           {
             "type": "string",
@@ -220,7 +220,7 @@
         "minLength": 1
       },
       "modelPolicy": {
-        "description": "模型策略\n只能选「模型」页里已启用的条目；降级会写入 RunEvent，不静默替换",
+        "description": "模型策略\n按档位（fast / balanced / quality）从「模型」页已启用的条目里挑；要的给不了会写入 RunEvent 降级事件，不静默替换",
         "anyOf": [
           {
             "type": "string",
@@ -359,7 +359,7 @@
         "minLength": 1
       },
       "modelPolicy": {
-        "description": "模型策略\n只能选「模型」页里已启用的条目；降级会写入 RunEvent，不静默替换",
+        "description": "模型策略\n按档位（fast / balanced / quality）从「模型」页已启用的条目里挑；要的给不了会写入 RunEvent 降级事件，不静默替换",
         "anyOf": [
           {
             "type": "string",

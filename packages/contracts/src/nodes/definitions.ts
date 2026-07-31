@@ -127,7 +127,8 @@ const AiBaseSchema = z.object({
   instruction: z.string().min(1).meta({ long: true }).describe('任务指令'),
   promptId: z.string().min(1).optional().describe('提示词\n留空则用该节点类型的内建提示词'),
   modelPolicy: ModelPolicySchema.optional().describe(
-    '模型策略\n只能选「模型」页里已启用的条目；降级会写入 RunEvent，不静默替换',
+    '模型策略\n按档位（fast / balanced / quality）从「模型」页已启用的条目里挑；' +
+      '要的给不了会写入 RunEvent 降级事件，不静默替换',
   ),
   turnLimit: z.number().int().positive().default(12).describe('Turn 上限'),
   outputContract: OutputContractSchema.optional().describe('输出契约'),

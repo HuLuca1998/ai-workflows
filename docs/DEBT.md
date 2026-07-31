@@ -555,6 +555,18 @@ sync 拿不到「每模型的 effort」，只能编一个。
 
 ---
 
+### Q-1 · modelPolicy 的「钉住某条模型」在节点表单里没有入口
+
+契约的 `ModelPolicySchema` 是 union：档位（fast / balanced / quality）
+**或** `{ modelId }` 钉住某条登记模型。引擎两种都实现了（`resolve_model`），
+但 schema 驱动的节点配置表单只把 enum 支渲染成下拉 ——
+对象支被 `fieldDescriptors` 静默丢掉，界面上无法钉住具体模型。
+
+MCP / `workflow_patch` 路径可以写对象形态，所以这不是「填了不生效」，
+是「界面表达力不足」。**还清的判据**：表单给出「档位或具体模型」的
+复合控件（选项来自已启用模型），或明确决定界面只支持档位并把契约
+描述 收窄。
+
 ## 优先级建议
 
 不按类别排，按「不修的代价」排：
