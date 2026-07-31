@@ -509,12 +509,13 @@ export function ModelsPage() {
             <div className="models__acp">
               <p className="models__acp-title">
                 <i className="ph ph-plugs-connected" aria-hidden="true" />
-                ACP 不提供模型列表
+                ACP 模型清单从哪来
               </p>
               <p className="models__acp-body">
-                ACP 握手只返回协议能力与 session modes（权限档位），不返回可用模型。 因此 ACP
-                模型需要在这里登记。「从 CLI
-                配置导入」还没做，现在只能手动登记；连通性测试见每条模型的详情。
+                较新的 adapter 会在握手时报告可用模型与推理档位 —— 上面的「同步」按钮拉的就是它，
+                同一屏的「测试连通性」也会显示。老版本 adapter 不报，那时需要手动登记。
+                同步来的条目上下文窗口显示「未知」（两端语义不同，引擎不编数字），
+                需要的话可在详情里手动补填；连通性测试见每条模型的详情。
               </p>
             </div>
           </>

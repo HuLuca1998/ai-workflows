@@ -444,7 +444,10 @@ export function PromptsPage() {
               ))}
               <span className="runs__grow" />
               <span className="prompts__hint">
-                框架分段可见可改 · 引擎目前不读提示词库，改了不会影响运行
+                {/* 内置条目整页只读 —— 说「可改」是撒谎（第 1 轮实测：0 个可编辑控件） */}
+                {selected.builtin
+                  ? '内置分段只读，要改先「复制」一份 · 引擎目前不读提示词库，改了也不影响运行'
+                  : '框架分段可改 · 引擎目前不读提示词库，改了不会影响运行'}
               </span>
             </div>
 

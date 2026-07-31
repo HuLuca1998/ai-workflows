@@ -118,11 +118,11 @@ describe('详情的四个 tab', () => {
 
   // DEBT.md B-3：run_ai 只读 agentProfileId + instruction，promptId 在
   // crates/engine/src 里出现 0 次。界面不能承诺「保存后新运行生效」。
-  it('提示条如实说明引擎目前不读提示词库', async () => {
+  it('提示条如实说明引擎目前不读提示词库，且内置条目不谎称可改', async () => {
+    // 第 1 轮实测：内置详情页 0 个可编辑控件，「可见可改」那半句是错的
     await open();
-    expect(
-      screen.getByText('框架分段可见可改 · 引擎目前不读提示词库，改了不会影响运行'),
-    ).toBeTruthy();
+    expect(screen.getByText(/引擎目前不读提示词库/)).toBeTruthy();
+    expect(screen.queryByText(/可见可改/)).toBeNull();
   });
 
   it('变量 tab 列出来源与缺失时的行为', async () => {
