@@ -16,14 +16,14 @@ const SAMPLE: &str = include_str!("../../../packages/contracts/generated/sample-
 
 /// 生成物的形状。只取要用的两个字段，多余的忽略。
 #[derive(serde::Deserialize)]
-struct 示例 {
+struct Sample {
     name: String,
     graph: serde_json::Value,
 }
 
 /// 种下示例工作流。调用方保证「只种一次」（`seed.rs` 的批次记账）。
 pub(crate) fn seed_sample(conn: &Connection) -> Result<()> {
-    let 数据: 示例 = serde_json::from_str(SAMPLE).map_err(|error| {
+    let data: Sample = serde_json::from_str(SAMPLE).map_err(|error| {
         crate::StoreError::Invalid(format!(
             "示例工作流的生成物读不动：{error}。跑 pnpm contracts:gen"
         ))
@@ -37,13 +37,13 @@ pub(crate) fn seed_sample(conn: &Connection) -> Result<()> {
     conn.execute(
         "INSERT INTO workflow (id, name, folder, created_at, updated_at, archived)
          VALUES (?1, ?2, NULL, ?3, ?3, 0)",
-        rusqlite::params![id, 数据.name, now],
+        rusqlite::params![id, data.name, now],
     )?;
     // rev 从 1 起：与 create_workflow 一致，编辑器读的是最大 rev
     conn.execute(
         "INSERT INTO workflow_revision (workflow_id, rev, graph_json, updated_at)
          VALUES (?1, 1, ?2, ?3)",
-        rusqlite::params![id, 数据.graph.to_string(), now],
+        rusqlite::params![id, data.graph.to_string(), now],
     )?;
 
     Ok(())

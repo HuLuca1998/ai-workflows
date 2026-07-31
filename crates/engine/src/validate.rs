@@ -193,15 +193,15 @@ pub fn validate_graph(graph: &Value) -> ValidationResult {
             .filter(|edge| nested(edge, "target", "nodeId") == node.id)
             .count();
         let quorum = join.get("quorum").and_then(Value::as_i64);
-        let 越界 = match quorum {
+        let out_of_range = match quorum {
             None => true,
             Some(value) => value < 1 || value > incoming as i64,
         };
-        if 越界 {
-            let 当前 = quorum.map_or_else(|| "未设置".to_string(), |value| value.to_string());
+        if out_of_range {
+            let current = quorum.map_or_else(|| "未设置".to_string(), |value| value.to_string());
             issues.push(error(
                 "JOIN_QUORUM_INVALID",
-                format!("Quorum 需在 1..{incoming} 之间，当前为 {当前}"),
+                format!("Quorum 需在 1..{incoming} 之间，当前为 {current}"),
                 Some(node.id.to_string()),
                 None,
             ));

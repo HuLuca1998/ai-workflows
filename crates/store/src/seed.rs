@@ -22,17 +22,17 @@ use crate::Result;
 ///
 /// 多数是一段 SQL。示例工作流是例外：它的图是**生成物**
 /// （见 `sample.rs`），塞进 `.sql` 就等于把生成物抄进源码。
-enum 内容 {
+enum Body {
     Sql(&'static str),
-    代码(fn(&Connection) -> Result<()>),
+    Code(fn(&Connection) -> Result<()>),
 }
 
 /// (批次名, 内容)。**只增不改** —— 与迁移同一条规矩：
 /// 改一个已经发出去的批次，只会让老库与新库分叉，而且不会有人发现。
-const BATCHES: &[(&str, 内容)] = &[
+const BATCHES: &[(&str, Body)] = &[
     (
         "builtins.v1",
-        内容::Sql(include_str!("sql/seed_builtins.sql")),
+        Body::Sql(include_str!("sql/seed_builtins.sql")),
     ),
     // v1 种进去的数据不合契约（时间不是 ISO、prompt 的 vars 形状错、
     // memory.source 用了枚举外的值），界面上「提示词」与「记忆」两页
@@ -44,30 +44,30 @@ const BATCHES: &[(&str, 内容)] = &[
     // `seed_fix_test.rs` 压着这件事。
     (
         "builtins.v1-fix",
-        内容::Sql(include_str!("sql/seed_builtins_fix.sql")),
+        Body::Sql(include_str!("sql/seed_builtins_FIX.sql")),
     ),
-    ("sample.v1", 内容::代码(crate::sample::seed_sample)),
+    ("sample.v1", Body::Code(crate::sample::seed_sample)),
 ];
 
 /// 把没种过的批次种上。
 pub(crate) fn seed(conn: &Connection) -> Result<()> {
-    for (name, 这批) in BATCHES {
-        let 种过: i64 = conn.query_row(
+    for (name, batch) in BATCHES {
+        let seeded: i64 = conn.query_row(
             "SELECT COUNT(*) FROM bootstrap WHERE name = ?1",
             rusqlite::params![name],
             |row| row.get(0),
         )?;
-        if 种过 > 0 {
+        if seeded > 0 {
             continue;
         }
 
         // 一个批次一个事务：中途失败时不会留下半批数据，
         // 而记账那一行也不会被写下 —— 下次启动会重来一遍
         conn.execute_batch("BEGIN")?;
-        let 结果 = (|| -> Result<()> {
-            match 这批 {
-                内容::Sql(sql) => conn.execute_batch(sql)?,
-                内容::代码(种) => 种(conn)?,
+        let result = (|| -> Result<()> {
+            match batch {
+                Body::Sql(sql) => conn.execute_batch(sql)?,
+                Body::Code(seed_one) => seed_one(conn)?,
             }
             conn.execute(
                 "INSERT INTO bootstrap(name, applied_at) VALUES (?1, ?2)",
@@ -76,7 +76,7 @@ pub(crate) fn seed(conn: &Connection) -> Result<()> {
             Ok(())
         })();
 
-        match 结果 {
+        match result {
             Ok(()) => conn.execute_batch("COMMIT")?,
             Err(error) => {
                 conn.execute_batch("ROLLBACK")?;
@@ -94,18 +94,18 @@ pub(crate) fn seed(conn: &Connection) -> Result<()> {
 /// **分叉被消掉了**：老库（v1 原始数据 + fix）与新库（改过的 v1）
 /// 逐字一致。下面几条测的就是这句话，不是「fix 跑起来不报错」。
 #[cfg(test)]
-mod 修正批次 {
+mod fix_batch {
     #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
     use rusqlite::Connection;
 
-    const 修正: &str = include_str!("sql/seed_builtins_fix.sql");
+    const FIX: &str = include_str!("sql/seed_builtins_FIX.sql");
 
     /// `builtins.v1` 最初发出去的样子。取三条覆盖两种变量个数与记忆的 source。
     ///
     /// 这是**历史快照，不要跟着 v1 一起改** —— 用户机器上躺着的就是它，
     /// 它变了的话这条测试就不再是在测老库了。
-    const 原始_V1: &str = r#"
+    const ORIGINAL_V1: &str = r#"
 INSERT INTO prompt (id, "group", name, sections_json, vars_json, ver, builtin, updated_at)
 VALUES
   ('prompt:analyze-root-cause', '分析', '根因分析',
@@ -152,45 +152,45 @@ VALUES
    json_array('工作方式'), 1);
 "#;
 
-    fn 空库() -> Connection {
+    fn empty_db() -> Connection {
         let conn = Connection::open_in_memory().unwrap();
         crate::migrations::migrate(&conn).unwrap();
         conn
     }
 
     /// 已经启动过应用的机器：种的是原始 v1，这次启动补上修正批次。
-    fn 老库() -> Connection {
-        let conn = 空库();
-        conn.execute_batch(原始_V1).unwrap();
-        conn.execute_batch(修正).unwrap();
+    fn old_db() -> Connection {
+        let conn = empty_db();
+        conn.execute_batch(ORIGINAL_V1).unwrap();
+        conn.execute_batch(FIX).unwrap();
         conn
     }
 
     /// 全新安装：v1 已经是改对的那份，修正批次跟着跑一遍（应当是空转）。
-    fn 新库() -> Connection {
-        let conn = 空库();
+    fn new_db() -> Connection {
+        let conn = empty_db();
         conn.execute_batch(include_str!("sql/seed_builtins.sql"))
             .unwrap();
-        conn.execute_batch(修正).unwrap();
+        conn.execute_batch(FIX).unwrap();
         conn
     }
 
-    fn 取(conn: &Connection, sql: &str) -> String {
+    fn get(conn: &Connection, sql: &str) -> String {
         conn.query_row(sql, [], |row| row.get::<_, String>(0))
             .unwrap()
     }
 
     #[test]
     fn 老库与新库的提示词逐字一致() {
-        let (老, 新) = (老库(), 新库());
+        let (old, fresh) = (old_db(), new_db());
 
         for id in ["prompt:analyze-root-cause", "prompt:decide-risk"] {
-            for 列 in ["sections_json", "vars_json"] {
-                let sql = format!("SELECT {列} FROM prompt WHERE id = '{id}'");
+            for col in ["sections_json", "vars_json"] {
+                let sql = format!("SELECT {col} FROM prompt WHERE id = '{id}'");
                 assert_eq!(
-                    取(&老, &sql),
-                    取(&新, &sql),
-                    "{id} 的 {列} 两条路径不一致 —— 分叉没消掉，\
+                    get(&old, &sql),
+                    get(&fresh, &sql),
+                    "{id} 的 {col} 两条路径不一致 —— 分叉没消掉，\
                      那「只增不改」的例外就不成立了"
                 );
             }
@@ -199,31 +199,31 @@ VALUES
 
     #[test]
     fn 老库与新库的记忆逐字一致() {
-        let (老, 新) = (老库(), 新库());
+        let (old, fresh) = (old_db(), new_db());
         let sql = "SELECT source || '|' || created_by || '|' || value
                      FROM memory WHERE id = 'memory:builtin:small-steps'";
-        assert_eq!(取(&老, sql), 取(&新, sql));
+        assert_eq!(get(&old, sql), get(&fresh, sql));
     }
 
     #[test]
     fn 占位符换成了引擎认得的形式() {
-        let 老 = 老库();
-        let 正文 = 取(
-            &老,
+        let old = old_db();
+        let text = get(
+            &old,
             "SELECT sections_json FROM prompt WHERE id = 'prompt:analyze-root-cause'",
         );
         // `{{target}}` 引擎与界面都当它是普通文字 —— 变量页显示「0 变量」，
         // 运行时那串花括号原样发给 agent
-        assert!(正文.contains("${input.target}"), "{正文}");
-        assert!(正文.contains("${input.repo}"), "{正文}");
-        assert!(!正文.contains("{{"), "还留着旧形式：{正文}");
+        assert!(text.contains("${input.target}"), "{text}");
+        assert!(text.contains("${input.repo}"), "{text}");
+        assert!(!text.contains("{{"), "还留着旧形式：{text}");
     }
 
     #[test]
     fn 变量表变成契约要的形状() {
-        let 老 = 老库();
-        let vars = 取(
-            &老,
+        let old = old_db();
+        let vars = get(
+            &old,
             "SELECT vars_json FROM prompt WHERE id = 'prompt:analyze-root-cause'",
         );
         assert!(vars.contains(r#""name":"${input.target}""#), "{vars}");
@@ -237,16 +237,16 @@ VALUES
 
     #[test]
     fn 时间补成了_iso8601() {
-        let 老 = 老库();
+        let old = old_db();
         for sql in [
             "SELECT updated_at FROM prompt WHERE id = 'prompt:decide-risk'",
             "SELECT created_at FROM memory WHERE id = 'memory:builtin:small-steps'",
             "SELECT updated_at FROM memory WHERE id = 'memory:builtin:small-steps'",
         ] {
-            let 值 = 取(&老, sql);
+            let value = get(&old, sql);
             assert!(
-                值.contains('T') && 值.ends_with('Z'),
-                "{sql} 拿到的还是 SQLite 格式：{值}"
+                value.contains('T') && value.ends_with('Z'),
+                "{sql} 拿到的还是 SQLite 格式：{value}"
             );
         }
     }
@@ -255,28 +255,28 @@ VALUES
     fn 跑第二遍什么都不动() {
         // 这批会在每台机器上跑一次，但用户可能手动重置过工作区 ——
         // 不幂等的话第二遍会把 `${input.target}` 再套一层
-        let 老 = 老库();
-        let 之前 = 取(
-            &老,
+        let old = old_db();
+        let before = get(
+            &old,
             "SELECT sections_json || vars_json || updated_at FROM prompt
               WHERE id = 'prompt:analyze-root-cause'",
         );
 
-        老.execute_batch(修正).unwrap();
+        old.execute_batch(FIX).unwrap();
 
-        let 之后 = 取(
-            &老,
+        let after = get(
+            &old,
             "SELECT sections_json || vars_json || updated_at FROM prompt
               WHERE id = 'prompt:analyze-root-cause'",
         );
-        assert_eq!(之前, 之后, "修正批次不幂等");
+        assert_eq!(before, after, "修正批次不幂等");
     }
 
     #[test]
     fn 用户自己的数据一个字都不动() {
         // 「改坏数据的格式」与「覆盖用户写过的内容」是两回事。
         // 这批带的 WHERE 条件全部是为了这句话。
-        let conn = 空库();
+        let conn = empty_db();
         conn.execute_batch(
             r#"
 INSERT INTO prompt (id, "group", name, sections_json, vars_json, ver, builtin, updated_at)
@@ -293,20 +293,20 @@ VALUES ('memory:mine', 'workspace', NULL, '我的记忆', '正文', NULL, 'user'
         )
         .unwrap();
 
-        let 快照 = |c: &Connection| {
+        let snapshot = |c: &Connection| {
             (
-                取(
+                get(
                     c,
                     "SELECT sections_json || vars_json || updated_at FROM prompt WHERE id = 'prompt:mine'",
                 ),
-                取(
+                get(
                     c,
                     "SELECT source || created_at FROM memory WHERE id = 'memory:mine'",
                 ),
             )
         };
-        let 之前 = 快照(&conn);
-        conn.execute_batch(修正).unwrap();
-        assert_eq!(之前, 快照(&conn), "修正批次动了用户自己的数据");
+        let before = snapshot(&conn);
+        conn.execute_batch(FIX).unwrap();
+        assert_eq!(before, snapshot(&conn), "修正批次动了用户自己的数据");
     }
 }

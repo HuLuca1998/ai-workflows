@@ -198,7 +198,7 @@ fn describe_fields(schema: &Value) -> Value {
 
 /// 当前工作区里有什么。Agent 设计工作流前要先知道能引用哪些角色与模型。
 fn inventory(store: &Mutex<Store>, supervisor: &Supervisor, data_dir: &std::path::Path) -> Value {
-    let 取 = |command: &str, input: Value| -> Value {
+    let get = |command: &str, input: Value| -> Value {
         aiwf_core_api::dispatch::dispatch(command, &input, store, supervisor, data_dir)
             .unwrap_or_else(|error| json!({ "错误": error.message }))
     };
@@ -206,13 +206,13 @@ fn inventory(store: &Mutex<Store>, supervisor: &Supervisor, data_dir: &std::path
     json!({
         "说明": "AI 节点的 agentProfileId 必须来自 agents 里的 id；\
                  模型引用必须来自 models 里已启用的条目。都是实时读的。",
-        "workflows": 取("workflow_list", json!({ "limit": 50 })),
-        "agents": 取("agent_list", json!({ "limit": 50 })),
-        "prompts": 取("prompt_list", json!({ "limit": 50 })),
-        "models": 取("model_list", json!({ "enabledOnly": true, "limit": 50 })),
-        "memories": 取("memory_list", json!({ "limit": 50 })),
-        "settings": 取("workspace_settings", json!({})),
-        "stats": 取("workspace_stats", json!({})),
+        "workflows": get("workflow_list", json!({ "limit": 50 })),
+        "agents": get("agent_list", json!({ "limit": 50 })),
+        "prompts": get("prompt_list", json!({ "limit": 50 })),
+        "models": get("model_list", json!({ "enabledOnly": true, "limit": 50 })),
+        "memories": get("memory_list", json!({ "limit": 50 })),
+        "settings": get("workspace_settings", json!({})),
+        "stats": get("workspace_stats", json!({})),
     })
 }
 
@@ -490,16 +490,16 @@ pub fn render_prompt(name: &str, args: &Value) -> Result<(String, String), Strin
     match name {
         "design_workflow" => {
             let goal = arg("goal");
-            let 名字 = arg("name");
-            let 名字段 = if 名字.is_empty() {
+            let name = arg("name");
+            let name_field = if name.is_empty() {
                 "工作流的名字你自己起一个，能一眼看出用途。".to_string()
             } else {
-                format!("工作流叫「{名字}」。")
+                format!("工作流叫「{name}」。")
             };
             Ok((
                 "设计一条工作流".to_string(),
                 format!(
-                    "目标：{goal}\n\n{名字段}\n\n\
+                    "目标：{goal}\n\n{name_field}\n\n\
                      动手前先读这三份资源：\n\
                      - `aiwf://guide/build-and-run`（该按什么顺序调哪个工具）\n\
                      - `aiwf://catalog/nodes`（有哪些节点、端口叫什么、哪些字段必填）\n\

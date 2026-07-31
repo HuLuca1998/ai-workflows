@@ -544,26 +544,26 @@ impl Store {
         // `foreign_keys` 这个 PRAGMA 在事务里是 no-op（SQLite 明文规定），
         // 所以只能在 BEGIN 之前。
         self.conn.pragma_update(None, "foreign_keys", "OFF")?;
-        let 结果 = self.清空重建();
+        let result = self.reset_all();
         // 不管成没成都要开回来：漏掉的话一次失败的重置会让这条连接
         // 之后再也不检查外键，而它看起来完全正常
         self.conn.pragma_update(None, "foreign_keys", "ON")?;
-        结果
+        result
     }
 
-    fn 清空重建(&mut self) -> Result<()> {
+    fn reset_all(&mut self) -> Result<()> {
         self.conn.execute_batch("BEGIN")?;
-        let 删完了 = (|| -> Result<()> {
-            for 表 in 用户表(&self.conn)? {
+        let cleared = (|| -> Result<()> {
+            for tables in user_tables(&self.conn)? {
                 // 表名来自 sqlite_master，不是外部输入；用引号包住
                 // 是为了以后有人建出带保留字的表名时不至于突然报语法错
                 self.conn
-                    .execute_batch(&format!("DROP TABLE IF EXISTS \"{表}\""))?;
+                    .execute_batch(&format!("DROP TABLE IF EXISTS \"{tables}\""))?;
             }
             Ok(())
         })();
 
-        match 删完了 {
+        match cleared {
             Ok(()) => self.conn.execute_batch("COMMIT")?,
             Err(error) => {
                 self.conn.execute_batch("ROLLBACK")?;
@@ -2089,20 +2089,20 @@ impl Store {
     pub fn sync_models(&self, runtime: &str, models: &[SyncedModel]) -> Result<usize> {
         validate_runtime(runtime)?;
 
-        let mut 已有 = std::collections::HashSet::new();
+        let mut existing = std::collections::HashSet::new();
         {
             let mut stmt = self
                 .conn
                 .prepare("SELECT model_id FROM model WHERE runtime = ?1")?;
             let rows = stmt.query_map(params![runtime], |row| row.get::<_, String>(0))?;
             for row in rows {
-                已有.insert(row?);
+                existing.insert(row?);
             }
         }
 
-        let mut 新增 = 0;
+        let mut added = 0;
         for model in models {
-            if 已有.contains(&model.value) {
+            if existing.contains(&model.value) {
                 // 名字可能变了（adapter 更新了描述），跟着更新
                 self.conn.execute(
                     "UPDATE model SET name = ?3, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
@@ -2119,9 +2119,9 @@ impl Store {
                         strftime('%Y-%m-%dT%H:%M:%fZ','now'))",
                 params![new_id("model"), model.label, runtime, model.value],
             )?;
-            新增 += 1;
+            added += 1;
         }
-        Ok(新增)
+        Ok(added)
     }
 
     pub fn list_models(&self, enabled_only: bool) -> Result<Vec<ModelRow>> {
@@ -2156,11 +2156,11 @@ impl Store {
             .filter(|text| !text.is_empty())
             .map(|text| format!("%{text}%"));
 
-        let 条件 = "WHERE (?1 = 0 OR enabled = 1)
+        let cond = "WHERE (?1 = 0 OR enabled = 1)
              AND (?2 IS NULL OR name LIKE ?2 OR model_id LIKE ?2)";
 
         let total: i64 = self.conn.query_row(
-            &format!("SELECT COUNT(*) FROM model {条件}"),
+            &format!("SELECT COUNT(*) FROM model {cond}"),
             params![flag, like],
             |row| row.get(0),
         )?;
@@ -2168,7 +2168,7 @@ impl Store {
         let mut stmt = self.conn.prepare(&format!(
             "SELECT id, name, runtime, model_id, effort, ctx, caps_json, cred_ref, enabled, last_latency_ms
              FROM model
-             {条件}
+             {cond}
              ORDER BY updated_at DESC, rowid DESC
              LIMIT ?3 OFFSET ?4"
         ))?;
@@ -2252,14 +2252,14 @@ impl Store {
         let mut stmt = self
             .conn
             .prepare("SELECT name FROM agent_profile WHERE model_ref = ?1 OR fallback_model_ref = ?1 ORDER BY name")?;
-        let 用它的: Vec<String> = stmt
+        let used_by: Vec<String> = stmt
             .query_map(params![id], |row| row.get::<_, String>(0))?
             .collect::<std::result::Result<Vec<_>, _>>()?;
 
-        if !用它的.is_empty() {
+        if !used_by.is_empty() {
             return Err(StoreError::Invalid(format!(
                 "这些 Agent 角色还在用它：{}。先给它们换一个模型再删",
-                用它的.join("、")
+                used_by.join("、")
             )));
         }
 
@@ -2712,13 +2712,13 @@ fn unix_millis() -> u128 {
 ///
 /// `sqlite_` 前缀的是 SQLite 自己的内部表（`sqlite_sequence` 这些），
 /// DROP 它们会报错。
-fn 用户表(conn: &Connection) -> Result<Vec<String>> {
+fn user_tables(conn: &Connection) -> Result<Vec<String>> {
     let mut stmt = conn.prepare(
         "SELECT name FROM sqlite_master
          WHERE type = 'table' AND name NOT LIKE 'sqlite_%'",
     )?;
-    let 表: rusqlite::Result<Vec<String>> = stmt.query_map([], |row| row.get(0))?.collect();
-    Ok(表?)
+    let tables: rusqlite::Result<Vec<String>> = stmt.query_map([], |row| row.get(0))?.collect();
+    Ok(tables?)
 }
 
 /// ISO-8601（UTC，毫秒精度）。为一个时间戳不值得引入 chrono。
@@ -2889,14 +2889,15 @@ fn secret_hit(value: &str) -> Option<&'static str> {
         let mut from = 0;
         while let Some(offset) = value[from..].find(prefix) {
             let at = from + offset;
-            let 前面是边界 = at == 0
+            let at_boundary = at == 0
                 || !value[..at]
                     .chars()
                     .next_back()
                     .is_some_and(|c| c.is_alphanumeric() || c == '-' || c == '_');
             // 私钥块自带 `-----` 边界，长度另算：它后面跟的是换行与 base64
-            let 够长 = *prefix == "-----BEGIN" || value.len() - at - prefix.len() >= MIN_TAIL;
-            if 前面是边界 && 够长 {
+            let long_enough =
+                *prefix == "-----BEGIN" || value.len() - at - prefix.len() >= MIN_TAIL;
+            if at_boundary && long_enough {
                 return Some(what);
             }
             from = at + prefix.len();

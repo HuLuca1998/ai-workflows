@@ -146,7 +146,7 @@ pub struct ConnectOutcome {
 /// 那样它就能在「服务还没起来」时被调用而给出确定的错误。
 pub fn connect(client: Client, port: u16, token: &str) -> ConnectOutcome {
     let install = install_command(client, port, token);
-    let 命令行 = install.display();
+    let cmdline = install.display();
 
     if !client.installed() {
         return ConnectOutcome {
@@ -154,11 +154,11 @@ pub fn connect(client: Client, port: u16, token: &str) -> ConnectOutcome {
             ok: false,
             detail: format!(
                 "{} 的命令行工具 `{}` 不在 PATH 里。装好之后再点一次；\
-                 或者自己跑一遍：{命令行}",
+                 或者自己跑一遍：{cmdline}",
                 client.label(),
                 client.cli()
             ),
-            command: 命令行,
+            command: cmdline,
         };
     }
 
@@ -180,13 +180,13 @@ pub fn connect(client: Client, port: u16, token: &str) -> ConnectOutcome {
                  工具名形如 mcp__{SERVER_NAME}__workflow_list",
                 client.label()
             ),
-            command: 命令行,
+            command: cmdline,
         },
         Ok(out) => {
             // stderr 常常是空的而真正的原因在 stdout 里，两个都带上
             let stderr = String::from_utf8_lossy(&out.stderr).trim().to_string();
             let stdout = String::from_utf8_lossy(&out.stdout).trim().to_string();
-            let 原因 = [stderr, stdout]
+            let reason = [stderr, stdout]
                 .into_iter()
                 .filter(|text| !text.is_empty())
                 .collect::<Vec<_>>()
@@ -195,22 +195,22 @@ pub fn connect(client: Client, port: u16, token: &str) -> ConnectOutcome {
                 client,
                 ok: false,
                 detail: format!(
-                    "{} 拒绝了这次注册：{}。可以自己跑一遍看完整输出：{命令行}",
+                    "{} 拒绝了这次注册：{}。可以自己跑一遍看完整输出：{cmdline}",
                     client.label(),
-                    if 原因.is_empty() {
+                    if reason.is_empty() {
                         format!("退出码 {:?}", out.status.code())
                     } else {
-                        原因
+                        reason
                     }
                 ),
-                command: 命令行,
+                command: cmdline,
             }
         }
         Err(error) => ConnectOutcome {
             client,
             ok: false,
             detail: format!("起不来 `{}`：{error}", client.cli()),
-            command: 命令行,
+            command: cmdline,
         },
     }
 }
@@ -243,14 +243,14 @@ pub fn connected(client: Client) -> bool {
 /// 把它从客户端里摘掉。
 pub fn disconnect(client: Client) -> ConnectOutcome {
     let remove = uninstall_command(client);
-    let 命令行 = remove.display();
+    let cmdline = remove.display();
 
     if !client.installed() {
         return ConnectOutcome {
             client,
             ok: false,
             detail: format!("{} 的命令行工具不在 PATH 里", client.label()),
-            command: 命令行,
+            command: cmdline,
         };
     }
 
@@ -262,7 +262,7 @@ pub fn disconnect(client: Client) -> ConnectOutcome {
             client,
             ok: true,
             detail: format!("已从 {} 里移除", client.label()),
-            command: 命令行,
+            command: cmdline,
         },
         Ok(out) => ConnectOutcome {
             client,
@@ -272,13 +272,13 @@ pub fn disconnect(client: Client) -> ConnectOutcome {
                 client.label(),
                 String::from_utf8_lossy(&out.stderr).trim()
             ),
-            command: 命令行,
+            command: cmdline,
         },
         Err(error) => ConnectOutcome {
             client,
             ok: false,
             detail: format!("起不来 `{}`：{error}", client.cli()),
-            command: 命令行,
+            command: cmdline,
         },
     }
 }

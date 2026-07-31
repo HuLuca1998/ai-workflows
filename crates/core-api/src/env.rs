@@ -111,7 +111,7 @@ pub struct DirectoryCheck {
 /// 现在写得进去不代表以后还行：ad-hoc 签名下 App 一更新，cdhash 变了，
 /// 上一版拿到的授权就不再适用（docs/MACOS-PERMISSIONS.md）。
 /// 界面要能提前说这句话，而不是等用户下次跑工作流时撞上 EPERM。
-const TCC_保护的子目录: &[&str] = &[
+const TCC_PROTECTED_SUBDIRS: &[&str] = &[
     "Documents",
     "Desktop",
     "Downloads",
@@ -143,11 +143,11 @@ pub fn check_directory(path: &str) -> ApiResult<DirectoryCheck> {
         });
     }
 
-    let expanded = 展开波浪号(trimmed);
+    let expanded = expand_tilde(trimmed);
     let resolved = expanded.display().to_string();
     let exists = expanded.is_dir();
     let is_git_repo = expanded.join(".git").exists();
-    let tcc_protected = 在_tcc_保护区(&expanded);
+    let tcc_protected = in_tcc_protected(&expanded);
 
     if !exists {
         return Ok(DirectoryCheck {
@@ -160,7 +160,7 @@ pub fn check_directory(path: &str) -> ApiResult<DirectoryCheck> {
         });
     }
 
-    let (writable, message) = match 探一下(&expanded) {
+    let (writable, message) = match probe(&expanded) {
         Ok(()) => (true, None),
         Err(reason) => (false, Some(reason)),
     };
@@ -176,15 +176,15 @@ pub fn check_directory(path: &str) -> ApiResult<DirectoryCheck> {
 }
 
 /// 写一个探针文件再删掉。
-fn 探一下(dir: &std::path::Path) -> std::result::Result<(), String> {
+fn probe(dir: &std::path::Path) -> std::result::Result<(), String> {
     // 名字带进程 id：两个实例同时探同一个目录时不会互相删掉对方的探针
     let probe = dir.join(format!(".aiwf-probe-{}", std::process::id()));
-    let 结果 = std::fs::write(&probe, b"aiwf");
+    let result = std::fs::write(&probe, b"aiwf");
     // 删除放在判断成败之前 —— 写成功了才有东西可删，
     // 而写失败时这一句是无害的
     let _ = std::fs::remove_file(&probe);
 
-    结果.map_err(|error| match error.kind() {
+    result.map_err(|error| match error.kind() {
         std::io::ErrorKind::PermissionDenied => format!(
             "这个目录写不进去（权限被拒）。\
              如果它在「文稿」「桌面」「下载」里，到「系统设置 → 隐私与安全性 → 文件与文件夹」\
@@ -199,7 +199,7 @@ fn 探一下(dir: &std::path::Path) -> std::result::Result<(), String> {
 ///
 /// 界面上存的是 `~/Library/…` 这种可读形式（Web 形态拿不到 Tauri 的
 /// path API），而判断要在真实路径上做。
-fn 展开波浪号(path: &str) -> std::path::PathBuf {
+fn expand_tilde(path: &str) -> std::path::PathBuf {
     let Some(rest) = path.strip_prefix('~') else {
         return std::path::PathBuf::from(path);
     };
@@ -214,12 +214,12 @@ fn 展开波浪号(path: &str) -> std::path::PathBuf {
     }
 }
 
-fn 在_tcc_保护区(path: &std::path::Path) -> bool {
+fn in_tcc_protected(path: &std::path::Path) -> bool {
     let Some(home) = std::env::var_os("HOME") else {
         return false;
     };
     let home = std::path::PathBuf::from(home);
-    TCC_保护的子目录
+    TCC_PROTECTED_SUBDIRS
         .iter()
         .any(|name| path.starts_with(home.join(name)))
 }
@@ -463,16 +463,16 @@ fn probe_adapter(runtime: &str, label: &str) -> EnvHealthItem {
 /// npm 的全局包跟着 node 版本走，不把这件事说出来，用户只会
 /// 反复重装同一条命令。
 pub fn adapter_missing_detail(node: Option<&str>) -> String {
-    let mut 话 = "AI 节点与主管 AI 需要它。".to_string();
+    let mut message = "AI 节点与主管 AI 需要它。".to_string();
     match node {
-        Some(path) => 话.push_str(&format!(
+        Some(path) => message.push_str(&format!(
             "它随 npm 全局安装，位置跟着 node 版本走 —— \
              检测用的 node 是 {path}，请确认装到了同一个下面",
         )),
         // node 都没有的话，adapter 更不可能有；先解决 node 那一项
-        None => 话.push_str("它跑在 Node.js 上，而 Node.js 当前也没找到 —— 先装它"),
+        None => message.push_str("它跑在 Node.js 上，而 Node.js 当前也没找到 —— 先装它"),
     }
-    话
+    message
 }
 
 fn which(command: &str) -> Option<String> {

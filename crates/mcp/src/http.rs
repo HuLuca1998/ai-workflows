@@ -142,7 +142,7 @@ fn handle(mut request: tiny_http::Request, ctx: &McpContext<'_>, token: &str, se
     // 连接里还剩着没消费的字节，客户端那边看到的是一个读不出状态行的
     // 半截响应 —— 症状是「偶尔连不上」，而且只在带 body 的请求上出现。
     let mut body = String::new();
-    let 读到了 = request.as_reader().read_to_string(&mut body).is_ok();
+    let got = request.as_reader().read_to_string(&mut body).is_ok();
 
     // ── 1. Origin 校验。规范的 MUST：挡 DNS 重绑定 ──
     //
@@ -245,7 +245,7 @@ fn handle(mut request: tiny_http::Request, ctx: &McpContext<'_>, token: &str, se
     }
 
     match method {
-        tiny_http::Method::Post => handle_post(request, ctx, sessions, &body, 读到了),
+        tiny_http::Method::Post => handle_post(request, ctx, sessions, &body, got),
 
         // 服务端不主动往客户端推消息，所以不开这条流。
         // 规范明说这时该回 405，客户端会照常工作
@@ -267,9 +267,9 @@ fn handle_post(
     ctx: &McpContext<'_>,
     sessions: &Sessions,
     body: &str,
-    读到了: bool,
+    got: bool,
 ) {
-    if !读到了 {
+    if !got {
         respond(
             request,
             400,

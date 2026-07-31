@@ -110,7 +110,7 @@ pub fn dry_run_with_profiles(
 /// 端到端验证里 AI 写出的第一版脚本就踩了这个。引擎的行为没错，
 /// 错在它只有跑起来才暴露 —— 而那时脚本可能已经产生了别的副作用。
 fn check_double_quoting(graph: &WorkflowGraph) -> Vec<Check> {
-    let mut 命中: Vec<String> = Vec::new();
+    let mut hit: Vec<String> = Vec::new();
 
     for node in &graph.nodes {
         if !matches!(node.node_type.as_str(), "script.shell" | "script.python") {
@@ -123,12 +123,12 @@ fn check_double_quoting(graph: &WorkflowGraph) -> Vec<Check> {
         else {
             continue;
         };
-        for 变量 in quoted_placeholders(script) {
-            命中.push(format!("{}（{}）", node.id, 变量));
+        for vars in quoted_placeholders(script) {
+            hit.push(format!("{}（{}）", node.id, vars));
         }
     }
 
-    if 命中.is_empty() {
+    if hit.is_empty() {
         return Vec::new();
     }
 
@@ -139,7 +139,7 @@ fn check_double_quoting(graph: &WorkflowGraph) -> Vec<Check> {
             "这些地方给 ${{…}} 又套了一层引号：{}。\
              引擎替进去的值已经加过 shell 引号，再套一层命令会收到带引号的字面量。\
              去掉自己加的那对引号即可",
-            命中.join("、")
+            hit.join("、")
         ),
     }]
 }

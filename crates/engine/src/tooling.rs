@@ -35,13 +35,13 @@ use std::time::Duration;
 
 /// launchd 给 GUI 进程的那份 PATH。除了这几条之外什么都没有，
 /// 就说明我们是被 Finder / Dock 拉起来的。
-const 系统目录: &[&str] = &["/usr/bin", "/bin", "/usr/sbin", "/sbin"];
+const SYSTEM_DIRS: &[&str] = &["/usr/bin", "/bin", "/usr/sbin", "/sbin"];
 
 /// 问不到登录 shell 时的兜底。
 ///
 /// 覆盖不了 nvm 那种带版本号的路径（`~/.nvm/versions/node/v25.6.1/bin`）——
 /// 那正是必须去问 shell 的理由，这里只是问不到时的下限。
-const 常见目录: &[&str] = &[
+const COMMON_DIRS: &[&str] = &[
     "/opt/homebrew/bin",
     "/opt/homebrew/sbin",
     "/usr/local/bin",
@@ -52,29 +52,29 @@ const 常见目录: &[&str] = &[
 ///
 /// 用户的 zsh 里可能挂着一串插件，慢是常事；但慢到这个份上，
 /// 让应用启动跟着卡住不如先用兜底那份跑起来。
-const 问_SHELL_超时: Duration = Duration::from_secs(3);
+const ASK_SHELL_TIMEOUT: Duration = Duration::from_secs(3);
 
-static 解析结果: OnceLock<String> = OnceLock::new();
+static PARSED: OnceLock<String> = OnceLock::new();
 
 /// 这个进程该用的 PATH。第一次调用时解析，之后直接取缓存。
 pub fn user_path() -> &'static str {
-    解析结果.get_or_init(|| resolve_path(&std::env::var("PATH").unwrap_or_default(), 问登录_shell))
+    PARSED.get_or_init(|| resolve_path(&std::env::var("PATH").unwrap_or_default(), ask_login_shell))
 }
 
 /// [`user_path`] 的决策部分，把「去哪问」抽出来当参数。
 ///
 /// 抽这一层是因为**开发机上永远走不到问 shell 那条分支** —— 终端起的进程
 /// PATH 本来就是全的。不抽的话，打包版真正跑的那半边代码一次都没被执行过。
-pub fn resolve_path(继承: &str, 问: impl FnOnce() -> Option<String>) -> String {
-    if !looks_bare(继承) {
+pub fn resolve_path(inherited: &str, ask: impl FnOnce() -> Option<String>) -> String {
+    if !looks_bare(inherited) {
         // 从终端起来的：用户 shell 里有什么这里就有什么，不必再问一遍
-        return merge_paths(&[继承]);
+        return merge_paths(&[inherited]);
     }
 
-    match 问() {
-        Some(来自_shell) => merge_paths(&[继承, &来自_shell, &常见目录.join(":")]),
+    match ask() {
+        Some(from_shell) => merge_paths(&[inherited, &from_shell, &COMMON_DIRS.join(":")]),
         // 问不到也要给个下限：homebrew 那几条比什么都没有强
-        None => merge_paths(&[继承, &常见目录.join(":")]),
+        None => merge_paths(&[inherited, &COMMON_DIRS.join(":")]),
     }
 }
 
@@ -99,8 +99,8 @@ pub fn command<S: AsRef<std::ffi::OsStr>>(program: S) -> Command {
 pub fn resolve_in(path: &str, program: &str) -> Option<PathBuf> {
     // 已经是路径的（`./x` 或 `/usr/bin/x`）不查 PATH，这是 shell 的语义
     if program.contains('/') {
-        let 候选 = PathBuf::from(program);
-        return 可执行(&候选).then_some(候选);
+        let candidates = PathBuf::from(program);
+        return is_exec(&candidates).then_some(candidates);
     }
 
     path.split(':')
@@ -108,23 +108,23 @@ pub fn resolve_in(path: &str, program: &str) -> Option<PathBuf> {
         // 按它去找，等于让「工具在哪」取决于 App 是被谁拉起来的
         .filter(|dir| !dir.is_empty())
         .map(|dir| Path::new(dir).join(program))
-        .find(|候选| 可执行(候选))
+        .find(|candidates| is_exec(candidates))
 }
 
 /// 把几份 PATH 拼成一份：去重、丢空项、保持先来后到。
 ///
 /// 先来的优先级高 —— 继承来的排在补进来的前面，
 /// 用户显式设过的东西不该被兜底那一串顶掉。
-pub fn merge_paths(片段: &[&str]) -> String {
-    let mut 结果: Vec<&str> = Vec::new();
-    for 片 in 片段 {
-        for dir in 片.split(':') {
-            if !dir.is_empty() && !结果.contains(&dir) {
-                结果.push(dir);
+pub fn merge_paths(piece: &[&str]) -> String {
+    let mut result: Vec<&str> = Vec::new();
+    for chunk in piece {
+        for dir in chunk.split(':') {
+            if !dir.is_empty() && !result.contains(&dir) {
+                result.push(dir);
             }
         }
     }
-    结果.join(":")
+    result.join(":")
 }
 
 /// 这份 PATH 是不是 launchd 给的那份贫瘠版本。
@@ -136,7 +136,7 @@ pub fn looks_bare(path: &str) -> bool {
     !path
         .split(':')
         .filter(|dir| !dir.is_empty())
-        .any(|dir| !系统目录.contains(&dir))
+        .any(|dir| !SYSTEM_DIRS.contains(&dir))
 }
 
 /// 问用户的登录 shell 要一份 PATH。
@@ -146,30 +146,30 @@ pub fn looks_bare(path: &str) -> bool {
 ///
 /// 超时靠另开一条线程等 —— `Command::output()` 自己没有超时，
 /// 而一个卡住的 shell 会让应用永远停在启动画面。
-fn 问登录_shell() -> Option<String> {
+fn ask_login_shell() -> Option<String> {
     let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string());
-    let (发, 收) = mpsc::channel();
+    let (tx, rx) = mpsc::channel();
 
     std::thread::spawn(move || {
         // printf 而不是 echo：不同 shell 的 echo 对转义的处理不一样，
         // 而这里要的是一字不差的 PATH
-        let 结果 = Command::new(&shell)
+        let result = Command::new(&shell)
             .args(["-l", "-i", "-c", "printf %s \"$PATH\""])
             .output()
             .ok()
             .filter(|out| out.status.success())
             .map(|out| String::from_utf8_lossy(&out.stdout).trim().to_string());
         // 收端可能已经超时走了，发不出去是正常情况
-        let _ = 发.send(结果);
+        let _ = tx.send(result);
     });
 
-    收.recv_timeout(问_SHELL_超时)
+    rx.recv_timeout(ASK_SHELL_TIMEOUT)
         .ok()
         .flatten()
         .filter(|path| !path.is_empty())
 }
 
-fn 可执行(path: &Path) -> bool {
+fn is_exec(path: &Path) -> bool {
     use std::os::unix::fs::PermissionsExt;
     path.metadata()
         .is_ok_and(|meta| meta.is_file() && meta.permissions().mode() & 0o111 != 0)

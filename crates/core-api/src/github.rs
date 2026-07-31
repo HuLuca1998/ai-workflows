@@ -64,14 +64,14 @@ pub fn unavailable_detail(why: Unavailable) -> String {
 /// 而这一类**多半只是代理切了个节点**，重试一次就好。
 #[must_use]
 pub fn describe_gh_failure(stderr: &str) -> (String, Option<String>, bool) {
-    let 原文 = stderr.trim();
-    let 像网络 = ["EOF", "timeout", "connection", "no such host", "TLS", "i/o"]
+    let raw = stderr.trim();
+    let looks_network = ["EOF", "timeout", "connection", "no such host", "TLS", "i/o"]
         .iter()
-        .any(|词| 原文.to_lowercase().contains(&词.to_lowercase()));
+        .any(|word| raw.to_lowercase().contains(&word.to_lowercase()));
 
-    if 像网络 {
+    if looks_network {
         return (
-            format!("连不上 GitHub（网络或代理的问题）：{原文}"),
+            format!("连不上 GitHub（网络或代理的问题）：{raw}"),
             Some("多半是代理切了节点。点「重试」；一直不行就在终端里跑一遍 `gh api /user/repos` 看看".to_string()),
             true,
         );
@@ -79,7 +79,7 @@ pub fn describe_gh_failure(stderr: &str) -> (String, Option<String>, bool) {
 
     // 认不出就原样转述。编一个「可能是什么」比照搬更糟 ——
     // 用户会照着我们臆想的方向去查
-    (format!("gh 报错：{原文}"), None, false)
+    (format!("gh 报错：{raw}"), None, false)
 }
 
 /// `owner/name`，两段，每段只允许 GitHub 真正会用的那几类字符。
@@ -88,18 +88,18 @@ pub fn describe_gh_failure(stderr: &str) -> (String, Option<String>, bool) {
 /// 一个带 `../` 的值就能把请求打到别的路径上去。
 #[must_use]
 pub fn valid_repo(repo: &str) -> bool {
-    let mut 段 = repo.split('/');
-    let (Some(owner), Some(name), None) = (段.next(), 段.next(), 段.next()) else {
+    let mut part = repo.split('/');
+    let (Some(owner), Some(name), None) = (part.next(), part.next(), part.next()) else {
         return false;
     };
-    let 合法 = |s: &str| {
+    let valid = |s: &str| {
         !s.is_empty()
             && s != "."
             && s != ".."
             && s.chars()
                 .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-'))
     };
-    合法(owner) && 合法(name)
+    valid(owner) && valid(name)
 }
 
 /// 解析 `gh api /user/repos` 的输出。
@@ -107,14 +107,14 @@ pub fn valid_repo(repo: &str) -> bool {
 /// 字段名照 GitHub REST 的原样。少认一个 `owner.type`，组织仓库就会和
 /// 个人仓库混在一列里 —— 而用户往往有几十个。
 pub fn parse_repos(json: &str) -> ApiResult<Vec<RepoDto>> {
-    let 数组: serde_json::Value = serde_json::from_str(json).map_err(|error| ApiError {
+    let arr: serde_json::Value = serde_json::from_str(json).map_err(|error| ApiError {
         code: "INTERNAL".to_string(),
         message: format!("gh 的输出不是 JSON：{error}"),
         retriable: true,
         hint: Some("确认 `gh api /user/repos` 在终端里跑得通".to_string()),
     })?;
 
-    let Some(条目) = 数组.as_array() else {
+    let Some(entries) = arr.as_array() else {
         return Err(ApiError {
             code: "INTERNAL".to_string(),
             message: "gh 返回的不是仓库数组".to_string(),
@@ -123,19 +123,19 @@ pub fn parse_repos(json: &str) -> ApiResult<Vec<RepoDto>> {
         });
     };
 
-    Ok(条目
+    Ok(entries
         .iter()
-        .filter_map(|条| {
+        .filter_map(|item| {
             // 权限受限的条目字段会残缺。因为一条坏数据就让整个下拉打不开的话，
             // 用户连能选的那些都看不到
             Some(RepoDto {
-                full_name: 条.get("full_name")?.as_str()?.to_string(),
-                default_branch: 条
+                full_name: item.get("full_name")?.as_str()?.to_string(),
+                default_branch: item
                     .get("default_branch")
                     .and_then(serde_json::Value::as_str)
                     .unwrap_or("main")
                     .to_string(),
-                is_org: 条
+                is_org: item
                     .get("owner")
                     .and_then(|o| o.get("type"))
                     .and_then(serde_json::Value::as_str)
@@ -152,13 +152,13 @@ pub fn parse_repos(json: &str) -> ApiResult<Vec<RepoDto>> {
 /// 少了它用户就选不到默认分支了。
 #[must_use]
 pub fn order_branches(branches: Vec<String>, default_branch: &str) -> Vec<String> {
-    let mut 其余: Vec<String> = branches
+    let mut rest: Vec<String> = branches
         .into_iter()
         .filter(|name| name != default_branch)
         .collect();
-    let mut 结果 = vec![default_branch.to_string()];
-    结果.append(&mut 其余);
-    结果
+    let mut result = vec![default_branch.to_string()];
+    result.append(&mut rest);
+    result
 }
 
 /// 列出当前 gh 账号有权限的仓库。
@@ -167,26 +167,26 @@ pub fn order_branches(branches: Vec<String>, default_branch: &str) -> Vec<String
 /// 一个都不会出现 —— 而那往往正是他要跑工作流的地方。
 /// `sort=pushed` 让最近动过的排前面，比字母序有用得多。
 pub fn repos(query: Option<String>, limit: Option<i64>) -> ApiResult<RepoListDto> {
-    let 每页 = limit.unwrap_or(100).clamp(1, 200);
+    let per_page = limit.unwrap_or(100).clamp(1, 200);
     // 只要第一页。加 `--paginate` 的话，一个有几百个仓库的账号
     // 每次打开启动表单都要等十几个来回 —— 而 sort=pushed 已经把
     // 最近动过的排在最前，真正会选的就在这一页里
-    let 输出 = 跑_gh(&[
+    let out = run_gh(&[
         "api",
         &format!(
             "/user/repos?affiliation=owner,collaborator,organization_member\
-             &sort=pushed&per_page={每页}"
+             &sort=pushed&per_page={per_page}"
         ),
     ])?;
 
-    let mut 仓库 = parse_repos(&输出)?;
-    if let Some(词) = query.as_deref().map(str::trim).filter(|q| !q.is_empty()) {
-        let 词 = 词.to_lowercase();
-        仓库.retain(|repo| repo.full_name.to_lowercase().contains(&词));
+    let mut repo = parse_repos(&out)?;
+    if let Some(word) = query.as_deref().map(str::trim).filter(|q| !q.is_empty()) {
+        let word = word.to_lowercase();
+        repo.retain(|repo| repo.full_name.to_lowercase().contains(&word));
     }
-    仓库.truncate(usize::try_from(每页).unwrap_or(100));
+    repo.truncate(usize::try_from(per_page).unwrap_or(100));
 
-    Ok(RepoListDto { items: 仓库 })
+    Ok(RepoListDto { items: repo })
 }
 
 /// 列出一个仓库的分支。
@@ -202,8 +202,8 @@ pub fn branches(repo: String) -> ApiResult<BranchListDto> {
 
     // 默认分支单独问一次：分支接口不告诉你哪个是默认的，
     // 而那正是要预选的那个
-    let 仓库信息 = 跑_gh(&["api", &format!("repos/{repo}")])?;
-    let default_branch = serde_json::from_str::<serde_json::Value>(&仓库信息)
+    let repo_info = run_gh(&["api", &format!("repos/{repo}")])?;
+    let default_branch = serde_json::from_str::<serde_json::Value>(&repo_info)
         .ok()
         .and_then(|v| {
             v.get("default_branch")
@@ -212,7 +212,7 @@ pub fn branches(repo: String) -> ApiResult<BranchListDto> {
         })
         .unwrap_or_else(|| "main".to_string());
 
-    let 输出 = 跑_gh(&[
+    let out = run_gh(&[
         "api",
         "--paginate",
         &format!("repos/{repo}/branches?per_page=100"),
@@ -220,7 +220,7 @@ pub fn branches(repo: String) -> ApiResult<BranchListDto> {
         ".[].name",
     ])?;
     // --jq 出的是一行一个名字，不是 JSON 数组
-    let 名字: Vec<String> = 输出
+    let name: Vec<String> = out
         .lines()
         .map(str::trim)
         .filter(|line| !line.is_empty())
@@ -228,7 +228,7 @@ pub fn branches(repo: String) -> ApiResult<BranchListDto> {
         .collect();
 
     Ok(BranchListDto {
-        items: order_branches(名字, &default_branch),
+        items: order_branches(name, &default_branch),
         default_branch,
     })
 }
@@ -236,7 +236,7 @@ pub fn branches(repo: String) -> ApiResult<BranchListDto> {
 /// 跑一条 gh 命令，把「没装」与「没登录」区分开。
 ///
 /// 两者的下一步动作完全不同，合成一句「gh 用不了」等于什么都没说。
-fn 跑_gh(args: &[&str]) -> ApiResult<String> {
+fn run_gh(args: &[&str]) -> ApiResult<String> {
     if aiwf_engine::tooling::which("gh").is_none() {
         return Err(ApiError {
             code: "EXTERNAL".to_string(),
@@ -246,7 +246,7 @@ fn 跑_gh(args: &[&str]) -> ApiResult<String> {
         });
     }
 
-    let 输出 = aiwf_engine::tooling::command("gh")
+    let out = aiwf_engine::tooling::command("gh")
         .args(args)
         .output()
         .map_err(|error| ApiError {
@@ -256,8 +256,8 @@ fn 跑_gh(args: &[&str]) -> ApiResult<String> {
             hint: None,
         })?;
 
-    if !输出.status.success() {
-        let stderr = String::from_utf8_lossy(&输出.stderr);
+    if !out.status.success() {
+        let stderr = String::from_utf8_lossy(&out.stderr);
         // gh 未登录时会在 stderr 里明说。认出来才能给对下一步
         if stderr.contains("gh auth login") || stderr.contains("not logged") {
             return Err(ApiError {
@@ -277,5 +277,5 @@ fn 跑_gh(args: &[&str]) -> ApiResult<String> {
         });
     }
 
-    Ok(String::from_utf8_lossy(&输出.stdout).into_owned())
+    Ok(String::from_utf8_lossy(&out.stdout).into_owned())
 }
