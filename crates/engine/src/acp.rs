@@ -287,6 +287,12 @@ impl AcpClient {
         self.child.id()
     }
 
+    /// 某条会话现在的配置项（含刚设过的值）。
+    #[must_use]
+    pub fn config_options_of(&self, session_id: &str) -> Option<Vec<ConfigOption>> {
+        self.config_options.get(session_id).cloned()
+    }
+
     /// 新建会话。`cwd` 是 agent 的工作目录 —— 它读写文件都在这里面。
     pub fn new_session(&mut self, cwd: &str) -> Result<Session> {
         self.new_session_with_mcp(cwd, &[])
@@ -582,6 +588,129 @@ impl AcpClient {
         self.stdin.flush()?;
         Ok(id)
     }
+}
+
+// ── 统一入口 ──────────────────────────────────────────────────────────────
+
+/// 打开一条 AI 会话要什么。**四个调用点填同一张表。**
+///
+/// 在这之前，AI 节点、AI 审批者、主管 AI、连通性测试各写各的
+/// 「找 adapter → connect → new_session」，而权限档、模型、推理深度
+/// 那三格四处全是空的 —— 于是「模型」页登记的东西对执行毫无影响，
+/// 而 codex 一直跑在它自己的默认档（`agent`：可读写、可跑命令、不问权限）上。
+#[derive(Debug, Clone)]
+pub struct SessionSpec {
+    /// `acp.codex` / `acp.claude`。**先选它**，模型清单跟着它变。
+    pub runtime: String,
+    /// agent 的工作目录 —— 它读写文件都在这里面。
+    pub cwd: String,
+    /// 模型。`None` = 不设，用 agent 自己的默认。
+    pub model: Option<String>,
+    /// 推理深度。`None` 同上。
+    pub effort: Option<String>,
+    /// 权限档。`None` = 跑在 agent 的默认档上 —— **多数时候不该是 None**。
+    pub mode: Option<String>,
+    /// 接给 agent 的 MCP server。空 = 它没有任何工具。
+    pub mcp: Vec<McpHttpServer>,
+    pub timeout: Duration,
+    /// 换掉 adapter 命令。只有测试会设。
+    pub adapter_override: Option<(String, Vec<String>)>,
+}
+
+/// 一项配置没设成。
+///
+/// **不是错误**：用户说的是「模型失效就不设置，用系统默认的」。
+/// 但也**不能静默** —— 那就是悄悄换了模型，而界面上写着
+/// 「降级发生时会写入 RunEvent，不会静默替换模型」。
+/// 上层拿它写 `system.model_downgraded`。
+#[derive(Debug, Clone)]
+pub struct Downgrade {
+    /// `model` / `thought_level` / `mode`。
+    pub category: String,
+    pub wanted: String,
+    pub reason: String,
+}
+
+impl std::fmt::Display for Downgrade {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let 中文 = match self.category.as_str() {
+            "model" => "模型",
+            "thought_level" => "推理深度",
+            "mode" => "权限档",
+            other => other,
+        };
+        write!(
+            f,
+            "{中文}「{}」这个 runtime 不认，改用它自己的默认值。原因：{}",
+            self.wanted, self.reason
+        )
+    }
+}
+
+/// 一条已经配置好的会话。
+pub struct OpenedSession {
+    pub client: AcpClient,
+    pub session: Session,
+    /// 哪些配置项没设成。空 = 全部照办了。
+    pub downgraded: Vec<Downgrade>,
+}
+
+/// 起 adapter、建会话、按 spec 设好配置。
+///
+/// **设置的顺序照用户选择的顺序**：runtime（起哪个 adapter）→ 模型 →
+/// 推理深度 → 权限档。
+///
+/// 一项被 agent 拒绝**不会让整条会话开不起来**，其余的照设 ——
+/// 一项设不上就整轮不设的话，用户挑的推理深度会跟着模型一起丢。
+///
+/// # Errors
+/// adapter 不认识、没装、连不上、建不了会话 —— 这四种是真的开不起来。
+pub fn open_session(spec: &SessionSpec) -> Result<OpenedSession> {
+    let (command, args) = match &spec.adapter_override {
+        Some((command, args)) => (command.clone(), args.clone()),
+        None => {
+            let (command, args) = adapter_command(&spec.runtime)
+                .ok_or_else(|| AcpError::Remote(format!("不认识的 runtime {}", spec.runtime)))?;
+            let path = adapter_installed(&spec.runtime).ok_or_else(|| {
+                AcpError::Remote(format!("{} 的 adapter（{command}）没有安装", spec.runtime))
+            })?;
+            (path, args)
+        }
+    };
+
+    let mut client =
+        AcpClient::connect(&command, &args, &env_to_remove(&spec.runtime), spec.timeout)?;
+    let mut session = client.new_session_with_mcp(&spec.cwd, &spec.mcp)?;
+
+    let mut downgraded = Vec::new();
+    for (category, wanted) in [
+        ("model", spec.model.as_deref()),
+        ("thought_level", spec.effort.as_deref()),
+        ("mode", spec.mode.as_deref()),
+    ] {
+        let Some(wanted) = wanted else { continue };
+        match client.set_config_by_category(&session.id, category, wanted) {
+            Ok(_) => {}
+            // 拒绝不是致命的：退回 agent 默认，把这件事说出来
+            Err(error) => downgraded.push(Downgrade {
+                category: category.to_string(),
+                wanted: wanted.to_string(),
+                reason: error.to_string(),
+            }),
+        }
+    }
+
+    // 把设完之后的配置项同步回 session：调用方要靠它回答
+    // 「这一轮到底用的哪个模型」，而那正是 `system.model_resolved` 该写的值
+    if let Some(latest) = client.config_options_of(&session.id) {
+        session.config_options = latest;
+    }
+
+    Ok(OpenedSession {
+        client,
+        session,
+        downgraded,
+    })
 }
 
 /// 杀掉一整个进程组。adapter 可能起了子进程，只杀它自己会留下孙子。
