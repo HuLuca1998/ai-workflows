@@ -455,3 +455,52 @@ mod 模型同步 {
         );
     }
 }
+
+/// 对**真实** codex 跑一次 model.sync。
+///
+/// 默认 `#[ignore]`：它会起一个真的 adapter 进程，CI 上没装。
+/// 手动跑：`cargo test -p aiwf-core-api --test api_test 真实 -- --ignored --nocapture`
+///
+/// 「能跑就跑，跑完把原始输出留在仓库里」—— mock 只能证明我们的解析
+/// 对得上自己写的 mock。这一条证明它对得上真实 adapter。
+#[test]
+#[ignore = "要装了 codex-acp 才跑，会起真实进程"]
+#[allow(clippy::expect_used)]
+fn 真实的_codex_能同步出模型清单() {
+    let 开始 = std::time::Instant::now();
+    let 结果 = aiwf_core_api::model_sync("acp.codex".to_string()).expect("同步失败");
+    let 耗时 = 开始.elapsed();
+
+    println!("耗时 {耗时:?}");
+    println!("当前：{} · {}", 结果.current_model, 结果.current_effort);
+    println!(
+        "模型（{}）：{}",
+        结果.models.len(),
+        结果
+            .models
+            .iter()
+            .map(|m| m.value.as_str())
+            .collect::<Vec<_>>()
+            .join(" / ")
+    );
+    println!(
+        "深度（{}）：{}",
+        结果.efforts.len(),
+        结果
+            .efforts
+            .iter()
+            .map(|e| e.value.as_str())
+            .collect::<Vec<_>>()
+            .join(" / ")
+    );
+
+    assert!(!结果.models.is_empty(), "真实 adapter 没给出模型清单");
+    assert!(!结果.efforts.is_empty(), "真实 adapter 没给出深度清单");
+    assert!(
+        结果.models.iter().any(|m| m.value == 结果.current_model),
+        "当前模型不在候选里"
+    );
+    // 「耗时是证据」：一次握手 + 建会话在百毫秒量级。
+    // 快到不合理说明它根本没连上
+    assert!(耗时.as_millis() > 50, "快得不像真的连上了：{耗时:?}");
+}
