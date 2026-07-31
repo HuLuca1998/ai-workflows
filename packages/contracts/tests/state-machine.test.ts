@@ -78,9 +78,12 @@ describe('Run 状态机', () => {
     }
   });
 
-  it('可恢复状态就是重启后要在列表顶部提示的那几种', () => {
+  it('可恢复状态与引擎的 resume 门一致 —— 等审批要的是决定不是恢复', () => {
+    // 引擎(supervisor.resume)只接受 failed/interrupted/paused;
+    // 契约曾把 waiting_approval 也算可恢复,界面于是在等审批时
+    // 摆出一个点了必报错的「恢复运行」(第 3 轮实测 P11)
     expect(RUN_STATUSES.filter(isRunResumable).sort()).toEqual(
-      ['interrupted', 'paused', 'waiting_approval'].sort(),
+      ['interrupted', 'paused'].sort(),
     );
   });
 });

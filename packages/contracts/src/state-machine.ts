@@ -34,7 +34,10 @@ export type NodeStatus = (typeof NODE_STATUSES)[number];
 const RUN_TERMINAL: readonly RunStatus[] = ['succeeded', 'failed', 'cancelled'];
 
 /** 重启后要在运行列表顶部提示「可恢复」的状态。 */
-const RUN_RESUMABLE: readonly RunStatus[] = ['waiting_approval', 'paused', 'interrupted'];
+// waiting_approval 不在里面:它要的是审批决定,不是恢复 ——
+// 引擎的 resume 明确拒绝它,界面在等审批时摆一个「恢复运行」
+// 只会让用户不敢点(第 3 轮实测 P11)
+const RUN_RESUMABLE: readonly RunStatus[] = ['paused', 'interrupted'];
 
 /**
  * 允许的 Run 迁移。取消边不写在这里——任何非终态都可取消，由 canTransitionRun 统一补上。
