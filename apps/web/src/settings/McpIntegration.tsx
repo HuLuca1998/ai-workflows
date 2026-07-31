@@ -156,6 +156,16 @@ export function McpIntegration() {
           </tr>
         </thead>
         <tbody>
+          {/* 只有表头的空表看着像坏了(第 1 轮实测 S5)——空也要说清为什么空、下一步去哪 */}
+          {(status?.clients ?? []).length === 0 ? (
+            <tr>
+              <td colSpan={5} className="runs__empty">
+                {status
+                  ? '没有探测到已知的本地客户端(Claude Code / Codex)。任何支持 MCP Streamable HTTP 的客户端都能用上面的接入地址手动接入。'
+                  : '正在读取 MCP 服务状态…'}
+              </td>
+            </tr>
+          ) : null}
           {(status?.clients ?? []).map((client) => (
             <tr key={client.id} data-capability={client.id} data-connected={client.connected}>
               <td>{client.label}</td>
