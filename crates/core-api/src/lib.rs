@@ -3137,15 +3137,33 @@ pub fn mcp_pending_confirms(store: &Store) -> ApiResult<Vec<ConfirmationDto>> {
 /// `DELIBERATELY_HIDDEN` 里，agent 够不着。）
 pub fn mcp_ask_user(store: &Store, spec_json: String) -> ApiResult<String> {
     // 形状不对就别入队：一张渲染不出来的卡片会一直堵在队列里，
-    // 而用户只看得到一个空壳
-    serde_json::from_str::<serde_json::Value>(&spec_json)
+    // 而用户只看得到一个空壳。经 MCP 来的 spec 永远是合法 JSON
+    // （Value 序列化出来的），所以只验 JSON 挡不住任何东西 ——
+    // 底线是有非空的 kind 与 title。kind 的白名单仍在界面层，
+    // 认不出的值摊开原文，这里不越权去认
+    let spec: serde_json::Value = serde_json::from_str(&spec_json)
         .map_err(|error| ApiError::validation(format!("问题定义不是合法 JSON：{error}")))?;
+    let has_text = |key: &str| {
+        spec.get(key)
+            .and_then(serde_json::Value::as_str)
+            .is_some_and(|text| !text.is_empty())
+    };
+    if !has_text("kind") || !has_text("title") {
+        return Err(ApiError::validation(
+            "问题定义至少要有非空的 kind 与 title —— 一张没有标题的卡片，用户什么都决定不了"
+                .to_string(),
+        ));
+    }
     store.expire_confirmations(CONFIRM_TTL_SECS)?;
     Ok(store.create_ask(ASK_TOOL, &spec_json)?)
 }
 
 /// 用户回答了。
 pub fn mcp_answer_ask(store: &Store, id: String, answer_json: String) -> ApiResult<()> {
+    // 桌面 IPC 不经 Zod 直达 dispatch：缺 answer 时那边序列化出的是空字符串。
+    // 坏答案落库的话，炸的是 agent 解析答案的那一刻 —— 离病因最远的地方
+    serde_json::from_str::<serde_json::Value>(&answer_json)
+        .map_err(|error| ApiError::validation(format!("回答不是合法 JSON：{error}")))?;
     store.answer_ask(&id, &answer_json)?;
     Ok(())
 }

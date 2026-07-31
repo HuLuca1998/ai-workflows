@@ -81,6 +81,40 @@ fn 问题定义不是合法_json_时不入队() {
 }
 
 #[test]
+fn 缺_title_或_kind_的问题不入队() {
+    // 经 MCP 来的 spec 永远是合法 JSON（Value 序列化出来的），
+    // 「合法 JSON」这道校验对那条路径形同虚设。卡片渲染的底线是
+    // 有 title、有 kind —— 白名单仍在界面层，但底线在门口验：
+    // 一张连标题都没有的卡就是一个空壳，用户什么都决定不了
+    let store = 库();
+    for 坏的 in [
+        r#"{"kind":"choice"}"#,
+        r#"{"title":"先修哪个"}"#,
+        r#"{"kind":"","title":"先修哪个"}"#,
+        r#"{"kind":"choice","title":""}"#,
+        r#"["kind","title"]"#,
+    ] {
+        let err = aiwf_core_api::mcp_ask_user(&store, 坏的.to_string()).unwrap_err();
+        assert_eq!(err.code, "VALIDATION", "{坏的} 进队列了");
+    }
+    assert!(store.pending_confirmations().unwrap().is_empty());
+}
+
+#[test]
+fn 回答不是合法_json_时不落库() {
+    // 桌面 IPC 不经 Zod 直达 dispatch，缺 answer 时那边序列化出的是
+    // 空字符串 —— 落库的话 agent 解析答案会当场炸掉
+    let store = 库();
+    let id = aiwf_core_api::mcp_ask_user(&store, 问题.to_string()).unwrap();
+
+    let err = aiwf_core_api::mcp_answer_ask(&store, id.clone(), String::new()).unwrap_err();
+    assert_eq!(err.code, "VALIDATION");
+
+    let 结果 = aiwf_core_api::mcp_ask_result(&store, id).unwrap();
+    assert_eq!(结果.status, "pending", "坏回答不该把这条提问标成已回答");
+}
+
+#[test]
 fn 不存在的提问报错而不是空结果() {
     // StoreError::NotFound 在这个仓库统一映射成 VALIDATION（lib.rs 的错误表）
     let err = aiwf_core_api::mcp_ask_result(&库(), "mcpc_不存在".to_string()).unwrap_err();
