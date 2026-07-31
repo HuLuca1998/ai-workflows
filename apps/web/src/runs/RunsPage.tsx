@@ -45,6 +45,12 @@ const POLL_MS = 1200;
 /** 事件流一次铺多少条。见 EventList 里的说明。 */
 const EVENT_WINDOW = 200;
 
+/** 参数值的显示。对象/数组 String() 出来是 [object Object] —— 用 JSON。 */
+function paramText(value: unknown): string {
+  if (value === null || value === undefined) return '';
+  return typeof value === 'object' ? JSON.stringify(value) : String(value);
+}
+
 export function RunsPage() {
   const runs = useRuns();
   const search = useDebouncedSearch((query) => {
@@ -402,7 +408,7 @@ export function RunsPage() {
                 <span className="runs__params-label">启动参数</span>
                 {Object.entries(selected.inputs).map(([key, value]) => (
                   <span key={key} className="runs__param">
-                    {key}={String(value)}
+                    {key}={paramText(value)}
                   </span>
                 ))}
               </div>
@@ -632,7 +638,7 @@ function RunItem({
   now: number;
 }) {
   const params = Object.entries(run.inputs)
-    .map(([key, value]) => `${key}=${String(value)}`)
+    .map(([key, value]) => `${key}=${paramText(value)}`)
     .join(' · ');
   const duration = runDuration(run.startedAt, run.endedAt, now);
 
