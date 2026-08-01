@@ -282,10 +282,25 @@ const DEFINITIONS: Record<NodeType, NodeDefinition> = {
     group: 'flow',
     summary: '触发方式、工作目录来源与输入参数 Schema（启动表单由它生成）',
     configSchema: z.object({
-      trigger: z
-        .enum(['manual', 'shortcut', 'url_scheme', 'schedule', 'webhook'])
-        .default('manual')
-        .describe('触发方式'),
+      /*
+       * 枚举里原来还有 shortcut / url_scheme / webhook 三项。删掉了：
+       * 引擎侧 `grep trigger` 零命中，选中它们的唯一效果是画布上多显示
+       * 一行「触发：webhook」，到点什么都不发生 —— 正是「填了不生效」。
+       * 真要做的时候再加回来，连同 `crates/engine/src/schedule.rs` 的分支。
+       */
+      trigger: z.enum(['manual', 'schedule', 'interval']).default('manual').describe('触发方式'),
+      scheduleTime: z
+        .string()
+        .regex(/^([01]\d|2[0-3]):[0-5]\d$/u, '要写成 HH:MM（24 小时制），例如 09:30')
+        .optional()
+        .describe('每天几点\n仅当触发方式选 schedule 时生效；按本机时区'),
+      intervalMinutes: z
+        .number()
+        .int()
+        .min(1)
+        .max(60 * 24 * 7)
+        .optional()
+        .describe('每隔多少分钟\n仅当触发方式选 interval 时生效；最小 1 分钟'),
       workdirSource: z
         .enum(['prompt', 'fixed', 'inherit'])
         .default('prompt')

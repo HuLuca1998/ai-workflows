@@ -2968,6 +2968,15 @@
                 "type": "string",
                 "minLength": 1
               },
+              "trigger": {
+                "default": "manual",
+                "type": "string",
+                "enum": [
+                  "manual",
+                  "schedule",
+                  "interval"
+                ]
+              },
               "permissionPreset": {
                 "default": "human_approval",
                 "type": "string",
@@ -3096,6 +3105,15 @@
             "parentRunId": {
               "type": "string",
               "minLength": 1
+            },
+            "trigger": {
+              "default": "manual",
+              "type": "string",
+              "enum": [
+                "manual",
+                "schedule",
+                "interval"
+              ]
             },
             "permissionPreset": {
               "default": "human_approval",

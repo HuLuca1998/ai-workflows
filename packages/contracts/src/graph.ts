@@ -97,6 +97,9 @@ export const VALIDATION_CODES = [
   // 还带着 seed 里那个占位值的字段。warning ——
   // 编辑中途留着占位是正常状态（DEBT O-14）
   'PLACEHOLDER_CONFIG',
+  // 选了定时/间隔触发却没填时刻或间隔。error ——
+  // 这种图发布出去，调度器只能沉默地不跑它
+  'TRIGGER_INCOMPLETE',
 ] as const;
 export type ValidationCode = (typeof VALIDATION_CODES)[number];
 
@@ -193,6 +196,20 @@ export function validateGraph(graph: WorkflowGraph): ValidationResult {
   } else if (entries.length > 1) {
     for (const extra of entries.slice(1)) {
       err('ENTRY_DUPLICATE', '入口节点必须全图唯一', { nodeId: extra.id });
+    }
+  }
+  for (const entry of entries) {
+    /*
+     * 选了定时却没填时刻 —— 调度器读不出触发点，只能跳过这个工作流。
+     * 报 error 而不是 warning：这不是「编辑中途」的正常状态，
+     * 而是一份发布出去也永远不会自己跑起来的图，且没有任何地方会告诉他。
+     */
+    const config = entry.config as Record<string, unknown>;
+    if (config['trigger'] === 'schedule' && typeof config['scheduleTime'] !== 'string') {
+      err('TRIGGER_INCOMPLETE', '选了每天定时，但没填几点（HH:MM）', { nodeId: entry.id });
+    }
+    if (config['trigger'] === 'interval' && typeof config['intervalMinutes'] !== 'number') {
+      err('TRIGGER_INCOMPLETE', '选了按间隔触发，但没填间隔多少分钟', { nodeId: entry.id });
     }
   }
   if (byId.size > 0 && ![...byId.values()].some((n) => n.type === 'end')) {

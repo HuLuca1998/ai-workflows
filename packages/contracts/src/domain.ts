@@ -87,6 +87,12 @@ export const RunSchema = z.object({
   endedAt: z.iso.datetime().optional(),
   /** 子工作流以独立 Run + parentRunId 表达，审批冒泡到父运行。 */
   parentRunId: z.string().min(1).optional(),
+  /**
+   * 这一条是谁发起的。定时跑出来的运行必须一眼可辨 ——
+   * 否则用户第二天早上看到一条自己没点过的运行，无从判断
+   * 是调度器干的还是别人动了他的机器。
+   */
+  trigger: z.enum(['manual', 'schedule', 'interval']).default('manual'),
   permissionPreset: z.enum(PERMISSION_PRESETS).default('human_approval'),
 });
 export type Run = z.infer<typeof RunSchema>;

@@ -456,11 +456,20 @@
         "type": "string",
         "enum": [
           "manual",
-          "shortcut",
-          "url_scheme",
           "schedule",
-          "webhook"
+          "interval"
         ]
+      },
+      "scheduleTime": {
+        "description": "每天几点\n仅当触发方式选 schedule 时生效；按本机时区",
+        "type": "string",
+        "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$"
+      },
+      "intervalMinutes": {
+        "description": "每隔多少分钟\n仅当触发方式选 interval 时生效；最小 1 分钟",
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 10080
       },
       "workdirSource": {
         "default": "prompt",
