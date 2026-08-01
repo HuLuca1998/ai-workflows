@@ -895,19 +895,46 @@ function AgentForm({
   const [modelRef, setModelRef] = useState('');
 
   /**
-   * 模型晚到时补上默认选择。
+   * 只列与所选 Runtime 相符的模型。
+   *
+   * 混着列的后果不是报错，是**静默换成别的**：用户在 Codex 角色上选了
+   * claude 侧的 Sonnet，创建完打开一看是 GPT-5.2（第三方巡检 C-05）。
+   * 他会长期以为自己在用 Sonnet —— 比报错糟得多。
+   * 详情区的下拉一直是过滤的，只有这个表单漏了。
+   */
+  const candidates = (models ?? []).filter((model) => model.runtime === runtime);
+
+  /**
+   * 模型晚到、或换了 Runtime 时补上默认选择。
    *
    * useState 的初值只在首次渲染时算一次 —— 用户手快、在 model.list
    * 回来之前就点了「新建角色」的话，那次算的是空数组，
    * 于是下拉永远是空的、创建按钮永远 disabled。
    *
-   * 只在用户还没选过时补：他选过之后数据再到也不该覆盖他的选择。
+   * 换 Runtime 之后已选的那条多半不在新候选里：留着它等于留一个
+   * 存下去会被引擎当「跨 runtime 引用」的值，所以换成本端第一条。
    */
   useEffect(() => {
-    if (modelRef === '' && models && models.length > 0) {
-      setModelRef(models[0]?.id ?? '');
-    }
-  }, [models, modelRef]);
+    if (!models) return;
+    const stillValid = candidates.some((model) => model.id === modelRef);
+    if (!stillValid) setModelRef(candidates[0]?.id ?? '');
+  }, [models, runtime, modelRef, candidates]);
+
+  /**
+   * 默认那一端没有可用模型时，退到有的那一端。
+   *
+   * 「优先 codex」是偏好，不是「绝不用 claude」（契约的
+   * `preferred_acp_runtime` 是同一个精神）。只装了 claude adapter 的机器上，
+   * 默认停在 codex 会让用户对着一个空下拉，而他其实有可用模型。
+   * 只在用户还没动过 Runtime 时退 —— 他自己选的那一端不该被改掉。
+   */
+  const [runtimeTouched, setRuntimeTouched] = useState(false);
+  useEffect(() => {
+    if (runtimeTouched || !models || models.length === 0) return;
+    if (models.some((model) => model.runtime === runtime)) return;
+    const fallback = models[0]?.runtime;
+    if (fallback) setRuntime(fallback);
+  }, [models, runtime, runtimeTouched]);
 
   const loading = models === null;
   const ready = !loading && name.trim() !== '' && role.trim() !== '' && modelRef !== '';
@@ -951,7 +978,13 @@ function AgentForm({
 
       <label className="models__field">
         <span>Runtime</span>
-        <select value={runtime} onChange={(e) => setRuntime(e.target.value)}>
+        <select
+          value={runtime}
+          onChange={(e) => {
+            setRuntime(e.target.value);
+            setRuntimeTouched(true);
+          }}
+        >
           {Object.entries(RUNTIME_LABELS).map(([key, label]) => (
             <option key={key} value={key}>
               {label}
@@ -966,10 +999,14 @@ function AgentForm({
           {/* 「先去登记一个」是「确实没有」时说的话。
               加载中显示它会让用户跑去登记一个他本来就有的模型 */}
           {loading ? <option value="">正在读取模型…</option> : null}
-          {!loading && models.length === 0 ? (
-            <option value="">先去「模型」页登记一个</option>
+          {/* 说清是**这一端**没有：库里有 claude 侧的模型而这里是 codex 角色时，
+              一句笼统的「先去登记一个」会让用户以为自己刚同步的那批没生效 */}
+          {!loading && candidates.length === 0 ? (
+            <option value="">
+              {RUNTIME_LABELS[runtime as never] ?? runtime}没有已启用的模型 —— 先去「模型」页同步
+            </option>
           ) : null}
-          {(models ?? []).map((model) => (
+          {candidates.map((model) => (
             <option key={model.id} value={model.id}>
               {model.name}
             </option>

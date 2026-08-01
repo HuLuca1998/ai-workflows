@@ -40,9 +40,18 @@ const AGENT = {
   builtin: false,
 };
 
+/**
+ * 两端各有模型。
+ *
+ * 原来这里只有 claude 侧两条，而新建表单默认 codex —— 于是
+ * 「默认 codex + 选中 claude 侧的 model_1」这个组合被写进了期望，
+ * 那**正是 C-05 那个 bug 的形状**（跨 runtime 的引用引擎解析不了）。
+ * 补一条 codex 侧的，让期望自洽。
+ */
 const MODELS = [
-  { id: 'model_1', name: 'Opus 5 · high' },
-  { id: 'model_2', name: 'Sonnet 5 · medium' },
+  { id: 'model_1', name: 'Opus 5 · high', runtime: 'acp.claude' },
+  { id: 'model_2', name: 'Sonnet 5 · medium', runtime: 'acp.claude' },
+  { id: 'model_3', name: 'GPT-5 · high', runtime: 'acp.codex' },
 ];
 
 function respond(handlers: Record<string, (input: unknown) => unknown> = {}) {
@@ -56,10 +65,10 @@ function respond(handlers: Record<string, (input: unknown) => unknown> = {}) {
   call.mockImplementation((method: string, input: unknown) => checked(method, input));
 }
 
-function full(model: { id: string; name: string }) {
+function full(model: { id: string; name: string; runtime?: string }) {
   return {
-    ...model,
     runtime: 'acp.claude',
+    ...model,
     modelId: 'claude-opus-5',
     effort: 'high',
     contextWindow: 200_000,
@@ -204,7 +213,9 @@ describe('新建角色', () => {
           // 默认 codex：这个应用本身跑在 Claude Code 里开发，
           // 用 claude 的 adapter 会与开发环境互相干扰（见 docs/TESTING.md）
           runtime: 'acp.codex',
-          modelRef: 'model_1',
+          // 跟着 runtime 走：跨 runtime 的引用引擎解析不了，
+          // 配下去每次运行都是一条「runtime 不符」的降级（C-05）
+          modelRef: 'model_3',
         }),
       );
     });
@@ -217,7 +228,9 @@ describe('新建角色', () => {
     await screen.findByText('分析 Agent');
     await user.click(screen.getByRole('button', { name: '新建角色' }));
 
-    expect(screen.getByText('先去「模型」页登记一个')).toBeTruthy();
+    // 说清是**这一端**没有：库里有另一端的模型而这里空着时，
+    // 一句笼统的「先去登记一个」会让用户以为刚同步的那批没生效
+    expect(screen.getByText(/没有已启用的模型 —— 先去「模型」页同步/u)).toBeTruthy();
   });
 });
 
@@ -247,7 +260,8 @@ describe('加载竞态', () => {
 
     resolveModels({});
     await waitFor(() => {
-      expect(screen.getByLabelText('模型')).toHaveValue('model_1');
+      // 默认 runtime 是 codex，所以补的是 codex 侧那条
+      expect(screen.getByLabelText('模型')).toHaveValue('model_3');
     });
 
     await user.type(screen.getByLabelText('名称'), '审查');
