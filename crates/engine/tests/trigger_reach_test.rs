@@ -89,6 +89,58 @@ fn 认不出的触发方式报错而不是当成手动() {
     assert!(err.contains("webhook_v2"), "报错要说清是哪一种：{err}");
 }
 
+/// 契约生成物里那份「两侧措辞一致」的夹具。
+fn 措辞夹具() -> Vec<(serde_json::Value, String)> {
+    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../../packages/contracts/generated/contracts.meta.json");
+    let raw = std::fs::read_to_string(&path).expect("读不到契约生成物，先跑 pnpm contracts:gen");
+    let meta: serde_json::Value = serde_json::from_str(&raw).expect("契约生成物不是合法 JSON");
+    meta["triggerDescriptions"]
+        .as_array()
+        .expect("生成物缺少 triggerDescriptions —— 契约那边的夹具没了，这条守卫要跟着改")
+        .iter()
+        .map(|case| {
+            (
+                case["config"].clone(),
+                case["text"].as_str().unwrap_or_default().to_string(),
+            )
+        })
+        .collect()
+}
+
+#[test]
+fn 触发方式的措辞两侧逐字一致() {
+    // 画布上写「每天 09:30」而调度日志写别的，用户无从判断
+    // 是不是同一件事。夹具在契约里（`src/trigger.ts`），这边逐条比
+    let mut 不一致 = Vec::new();
+    for (config, expected) in 措辞夹具() {
+        let trigger = Trigger::from_entry_config(&config)
+            .unwrap_or_else(|why| panic!("夹具 {config} 解析不了：{why}"));
+        let actual = trigger.describe();
+        if actual != expected {
+            不一致.push(format!(
+                "{config}：契约说「{expected}」，Rust 说「{actual}」"
+            ));
+        }
+    }
+    assert!(不一致.is_empty(), "{不一致:#?}");
+}
+
+#[test]
+fn 措辞守卫自己会红() {
+    // 元测试：手造一条与契约不同的措辞，断言比对会发现
+    let trigger = Trigger::Daily {
+        hour: 9,
+        minute: 30,
+    };
+    assert_ne!(
+        trigger.describe(),
+        "daily at 9:30",
+        "这条比对如果连明显不同的措辞都发现不了，那它不是守卫"
+    );
+    assert_eq!(trigger.describe(), "每天 09:30");
+}
+
 #[test]
 fn 这条守卫自己会红() {
     // 元测试：假装契约多了一个引擎不认的枚举值，断言上面那条会抓到

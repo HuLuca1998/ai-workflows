@@ -38,6 +38,19 @@ export const WorkflowSchema = z.object({
   archived: z.boolean().default(false),
   /** 最新发布版本号。没发布过时缺席 —— 那时状态列显示「草稿」。 */
   latestVersion: z.number().int().min(1).optional(),
+  /**
+   * 已发布版本上的自动触发，一句人话（「每天 09:30」）。
+   * 只有它才真的会跑 —— 调度器只看已发布版本。
+   */
+  scheduleLabel: z.string().optional(),
+  /**
+   * 草稿上设了自动触发，而已发布版本上没有（或压根没发布过）。
+   *
+   * 这是**填了不生效**的活标本：用户在画布上设好每天 9 点、保存、
+   * 关掉，第二天来看什么都没跑，而画布上那行「每天 09:00」还好好写着。
+   * 界面必须把这条标出来。
+   */
+  schedulePendingPublish: z.boolean().default(false),
   lastRun: WorkflowLastRunSchema.optional(),
 });
 export type Workflow = z.infer<typeof WorkflowSchema>;

@@ -18,6 +18,7 @@ export * from './nodes/index.js';
 export * from './patch.js';
 export * from './state-machine.js';
 export * from './templates.js';
+export * from './trigger.js';
 
 /** 契约版本。破坏性变更时递增，两端据此拒绝不兼容的对端。 */
 export const CONTRACTS_VERSION = 1;

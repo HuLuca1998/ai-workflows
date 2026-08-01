@@ -28,6 +28,7 @@ import { PATCH_OPS } from '../src/patch.js';
 import { CONTRACTS_VERSION } from '../src/index.js';
 import { RUN_STATUSES, NODE_STATUSES } from '../src/state-machine.js';
 import { templateById } from '../src/templates.js';
+import { TRIGGER_DESCRIPTION_CASES } from '../src/trigger.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const outDir = join(here, '..', 'generated');
@@ -61,6 +62,10 @@ const files: Record<string, unknown> = {
     // 前端改了,而 core-api 的校验常量没跟上 —— 全新用户在向导页
     // 100% 被挡(第 10 轮实测)。让 Rust 侧读这份,不再各写一份
     permissionPresets: PERMISSION_PRESETS,
+    // 触发方式的措辞。画布、列表、Rust 侧的调度日志说的必须是
+    // 同一句话 —— 否则用户在画布上看「每天 09:30」、在日志里看
+    // 「daily at 9:30」，无从判断是不是同一件事
+    triggerDescriptions: TRIGGER_DESCRIPTION_CASES,
   },
   /**
    * agent 提问的形状。MCP 的内建 `ask_user` 工具拿它当入参 schema ——

@@ -213,5 +213,59 @@
     "human_approval",
     "ai_assisted",
     "unattended"
+  ],
+  "triggerDescriptions": [
+    {
+      "config": {
+        "trigger": "manual"
+      },
+      "text": "手动触发"
+    },
+    {
+      "config": {},
+      "text": "手动触发"
+    },
+    {
+      "config": {
+        "trigger": "schedule",
+        "scheduleTime": "09:30"
+      },
+      "text": "每天 09:30"
+    },
+    {
+      "config": {
+        "trigger": "schedule",
+        "scheduleTime": "00:00"
+      },
+      "text": "每天 00:00"
+    },
+    {
+      "config": {
+        "trigger": "interval",
+        "intervalMinutes": 45
+      },
+      "text": "每 45 分钟"
+    },
+    {
+      "config": {
+        "trigger": "interval",
+        "intervalMinutes": 60
+      },
+      "text": "每 1 小时"
+    },
+    {
+      "config": {
+        "trigger": "interval",
+        "intervalMinutes": 120
+      },
+      "text": "每 2 小时"
+    },
+    {
+      "config": {
+        "trigger": "interval",
+        "intervalMinutes": 90
+      },
+      "text": "每 90 分钟"
+    }
   ]
 }
