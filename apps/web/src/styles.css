@@ -37,10 +37,17 @@
   background: transparent;
 }
 
+/* **顺序不能改：设计令牌必须排在 tailwindcss 之后。**
+ *
+ * Tailwind v4 在 `:root` 上定义了同名的 `--color-neutral-*`（灰度 oklch），
+ * 排在后面就赢 —— 整套中性色被悄悄换成纯灰，11px 的说明文字
+ * 对比度掉到 1.94:1（第三方巡检 A-01 从截图解码算出来的），
+ * 包括「手输的路径拿不到 macOS 授权」这类关键提示。
+ * `apps/web/tests/token-override.test.ts` 守着这个顺序。 */
+@import 'tailwindcss';
 @import '@aiwf/ui/styles.css';
 @import '@phosphor-icons/web/regular';
 @import '@phosphor-icons/web/fill';
-@import 'tailwindcss';
 
 /*
  * 规范 §3.1 窗口层环境光 + §3.2 窗口外框。
