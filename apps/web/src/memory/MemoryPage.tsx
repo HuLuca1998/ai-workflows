@@ -46,6 +46,15 @@ const SCOPES: { key: string | null; label: string }[] = [
   { key: 'session', label: '会话' },
 ];
 
+/**
+ * 引擎真的会注入的那一档。
+ *
+ * `memories_for_injection` 的两个调用点都写死 `("workspace", None)` ——
+ * 其余五档存进去不会生效。写成常量而不是字面量散在两处：
+ * 引擎接上按作用域取记忆之后，改这一处就够了。
+ */
+const INJECTED_SCOPE = 'workspace';
+
 const SCOPE_LABELS: Record<string, string> = {
   global: '全局',
   workspace: '工作区',
@@ -517,6 +526,22 @@ function MemoryEditor({
             </option>
           ))}
         </select>
+        {/*
+         * 六档里只有「工作区」真的会被注入。
+         *
+         * 实证：`memories_for_injection` 的两个调用点（runner.rs:656 与
+         * core-api/src/lib.rs:2167）都写死 `scope="workspace", scopeId=None`
+         * —— 其余五档存进去就再也不会生效，而页面顶部写着
+         * 「记忆会注入后续每一次 AI 调用」（第三方巡检 C-15）。
+         *
+         * 不拦住：引擎接上按作用域取记忆之后这些条目就该自动生效，
+         * 现在拦掉的话那一天到来时用户手上一条都没有。
+         */}
+        {scope !== INJECTED_SCOPE ? (
+          <span className="models__note" role="status" aria-label="作用域说明">
+            引擎目前只注入「{SCOPE_LABELS[INJECTED_SCOPE]}」那一档 —— 这一条存得下，但暂不生效。
+          </span>
+        ) : null}
       </label>
       <label className="models__field">
         <span className="models__label">内容</span>
