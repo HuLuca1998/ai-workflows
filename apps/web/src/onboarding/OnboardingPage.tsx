@@ -131,8 +131,22 @@ export function OnboardingPage() {
 
   useEffect(() => {
     void probe(false);
-    void checkDir(DEFAULT_WORKDIR);
     void readNotificationPermission().then(setNotify);
+    // 已经配过一次的用户回到这屏(设置里也嵌着它):读已存的值回填,
+    // 别把默认路径当初值 —— 在这屏点保存会把真实配置覆盖掉(第 10 轮实测 A-4)
+    void coreClient
+      .call('workspace.settings', {})
+      .then((raw) => {
+        const settings = raw as { workdir?: string; permissionPreset?: string };
+        const dir = settings.workdir ?? DEFAULT_WORKDIR;
+        setWorkdir(dir);
+        if (settings.permissionPreset) setMode(settings.permissionPreset);
+        void checkDir(dir);
+      })
+      .catch(() => {
+        // 读不到就按首次进:用默认路径
+        void checkDir(DEFAULT_WORKDIR);
+      });
   }, []);
 
   const missingRequired = (items ?? []).filter(
