@@ -340,11 +340,14 @@ export function AgentsPage() {
   const onDuplicate = async () => {
     if (!selected) return;
     try {
-      await coreClient.call('agent.duplicate', {
+      const created = (await coreClient.call('agent.duplicate', {
         id: selected.id,
         name: `${selected.name} 副本`,
-      });
+      })) as { id: string };
       await load();
+      // 落在副本上：原来只 reload，右侧详情仍停在被复制的那条
+      // （内置的话只读横幅还在），看起来像什么都没发生（C-09）
+      if (created?.id) goTo({ kind: 'agent', id: created.id });
     } catch (err) {
       setError(describeError(err));
     }

@@ -192,11 +192,20 @@ export function PromptsPage() {
   const onDuplicate = async () => {
     if (!selected) return;
     try {
-      await coreClient.call('prompt.duplicate', {
+      const created = (await coreClient.call('prompt.duplicate', {
         id: selected.id,
         name: `${selected.name} 副本`,
-      });
+      })) as { id: string };
       await load();
+      /*
+       * 落在副本上。
+       *
+       * 原来只 reload：列表里多出一条，而右侧详情仍停在被复制的那条
+       * （内置的话只读横幅还在、「保存新版本」还是灰的）—— 看起来像
+       * 什么都没发生，用户会以为复制失败而连点几次，攒出一堆副本
+       * （第三方巡检 C-09）。复制的意图就是「我要改一份」。
+       */
+      if (created?.id) goTo(created.id);
     } catch (err) {
       setError(describeError(err));
     }
