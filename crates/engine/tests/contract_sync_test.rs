@@ -63,6 +63,25 @@ fn 节点类型数量与契约一致() {
 }
 
 #[test]
+fn 已实现的节点类型与契约一致() {
+    // **读着契约比。** 这份清单原来只活在 preflight.rs 里，界面拿不到 ——
+    // 于是节点库把 6 个跑不了的类型跟能跑的摆在一起，用户搭完整条流程
+    // 点了运行才知道（第三方巡检 B-06）。现在契约是真源，
+    // 这条守着「Rust 的 IMPLEMENTED 别偷偷多一个或少一个」。
+    let 契约 = string_set(&meta(), "implementedNodeTypes");
+    let 引擎: BTreeSet<String> = aiwf_engine::preflight::IMPLEMENTED
+        .iter()
+        .map(|s| (*s).to_string())
+        .collect();
+
+    assert_eq!(
+        引擎, 契约,
+        "引擎的已实现清单与契约对不上 —— \
+         多出来的会让界面替一个跑不了的节点背书，少掉的会让能跑的被标成「未实现」"
+    );
+}
+
+#[test]
 fn 引擎侧状态机与契约同名同数() {
     // **读着契约比，不跟字面量比。**
     //
