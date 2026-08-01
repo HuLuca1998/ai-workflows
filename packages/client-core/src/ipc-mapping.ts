@@ -101,10 +101,15 @@ export function toIpcInput(method: CoreApiMethod, input: unknown): Record<string
 }
 
 /**
- * 分页参数原样带上。
+ * 分页与搜索参数原样带上。
  *
- * 只有列表方法有它们；其余方法的 record 里根本没有这两个键，
+ * 只有列表方法有它们；其余方法的 record 里根本没有这些键，
  * 所以无条件补是安全的。
+ *
+ * query 也放在这里而不是逐个分支里：`model.list` 的分支只挑了
+ * `enabledOnly`，于是模型页的搜索框成了**死控件** —— 字打得进去、
+ * 清除按钮会出现、列表一条不减，而存储层、dispatch、桌面 IPC
+ * 三层都支持它。逐个分支去记必然再漏第四次。
  */
 function withPaging(
   record: Record<string, unknown>,
@@ -114,6 +119,7 @@ function withPaging(
     ...shaped,
     ...(record.limit === undefined ? {} : { limit: record.limit }),
     ...(record.offset === undefined ? {} : { offset: record.offset }),
+    ...(record.query === undefined ? {} : { query: record.query }),
   };
 }
 

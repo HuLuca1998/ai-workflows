@@ -269,6 +269,27 @@ describe('分页参数不能被转换层吃掉', () => {
   });
 });
 
+describe('搜索词不能被转换层吃掉', () => {
+  /*
+   * 与分页那条同源。model.list 的分支只挑了 enabledOnly，
+   * 于是模型页的搜索框是个**死控件**：字打得进去、清除按钮会出现、
+   * 列表一条不减 —— 而存储层、dispatch、桌面 IPC 三层都支持 query。
+   * 实测（第三方巡检 C-01）：输入 Haiku，12 条纹丝不动。
+   */
+  it.each(['model.list', 'memory.list', 'prompt.list', 'agent.list', 'workflow.list'] as const)(
+    '%s 的 query 要发出去',
+    (method) => {
+      const sent = toIpcInput(method, { query: 'Haiku' });
+      expect(sent.query, `${method} 的搜索词被映射层吃掉了，搜索框会是死的`).toBe('Haiku');
+    },
+  );
+
+  it('没搜索词时不硬塞空串 —— 后端把空串与「不筛」区别对待', () => {
+    const sent = toIpcInput('model.list', { enabledOnly: false });
+    expect('query' in sent).toBe(false);
+  });
+});
+
 describe('supervisor.ask 的入参不能在映射层掉字段', () => {
   /*
    * 这一层是白名单式的：每个分支只挑自己认识的字段，漏一个就静默丢掉。
