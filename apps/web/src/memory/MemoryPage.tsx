@@ -328,7 +328,15 @@ export function MemoryPage() {
           </div>
 
           {items !== null && saved.length === 0 ? (
-            <ListEmpty query={search.value} noun="记忆" onClear={() => search.onChange('')}>
+            <ListEmpty
+              query={search.value}
+              noun="记忆"
+              onClear={() => search.onChange('')}
+              /* 筛掉之后的空 ≠ 一条都没有。用户刚看见 4 条，
+                 点一下「全局」就被告知「还没有记忆」（第三方巡检 C-18） */
+              {...(scope ? { filterLabel: SCOPE_LABELS[scope] ?? scope } : {})}
+              onClearFilter={() => setScope(null)}
+            >
               还没有记忆。AI 在运行结束时会提议值得长期记住的事实，你确认后才会写进来。
             </ListEmpty>
           ) : null}
