@@ -61,7 +61,6 @@ describe('GitHub Issue 修复模板', () => {
   it('每条连线的端口都真的存在于源节点的定义里', () => {
     for (const template of WORKFLOW_TEMPLATES) {
       const { graph } = build(template.id);
-      const 模板 = template.id;
       for (const edge of graph.edges) {
         const source = graph.nodes.find((n) => n.id === edge.source.nodeId);
         expect(source, `连线 ${edge.id} 的源节点不存在`).toBeTruthy();
@@ -75,7 +74,6 @@ describe('GitHub Issue 修复模板', () => {
   it('是有向无环图，能排出执行顺序', () => {
     for (const template of WORKFLOW_TEMPLATES) {
       const { graph } = build(template.id);
-      const 模板 = template.id;
       const order = topologicalOrder(graph);
       expect(order[0]).toBe('entry');
       expect(order).toHaveLength(graph.nodes.length);
@@ -117,7 +115,6 @@ describe('GitHub Issue 修复模板', () => {
     // 只查有下游的节点：`end` 与失败分支本来就该是终点
     for (const template of WORKFLOW_TEMPLATES) {
       const { graph } = build(template.id);
-      const 模板 = template.id;
       const 有出边的节点 = new Set(graph.edges.map((e) => e.source.nodeId));
 
       for (const node of graph.nodes) {
@@ -130,9 +127,10 @@ describe('GitHub Issue 修复模板', () => {
         const 漏掉的 = 全部端口.filter(
           (port) => !用到的端口.has(port) && !['failed', 'failure', 'error'].includes(port),
         );
-        expect(漏掉的, `${node.id}（${node.type}）的端口没有下游：${漏掉的.join(', ')}`).toEqual(
-          [],
-        );
+        expect(
+          漏掉的,
+          `${template.id} 的 ${node.id}（${node.type}）端口没有下游：${漏掉的.join(', ')}`,
+        ).toEqual([]);
       }
     }
   });
@@ -144,7 +142,6 @@ describe('GitHub Issue 修复模板', () => {
     // （审批 → 提交 → PR → 通知 → 结束）一次都跑不到，而且不报任何错。
     for (const template of WORKFLOW_TEMPLATES) {
       const { graph } = build(template.id);
-      const 模板 = template.id;
 
       for (const node of graph.nodes) {
         const 入边 = graph.edges.filter((e) => e.target.nodeId === node.id);
@@ -152,7 +149,7 @@ describe('GitHub Issue 修复模板', () => {
         // 入边来自不同节点的不同端口 —— 判不了互不互斥，一律要求显式声明
         expect(
           node.join?.strategy,
-          `${node.id} 有 ${入边.length} 条入边却没声明汇聚策略，默认「等全部」多半凑不齐`,
+          `${template.id} 的 ${node.id} 有 ${入边.length} 条入边却没声明汇聚策略，默认「等全部」多半凑不齐`,
         ).toBeDefined();
       }
     }
@@ -161,7 +158,6 @@ describe('GitHub Issue 修复模板', () => {
   it('每个节点的配置都通过各自的 Schema——模板不能带着非法配置发出去', () => {
     for (const template of WORKFLOW_TEMPLATES) {
       const { graph } = build(template.id);
-      const 模板 = template.id;
       for (const node of graph.nodes) {
         const parsed = getNodeDefinition(node.type).configSchema.safeParse(node.config);
         expect(
@@ -175,7 +171,6 @@ describe('GitHub Issue 修复模板', () => {
   it('入口节点全图唯一，且没有入边', () => {
     for (const template of WORKFLOW_TEMPLATES) {
       const { graph } = build(template.id);
-      const 模板 = template.id;
       expect(graph.nodes.filter((n) => n.type === 'entry')).toHaveLength(1);
       expect(graph.edges.filter((e) => e.target.nodeId === 'entry')).toHaveLength(0);
     }
@@ -184,7 +179,6 @@ describe('GitHub Issue 修复模板', () => {
   it('没有孤立节点——每个节点都在主线上', () => {
     for (const template of WORKFLOW_TEMPLATES) {
       const { graph } = build(template.id);
-      const 模板 = template.id;
       const orphans = validateGraph(graph).issues.filter((i) => i.code === 'ORPHAN_NODE');
       expect(orphans, `孤立节点：${orphans.map((o) => o.nodeId).join(', ')}`).toEqual([]);
     }
