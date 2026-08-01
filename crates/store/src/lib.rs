@@ -1556,7 +1556,7 @@ impl Store {
         base_ver: i64,
         value: Option<&str>,
         tags: Option<&[String]>,
-    ) -> Result<()> {
+    ) -> Result<i64> {
         if let Some(value) = value {
             reject_secret_like(value)?;
         }
@@ -1581,7 +1581,10 @@ impl Store {
                 "记忆已被改过：你带的版本是 {base_ver}，当前是 {current}。请重新读取后再改"
             )));
         }
-        Ok(())
+        // 契约的 memory.update 出参是 { ver }:界面据此更新乐观锁。
+        // 返回 () → 序列化成 null → 出参不合契约,界面判失败(数据其实落了库,
+        // 第 10 轮实测 A-2)
+        Ok(base_ver + 1)
     }
 
     pub fn set_memory_enabled(&self, id: &str, enabled: bool) -> Result<()> {

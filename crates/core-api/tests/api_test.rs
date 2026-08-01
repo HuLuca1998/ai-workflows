@@ -643,7 +643,11 @@ mod 记忆更新走契约字段名 {
             &supervisor,
             dir.path(),
         );
-        assert!(result.is_ok(), "契约形状的入参必须能走通:{result:?}");
+        let value = result.expect("契约形状的入参必须能走通");
+        assert_eq!(
+            value["ver"], 2,
+            "出参要是 {{ ver }}(乐观锁),不是 null(第 10 轮实测 A-2):{value}"
+        );
 
         let row = locked
             .lock()

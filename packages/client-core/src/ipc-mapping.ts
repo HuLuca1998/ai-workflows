@@ -496,11 +496,13 @@ export function fromIpcResult(method: CoreApiMethod, raw: unknown): unknown {
     // 在这一层就被丢掉了，界面拿不到新版本，下一次保存必然撞乐观锁
     case 'agent.update':
     case 'prompt.update':
+    // memory.update 的出参是 { ver }(乐观锁),不是 { ok } ——
+    // 归一成 { ok:true } 会让出参不合契约,界面判失败(第 10 轮实测 A-2)
+    case 'memory.update':
       return raw;
 
     case 'agent.delete':
     case 'prompt.delete':
-    case 'memory.update':
     case 'memory.toggle':
     case 'memory.delete':
       return { ok: true };

@@ -2044,9 +2044,9 @@ pub fn memory_update(
     base_ver: i64,
     value: Option<String>,
     tags: Option<Vec<String>>,
-) -> ApiResult<()> {
-    store.update_memory(&id, base_ver, value.as_deref(), tags.as_deref())?;
-    Ok(())
+) -> ApiResult<VerOnly> {
+    let ver = store.update_memory(&id, base_ver, value.as_deref(), tags.as_deref())?;
+    Ok(VerOnly { ver })
 }
 
 /// 启用 / 停用。停用是比删除更轻的一档：先停掉看看有没有影响。
