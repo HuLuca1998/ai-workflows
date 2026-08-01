@@ -55,6 +55,13 @@ pub fn resources() -> Vec<Resource> {
             mime_type: "text/markdown",
         },
         Resource {
+            uri: "aiwf://guide/write-report",
+            name: "write-report",
+            title: "怎么写这次运行的报告",
+            description: "报告是结构化数据不是 HTML；六种块的白名单与写好一份报告的判据。",
+            mime_type: "text/markdown",
+        },
+        Resource {
             uri: "aiwf://catalog/nodes",
             name: "nodes",
             title: "节点目录",
@@ -100,6 +107,7 @@ pub fn read(
         "aiwf://guide/overview" => Ok(("text/markdown", OVERVIEW.to_string())),
         "aiwf://guide/build-and-run" => Ok(("text/markdown", BUILD_AND_RUN.to_string())),
         "aiwf://guide/read-run-data" => Ok(("text/markdown", READ_RUN_DATA.to_string())),
+        "aiwf://guide/write-report" => Ok(("text/markdown", WRITE_REPORT.to_string())),
         "aiwf://catalog/nodes" => Ok(("application/json", node_catalog())),
         "aiwf://catalog/node-configs" => Ok(("application/json", NODE_CONFIGS.to_string())),
         "aiwf://catalog/contracts" => Ok(("application/json", META.to_string())),
@@ -439,6 +447,58 @@ run_artifact_content { runId, path, maxBytes }       → 内容（已脱敏、�
 2. `run_events` 从 seq 0 拉到底，按 `kind` 分类
 3. `run_artifacts` 拿产出清单，需要细看的用 `run_artifact_content`
 4. 想知道「为什么」就找上面那几条 `system.*`
+"#;
+
+const WRITE_REPORT: &str = r#"# 怎么写这次运行的报告
+
+工作流跑完之后，界面上有一个「查看报告」的抽屉（占 72% 屏宽）。
+它读的是产物 **`report.json`** —— 由工作流里的 AI 节点写出来。
+
+## 为什么不是 HTML
+
+报告会被反复打开、分享、导出，而写它的 agent（也就是你）连着系统 MCP、
+读得到工作流、改得动草稿。所以界面**不接受 HTML** —— 你产出结构化数据，
+应用按自己的设计令牌渲染。这样样式统一、窄窗口能重排、内容可搜索。
+
+## 格式
+
+```json
+{
+  "schemaVer": 1,
+  "title": "一句话标题，≤120 字",
+  "summary": "一句话结论，≤500 字 —— 列表页与抽屉标题下都显示它",
+  "outcome": "success | warning | failed",
+  "blocks": [ ... ]
+}
+```
+
+`blocks` 是**白名单**，六种，随便组合、随便排序（1–30 块）：
+
+| kind | 用来说什么 | 关键字段 |
+|---|---|---|
+| `metrics` | 顶部那排大数字 | `items[].{label,value,note?,tone?}`，最多 8 个 |
+| `prose` | 一段说明 | `body`（markdown 子集，**HTML 标签会按原文显示**）|
+| `table` | 明细 | `columns[]`（≤8）、`rows[][]`（≤200 行）|
+| `timeline` | 按时间发生了什么 | `items[].{at?,text,tone?}` |
+| `code` | 代码 / 日志 / SQL 片段 | `lang`、`body` |
+| `links` | 相关链接 | `items[].{label,href}` —— **只收 http/https** |
+
+`tone` 是 `neutral | success | warning | danger`，只影响颜色。
+
+## 写好一份报告
+
+- **`summary` 要能单独看懂**：用户在列表上只看得到它
+- **每条工作流的报告长得不一样**：日志巡检是「指标 + 表格 + 时间线」，
+  Issue 修复是「摘要 + diff 统计 + 链接」。按这次跑了什么来组织
+- **数字要带口径**：`note` 写「较昨日 +12%」「本周」「去重后」——
+  光一个数字读不出含义
+- **别把整份日志倒进 `code`**：挑最能说明问题的那一段，其余留在产物里
+- 认不出的 `kind` 会被整块拒收，不要自创类型
+
+## 怎么产出
+
+在 `end` 节点之前放一个 AI 节点，让它把结论写成 `report.json` 落到产物目录。
+文件名必须**恰好**是 `report.json`，界面按它找。
 "#;
 
 // ── Prompts ────────────────────────────────────────────────────────────────
