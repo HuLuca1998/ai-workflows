@@ -388,6 +388,18 @@ export function PromptsPage() {
               </button>
             </header>
 
+            {/* 删除确认要说清后果。原来只是把右上角换成「取消 / 确认删除」，
+                一句说明都没有 —— 而模型与角色的删除都写清了「引用它的东西
+                会怎样」（第三方巡检 C-10）。右上角悄悄换出两个按钮很容易误点 */}
+            {confirmDelete ? (
+              <p className="models__warn" role="status">
+                {/* 这句话对着 executor.rs 的实际行为写：查不到 promptId
+                    是硬错误（`NodeOutcome::Failed`），不是静默退回内建框架 */}
+                引用这条提示词的 AI 节点会在运行时失败（「找不到提示词 …」）——
+                节点得先清空「提示词」字段改用内建框架。删除不可撤销。
+              </p>
+            ) : null}
+
             {pendingSelect ? (
               <p className="models__warn" role="alert">
                 这条提示词有未保存的改动。切到另一条会把它们丢掉。
