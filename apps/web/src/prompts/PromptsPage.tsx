@@ -156,6 +156,26 @@ export function PromptsPage() {
       return;
     }
 
+    /*
+     * 空变量名拦在保存那一刻。
+     *
+     * 点两次「插入变量」会留下两个 `${input.}` —— 保存成功、无警告，
+     * 而列表摘要把畸形占位符不计数（同一份数据两处对不上），
+     * 运行时才炸成「未定义的引用」（第三方巡检 C-12）。
+     *
+     * 只拦保存，不拦编辑：打字打到一半必然出现半截占位符。
+     */
+    const hasEmptyVar = (sections ?? selected.sections).some((section) =>
+      /\$\{\s*(?:input\.)?\s*\}/u.test(section.body),
+    );
+    if (hasEmptyVar) {
+      setError(
+        '正文里有没填名字的占位符（${input.}）。运行时它会被当成未定义的引用，' +
+          '那个节点会失败 —— 补上变量名，或把它删掉。',
+      );
+      return;
+    }
+
     try {
       // ver 是乐观锁：后端靠它判断这次改动基于哪一版，
       // 少发的话契约层直接拒，而错误信息说不清是哪个字段
