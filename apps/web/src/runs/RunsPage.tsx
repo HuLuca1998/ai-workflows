@@ -13,6 +13,7 @@ import { type RunEvent, type RunFilter, type RunSummary, useRuns } from './runsS
 import { toneOfEvent } from './eventTone.js';
 import { relativeTime, runDuration } from './formatTime.js';
 import { CopyButton } from '../layout/CopyButton.js';
+import { ReportDrawer } from './ReportDrawer.js';
 
 /**
  * 执行记录 —— 严格照图纸「03 执行记录」。
@@ -85,6 +86,13 @@ export function RunsPage() {
    * 这里只说「进来的时候先展开这条」。
    */
   const [jumpToArtifact, setJumpToArtifact] = useState<string | null>(null);
+  /**
+   * 正在看报告的那条运行。
+   *
+   * 存 runId 而不是布尔：同一条工作流可能有好几个 run，
+   * 布尔会让抽屉在切换运行时显示上一条的报告。
+   */
+  const [reportRunId, setReportRunId] = useState<string | null>(null);
   /** 刚导出的诊断包路径。不告诉用户在哪的话他找不到。 */
   /*
    * 诊断包结果带着**是哪条运行**的 id。
@@ -364,6 +372,24 @@ export function RunsPage() {
                 <h4>{selected.workflowName}</h4>
                 <StatusBadge status={runStatus(selected.status)} />
                 <span className="runs__grow" />
+                {/*
+                 * 报告入口。产物 tab 里那一小格（320px）是给「扫一眼 stdout」
+                 * 用的，报告是这次运行给人看的成品 —— 指标、表格、时间线
+                 * 摆不进去。抽屉给它整块屏。
+                 *
+                 * 只在跑完之后出现：跑到一半没有报告，给一个必然扑空的
+                 * 按钮比不给更糟。
+                 */}
+                {isRunTerminal(selected.status as RunStatus) ? (
+                  <button
+                    type="button"
+                    className="runs__action runs__action--primary"
+                    onClick={() => setReportRunId(selected.id)}
+                  >
+                    <i className="ph ph-file-text" aria-hidden="true" />
+                    查看报告
+                  </button>
+                ) : null}
                 {/*
                  * 可恢复的运行（interrupted / paused）此前一个可点的按钮都没有：
                  * 「取消运行」只对活跃态显示、「从失败节点重试」只长在失败横幅上，
@@ -654,6 +680,19 @@ export function RunsPage() {
           <p className="runs__empty runs__empty--center">选一次运行，这里会显示它的完整记录。</p>
         )}
       </section>
+
+      {/* 报告抽屉。挂在最外层：它覆盖整个三栏，不是某一栏里的一块 */}
+      {reportRunId ? (
+        <ReportDrawer
+          runId={reportRunId}
+          runLabel={
+            selected
+              ? `${selected.workflowName} · ${relativeTime(selected.startedAt, now)}`
+              : reportRunId
+          }
+          onClose={() => setReportRunId(null)}
+        />
+      ) : null}
     </div>
   );
 }

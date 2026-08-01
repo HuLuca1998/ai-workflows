@@ -7184,3 +7184,279 @@ fieldset.launch__field {
   font-size: 11px !important;
   color: var(--color-neutral-500) !important;
 }
+
+/* ── 运行报告抽屉 ───────────────────────────────────────────────────────
+   产物预览是列表项底下 320px 的一小格 —— 那是给「扫一眼 stdout」用的。
+   报告是这次运行给人看的成品：指标、表格、时间线摆在 320px 里没法读。
+   所以给它整块屏。 */
+.report-drawer__backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: flex;
+  justify-content: flex-end;
+  background: var(--overlay-scrim);
+}
+
+.report-drawer {
+  display: flex;
+  flex-direction: column;
+  /* 72% 宽、最小 720px —— 报告要被读，不是被瞄一眼 */
+  width: min(72vw, 1280px);
+  min-width: min(720px, 100vw);
+  height: 100%;
+  background: var(--color-bg);
+  border-left: 1px solid var(--color-divider);
+  box-shadow: -30px 0 80px rgb(0 0 0 / 55%);
+}
+
+.report-drawer__head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: none;
+  padding: 14px 22px;
+  border-bottom: 1px solid var(--color-divider);
+}
+
+.report-drawer__run {
+  margin: 2px 0 0;
+  font-size: 13px;
+  color: var(--color-text);
+}
+
+.report-drawer__body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 26px 34px 60px;
+}
+
+.report-drawer__raw {
+  margin: 12px 0 0;
+  padding: 14px;
+  border-radius: 10px;
+  background: var(--color-surface);
+  font-size: 11.5px;
+  line-height: 1.7;
+  white-space: pre-wrap;
+  word-break: break-all;
+  color: var(--color-neutral-300);
+}
+
+/* ── 报告本体 ─────────────────────────────────────────────────────────── */
+.report {
+  display: flex;
+  flex-direction: column;
+  gap: 26px;
+  max-width: 1000px;
+}
+
+.report__head {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.report__outcome {
+  align-self: flex-start;
+  padding: 2px 9px;
+  border-radius: 999px;
+  border: 1px solid var(--color-divider);
+  font-size: 11px;
+}
+
+.report__outcome[data-outcome='success'] {
+  color: var(--color-status-success);
+  border-color: color-mix(in srgb, var(--color-status-success) 45%, transparent);
+  background: color-mix(in srgb, var(--color-status-success) 12%, transparent);
+}
+
+.report__outcome[data-outcome='warning'] {
+  color: var(--color-status-waiting);
+  border-color: color-mix(in srgb, var(--color-status-waiting) 45%, transparent);
+  background: color-mix(in srgb, var(--color-status-waiting) 12%, transparent);
+}
+
+.report__outcome[data-outcome='failed'] {
+  color: var(--color-status-failed);
+  border-color: color-mix(in srgb, var(--color-status-failed) 45%, transparent);
+  background: color-mix(in srgb, var(--color-status-failed) 12%, transparent);
+}
+
+.report__title {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 400;
+  color: var(--color-text);
+}
+
+.report__summary {
+  margin: 0;
+  font-size: 13.5px;
+  line-height: 1.8;
+  color: var(--color-neutral-300);
+  max-width: 76ch;
+}
+
+.report__block {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.report__block h3 {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--color-neutral-200);
+}
+
+/* 指标行：一排大数字 */
+.report__metric-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 12px;
+}
+
+.report__metric {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 14px 16px;
+  border-radius: 12px;
+  border: 1px solid var(--color-divider);
+  background: var(--color-surface);
+}
+
+.report__metric-value {
+  font-size: 26px;
+  line-height: 1.2;
+  color: var(--color-text);
+}
+
+.report__metric[data-tone='success'] .report__metric-value {
+  color: var(--color-status-success);
+}
+
+.report__metric[data-tone='warning'] .report__metric-value {
+  color: var(--color-status-waiting);
+}
+
+.report__metric[data-tone='danger'] .report__metric-value {
+  color: var(--color-status-failed);
+}
+
+.report__metric-label {
+  font-size: 12px;
+  color: var(--color-neutral-300);
+}
+
+.report__metric-note {
+  font-size: 11px;
+  color: var(--color-neutral-500);
+}
+
+/* 表格自己横向滚 —— 页面本身绝不横向滚动 */
+.report__table-scroll {
+  overflow-x: auto;
+  border-radius: 10px;
+  border: 1px solid var(--color-divider);
+}
+
+.report__table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.report__table th,
+.report__table td {
+  padding: 9px 13px;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.report__table th {
+  background: var(--color-surface);
+  color: var(--color-neutral-300);
+  font-weight: 500;
+  border-bottom: 1px solid var(--color-divider);
+}
+
+.report__table td {
+  color: var(--color-neutral-200);
+  border-bottom: 1px solid color-mix(in srgb, var(--color-divider) 55%, transparent);
+}
+
+.report__table tr:last-child td {
+  border-bottom: none;
+}
+
+.report__timeline {
+  margin: 0;
+  padding: 0 0 0 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  font-size: 12.5px;
+  color: var(--color-neutral-200);
+}
+
+.report__timeline li {
+  display: flex;
+  gap: 10px;
+  line-height: 1.7;
+}
+
+.report__timeline li[data-tone='danger'] {
+  color: var(--color-status-failed);
+}
+
+.report__timeline li[data-tone='warning'] {
+  color: var(--color-status-waiting);
+}
+
+.report__timeline-at {
+  flex: none;
+  color: var(--color-neutral-500);
+  font-variant-numeric: tabular-nums;
+}
+
+.report__code {
+  margin: 0;
+  padding: 14px 16px;
+  border-radius: 10px;
+  background: var(--color-surface);
+  font-size: 11.5px;
+  line-height: 1.75;
+  overflow: auto;
+  max-height: 460px;
+  color: var(--color-neutral-200);
+}
+
+.report__links {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  font-size: 12.5px;
+}
+
+.report__links a {
+  color: var(--color-accent-300);
+}
+
+/* 窄窗口：抽屉铺满，指标退成单列 */
+@media (max-width: 900px) {
+  .report-drawer {
+    width: 100vw;
+    min-width: 0;
+  }
+
+  .report-drawer__body {
+    padding: 18px 16px 48px;
+  }
+}
