@@ -22,7 +22,17 @@ import { dirname, resolve } from 'node:path';
 
 const 仓库根 = resolve(dirname(fileURLToPath(import.meta.url)), '../../..');
 
-/** 节点执行会碰到的引擎源码。 */
+/**
+ * 引擎里真的会读节点配置的地方。
+ *
+ * 原来这份清单只有「节点执行」那几个文件，于是 `entry.trigger`
+ * 只能进白名单，理由写着「那是发起方的事」—— 而当时**根本没有发起方**：
+ * Rust 侧 `grep trigger` 零命中，用户选了 schedule 什么都不会发生。
+ * 一条听起来合理的白名单理由，掩护了半年的「填了不生效」。
+ *
+ * 教训：白名单的理由如果指向另一个消费者，那个消费者必须真的存在 ——
+ * 现在 `schedule.rs` 在这份清单里，触发相关的三个字段就归它证明。
+ */
 const 引擎执行源码 = [
   'executor.rs',
   'exec.rs',
@@ -31,9 +41,26 @@ const 引擎执行源码 = [
   'acp.rs',
   'preflight.rs',
   'interp.rs',
+  // 发起侧：定时触发的解析与到点判断
+  'schedule.rs',
 ]
-  .map((name) => readFileSync(resolve(仓库根, 'crates/engine/src', name), 'utf8'))
+  .map((name) => 去掉测试(readFileSync(resolve(仓库根, 'crates/engine/src', name), 'utf8')))
   .join('\n');
+
+/**
+ * 砍掉 `#[cfg(test)]` 之后的内容。
+ *
+ * 不砍的话，**测试夹具里的一个字符串就能证明「引擎读了这个字段」**。
+ * 真发生过：`schedule.rs` 的测试用例里有 `"inputSchema": {}` 当占位，
+ * 于是 `entry.inputSchema` 被判成「已接上」，而生产代码一次都没碰过它。
+ *
+ * 与 Rust 侧标识符语言守卫用的是同一个判据
+ * （`crates/engine/tests/ident_language_test.rs`）。
+ */
+function 去掉测试(source: string): string {
+  const at = source.indexOf('#[cfg(test)]');
+  return at === -1 ? source : source.slice(0, at);
+}
 
 const 配置_SCHEMA = JSON.parse(
   readFileSync(resolve(仓库根, 'packages/contracts/generated/node-configs.schema.json'), 'utf8'),
@@ -73,7 +100,6 @@ export function 找漂移(
 const 引擎不消费: Record<string, string> = {
   // ── 界面：消费者不是引擎 ────────────────────────────────────────────────
   'entry.inputSchema': '界面：启动表单按它生成字段（LaunchDialog），引擎只收运行时传进来的 inputs',
-  'entry.trigger': '界面：触发方式决定「什么时候发起运行」，那是发起方的事，不是执行的事',
 
   // ── 未实现：整个节点类型都还没有 ────────────────────────────────────────
   // executor 的兜底分支会明确报「节点类型 X 尚未实现。这个节点不会被执行，
