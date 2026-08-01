@@ -20,6 +20,7 @@ import { CoreApiError } from '../src/errors.js';
 import { validateGraph } from '../src/graph.js';
 import { applyPatch } from '../src/patch.js';
 import { ASK_KINDS, AskSpecSchema } from '../src/domain.js';
+import { PERMISSION_PRESETS } from '../src/capabilities.js';
 import { RunEventSchema, RUN_EVENT_TYPES, RUN_EVENT_CATEGORIES } from '../src/events.js';
 import { WorkflowGraphSchema } from '../src/graph.js';
 import { NODE_TYPES, getNodeDefinition } from '../src/nodes/index.js';
@@ -52,6 +53,10 @@ const files: Record<string, unknown> = {
     // 于是 schema 里查不到合法值 —— Rust 侧的守卫从这里读，
     // 保证工具描述与指南里列的 kind 不落后于契约
     askKinds: ASK_KINDS,
+    // 权限档三档。改名(review_every_change→human_approval)那次,契约改了、
+    // 前端改了,而 core-api 的校验常量没跟上 —— 全新用户在向导页
+    // 100% 被挡(第 10 轮实测)。让 Rust 侧读这份,不再各写一份
+    permissionPresets: PERMISSION_PRESETS,
   },
   /**
    * agent 提问的形状。MCP 的内建 `ask_user` 工具拿它当入参 schema ——

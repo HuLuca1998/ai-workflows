@@ -245,3 +245,24 @@ fn 启动运行必须指定跑哪个版本() {
     );
     assert!(neither.is_err(), "一个都不给应当被拒");
 }
+
+#[test]
+fn 权限档常量与契约生成物一致() {
+    // 第 10 轮实测的 P0:契约把权限档从 review_every_change 改名成
+    // human_approval,前端跟着改了,而 core-api 的校验常量没跟上 ——
+    // 全新用户在向导页选任何一档都被拒,100% 进不去产品。
+    // 读生成物比,不跟硬编码字面量比(那种守卫改了照样绿)
+    let meta = read("packages/contracts/generated/contracts.meta.json");
+    let value: serde_json::Value = serde_json::from_str(&meta).unwrap();
+    let 契约: std::collections::BTreeSet<String> = value["permissionPresets"]
+        .as_array()
+        .expect("生成物里要有 permissionPresets")
+        .iter()
+        .filter_map(|v| v.as_str().map(str::to_string))
+        .collect();
+    let 引擎: std::collections::BTreeSet<String> = aiwf_core_api::PERMISSION_PRESETS
+        .iter()
+        .map(|s| (*s).to_string())
+        .collect();
+    assert_eq!(引擎, 契约, "core-api 的权限档校验与契约脱节了");
+}

@@ -1126,8 +1126,10 @@ pub fn workspace_update_settings(
     Ok(())
 }
 
-/// 权限三档。与 `packages/contracts/src/capabilities.ts` 的 `PERMISSION_PRESETS` 对齐。
-const PERMISSION_PRESETS: &[&str] = &["review_every_change", "workspace_safe", "trusted_workflow"];
+/// 权限三档。与契约的 `PERMISSION_PRESETS` 对齐 —— 改名那次(review_every_change
+/// → human_approval)这里没跟上,全新用户在向导页 100% 被挡(第 10 轮实测)。
+/// contract_sync_test 现在读生成物比,防止再漂。
+pub const PERMISSION_PRESETS: &[&str] = &["human_approval", "ai_assisted", "unattended"];
 
 pub fn workspace_stats(store: &Store, workdir: Option<&Path>) -> ApiResult<WorkspaceStatsDto> {
     let stats = store.workspace_stats()?;
