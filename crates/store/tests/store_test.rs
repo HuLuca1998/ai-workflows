@@ -159,6 +159,7 @@ fn event(run_id: &str, kind: &str, summary: &str) -> NewRunEvent {
         parent_event_id: None,
         sensitivity: "internal".to_string(),
         schema_ver: 1,
+        exit_port: None,
     }
 }
 
@@ -697,6 +698,7 @@ fn 多个连接并发写同一个运行的事件_seq_不冲突() {
                             parent_event_id: None,
                             sensitivity: "internal".to_string(),
                             schema_ver: 1,
+                            exit_port: None,
                         })
                         .expect("并发写事件不该失败");
                 }
@@ -1693,6 +1695,7 @@ fn 事件记下节点当时的标题() {
             parent_event_id: None,
             sensitivity: "internal".to_string(),
             schema_ver: 1,
+            exit_port: None,
         })
         .unwrap();
 
@@ -1723,6 +1726,7 @@ fn 没有标题的事件照样读得出来() {
             parent_event_id: None,
             sensitivity: "internal".to_string(),
             schema_ver: 1,
+            exit_port: None,
         })
         .unwrap();
 
@@ -2972,6 +2976,7 @@ fn node_事件缺_attempt_时拒收() {
         parent_event_id: None,
         sensitivity: "internal".to_string(),
         schema_ver: 1,
+        exit_port: None,
     });
 
     let error = 结果.expect_err("node.* 缺 attempt 该被拒收");
@@ -3003,6 +3008,7 @@ fn node_事件缺_node_id_时拒收() {
         parent_event_id: None,
         sensitivity: "internal".to_string(),
         schema_ver: 1,
+        exit_port: None,
     });
 
     let error = 结果.expect_err("node.* 缺 node_id 该被拒收");
@@ -3035,6 +3041,7 @@ fn 非_node_事件不受这两条约束() {
             parent_event_id: None,
             sensitivity: "internal".to_string(),
             schema_ver: 1,
+            exit_port: None,
         })
         .expect("run.* 没有 attempt 的概念，不该被这条拦住");
 }
@@ -3060,6 +3067,7 @@ fn node_事件带了_attempt_就收() {
             parent_event_id: None,
             sensitivity: "internal".to_string(),
             schema_ver: 1,
+            exit_port: None,
         })
         .expect("带了 attempt 就该收");
 }
@@ -3093,6 +3101,7 @@ fn 非_node_事件不受这条约束() {
                 parent_event_id: None,
                 sensitivity: "internal".to_string(),
                 schema_ver: 1,
+                exit_port: None,
             })
             .unwrap_or_else(|error| panic!("{kind} 不该被拦：{error}"));
     }
@@ -3220,6 +3229,7 @@ mod 级联删除不全表扫 {
                     parent_event_id: None,
                     sensitivity: "internal".to_string(),
                     schema_ver: 1,
+                    exit_port: None,
                 })
                 .unwrap();
         }
@@ -3239,6 +3249,7 @@ mod 级联删除不全表扫 {
                     parent_event_id: None,
                     sensitivity: "internal".to_string(),
                     schema_ver: 1,
+                    exit_port: None,
                 })
                 .unwrap();
         }

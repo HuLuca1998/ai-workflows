@@ -172,6 +172,11 @@ pub struct NewRunEvent {
     pub node_id: Option<String>,
     /// 节点在**当时**的标题。草稿改名不影响已写下的运行记录。
     pub node_label: Option<String>,
+    /// 节点从哪个端口出去的。只有 `node.succeeded` 有值。
+    ///
+    /// **调度器靠它做端口路由** —— 不填的话下游会被无差别唤醒，
+    /// 失败分支和成功分支一起跑（`crates/engine/src/plan.rs`）。
+    pub exit_port: Option<String>,
     pub attempt: Option<i64>,
     pub actor: String,
     pub status: Option<String>,
@@ -198,6 +203,9 @@ pub struct RunEventRow {
     pub kind: String,
     pub node_id: Option<String>,
     pub node_label: Option<String>,
+    /// 节点从哪个端口出去的。只有 `node.succeeded` 有值；
+    /// 这一列出现之前的老数据是 NULL。**调度器读它做端口路由。**
+    pub exit_port: Option<String>,
     pub attempt: Option<i64>,
     pub actor: String,
     pub summary: String,
@@ -574,6 +582,7 @@ impl Store {
                 parent_event_id: None,
                 sensitivity: "normal".to_string(),
                 schema_ver: 1,
+                exit_port: None,
             })?;
             self.advance_run_status(&run_id, "interrupted", current_node.as_deref())?;
         }
@@ -2565,10 +2574,10 @@ impl Store {
         let next_seq: i64 = self.conn.query_row(
             "INSERT INTO run_event(id, run_id, seq, ts, type, node_id, node_label, attempt,
                                    actor, status, summary, payload_ref, artifact_refs,
-                                   parent_event_id, sensitivity, schema_ver)
+                                   parent_event_id, sensitivity, schema_ver, exit_port)
              VALUES (?1, ?2,
                      (SELECT COALESCE(MAX(seq), 0) + 1 FROM run_event WHERE run_id = ?2),
-                     ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)
+                     ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)
              RETURNING seq",
             params![
                 id,
@@ -2586,6 +2595,7 @@ impl Store {
                 event.parent_event_id,
                 event.sensitivity,
                 event.schema_ver,
+                event.exit_port,
             ],
             |row| row.get(0),
         )?;
@@ -2618,7 +2628,7 @@ impl Store {
     pub fn events(&self, run_id: &str, from_seq: i64, limit: i64) -> Result<Vec<RunEventRow>> {
         let mut stmt = self.conn.prepare(
             "SELECT id, run_id, seq, ts, type, node_id, node_label, attempt, actor, summary,
-                    payload_ref, artifact_refs, sensitivity
+                    payload_ref, artifact_refs, sensitivity, exit_port
              FROM run_event WHERE run_id = ?1 AND seq > ?2 ORDER BY seq ASC LIMIT ?3",
         )?;
         let rows = stmt.query_map(params![run_id, from_seq, limit], |row| {
@@ -2630,6 +2640,7 @@ impl Store {
                 kind: row.get(4)?,
                 node_id: row.get(5)?,
                 node_label: row.get(6)?,
+                exit_port: row.get(13)?,
                 attempt: row.get(7)?,
                 actor: row.get(8)?,
                 summary: row.get(9)?,
