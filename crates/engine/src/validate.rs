@@ -90,6 +90,20 @@ pub fn validate_graph(graph: &Value) -> ValidationResult {
                 None,
             ));
         }
+
+        // 还带着 seed 占位值的字段。那些占位是**真实字符串**，
+        // Schema 的 minLength 1 一路放行 —— 界面于是说「校验通过」，
+        // 点运行才发现 Dry Run 报缺失（DEBT O-14）。
+        // warning 而不是 error：编辑中途留着占位是正常状态。
+        let unfilled = placeholder_fields(node.node_type, node.config);
+        if !unfilled.is_empty() {
+            issues.push(warning(
+                "PLACEHOLDER_CONFIG",
+                format!("这几项还没填：{}", unfilled.join("、")),
+                Some(node.id.to_string()),
+                None,
+            ));
+        }
     }
 
     // ── 入口与结束 ──
@@ -373,4 +387,54 @@ fn nested<'a>(value: &'a Value, outer: &str, inner: &str) -> &'a str {
         .and_then(|node| node.get(inner))
         .and_then(Value::as_str)
         .unwrap_or_default()
+}
+
+/// 还带着 seed 占位值的字段，返回它们的人话标签。
+///
+/// 判据与 TypeScript 那份逐字一致（`packages/contracts/src/graph.ts`）：
+/// 值与 seed 里那个占位**一模一样**才算。按前缀猜会误伤
+/// 「待办清单」这类正当内容，而用户自己打出「待填写指令」
+/// 这几个字的概率可以忽略。
+///
+/// 标签取自 configSchema 的 `description` 第一行 —— 与配置弹层
+/// 显示的字段名同一份，不在这里另抄一张映射表。
+fn placeholder_fields(node_type: &str, config: &Value) -> Vec<String> {
+    let Some(definition) = catalog::definition(node_type) else {
+        return Vec::new();
+    };
+    let Some(seed) = definition.seed.as_ref().and_then(Value::as_object) else {
+        return Vec::new();
+    };
+    let schema = catalog::config_schema(node_type);
+
+    let mut out = Vec::new();
+    for (key, placeholder) in seed {
+        let Some(text) = placeholder.as_str() else {
+            continue;
+        };
+        if !text.contains("待填") && !text.contains("待选") {
+            continue;
+        }
+        if config.get(key).and_then(Value::as_str) != Some(text) {
+            continue;
+        }
+        out.push(field_label(schema, key));
+    }
+    out
+}
+
+/// 字段的人话标签：schema `description` 的第一行，取不到就用键名。
+///
+/// 与 TypeScript 的 `fieldName` 同一条规则 —— `.describe()` 的第一行是
+/// 标签、其余行是提示（约定见 `nodes/fields.ts`）。
+fn field_label(schema: Option<&Value>, key: &str) -> String {
+    schema
+        .and_then(|value| value.get("properties"))
+        .and_then(|props| props.get(key))
+        .and_then(|field| field.get("description"))
+        .and_then(Value::as_str)
+        .and_then(|text| text.split('\n').next())
+        .filter(|line| !line.is_empty())
+        .unwrap_or(key)
+        .to_string()
 }
