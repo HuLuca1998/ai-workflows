@@ -7009,3 +7009,45 @@ fieldset.launch__field {
   align-self: flex-start;
   margin-bottom: 10px;
 }
+
+/* ── 安全与隐私：数据去向说明 ─────────────────────────────────────────────
+   这一档原来只有一张「谁来审批」，而它在另外两档里各还有一份拷贝。
+   下面每条对应仓库里真实存在的机制（存储层拒明文凭据、写入前脱敏、
+   读取兜底），不是承诺 —— 用户有权知道自己的数据被怎么处理。 */
+.privacy {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 12px;
+  margin-top: 26px;
+}
+
+.privacy__list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-width: 720px;
+}
+
+.privacy__list li {
+  padding: 11px 14px;
+  border-radius: 9px;
+  border: 1px solid var(--color-divider);
+  background: var(--color-surface);
+  font-size: 12px;
+  line-height: 1.75;
+  color: var(--color-neutral-300);
+}
+
+.privacy__list strong {
+  color: var(--color-text);
+  font-weight: 500;
+}
+
+.privacy__list code {
+  font-size: 11.5px;
+  color: var(--color-accent-300);
+}

@@ -2,6 +2,7 @@ import { useLocation, useNavigate } from 'react-router';
 import { EnvHealth } from '../settings/EnvHealth.js';
 import { McpIntegration } from '../settings/McpIntegration.js';
 import { PermissionPolicy } from '../settings/PermissionPolicy.js';
+import { PrivacyPanel } from '../settings/PrivacyPanel.js';
 import { WorkspaceReset } from '../settings/WorkspaceReset.js';
 import { VersionPanel } from '../settings/VersionPanel.js';
 import { OnboardingPage } from '../onboarding/OnboardingPage.js';
@@ -131,14 +132,18 @@ export function SettingsPage() {
         {tab === 'setup' ? (
           <OnboardingPage />
         ) : tab === 'env' ? (
-          <>
-            <EnvHealth />
-            <PermissionPolicy />
-          </>
+          // 审批档不在这里：这一档说的是「这台机器上有什么」。
+          // 它原来在这儿又出现一次，与「首次配置」「安全与隐私」凑成
+          // 三份逐字相同的拷贝（第三方巡检 A-05）
+          <EnvHealth />
         ) : tab === 'mcp' ? (
           <McpIntegration />
         ) : tab === 'security' ? (
-          <PermissionPolicy />
+          // 审批档的正主 + 这一档名字里的「隐私」那一半
+          <>
+            <PermissionPolicy />
+            <PrivacyPanel />
+          </>
         ) : tab === 'adv' ? (
           <WorkspaceReset />
         ) : tab === 'version' ? (

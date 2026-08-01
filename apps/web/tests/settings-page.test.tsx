@@ -56,12 +56,21 @@ beforeEach(() => {
   respond();
 });
 
-const view = () =>
+const view = (tab?: string) =>
   render(
-    <MemoryRouter>
+    <MemoryRouter initialEntries={[tab ? `/settings?tab=${tab}` : '/settings']}>
       <SettingsPage />
     </MemoryRouter>,
   );
+
+/**
+ * 审批档住在「安全与隐私」那一档。
+ *
+ * 它曾经在「首次配置」「运行环境与工具」「安全与隐私」三处各有一份
+ * 逐字相同的拷贝，而「安全与隐私」底下除了它什么都没有
+ * （第三方巡检 A-05）。现在只留正主那一份。
+ */
+const 打开审批档 = () => view('security');
 
 describe('左侧分组导航', () => {
   it('中间只列有内容的档 —— 空壳分节已撤(S5)', async () => {
@@ -102,7 +111,7 @@ describe('审批三档', () => {
   it('三张卡的文案取自契约，不在界面里另抄一份', async () => {
     // 抄一份的代价是：改了其中一处文案，设置页、引导页、侧栏
     // 会向用户承诺三件不同的事。这条断言的是「显示的就是契约里那份」
-    view();
+    打开审批档();
     const region = await screen.findByRole('radiogroup', { name: '审批策略' });
 
     for (const mode of APPROVAL_MODES) {
@@ -113,7 +122,7 @@ describe('审批三档', () => {
   });
 
   it('当前那档被标出来 —— 用户得看得见自己现在授权到什么程度', async () => {
-    view();
+    打开审批档();
     await waitFor(() => {
       expect(
         screen.getByRole('radio', { name: new RegExp(APPROVAL_MODE_LABELS.ai_assisted.name, 'u') }),
@@ -123,7 +132,7 @@ describe('审批三档', () => {
 
   it('选另一档会写进设置', async () => {
     const user = userEvent.setup();
-    view();
+    打开审批档();
     await waitFor(() => {
       expect(
         screen.getByRole('radio', { name: new RegExp(APPROVAL_MODE_LABELS.ai_assisted.name, 'u') }),
@@ -145,7 +154,7 @@ describe('审批三档', () => {
 
   it('一档都没选过时按最严的显示 —— 引擎也是这么办的', async () => {
     respond({ 'workspace.settings': () => ({}) });
-    view();
+    打开审批档();
 
     await waitFor(() => {
       expect(
@@ -162,7 +171,7 @@ describe('审批三档', () => {
     // 而不是只有默认那一档能亮
     for (const mode of APPROVAL_MODES) {
       respond({ 'workspace.settings': () => ({ permissionPreset: mode }) });
-      const { unmount } = view();
+      const { unmount } = 打开审批档();
       await waitFor(() => {
         expect(
           screen.getByRole('radio', { name: new RegExp(APPROVAL_MODE_LABELS[mode].name, 'u') }),
@@ -173,7 +182,7 @@ describe('审批三档', () => {
   });
 
   it('说清这一档对运行的实际影响 —— 否则用户不知道选了会怎样', async () => {
-    view();
+    打开审批档();
     const region = await screen.findByRole('radiogroup', { name: '审批策略' });
     const 整块 = region.parentElement?.textContent ?? '';
     // 点名这三档最容易被误解的两处：管的是「门由谁批」而不是
@@ -190,7 +199,7 @@ describe('审批三档', () => {
       },
     });
     const user = userEvent.setup();
-    view();
+    打开审批档();
     const 中间档 = new RegExp(APPROVAL_MODE_LABELS.ai_assisted.name, 'u');
     await waitFor(() => {
       expect(screen.getByRole('radio', { name: 中间档 })).toBeChecked();
