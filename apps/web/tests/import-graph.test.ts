@@ -44,13 +44,14 @@ describe('导入', () => {
   it('不是 JSON 时说清楚', () => {
     const result = parseGraphFile('{ 这不是 JSON');
     expect(result.ok).toBe(false);
-    expect(result.error).toMatch(/不是合法的 JSON/u);
+    expect(result.error).toMatch(/不是 JSON/u);
+    // 文案的具体措辞归 import-error-text.test.ts 管，这里只守「说了」
   });
 
   it('结构不符合 Schema 时指出具体字段', () => {
     const result = parseGraphFile(JSON.stringify({ nodes: 'not-an-array', edges: [], groups: [] }));
     expect(result.ok).toBe(false);
-    expect(result.error).toMatch(/不是有效的工作流图/u);
+    expect(result.error).toMatch(/不是工作流图/u);
     expect(result.error).toMatch(/nodes/u);
   });
 
