@@ -24,6 +24,7 @@ fn 事件(run_id: &str, summary: &str) -> NewRunEvent {
         parent_event_id: None,
         sensitivity: "internal".to_string(),
         schema_ver: 1,
+        exit_port: None,
     }
 }
 

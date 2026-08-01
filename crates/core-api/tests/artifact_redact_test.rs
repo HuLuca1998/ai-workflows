@@ -146,6 +146,7 @@ mod 事件流读取脱敏 {
                 parent_event_id: None,
                 sensitivity: "internal".to_string(),
                 schema_ver: 1,
+                exit_port: None,
             })
             .unwrap();
 

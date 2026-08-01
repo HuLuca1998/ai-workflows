@@ -364,6 +364,8 @@ impl Runner {
                         "agent",
                         &event.summary,
                         event.payload_ref,
+                        // 节点内部产生的事件不是「节点完成」，没有出口端口
+                        None,
                     );
                     // 写不进去只影响记录，不该让节点本身失败 ——
                     // 但要留痕：静默丢掉的话，对话流里会**少一条**而没人知道
@@ -436,12 +438,22 @@ impl Runner {
         }
 
         let (graph, plan) = self.load_plan(store, run_id)?;
-        let completed = self.completed_nodes(store, run_id)?;
-        let ready = plan.ready_nodes(&completed);
+        let taken = self.taken_ports(store, run_id)?;
+        let ready = plan.ready_nodes(&taken);
 
         let Some(node_id) = ready.first().cloned() else {
-            // 没有可跑的节点了：要么全跑完，要么被上游失败挡住
-            let all_done = completed.len() == graph.nodes.len();
+            /*
+             * 没有可跑的节点了。判「跑完了」还是「卡住了」——
+             *
+             * **不能再用「完成数 == 节点总数」**：端口路由生效之后，
+             * 没走到的分支上那些节点本来就不会执行，那个等式
+             * 在任何有分支的图上都不成立，于是每一条正常结束的运行
+             * 都会被判成 failed。
+             *
+             * 判据换成：从入口出发**够得着的**节点是不是都完成了。
+             * 够不着的（分支没走那一支）不算欠账。
+             */
+            let all_done = plan.reachable_all_done(&taken);
             let status = if all_done { "succeeded" } else { "failed" };
             self.emit(
                 store,
@@ -514,14 +526,15 @@ impl Runner {
 
         match outcome {
             NodeOutcome::Succeeded { port } => {
-                self.emit_node(
+                // 端口进 exit_port 列，**不是只进摘要文案** ——
+                // 调度器读它做路由（`plan.rs` 的 ready_nodes）
+                self.emit_node_exit(
                     store,
                     run_id,
-                    "node.succeeded",
                     &node_id,
                     &node.title,
-                    "engine",
                     &format!("{} 完成 · 走 {port} 分支", node.title),
+                    &port,
                 )?;
                 self.checkpoint(store, run_id, scope, None)?;
                 Ok(StepResult::Advanced { node_id })
@@ -874,15 +887,10 @@ impl Runner {
             // 而 `approved_nodes`（从 approval.decided 事件算出来）
             // 保证这一次不会再被拦一遍
             if self.node_type(store, run_id, node_id)? == "approval" {
-                self.emit_node(
-                    store,
-                    run_id,
-                    "node.succeeded",
-                    node_id,
-                    &label,
-                    "engine",
-                    "审批通过",
-                )?;
+                // 出口端口是 `approved` 而不是 `success` —— 审批节点的
+                // 端口就叫 approved/rejected（契约里的定义）。写成 success
+                // 的话，端口路由找不到那条出边，批准之后整条流程停住
+                self.emit_node_exit(store, run_id, node_id, &label, "审批通过", "approved")?;
             } else {
                 self.emit_node(
                     store,
@@ -987,10 +995,15 @@ impl Runner {
         Ok((graph, plan))
     }
 
-    /// 已完成的节点。直接从事件流算，不另存一份状态——
-    /// 多一份状态就多一处可能不一致的地方。
-    fn completed_nodes(&self, store: &Store, run_id: &str) -> Result<Vec<String>> {
-        let mut completed = Vec::new();
+    /// 已经走过的边：(节点 id, 它出去的端口)。直接从事件流算，
+    /// 不另存一份状态 —— 多一份状态就多一处可能不一致的地方。
+    ///
+    /// 端口取事件的 `exit_port` 列，**不从摘要文案里解析**：
+    /// 摘要是给人看的，改一次措辞就会把调度器弄坏，
+    /// 而那种坏法不会有任何报错。老数据没有这一列，
+    /// 按 `success` 兜底（那是绝大多数节点的出口）。
+    fn taken_ports(&self, store: &Store, run_id: &str) -> Result<Vec<crate::plan::TakenPort>> {
+        let mut taken: Vec<crate::plan::TakenPort> = Vec::new();
         let mut from = 0;
         loop {
             let page = store.events(run_id, from, 500)?;
@@ -1000,15 +1013,16 @@ impl Runner {
             for event in &page {
                 if event.kind == "node.succeeded" {
                     if let Some(node) = &event.node_id {
-                        if !completed.contains(node) {
-                            completed.push(node.clone());
+                        let port = event.exit_port.clone().unwrap_or_else(|| "success".into());
+                        if !taken.iter().any(|(n, p)| n == node && p == &port) {
+                            taken.push((node.clone(), port));
                         }
                     }
                 }
                 from = event.seq;
             }
         }
-        Ok(completed)
+        Ok(taken)
     }
 
     /// 落检查点：seq + Scope 快照 + 挂起的审批节点。
@@ -1224,7 +1238,7 @@ impl Runner {
         summary: &str,
     ) -> Result<()> {
         self.emit_full(
-            store, run_id, kind, node_id, node_label, actor, summary, None,
+            store, run_id, kind, node_id, node_label, actor, summary, None, None,
         )
     }
 
@@ -1247,12 +1261,16 @@ impl Runner {
         actor: &str,
         summary: &str,
         payload_ref: Option<String>,
+        // exit_port：节点的出口端口。只有 `node.succeeded` 该有值 ——
+        // 调度器读它做端口路由（`plan.rs` 的 `ready_nodes`）
+        exit_port: Option<&str>,
     ) -> Result<()> {
         store.append_event(&NewRunEvent {
             run_id: run_id.to_string(),
             kind: kind.to_string(),
             node_id: node_id.map(str::to_string),
             node_label: node_label.map(str::to_string),
+            exit_port: exit_port.map(str::to_string),
             // 重试还没实现，先都是第 1 轮。契约要求 node.* 必须有它 ——
             // 缺了的话整页事件流不合契约
             attempt: node_id.map(|_| 1),
@@ -1353,6 +1371,36 @@ impl Runner {
     }
 
     /// 节点事件。**标题一并记下** —— 界面显示的是它，不是内部 id。
+    #[allow(clippy::too_many_arguments)]
+    /// `node.succeeded` 专用：把出口端口一并写下。
+    ///
+    /// 走的仍是 `emit_full` 那条**唯一**写入口 —— 我自己另开一条时
+    /// 漏掉了 attempt，被存储层的「node.* 缺 attempt 直接拒收」挡下，
+    /// 症状是整条运行停在第一个节点后一动不动。
+    fn emit_node_exit(
+        &self,
+        store: &Store,
+        run_id: &str,
+        node_id: &str,
+        node_label: &str,
+        summary: &str,
+        port: &str,
+    ) -> Result<()> {
+        self.emit_full(
+            store,
+            run_id,
+            "node.succeeded",
+            Some(node_id),
+            Some(node_label),
+            "engine",
+            summary,
+            None,
+            Some(port),
+        )
+    }
+
+    // emit_full 加了 exit_port 之后这里也跟着到 8 个。
+    // 参数多是转发函数的本质，拆成 struct 只会让调用点更啰嗦
     #[allow(clippy::too_many_arguments)]
     fn emit_node(
         &self,

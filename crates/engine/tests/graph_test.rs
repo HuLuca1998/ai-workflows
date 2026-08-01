@@ -69,6 +69,17 @@ fn 图坏掉时报错而不是给一张空图() {
 
 // ── 执行计划 ────────────────────────────────────────────────────────────────
 
+/// 「这些节点都从 success 出去了」。
+///
+/// `ready_nodes` 收的是**走过的边**（节点 + 出口端口），不是节点名单 ——
+/// 按节点名单判的话，`failed` 分支上的节点在成功路径上照样会被唤醒。
+fn 走了success(nodes: &[&str]) -> Vec<(String, String)> {
+    nodes
+        .iter()
+        .map(|n| ((*n).to_string(), "success".to_string()))
+        .collect()
+}
+
 #[test]
 fn 直线图的执行顺序就是拓扑序() {
     let graph: WorkflowGraph = serde_json::from_str(LINEAR).unwrap();
@@ -88,7 +99,7 @@ fn 扇出后三路同时就绪_这就是并行分发() {
     let graph: WorkflowGraph = serde_json::from_str(FAN).unwrap();
     let plan = ExecutionPlan::build(&graph).unwrap();
 
-    let mut ready = plan.ready_nodes(&["entry".to_string()]);
+    let mut ready = plan.ready_nodes(&走了success(&["entry"]));
     ready.sort();
     assert_eq!(ready, vec!["x", "y", "z"]);
 }
@@ -99,16 +110,11 @@ fn 汇聚节点要等全部上游完成() {
     let plan = ExecutionPlan::build(&graph).unwrap();
 
     // 只完成两路：汇聚节点还不能跑
-    let done = vec!["entry".to_string(), "x".to_string(), "y".to_string()];
+    let done = 走了success(&["entry", "x", "y"]);
     assert!(!plan.ready_nodes(&done).contains(&"join".to_string()));
 
     // 三路都完成才就绪
-    let all = vec![
-        "entry".to_string(),
-        "x".to_string(),
-        "y".to_string(),
-        "z".to_string(),
-    ];
+    let all = 走了success(&["entry", "x", "y", "z"]);
     assert_eq!(plan.ready_nodes(&all), vec!["join"]);
 }
 
@@ -120,7 +126,7 @@ fn 任一策略下有一路完成就能继续() {
 
     // ready_nodes 返回的是「此刻所有能跑的节点」：y / z 的上游也完成了，
     // 所以它们同样就绪。这里关心的是 join 有没有解除阻塞
-    let done = vec!["entry".to_string(), "x".to_string()];
+    let done = 走了success(&["entry", "x"]);
     assert!(plan.ready_nodes(&done).contains(&"join".to_string()));
 }
 
@@ -135,11 +141,11 @@ fn quorum_策略按票数决定() {
 
     assert!(
         !plan
-            .ready_nodes(&["entry".to_string(), "x".to_string()])
+            .ready_nodes(&走了success(&["entry", "x"]))
             .contains(&"join".to_string())
     );
 
-    let two = vec!["entry".to_string(), "x".to_string(), "y".to_string()];
+    let two = 走了success(&["entry", "x", "y"]);
     assert!(plan.ready_nodes(&two).contains(&"join".to_string()));
 }
 
@@ -149,7 +155,7 @@ fn 默认汇聚策略是等待全部() {
     let graph: WorkflowGraph = serde_json::from_str(&json).unwrap();
     let plan = ExecutionPlan::build(&graph).unwrap();
 
-    let two = vec!["entry".to_string(), "x".to_string(), "y".to_string()];
+    let two = 走了success(&["entry", "x", "y"]);
     assert!(!plan.ready_nodes(&two).contains(&"join".to_string()));
 }
 
@@ -159,7 +165,7 @@ fn 已完成的节点不会被重复调度() {
     let plan = ExecutionPlan::build(&graph).unwrap();
     assert!(
         !plan
-            .ready_nodes(&["entry".to_string()])
+            .ready_nodes(&走了success(&["entry"]))
             .contains(&"entry".to_string())
     );
 }

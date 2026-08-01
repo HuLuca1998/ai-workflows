@@ -269,6 +269,7 @@ fn record_background_failure(store: &Store, run_id: &str, message: &str) -> aiwf
         parent_event_id: None,
         sensitivity: "internal".to_string(),
         schema_ver: 1,
+        exit_port: None,
     })?;
     store.advance_run_status(run_id, "failed", None)?;
     Ok(())

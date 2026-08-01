@@ -15,11 +15,20 @@ pub enum PlanError {
     DanglingEdge { edge: String },
 }
 
+/// 一条**已经走过**的边：某个节点从某个端口出去了。
+///
+/// 调度按它判就绪，而不是按「上游节点完成了没有」——
+/// 后者让端口路由完全失效：不管上游走哪个口，所有下游一律执行。
+/// 实测症状是一条成功的运行把标着「结束 · 材料不足」的失败终点
+/// 也跑了一遍（run_4b439b16806ef3f3 的事件 #78）。
+pub type TakenPort = (String, String);
+
 pub struct ExecutionPlan {
     /// 拓扑序。同层节点按图中出现顺序排，保证执行记录的列表稳定。
     order: Vec<String>,
-    upstream: HashMap<String, Vec<String>>,
-    /// 每个节点的汇聚要求：需要多少条上游完成才能开始。
+    /// 每个节点的入边：(上游节点 id, 上游端口)。
+    inbound: HashMap<String, Vec<TakenPort>>,
+    /// 每个节点的汇聚要求：需要多少条**入边**被走过才能开始。
     required: HashMap<String, usize>,
 }
 
@@ -36,23 +45,21 @@ impl ExecutionPlan {
             }
         }
 
-        let mut upstream: HashMap<String, Vec<String>> = HashMap::new();
+        let mut inbound: HashMap<String, Vec<TakenPort>> = HashMap::new();
         for node in &graph.nodes {
-            upstream.insert(
-                node.id.clone(),
-                graph
-                    .upstream(&node.id)
-                    .into_iter()
-                    .map(String::from)
-                    .collect(),
-            );
+            inbound.insert(node.id.clone(), Vec::new());
+        }
+        for edge in &graph.edges {
+            if let Some(list) = inbound.get_mut(&edge.target.node_id) {
+                list.push((edge.source.node_id.clone(), edge.source.port.clone()));
+            }
         }
 
         let order = topological(graph)?;
 
         let mut required = HashMap::new();
         for node in &graph.nodes {
-            let incoming = upstream.get(&node.id).map(Vec::len).unwrap_or(0);
+            let incoming = inbound.get(&node.id).map(Vec::len).unwrap_or(0);
             let need = match node.join_strategy() {
                 JoinStrategy::All => incoming,
                 JoinStrategy::Any => 1.min(incoming),
@@ -66,7 +73,7 @@ impl ExecutionPlan {
 
         Ok(Self {
             order,
-            upstream,
+            inbound,
             required,
         })
     }
@@ -75,24 +82,72 @@ impl ExecutionPlan {
         &self.order
     }
 
-    /// 给定已完成的节点，返回现在可以开始的节点。
+    /// 给定已走过的边，返回现在可以开始的节点。
+    ///
+    /// `taken` 是 (上游节点 id, 该节点出去的端口)。判据是**入边被走过几条**，
+    /// 不是「上游节点完成了几个」—— 后者会让 `failed` 分支上的节点
+    /// 在成功路径上照样执行。
     ///
     /// 返回多个就是可以并行跑多个——调度器据此分发，
     /// 并发上限由调用方控制（全局 Agent 进程上限、节点级并发上限）。
-    pub fn ready_nodes(&self, completed: &[String]) -> Vec<String> {
-        let done: HashSet<&str> = completed.iter().map(String::as_str).collect();
+    pub fn ready_nodes(&self, taken: &[TakenPort]) -> Vec<String> {
+        let done: HashSet<&str> = taken.iter().map(|(node, _)| node.as_str()).collect();
+        let walked: HashSet<(&str, &str)> = taken
+            .iter()
+            .map(|(node, port)| (node.as_str(), port.as_str()))
+            .collect();
 
         self.order
             .iter()
             .filter(|id| !done.contains(id.as_str()))
             .filter(|id| {
-                let ups = self.upstream.get(*id).map(Vec::as_slice).unwrap_or(&[]);
-                let finished = ups.iter().filter(|u| done.contains(u.as_str())).count();
+                let ins = self.inbound.get(*id).map(Vec::as_slice).unwrap_or(&[]);
+                let satisfied = ins
+                    .iter()
+                    .filter(|(node, port)| walked.contains(&(node.as_str(), port.as_str())))
+                    .count();
                 let need = self.required.get(*id).copied().unwrap_or(0);
-                finished >= need
+                satisfied >= need
             })
             .cloned()
             .collect()
+    }
+
+    /// 收尾判据：**够得着的节点是不是都完成了**。
+    ///
+    /// 不能用「完成数 == 节点总数」：端口路由生效之后，没走到的
+    /// 分支上那些节点本来就不会执行，那个等式在任何有分支的图上
+    /// 都不成立 —— 每一条正常结束的运行都会被判成 failed。
+    ///
+    /// 「够得着」= 它的入边至少被走过一条（或者它压根没有入边，
+    /// 那是入口）。够不着的不算欠账。
+    #[must_use]
+    pub fn reachable_all_done(&self, taken: &[TakenPort]) -> bool {
+        let done: HashSet<&str> = taken.iter().map(|(node, _)| node.as_str()).collect();
+        let walked: HashSet<(&str, &str)> = taken
+            .iter()
+            .map(|(node, port)| (node.as_str(), port.as_str()))
+            .collect();
+
+        self.order.iter().all(|id| {
+            if done.contains(id.as_str()) {
+                return true;
+            }
+            let ins = self.inbound.get(id).map(Vec::as_slice).unwrap_or(&[]);
+            // 没有入边而又没完成 —— 那是入口没跑起来，确实是欠账
+            if ins.is_empty() {
+                return false;
+            }
+            // 一条入边都没被走过 = 这个节点在没走的那一支上，不算欠账
+            !ins.iter()
+                .any(|(node, port)| walked.contains(&(node.as_str(), port.as_str())))
+        })
+    }
+
+    /// 图里全部节点。
+    #[must_use]
+    pub fn node_count(&self) -> usize {
+        self.order.len()
     }
 }
 

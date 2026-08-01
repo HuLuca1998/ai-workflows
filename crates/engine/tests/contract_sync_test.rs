@@ -306,8 +306,17 @@ fn 跑一条含各类节点的工作流_每条事件都合契约() {
     let events = store.events(&run_id, 0, 500).unwrap();
     assert!(
         events.len() > 6,
-        "没跑起来，这条测试什么都没验：{}",
-        events.len()
+        "没跑起来，这条测试什么都没验：{} —— {:?}",
+        events.len(),
+        events
+            .iter()
+            .map(|e| (
+                e.kind.clone(),
+                e.node_id.clone(),
+                e.exit_port.clone(),
+                e.summary.chars().take(40).collect::<String>()
+            ))
+            .collect::<Vec<_>>()
     );
 
     let mut 问题 = Vec::new();
