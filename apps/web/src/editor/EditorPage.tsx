@@ -21,6 +21,7 @@ import type { NodeType } from '@aiwf/contracts';
 import { Button, Dialog } from '@aiwf/ui';
 import { coreClient, useWorkspace } from '../data/workspace.js';
 import { clearLeaveGuard, registerLeaveGuard } from '../layout/leaveGuard.js';
+import { describeConnection } from './connectRules.js';
 import type { MenuTarget } from './menuActions.js';
 import { useEditor } from './editorStore.js';
 import { EditorToolbar } from './EditorToolbar.jsx';
@@ -36,6 +37,7 @@ import { ConnectionLine } from './ConnectionLine.jsx';
 import { defaultSourcePort, defaultTargetPort, toFlowEdges, toFlowNodes } from './graphAdapter.js';
 import { NODE_HEIGHT, NODE_WIDTH } from './nodeVisuals.js';
 import { cascadeFrom, minimalConfigFor, titleFor } from './nodeDefaults.js';
+import { needsBulkDeleteConfirm } from './bulkDelete.js';
 import { shortcut } from '../data/platformKeys.js';
 
 const NODE_TYPES: NodeTypes = { workflow: WorkflowNode };
@@ -195,6 +197,10 @@ function EditorCanvas() {
   const [launchOpen, setLaunchOpen] = useState(false);
   /** 侧栏导航被离开守卫拦下时弹的确认。目标路径记着，用户确认后再走。 */
   const [confirmingNavLeave, setConfirmingNavLeave] = useState(false);
+  /** 上一次连线被拒的理由。几秒后自己消失 —— 它是对刚才那个动作的回应。 */
+  const [connectHint, setConnectHint] = useState<string | null>(null);
+  /** 等确认的批量删除。非空时弹确认；确认后才真的落 removeNode。 */
+  const [pendingDelete, setPendingDelete] = useState<string[] | null>(null);
   /**
    * 引用字段（Agent 角色 / 提示词）的候选。查一次给弹层用 ——
    * 自由文本要用户手打 builtin:analyst 这类内部 id，
@@ -267,6 +273,13 @@ function EditorCanvas() {
     window.addEventListener('beforeunload', onBeforeUnload);
     return () => window.removeEventListener('beforeunload', onBeforeUnload);
   }, [dirty]);
+
+  /** 连线提示几秒后自己消失 —— 它是对刚才那个动作的回应，不是常驻状态。 */
+  useEffect(() => {
+    if (!connectHint) return;
+    const timer = setTimeout(() => setConnectHint(null), 5000);
+    return () => clearTimeout(timer);
+  }, [connectHint]);
 
   /**
    * 侧栏导航也要拦。
@@ -421,11 +434,30 @@ function EditorCanvas() {
       const target = graph.nodes.find((n) => n.id === connection.target);
       if (!source || !target) return;
 
+      /*
+       * 拒绝要说话。
+       *
+       * 原来这里是两行 early return：拖拽虚线正常画出、目标端口还高亮成
+       * 紫色（与合法目标一模一样），松手后连线凭空消失 —— 用户只会以为
+       * 自己手滑了（B-11）。自连更糟：它压根没被拒，进了草稿之后渲染成
+       * 宽度 0 的竖线压在节点底下，点不到删不掉（B-03）。
+       */
+      const verdict = describeConnection({
+        sourceType: source.type,
+        targetType: target.type,
+        sameNode: source.id === target.id,
+        sourceConfig: source.config,
+      });
+      if (!verdict.ok) {
+        setConnectHint(verdict.reason ?? '这两个端口连不上');
+        return;
+      }
+
       const sourcePort = defaultSourcePort(source.type, source.config);
       const targetPort = defaultTargetPort(target.type);
-      // 端口不存在说明这个方向本来就不该连（如从 end 拖出、连到 entry）
       if (!sourcePort || !targetPort) return;
 
+      setConnectHint(null);
       apply([
         {
           op: 'connect',
@@ -436,6 +468,24 @@ function EditorCanvas() {
     },
     [graph, apply],
   );
+
+  /**
+   * 一次删一批之前先问。
+   *
+   * ⌘A + Delete 会一秒删光整张图，而撤销/重做在工具栏上永久禁用 ——
+   * 一次误触就是全毁（第三方巡检 B-04）。单个删除照旧不问：
+   * 那是常规操作，问了只会让人学会闭眼点确认。
+   *
+   * 必须用 `onBeforeDelete` 而不是在 `onNodesChange` 里 return：
+   * 画布跑在非受控模式（`defaultNodes`），XYFlow 自己维护内部 store ——
+   * 在 change 那一层拦下只会让**画布上删了而草稿里还在**，
+   * 两边一不一致就白屏（实测过一次）。
+   */
+  const onBeforeDelete = useCallback(async ({ nodes }: { nodes: { id: string }[] }) => {
+    if (!needsBulkDeleteConfirm(nodes.length)) return true;
+    setPendingDelete(nodes.map((node) => node.id));
+    return false;
+  }, []);
 
   const onDrop = useCallback(
     (event: React.DragEvent) => {
@@ -591,6 +641,45 @@ function EditorCanvas() {
         <ApprovalBanner workflowId={workflowId} onWaitingNode={setWaitingNodeId} />
       ) : null}
 
+      {/* 批量删除的确认。撤销还没有，所以这是唯一一道防线 */}
+      <Dialog
+        open={pendingDelete !== null}
+        title={`删除 ${pendingDelete?.length ?? 0} 个节点？`}
+        onClose={() => setPendingDelete(null)}
+        width={420}
+        actions={
+          <>
+            <Button onClick={() => setPendingDelete(null)}>取消</Button>
+            <Button
+              variant="danger"
+              onClick={() => {
+                const ids = pendingDelete ?? [];
+                setPendingDelete(null);
+                if (ids.length > 0) {
+                  apply(ids.map((nodeId) => ({ op: 'removeNode' as const, nodeId })));
+                }
+              }}
+            >
+              删除
+            </Button>
+          </>
+        }
+      >
+        <p>
+          连着的线也会一并删掉。<strong>撤销还没有做</strong> ——
+          删错了只能重新搭，或者不保存草稿直接刷新页面回到上次保存的样子。
+        </p>
+      </Dialog>
+
+      {/* 连线被拒的理由。放在画布上方而不是一个 toast：用户的视线
+          刚才就在这附近，而 toast 会飘到屏幕角落 */}
+      {connectHint ? (
+        <p className="editor-connect-hint" role="status">
+          <i className="ph ph-prohibit" aria-hidden="true" />
+          {connectHint}
+        </p>
+      ) : null}
+
       {error ? (
         <p className="editor-error" role="alert">
           {error}
@@ -639,6 +728,7 @@ function EditorCanvas() {
             // 默认预览线锁死在被按下的那个 Handle 上，从下方拖会先向右甩一段。
             connectionLineComponent={ConnectionLine}
             onNodesChange={onNodesChange}
+            onBeforeDelete={onBeforeDelete}
             onConnect={onConnect}
             onSelectionChange={onSelectionChange}
             onNodeDoubleClick={(_, node) => setConfigNodeId(node.id)}

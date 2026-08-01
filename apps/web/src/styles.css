@@ -822,6 +822,20 @@
   font-size: 12px;
 }
 
+/* 连线被拒的理由。比报错弱一档 —— 它不是出了错，是这条线本来就不该连。
+   放在画布上方而不是屏幕角落的 toast：用户的视线刚才就在这附近 */
+.editor-connect-hint {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin: 0;
+  padding: var(--space-3) var(--space-6);
+  background: color-mix(in srgb, var(--color-status-waiting) 12%, transparent);
+  border-bottom: 1px solid color-mix(in srgb, var(--color-status-waiting) 35%, transparent);
+  color: var(--color-status-waiting);
+  font-size: 12px;
+}
+
 /* 「放弃本地改动」在报错条里 —— 它会丢东西，所以是次要按钮的分量 */
 .editor-error__action {
   padding: 3px 10px;
