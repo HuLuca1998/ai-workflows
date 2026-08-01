@@ -188,18 +188,25 @@ done
 用户报的三个症状 ——「每条消息都是一个 session」「页面卡死没有流式」
 「提示词每轮都重发」—— 是同一条链路上三处独立的断点，逐条实证如下：
 
-| 编号 | 事项                                                            | 位置                       |
-| ---- | --------------------------------------------------------------- | -------------------------- |
-| H-1  | **会话 id 在映射层被丢**，每问一句新建一条 ACP 会话             | `ipc-mapping.ts:189`       |
-| H-2  | **流式断在 core-api**，chunk 攒成整段；两端无推送通道           | `core-api/src/lib.rs:2112` |
-| H-3  | **系统提示词每轮重发**（含整张草稿图）                          | `core-api/src/lib.rs:2063` |
-| H-4  | **翻开历史会话继续问，agent 一无所知**（从不用 `session/load`） | `SupervisorDrawer.tsx:299` |
-| H-5  | **`stopReason` 被丢弃**，截断的答案当成功交出去                 | `core-api/src/lib.rs:2099` |
-| H-6  | **权限裁决硬编码全拒**，与界面上的权限档无关且不可见            | `engine/src/acp.rs:423`    |
-| H-7  | **「取消」不取消远端**，`session/cancel` 零调用点               | `engine/src/acp.rs:388`    |
-| H-8  | **模型下拉是装饰**，`modelRef` 无消费点                         | `SupervisorDrawer.tsx:508` |
-| H-9  | **池键用问题原文**，问同一句话会撞进同一条会话                  | `core-api/src/lib.rs:2091` |
-| H-10 | Web 形态下 `context` 与 `contextJson` 对不上 ⚠️ 待实证          | `dispatch.rs:41`           |
+| 编号 | 事项                                                                                                                                                                                                                                                                  | 位置                       |
+| ---- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------- |
+| H-1  | **会话 id 在映射层被丢**，每问一句新建一条 ACP 会话                                                                                                                                                                                                                   | `ipc-mapping.ts:189`       |
+| H-2  | **流式断在 core-api**，chunk 攒成整段；两端无推送通道                                                                                                                                                                                                                 | `core-api/src/lib.rs:2112` |
+| H-3  | **系统提示词每轮重发**（含整张草稿图）                                                                                                                                                                                                                                | `core-api/src/lib.rs:2063` |
+| H-4  | **翻开历史会话继续问，agent 一无所知**（从不用 `session/load`）                                                                                                                                                                                                       | `SupervisorDrawer.tsx:299` |
+| H-5  | **`stopReason` 被丢弃**，截断的答案当成功交出去                                                                                                                                                                                                                       | `core-api/src/lib.rs:2099` |
+| H-6  | **权限裁决硬编码全拒**，与界面上的权限档无关且不可见                                                                                                                                                                                                                  | `engine/src/acp.rs:423`    |
+| H-7  | **「取消」不取消远端**，`session/cancel` 零调用点                                                                                                                                                                                                                     | `engine/src/acp.rs:388`    |
+| H-8  | **模型下拉是装饰**，`modelRef` 无消费点                                                                                                                                                                                                                               | `SupervisorDrawer.tsx:508` |
+| H-9  | **池键用问题原文**，问同一句话会撞进同一条会话                                                                                                                                                                                                                        | `core-api/src/lib.rs:2091` |
+| H-10 | Web 形态下 `context` 与 `contextJson` 对不上 ⚠️ 待实证                                                                                                                                                                                                                | `dispatch.rs:41`           |
+| H-11 | **`_session/steering` 从没用过**：两端握手都声明了这个能力，实测都返回 `outcome: injected`（`transcripts/{codex,claude}-steering.jsonl`）。界面的「待发消息队列」已交付，但**「立刻插话」还没有** —— 它要能在 prompt 阻塞时旁路发到同一个 stdin，而现在整轮持有槽位锁 | `engine/src/acp.rs:1110`   |
+
+**H-7 与 H-11 是同一个架构问题的两半**：`SessionPool::prompt` 整轮持有槽位锁
+（`acp.rs:1110`），于是任何「打断当前轮」的动作 —— 无论是 `session/cancel`
+还是 `_session/steering` —— 都拿不到 client。要修得先把 stdin 的写入端
+从 `AcpClient` 里分出来（`Arc<Mutex<ChildStdin>>`），让打断类请求旁路发送。
+在那之前「取消」只是前端改个状态，agent 还在跑、还在烧配额。
 
 **H-6 值得单独说 —— 它是「够不着的防线」，实测出来的**：
 
