@@ -7107,3 +7107,80 @@ fieldset.launch__field {
   line-height: 1.7;
   color: var(--color-neutral-300);
 }
+
+/* ── 主管 AI 的待发消息队列 ─────────────────────────────────────────────
+   agent 忙时用户打的字原来被直接丢弃、输入框还禁着。现在进这个队列，
+   发出去之前能改能撤，这一轮答完自动发。 */
+.supervisor__queue {
+  margin: 0;
+  padding: 8px 16px 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  flex: none;
+}
+
+.supervisor__queue li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px;
+  border-radius: 8px;
+  border: 1px dashed var(--color-neutral-700);
+  background: color-mix(in srgb, var(--color-surface) 60%, transparent);
+  font-size: 12px;
+  color: var(--color-neutral-300);
+}
+
+.supervisor__queue-text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.supervisor__queue-action {
+  flex: none;
+  padding: 1px 7px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-divider);
+  background: transparent;
+  color: var(--color-neutral-400);
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.supervisor__queue-action:hover {
+  color: var(--color-text);
+  border-color: var(--color-accent-700);
+}
+
+.supervisor__queue-form {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+}
+
+.supervisor__queue-edit {
+  flex: 1;
+  min-width: 0;
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-accent-700);
+  background: var(--color-bg);
+  color: var(--color-text);
+  font: inherit;
+  font-size: 12px;
+}
+
+/* 说明那一行不是消息，去掉框 */
+.supervisor__queue-note {
+  border: none !important;
+  background: none !important;
+  padding: 0 2px !important;
+  font-size: 11px !important;
+  color: var(--color-neutral-500) !important;
+}

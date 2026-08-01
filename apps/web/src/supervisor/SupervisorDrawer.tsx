@@ -12,6 +12,7 @@ import {
 } from '@aiwf/contracts';
 import { coreClient } from '../data/workspace.js';
 import { useStreamChunks, type StreamChunk } from './useStreamChunks.js';
+import { clear, edit, enqueue, next, remove, type QueuedMessage } from './messageQueue.js';
 import { DiffLines } from '../editor/DiffLines.js';
 
 /**
@@ -194,6 +195,23 @@ export function SupervisorDrawer({
   const [messages, setMessages] = useState<Message[]>([]);
   const [draft, setDraft] = useState('');
   const [busy, setBusy] = useState(false);
+  /**
+   * 还没发出去的消息。
+   *
+   * agent 忙时用户打的字进这里而不是被丢掉，**发出去之前能改能撤** ——
+   * 这一轮答完自动发下一条。详见 messageQueue.ts。
+   */
+  const [queue, setQueue] = useState<QueuedMessage[]>([]);
+  /** 正在编辑的那条队列消息；null = 没在编辑。 */
+  const [editingId, setEditingId] = useState<string | null>(null);
+  /**
+   * 最新的 `ask`。
+   *
+   * 队列的自动发送 effect 必须挂在 `if (!open) return null` 之前
+   * （hook 数量不能随 open 变），而 `ask` 定义在那之后 —— ref 是这两者
+   * 之间唯一不违反 hook 规则的桥。
+   */
+  const askRef = useRef<(text: string) => Promise<void>>(async () => {});
   const [models, setModels] = useState<ModelOption[]>([]);
   const [modelId, setModelId] = useState<string | null>(null);
   /** 推理深度的候选与当前选择。候选由 runtime 给，不写死。 */
@@ -361,6 +379,27 @@ export function SupervisorDrawer({
     if (body) body.scrollTop = body.scrollHeight;
   }, [messages]);
 
+  /**
+   * 一轮结束就发队列里的下一条。
+   *
+   * **必须挂在 `if (!open) return null` 之前** —— hook 的数量不能随
+   * open 变化，否则 React 报「Hooks 顺序变了」。而 `ask` 定义在早退
+   * 之后（它用到那之后才有的状态），所以用一个 ref 把最新的它交过来。
+   *
+   * 用 effect 而不是在 `send` 的 finally 里递归：递归会让每一轮都嵌在
+   * 上一轮的调用栈里，排 10 条就是 10 层，而且 `busy` 的 setState
+   * 还没生效时读到的是旧值。
+   */
+  useEffect(() => {
+    if (!open || busy || queue.length === 0) return;
+    const head = next(queue);
+    if (!head) return;
+    setQueue((prev) => prev.filter((item) => item.id !== head.id));
+    // 下一帧再发：这一帧里 setQueue 还没生效，同步调会让 effect 再触发一次
+    const timer = setTimeout(() => void askRef.current(head.text), 0);
+    return () => clearTimeout(timer);
+  }, [open, busy, queue]);
+
   if (!open) return null;
 
   /** 读一条历史会话回对话区。 */
@@ -387,11 +426,34 @@ export function SupervisorDrawer({
     }
   };
 
+  /**
+   * 发出去，或者排队。
+   *
+   * agent 忙时**不再丢弃**用户打的字（原来是 `if (!text || busy) return`，
+   * 输入框还禁着）—— 进队列，用户随时能改能撤，这一轮答完自动发出。
+   */
   const send = async () => {
     const text = draft.trim();
-    if (!text || busy) return;
+    if (!text) return;
+
+    if (busy) {
+      const result = enqueue(queue, text, 'queue', () => `q_${Date.now()}_${queue.length}`);
+      if (!result.ok) {
+        setError(result.reason ?? '这条排不进去');
+        return;
+      }
+      setQueue(result.queue);
+      setDraft('');
+      setError(null);
+      return;
+    }
 
     setDraft('');
+    await ask(text);
+  };
+
+  /** 真正发一轮。队列里的消息与输入框里的走同一条路。 */
+  const ask = async (text: string) => {
     setBusy(true);
     setError(null);
     const seq = (askSeq.current += 1);
@@ -516,6 +578,10 @@ export function SupervisorDrawer({
       }
     }
   };
+
+  // 队列的自动发送 effect 挂在早退之前（见 askRef 的注释）；
+  // 这里只把最新的 ask 交给它
+  askRef.current = ask;
 
   return (
     // 遮罩不关抽屉：里面那个输入框可能正打着一段长问题，
@@ -841,14 +907,80 @@ export function SupervisorDrawer({
           <em>{withheldNote(preset)}</em>
         </footer>
 
+        {/*
+         * 还没发出去的消息。
+         *
+         * agent 忙时用户打的字原来被直接丢弃，输入框还禁着 ——
+         * 现在进这个队列，**发出去之前能改能撤**，这一轮答完自动发。
+         */}
+        {queue.length > 0 ? (
+          <ul className="supervisor__queue" aria-label="待发消息">
+            {queue.map((item) => (
+              <li key={item.id}>
+                {editingId === item.id ? (
+                  /* form 而不是自己判 Enter：单行 input 在 form 里按回车
+                     本来就会提交，而聊天那套 Enter/⇧Enter 的键盘逻辑
+                     只该有 ChatInput 一份（chat-input.test.tsx 守着这条） */
+                  <form
+                    className="supervisor__queue-form"
+                    onSubmit={(event) => {
+                      event.preventDefault();
+                      const input = event.currentTarget.elements.namedItem(
+                        'queueEdit',
+                      ) as HTMLInputElement | null;
+                      setQueue((prev) => edit(prev, item.id, input?.value ?? item.text));
+                      setEditingId(null);
+                    }}
+                  >
+                    <input
+                      name="queueEdit"
+                      className="supervisor__queue-edit"
+                      aria-label={`修改待发消息：${item.text}`}
+                      autoFocus
+                      defaultValue={item.text}
+                      onBlur={(event) => {
+                        setQueue((prev) => edit(prev, item.id, event.target.value));
+                        setEditingId(null);
+                      }}
+                    />
+                  </form>
+                ) : (
+                  <>
+                    <span className="supervisor__queue-text">{item.text}</span>
+                    <button
+                      type="button"
+                      className="supervisor__queue-action"
+                      aria-label={`修改：${item.text}`}
+                      onClick={() => setEditingId(item.id)}
+                    >
+                      改
+                    </button>
+                    <button
+                      type="button"
+                      className="supervisor__queue-action"
+                      aria-label={`撤回：${item.text}`}
+                      onClick={() => setQueue((prev) => remove(prev, item.id))}
+                    >
+                      撤回
+                    </button>
+                  </>
+                )}
+              </li>
+            ))}
+            <li className="supervisor__queue-note">
+              这{queue.length}条还没发出去 —— 这一轮答完会按顺序发，随时能改能撤。
+            </li>
+          </ul>
+        ) : null}
+
         <footer className="supervisor__foot">
           {/* ⏎ 发送、⇧⏎ 换行 —— 图纸底部标着那个 ⏎ 符号。
               键盘逻辑在 ChatInput 里只有一份，别在这儿再抄一遍 */}
           <ChatInput
             label="问主管 AI"
-            placeholder="问它，或让它改这条工作流…"
+            /* busy 时不再禁用：用户要能继续打字，那些字进队列 */
+            placeholder={busy ? '它在答，先打着 —— 答完自动发' : '问它，或让它改这条工作流…'}
             value={draft}
-            disabled={busy}
             onChange={setDraft}
             onSubmit={() => void send()}
           />
@@ -863,6 +995,10 @@ export function SupervisorDrawer({
                 askSeq.current += 1;
                 setBusy(false);
                 setLiveTool(null);
+                // 队列一起清：那些话是针对这一轮的上下文说的，
+                // 而这一轮已经被取消了 —— 自动发出去只会答非所问
+                setQueue(clear());
+                setEditingId(null);
                 // 留一条回执。不留的话按了取消界面上什么都没变化 ——
                 // 那和没按上是一样的观感，用户会再按几次
                 setMessages((prev) => [
