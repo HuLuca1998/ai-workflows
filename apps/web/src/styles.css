@@ -3710,13 +3710,21 @@
   margin: 0 0 6px;
 }
 
+/* 只读的值。**不能长得和输入框一样** ——
+   同高、同圆角、同边框、同字号的一个 <p>，用户点进去没光标、
+   打字没反应、界面也不解释。一条样式同时制造了三个独立问题
+   （模型的「上下文窗口」、角色的「Turn 上限」、记忆的 Key）。
+   边框留着（它划定值的范围），但填充色与文字色都退一档：
+   「可以往里打字」这个暗示来自背景。 */
 .models__value {
   height: 34px;
   display: flex;
   align-items: center;
   padding: 0 11px;
   border-radius: 8px;
-  border: 1px solid var(--color-divider);
+  border: 1px dashed var(--color-divider);
+  background: transparent;
+  color: var(--color-neutral-400);
   font-size: 12.5px;
   margin: 0;
 }
