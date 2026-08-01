@@ -290,6 +290,28 @@ describe('搜索词不能被转换层吃掉', () => {
   });
 });
 
+describe('记忆的标签不能在映射层掉队', () => {
+  // 列表有标签列、搜索能按标签搜，表单现在也能填了 ——
+  // 这一层丢掉的话症状是「填了保存成功，回来一个标签都没有」
+  it('memory.create 带上 tags', () => {
+    const sent = toIpcInput('memory.create', {
+      scope: 'workspace',
+      key: 'k',
+      value: 'v',
+      source: 'user',
+      createdBy: 'user',
+      tags: ['安全'],
+    });
+    expect(sent.tags).toEqual(['安全']);
+  });
+
+  it('memory.update 带上 tags 与 ver', () => {
+    const sent = toIpcInput('memory.update', { id: 'm1', ver: 2, value: 'v', tags: ['安全'] });
+    expect(sent.tags).toEqual(['安全']);
+    expect(sent.ver, 'ver 是乐观锁，丢了后端判不出基于哪一版').toBe(2);
+  });
+});
+
 describe('supervisor.ask 的入参不能在映射层掉字段', () => {
   /*
    * 这一层是白名单式的：每个分支只挑自己认识的字段，漏一个就静默丢掉。

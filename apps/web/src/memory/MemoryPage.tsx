@@ -139,7 +139,7 @@ export function MemoryPage() {
     }
   };
 
-  const save = async (input: { key: string; value: string; scope: string }) => {
+  const save = async (input: { key: string; value: string; scope: string; tags: string[] }) => {
     try {
       if (editing === 'new') {
         await coreClient.call('memory.create', {
@@ -151,7 +151,7 @@ export function MemoryPage() {
           source: 'user',
           createdBy: 'user',
           sensitivity: 'internal',
-          tags: [],
+          tags: input.tags,
           enabled: true,
         });
       } else if (editing) {
@@ -160,6 +160,7 @@ export function MemoryPage() {
           id: editing.id,
           ver: editing.ver,
           value: input.value,
+          tags: input.tags,
         });
       }
       setEditing(null);
@@ -479,11 +480,24 @@ function MemoryEditor({
 }: {
   memory: Memory | null;
   onCancel: () => void;
-  onSave: (input: { key: string; value: string; scope: string }) => void | Promise<void>;
+  onSave: (input: {
+    key: string;
+    value: string;
+    scope: string;
+    tags: string[];
+  }) => void | Promise<void>;
 }) {
   const [key, setKey] = useState(memory?.key ?? '');
   const [value, setValue] = useState(memory?.value ?? '');
   const [scope, setScope] = useState(memory?.scope ?? 'workspace');
+  /**
+   * 标签。列表有这一列、搜索能按它搜，而表单此前**填不了** ——
+   * 用户建的记忆永远无标签，标签搜索对他自己的数据完全无效
+   * （第三方巡检 C-16）。契约两侧一直都收 tags。
+   *
+   * 编辑时回填已有的：不回填等于每次编辑都把它们清空。
+   */
+  const [tags, setTags] = useState((memory?.tags ?? []).join('、'));
 
   const ready = key.trim().length > 0 && value.trim().length > 0;
 
@@ -493,7 +507,18 @@ function MemoryEditor({
       aria-label={memory ? '编辑记忆' : '新建记忆'}
       onSubmit={(event) => {
         event.preventDefault();
-        if (ready) void onSave({ key: key.trim(), value: value.trim(), scope });
+        if (ready) {
+          void onSave({
+            key: key.trim(),
+            value: value.trim(),
+            scope,
+            // 中英文逗号与顿号都当分隔符 —— 中文输入法下打出来的多半是后两个
+            tags: tags
+              .split(/[,，、]/u)
+              .map((tag) => tag.trim())
+              .filter(Boolean),
+          });
+        }
       }}
     >
       <label className="models__field">
@@ -546,6 +571,15 @@ function MemoryEditor({
       <label className="models__field">
         <span className="models__label">内容</span>
         <textarea value={value} onChange={(event) => setValue(event.target.value)} />
+      </label>
+      <label className="models__field">
+        <span className="models__label">标签</span>
+        <input
+          type="text"
+          value={tags}
+          placeholder="用顿号或逗号分开，如：安全、工作方式"
+          onChange={(event) => setTags(event.target.value)}
+        />
       </label>
       <p className="models__note">
         这条内容会注入后续每一次 AI 调用。Secret 不要写在这里 —— 它只进 Keychain， 在这里只以
