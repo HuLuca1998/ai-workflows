@@ -21,6 +21,7 @@ pub mod preflight;
 pub mod redactor;
 pub mod risk;
 pub mod runner;
+pub mod schedule;
 pub mod schema;
 pub mod status;
 pub mod supervisor;

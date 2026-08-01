@@ -37,6 +37,7 @@ version = "0.0.0"
 dependencies = [
  "aiwf-engine",
  "aiwf-store",
+ "chrono",
  "jsonschema",
  "serde",
  "serde_json",
@@ -79,6 +80,7 @@ name = "aiwf-engine"
 version = "0.0.0"
 dependencies = [
  "aiwf-store",
+ "chrono",
  "regex",
  "serde",
  "serde_json",

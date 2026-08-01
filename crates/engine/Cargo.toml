@@ -8,6 +8,9 @@ publish.workspace = true
 
 [dependencies]
 aiwf-store = { version = "0.0.0", path = "../store" }
+# 定时触发要按**本机时区**算「每天 09:00」。std 拿不到时区偏移，
+# 而这个依赖已经在 lock 里（tauri 那条链带进来的），不多编一次
+chrono = { version = "0.4.45", default-features = false, features = ["clock", "std"] }
 regex = "1.13.1"
 serde = { workspace = true }
 serde_json = { workspace = true }
