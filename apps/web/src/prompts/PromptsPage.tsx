@@ -90,6 +90,8 @@ export function PromptsPage() {
    * 所以这里存整个数组的副本，改哪段替换哪段。
    */
   const [sections, setSections] = useState<Section[] | null>(null);
+  /** 正在改的名字；null = 没动过。切条目时清掉。 */
+  const [draftName, setDraftName] = useState<string | null>(null);
   /**
    * 有未保存改动时要拦下切换 —— 与 Agent 页同一道守卫。
    *
@@ -97,7 +99,8 @@ export function PromptsPage() {
    * 会直接把它丢掉，而这一屏的保存是显式的（按钮叫「保存新版本」）。
    */
   const [pendingSelect, setPendingSelect] = useState<string | null>(null);
-  const hasUnsaved = sections !== null;
+  // 改了名字同样算「有未保存的改动」—— 不算的话切走时名字静默丢弃
+  const hasUnsaved = sections !== null || draftName !== null;
 
   const goTo = (id: string) => {
     if (hasUnsaved) {
@@ -111,6 +114,7 @@ export function PromptsPage() {
     setConfirmDelete(false);
     setCreating(false);
     setSections(null);
+    setDraftName(null);
     setTab('template');
   };
 
@@ -146,7 +150,8 @@ export function PromptsPage() {
       setError('内置提示词不能直接改 —— 先「复制」一份，副本是可编辑的。');
       return;
     }
-    if (sections === null) {
+    const nextName = (draftName ?? selected.name).trim() || selected.name;
+    if (sections === null && nextName === selected.name) {
       setError('没有改动可保存。');
       return;
     }
@@ -154,10 +159,19 @@ export function PromptsPage() {
     try {
       // ver 是乐观锁：后端靠它判断这次改动基于哪一版，
       // 少发的话契约层直接拒，而错误信息说不清是哪个字段
-      await coreClient.call('prompt.update', { id: selected.id, ver: selected.ver, sections });
+      await coreClient.call('prompt.update', {
+        id: selected.id,
+        ver: selected.ver,
+        sections: sections ?? selected.sections,
+        // 名字也可改：复制出来的永远叫「X 副本」，复制两次就是两条
+        // 同名条目，列表里分不清（第三方巡检 C-08）。
+        // 清空时退回原名 —— 一条没名字的记录在列表里同样找不到
+        name: nextName,
+      });
       // 改动已经落地，那条警告要跟着收
       setPendingSelect(null);
       setSections(null);
+      setDraftName(null);
       setError(null);
       await load();
     } catch (err) {
@@ -322,7 +336,19 @@ export function PromptsPage() {
           <>
             <header className="prompts__detail-head">
               <div>
-                <h4>{selected.name}</h4>
+                {/* 名字要能改：复制出来的永远叫「X 副本」，复制两次
+                    就是两条同名条目（第三方巡检 C-08）。内置的只读，
+                    与这一屏其余部分一致 */}
+                {selected.builtin ? (
+                  <h4>{selected.name}</h4>
+                ) : (
+                  <input
+                    className="agents__name-input"
+                    aria-label="提示词名称"
+                    value={draftName ?? selected.name}
+                    onChange={(event) => setDraftName(event.target.value)}
+                  />
+                )}
                 <p className="models__detail-sub">
                   {selected.group} · v{selected.ver} ·{' '}
                   <code className="agents__id">{selected.id}</code>
@@ -581,6 +607,17 @@ function TemplateTab({
                   onClick={() => insertVar(index)}
                 >
                   插入变量
+                </button>
+                {/* 加得进去就要删得掉。原来只有「添加分段」——
+                    标题打错一个字就永久挂在那里，而它还会被 CSS
+                    强制大写显示（第三方巡检 C-26） */}
+                <button
+                  type="button"
+                  className="prompts__insert-var"
+                  aria-label={`删除分段 ${section.title}`}
+                  onClick={() => onChange(sections.filter((_, i) => i !== index))}
+                >
+                  <i className="ph ph-trash" aria-hidden="true" />
                 </button>
               </>
             )}
