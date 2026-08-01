@@ -536,8 +536,32 @@ pub struct WorkflowSummary {
     archived: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     latest_version: Option<i64>,
+    /// 已发布版本上的自动触发，一句人话。只有它才真的会跑
+    #[serde(skip_serializing_if = "Option::is_none")]
+    schedule_label: Option<String>,
+    /// 草稿上设了自动触发而已发布版本上没有 —— 填了不生效，界面要标出来
+    schedule_pending_publish: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     last_run: Option<LastRunDto>,
+}
+
+/// 一个工作流的定时状态：已发布的那份 + 草稿那份。
+///
+/// **两份都要看**。只看已发布的话，「设了定时但忘了发布」这条
+/// 最常见的死路在界面上完全没有痕迹 —— 画布上写着「每天 09:00」，
+/// 而它永远不会跑。
+fn schedule_of(store: &Store, workflow_id: &str) -> (Option<String>, bool) {
+    let describe = |config: Option<serde_json::Value>| -> Option<String> {
+        let config = config?;
+        let trigger = aiwf_engine::schedule::Trigger::from_entry_config(&config).ok()?;
+        trigger.is_automatic().then(|| trigger.describe())
+    };
+    let published = describe(store.entry_trigger(workflow_id, true).ok().flatten());
+    if published.is_some() {
+        return (published, false);
+    }
+    let draft = describe(store.entry_trigger(workflow_id, false).ok().flatten());
+    (None, draft.is_some())
 }
 
 /// 首页列表行上的运行态投影。
@@ -1024,11 +1048,18 @@ pub fn workflow_list(
         page_limit(limit),
         page_offset(offset),
     )?;
+    // 只对当前这一页算，且只在库里挑三个标量出来（`entry_trigger`）
+    let schedules: std::collections::HashMap<String, (Option<String>, bool)> = rows
+        .iter()
+        .map(|w| (w.id.clone(), schedule_of(store, &w.id)))
+        .collect();
     Ok(Page {
         total,
         items: rows
             .into_iter()
             .map(|w| WorkflowSummary {
+                schedule_label: schedules.get(&w.id).and_then(|(label, _)| label.clone()),
+                schedule_pending_publish: schedules.get(&w.id).is_some_and(|(_, pending)| *pending),
                 id: w.id,
                 name: w.name,
                 folder: w.folder,

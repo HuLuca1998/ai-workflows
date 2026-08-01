@@ -13,6 +13,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use rusqlite::{Connection, OptionalExtension, params};
+use serde_json::Value;
 use sha2::{Digest, Sha256};
 
 mod migrations;
@@ -1039,6 +1040,39 @@ impl Store {
             )
             .optional()?;
         Ok(row)
+    }
+
+    /// 入口节点的触发配置，**只取那三个字段**。
+    ///
+    /// `published = true` 看最新发布版本，`false` 看最新草稿。
+    ///
+    /// 为什么不直接读 `graph_json`：列表一次要 50 行，每份图几十 KB，
+    /// 而这里只需要三个标量。用 SQLite 的 JSON1 在库里挑出来，
+    /// 传出来的就是三个值 —— `workflow_list` 里那条
+    /// 「一次读 300 张图不现实」的注释说的就是这件事。
+    pub fn entry_trigger(&self, workflow_id: &str, published: bool) -> Result<Option<Value>> {
+        let sql = if published {
+            "SELECT json_extract(node.value, '$.config')
+             FROM workflow_version v,
+                  json_each(json_extract(v.graph_json, '$.nodes')) AS node
+             WHERE v.workflow_id = ?1
+               AND json_extract(node.value, '$.type') = 'entry'
+               AND v.version = (SELECT MAX(version) FROM workflow_version WHERE workflow_id = ?1)
+             LIMIT 1"
+        } else {
+            "SELECT json_extract(node.value, '$.config')
+             FROM workflow_revision r,
+                  json_each(json_extract(r.graph_json, '$.nodes')) AS node
+             WHERE r.workflow_id = ?1
+               AND json_extract(node.value, '$.type') = 'entry'
+               AND r.rev = (SELECT MAX(rev) FROM workflow_revision WHERE workflow_id = ?1)
+             LIMIT 1"
+        };
+        let raw: Option<String> = self
+            .conn
+            .query_row(sql, params![workflow_id], |row| row.get(0))
+            .optional()?;
+        Ok(raw.and_then(|json| serde_json::from_str(&json).ok()))
     }
 
     /// 最新发布版本。没发布过就是 `None`。
