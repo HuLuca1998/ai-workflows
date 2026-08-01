@@ -117,6 +117,7 @@ describe('列表与筛选', () => {
           createdAt: '2026-07-27T09:00:00.000Z',
           updatedAt: '2026-07-27T09:00:00.000Z',
           archived: false,
+          schedulePendingPublish: false,
         },
         {
           id: 'wf_2',
@@ -125,6 +126,7 @@ describe('列表与筛选', () => {
           createdAt: '2026-07-27T08:00:00.000Z',
           updatedAt: '2026-07-27T08:00:00.000Z',
           archived: false,
+          schedulePendingPublish: false,
         },
       ],
       loading: false,
@@ -191,6 +193,7 @@ describe('工作流删除入口(第 6 轮实测 #9)', () => {
           createdAt: '2026-07-27T09:00:00.000Z',
           updatedAt: '2026-07-27T09:00:00.000Z',
           archived: false,
+          schedulePendingPublish: false,
         },
       ],
       loading: false,

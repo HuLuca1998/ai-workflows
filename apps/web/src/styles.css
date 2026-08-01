@@ -715,6 +715,34 @@
   color: var(--color-neutral-500);
 }
 
+/* 定时徽章。只有真的会自动跑的行才有 —— 每行都挂等于没挂 */
+.wf-table__schedule {
+  display: inline-flex;
+  gap: 4px;
+  align-items: center;
+  margin-left: var(--space-2);
+  font-size: 11.5px;
+  white-space: nowrap;
+  color: var(--color-neutral-500);
+}
+
+/*
+ * 「设了定时但没发布」。用警示色而不是灰色：这是一条**死路**，
+ * 用户以为它每天在跑而它一次都没跑过，灰色会被当成普通说明扫过去
+ */
+/* 运行详情里的「定时触发」标记。与等待色同一支：都在说「这不是人点的」*/
+.runs__trigger {
+  display: inline-flex;
+  gap: 4px;
+  align-items: center;
+  color: var(--color-status-waiting);
+}
+
+.wf-table__schedule--pending {
+  /* 用等待色（--color-status-waiting）：这条状态的意思正是「在等一个动作」*/
+  color: var(--color-status-waiting);
+}
+
 .wf-table__empty {
   padding: var(--space-8) 0;
   text-align: center;

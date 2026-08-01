@@ -348,7 +348,27 @@ export function OverviewPage() {
                     ) : (
                       <Tag tone="outline">v{w.lastRun?.version ?? w.latestVersion}</Tag>
                     )}
-                    <span className="wf-table__muted"> · 手动</span>
+                    {/*
+                      这里原来钉着一个写死的「· 手动」—— 每一行都这么写，
+                      不管入口设的是什么。设了每天 9 点的工作流也显示「手动」。
+
+                      现在三种状态各说各的：真的会跑的写触发描述，
+                      设了但没发布的**明说它不会跑**（那条死路查不出原因），
+                      手动的什么都不写 —— 常驻徽章会把有定时的那几条淹掉
+                    */}
+                    {w.scheduleLabel ? (
+                      <span className="wf-table__schedule" title="到点会自动运行一次">
+                        <i className="ph ph-clock" aria-hidden="true" /> {w.scheduleLabel}
+                      </span>
+                    ) : w.schedulePendingPublish ? (
+                      <span
+                        className="wf-table__schedule wf-table__schedule--pending"
+                        title="定时只对已发布版本生效。打开编辑器点「发布」之后它才会开始跑"
+                      >
+                        <i className="ph ph-warning-circle" aria-hidden="true" /> 定时未生效 ·
+                        还没发布
+                      </span>
+                    ) : null}
                   </td>
                   <td className="wf-table__actions">
                     {/* 图纸里失败那行的行尾图标就是重试，其余是运行 */}
