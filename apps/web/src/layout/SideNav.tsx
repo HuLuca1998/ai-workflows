@@ -1,6 +1,7 @@
 import { NavLink } from 'react-router';
 import { NAV_COLLAPSE_WIDTH, NAV_ITEMS } from '../navigation.js';
 import { useViewportWidth } from '../hooks/useViewportWidth.js';
+import { canLeave } from './leaveGuard.js';
 
 export interface SideNavProps {
   /** 各类计数，用于导航项徽标；为 0 的不显示。 */
@@ -40,6 +41,12 @@ export function SideNav({ counts, permission, environment }: SideNavProps) {
               end={item.path === '/'}
               className="side-nav__item"
               title={collapsed ? item.label : undefined}
+              /* 有未保存改动的屏会注册守卫。不问的话，编辑器里拖完节点
+                 点一下「记忆」，改动静默丢失 —— 而工具栏的「返回」
+                 一直是问的，同一个动作两种结果 */
+              onClick={(event) => {
+                if (!canLeave()) event.preventDefault();
+              }}
             >
               <i className={`ph ${item.icon}`} aria-hidden="true" />
               <span className={collapsed ? 'sr-only' : 'side-nav__label'}>{item.label}</span>

@@ -18,8 +18,9 @@ import {
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import type { NodeType } from '@aiwf/contracts';
-import { Button } from '@aiwf/ui';
+import { Button, Dialog } from '@aiwf/ui';
 import { coreClient, useWorkspace } from '../data/workspace.js';
+import { clearLeaveGuard, registerLeaveGuard } from '../layout/leaveGuard.js';
 import type { MenuTarget } from './menuActions.js';
 import { useEditor } from './editorStore.js';
 import { EditorToolbar } from './EditorToolbar.jsx';
@@ -192,6 +193,8 @@ function EditorCanvas() {
   );
   const [versionsOpen, setVersionsOpen] = useState(false);
   const [launchOpen, setLaunchOpen] = useState(false);
+  /** 侧栏导航被离开守卫拦下时弹的确认。目标路径记着，用户确认后再走。 */
+  const [confirmingNavLeave, setConfirmingNavLeave] = useState(false);
   /**
    * 引用字段（Agent 角色 / 提示词）的候选。查一次给弹层用 ——
    * 自由文本要用户手打 builtin:analyst 这类内部 id，
@@ -263,6 +266,25 @@ function EditorCanvas() {
     };
     window.addEventListener('beforeunload', onBeforeUnload);
     return () => window.removeEventListener('beforeunload', onBeforeUnload);
+  }, [dirty]);
+
+  /**
+   * 侧栏导航也要拦。
+   *
+   * 工具栏的「返回」一直会问，而左侧那 7 个链接一个都不拦 ——
+   * 拖完节点点一下「记忆」，改动静默丢失（第三方巡检 B-05 实测）。
+   * 同一个「离开编辑器」的动作，两条路两种结果。
+   */
+  useEffect(() => {
+    if (!dirty) {
+      clearLeaveGuard();
+      return;
+    }
+    registerLeaveGuard(() => {
+      setConfirmingNavLeave(true);
+      return false;
+    });
+    return () => clearLeaveGuard();
   }, [dirty]);
 
   /**
@@ -533,6 +555,35 @@ function EditorCanvas() {
           }}
         />
       ) : null}
+
+      {/* 侧栏导航被守卫拦下时的确认。文案与工具栏「返回」那个一致 ——
+          同一件事在两条路上说两种话，用户会以为后果不同 */}
+      <Dialog
+        open={confirmingNavLeave}
+        title="有未保存的改动"
+        onClose={() => setConfirmingNavLeave(false)}
+        width={420}
+        actions={
+          <>
+            <Button onClick={() => setConfirmingNavLeave(false)}>留下继续编辑</Button>
+            <Button
+              variant="danger"
+              onClick={() => {
+                setConfirmingNavLeave(false);
+                // 守卫先撤，否则下一句 navigate 会被它自己拦下
+                clearLeaveGuard();
+                navigate('/');
+              }}
+            >
+              丢弃并离开
+            </Button>
+          </>
+        }
+      >
+        <p>
+          这份草稿还没保存到后端 —— 现在离开，这些改动会丢。 要保留的话先点工具栏的「保存草稿」。
+        </p>
+      </Dialog>
 
       {/* 图纸把它放在工具栏与画布之间：用户在这一屏做的是改流程，
           而有个运行正卡在审批上等他 —— 那件事得先看见 */}
