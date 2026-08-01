@@ -3138,7 +3138,7 @@ mod 密钥判据不能误伤普通文本 {
         for 值 in 普通的 {
             let inputs = serde_json::json!({ "repo": 值 }).to_string();
             let run = store
-                .create_run_in(&wf, None, Some(0), &inputs, Some("/tmp"))
+                .create_run_in(&wf, None, Some(0), &inputs, Some("/tmp"), "manual")
                 .unwrap();
             let 读回来 = store.get_run(&run).unwrap().unwrap();
             assert!(
@@ -3157,7 +3157,7 @@ mod 密钥判据不能误伤普通文本 {
         for 值 in 密钥 {
             let inputs = serde_json::json!({ "token": 值 }).to_string();
             let run = store
-                .create_run_in(&wf, None, Some(0), &inputs, Some("/tmp"))
+                .create_run_in(&wf, None, Some(0), &inputs, Some("/tmp"), "manual")
                 .unwrap();
             let 读回来 = store.get_run(&run).unwrap().unwrap();
             assert!(

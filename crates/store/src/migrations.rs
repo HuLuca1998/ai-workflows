@@ -8,7 +8,7 @@ use rusqlite::Connection;
 use crate::Result;
 
 /// 当前 schema 版本。新增迁移时同时更新这里与 `MIGRATIONS`。
-pub const EXPECTED_SCHEMA_VERSION: i64 = 14;
+pub const EXPECTED_SCHEMA_VERSION: i64 = 15;
 
 /// (版本号, 说明, SQL)
 const MIGRATIONS: &[(i64, &str, &str)] = &[
@@ -77,6 +77,11 @@ const MIGRATIONS: &[(i64, &str, &str)] = &[
         14,
         "Agent 向用户提问，回答与确认共用一条队列",
         include_str!("sql/014_ask_user.sql"),
+    ),
+    (
+        15,
+        "运行记下触发来源，调度器据此不重复触发",
+        include_str!("sql/015_run_trigger.sql"),
     ),
 ];
 

@@ -458,6 +458,8 @@ pub struct RunRow {
     pub workdir: Option<String>,
     pub started_at: Option<String>,
     pub ended_at: Option<String>,
+    /// 谁发起的：`manual` / `schedule` / `interval`。契约 `Run.trigger` 的镜像。
+    pub trigger_kind: String,
 }
 
 fn map_run_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<RunRow> {
@@ -479,6 +481,7 @@ fn map_run_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<RunRow> {
         workdir: row.get(8)?,
         started_at: row.get(9)?,
         ended_at: row.get(10)?,
+        trigger_kind: row.get(11)?,
     })
 }
 
@@ -1038,6 +1041,34 @@ impl Store {
         Ok(row)
     }
 
+    /// 最新发布版本。没发布过就是 `None`。
+    ///
+    /// 调度器只跑这一份 —— 草稿是可变的，定时跑一份改到一半的图
+    /// 是最糟的形态（`crates/core-api/src/scheduler.rs`）。
+    pub fn latest_version(&self, workflow_id: &str) -> Result<Option<VersionRow>> {
+        let row = self
+            .conn
+            .query_row(
+                "SELECT id, workflow_id, version, graph_json, config_hash, published_at, published_by
+                 FROM workflow_version WHERE workflow_id = ?1
+                 ORDER BY version DESC LIMIT 1",
+                params![workflow_id],
+                |row| {
+                    Ok(VersionRow {
+                        id: row.get(0)?,
+                        workflow_id: row.get(1)?,
+                        version: row.get(2)?,
+                        graph_json: row.get(3)?,
+                        config_hash: row.get(4)?,
+                        published_at: row.get(5)?,
+                        published_by: row.get(6)?,
+                    })
+                },
+            )
+            .optional()?;
+        Ok(row)
+    }
+
     // ── 主管 AI 的会话（M4）─────────────────────────────────────────────────
 
     /// 新开一条会话。
@@ -1153,7 +1184,14 @@ impl Store {
         draft_rev: Option<i64>,
         inputs_json: &str,
     ) -> Result<String> {
-        self.create_run_in(workflow_id, version_id, draft_rev, inputs_json, None)
+        self.create_run_in(
+            workflow_id,
+            version_id,
+            draft_rev,
+            inputs_json,
+            None,
+            "manual",
+        )
     }
 
     /// 带工作目录的建 Run。并行运行靠不同的工作目录互不干扰。
@@ -1164,6 +1202,7 @@ impl Store {
         draft_rev: Option<i64>,
         inputs_json: &str,
         workdir: Option<&str>,
+        trigger_kind: &str,
     ) -> Result<String> {
         let id = new_id("run");
 
@@ -1177,8 +1216,8 @@ impl Store {
         let inputs_json = redact_inputs(inputs_json);
 
         self.conn.execute(
-            "INSERT INTO run(id, workflow_id, version_id, draft_rev, status, inputs_json, workdir, started_at)
-             VALUES (?1, ?2, ?3, ?4, 'created', ?5, ?6, ?7)",
+            "INSERT INTO run(id, workflow_id, version_id, draft_rev, status, inputs_json, workdir, started_at, trigger_kind)
+             VALUES (?1, ?2, ?3, ?4, 'created', ?5, ?6, ?7, ?8)",
             params![
                 id,
                 workflow_id,
@@ -1186,10 +1225,26 @@ impl Store {
                 draft_rev,
                 inputs_json,
                 workdir,
-                now_iso()
+                now_iso(),
+                trigger_kind
             ],
         )?;
         Ok(id)
+    }
+
+    /// 这个工作流上一次**自动**跑起来是什么时候（ISO 字符串）。
+    ///
+    /// 调度器靠它避免重复触发。放内存里不行：09:30 跑完、09:31 重启，
+    /// 宽限期内会再跑一次 —— 而用户看到的是同一个工作流两条运行，
+    /// 中间只差一分钟，无从解释。
+    pub fn last_auto_run_at(&self, workflow_id: &str) -> Result<Option<String>> {
+        let at: Option<String> = self.conn.query_row(
+            "SELECT MAX(started_at) FROM run
+             WHERE workflow_id = ?1 AND trigger_kind <> 'manual'",
+            params![workflow_id],
+            |row| row.get(0),
+        )?;
+        Ok(at)
     }
 
     /// 读取 Run 的当前状态。
@@ -1228,7 +1283,8 @@ impl Store {
             .conn
             .query_row(
                 "SELECT r.id, r.workflow_id, w.name, r.version_id, r.draft_rev, r.status,
-                        r.inputs_json, r.current_node, r.workdir, r.started_at, r.ended_at
+                        r.inputs_json, r.current_node, r.workdir, r.started_at, r.ended_at,
+                    r.trigger_kind
                  FROM run r JOIN workflow w ON w.id = r.workflow_id
                  WHERE r.id = ?1",
                 params![run_id],
@@ -1258,7 +1314,8 @@ impl Store {
 
         let sql = format!(
             "SELECT r.id, r.workflow_id, w.name, r.version_id, r.draft_rev, r.status,
-                    r.inputs_json, r.current_node, r.workdir, r.started_at, r.ended_at
+                    r.inputs_json, r.current_node, r.workdir, r.started_at, r.ended_at,
+                    r.trigger_kind
              FROM run r JOIN workflow w ON w.id = r.workflow_id
              WHERE (?1 IS NULL OR r.workflow_id = ?1)
                AND (?2 IS NULL OR r.id LIKE ?2 OR w.name LIKE ?2 OR r.inputs_json LIKE ?2)
@@ -1319,7 +1376,8 @@ impl Store {
         // started_at 可能为 NULL（刚建还没开始），rowid 保证全序
         let sql = format!(
             "SELECT r.id, r.workflow_id, w.name, r.version_id, r.draft_rev, r.status,
-                    r.inputs_json, r.current_node, r.workdir, r.started_at, r.ended_at
+                    r.inputs_json, r.current_node, r.workdir, r.started_at, r.ended_at,
+                    r.trigger_kind
              FROM run r JOIN workflow w ON w.id = r.workflow_id
              {where_clause}
              ORDER BY r.started_at DESC, r.rowid DESC
