@@ -54,9 +54,10 @@ describe('首次引导 · 按钮名要与它真的做的事一致', () => {
 
   it('点不动的主按钮旁边要说清还差什么', () => {
     // 必需项没齐时按钮是禁用的。不说原因的话，用户只看到一个灰按钮，
-    // 而他不知道该去做什么
+    // 而他不知道该去做什么。「还差 2 项」也不够 —— 要点名缺的是什么，
+    // 小窗口里那几行红的可能在滚动区外（onboarding-gate.test.tsx 有行为测试）
     expect(onboardingPage).toContain('先选一个能写入的工作目录');
-    expect(onboardingPage).toMatch(/还差 \$\{?missingRequired/u);
+    expect(onboardingPage).toMatch(/还差：\$\{missingRequired\.map\(\(item\) => item\.label\)/u);
   });
 
   it('「应用不替你下载任何东西」这条产品原则仍在页面上', () => {
