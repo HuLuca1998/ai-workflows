@@ -365,6 +365,41 @@ describe('目录不存在时给「创建」出口', () => {
   });
 });
 
+describe('重新检查要有看得见的回执', () => {
+  // 第三方巡检 A-02：点「重新检查」，网络确实发了 env_health，
+  // 但页面 10 秒内零变化 —— 结果没变时界面也没变，用户只会以为按钮坏了。
+  // 对照组：同一个按钮在「运行环境与工具」档上会更新侧栏的「上次检查」
+
+  it('检查完给出「刚刚检查过」的时间回执', async () => {
+    const user = userEvent.setup();
+    view();
+    await user.click(await screen.findByRole('button', { name: '重新检查' }));
+
+    expect(
+      await screen.findByText(/刚检查过/u),
+      '结果没变时界面毫无反应，用户以为按钮坏了',
+    ).toBeTruthy();
+  });
+
+  it('检查完把时间记进设置 —— 侧栏那行「上次检查」要跟着动', async () => {
+    const user = userEvent.setup();
+    view();
+    await user.click(await screen.findByRole('button', { name: '重新检查' }));
+
+    await waitFor(() => {
+      expect(call).toHaveBeenCalledWith(
+        'workspace.updateSettings',
+        expect.objectContaining({ envCheckedAt: expect.any(String) }),
+      );
+    });
+  });
+
+  it('只有一个检查入口 —— 两个按钮干同一件事会让人以为它们不一样', () => {
+    view();
+    expect(screen.queryByRole('button', { name: /仅检测，不安装/u })).toBeNull();
+  });
+});
+
 describe('灰着的按钮要说清还差哪几项', () => {
   it('缺工具时点名缺的是什么，不是一个数字', async () => {
     // 「还差 2 项必需工具」要求用户自己回到上面逐行找红的 ——

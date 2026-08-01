@@ -93,6 +93,8 @@ export function OnboardingPage() {
   const [mode, setMode] = useState<string>('human_approval');
   const [notify, setNotify] = useState<NotificationPermission>('unsupported');
   const [diagnosticsPath, setDiagnosticsPath] = useState<string | null>(null);
+  /** 手动点「重新检查」的那一刻。只用来给回执，判据仍是探测结果本身。 */
+  const [checkedAt, setCheckedAt] = useState<string | null>(null);
 
   const probe = async (recheck: boolean) => {
     setChecking(true);
@@ -100,6 +102,19 @@ export function OnboardingPage() {
     try {
       const result = (await coreClient.call('env.health', { recheck })) as { items: HealthItem[] };
       setItems(result.items);
+      // 手动点的那次要有看得见的回执。结果与上次相同时页面一个像素都不变 ——
+      // 用户只会以为按钮坏了（第三方巡检 A-02：点完 10 秒零变化）
+      if (recheck) {
+        const at = new Date().toISOString();
+        setCheckedAt(at);
+        try {
+          await coreClient.call('workspace.updateSettings', { envCheckedAt: at });
+          // 侧栏那行「上次检查」跟着走，与「运行环境与工具」档一致
+          pushWorkspaceSettings({ envCheckedAt: at });
+        } catch {
+          // 记不下不影响这次已经探出来的结果 —— 那才是用户点它想要的
+        }
+      }
     } catch (err) {
       setError(describeError(err));
     } finally {
@@ -347,6 +362,12 @@ export function OnboardingPage() {
           <span className="models__note">
             {missingRequired.length === 0 ? '必需项都在' : `${missingRequired.length} 项待处理`}
           </span>
+          {/* 探测结果与上次相同时，这句话是界面上唯一变化的东西 */}
+          {checkedAt ? (
+            <span className="models__note" role="status">
+              刚检查过 {new Date(checkedAt).toLocaleTimeString('zh-CN', { hour12: false })}
+            </span>
+          ) : null}
           <button
             type="button"
             className="runs__action"
@@ -506,14 +527,9 @@ export function OnboardingPage() {
         >
           {saving ? '正在保存…' : '开始使用'}
         </button>
-        <button
-          type="button"
-          className="runs__action"
-          disabled={checking}
-          onClick={() => void probe(true)}
-        >
-          仅检测，不安装
-        </button>
+        {/* 这里原来还有一个「仅检测，不安装」，与上面「工具与运行时」块头的
+            「重新检查」调的是同一个 probe(true)。两个名字不同的按钮做同一件事，
+            用户会以为它们不一样，然后两个都点一遍 */}
         <button type="button" className="runs__action" onClick={() => void exportDiagnostics()}>
           导出脱敏诊断报告
         </button>
