@@ -5425,7 +5425,10 @@ fieldset.launch__field {
 }
 
 /* 只读态必须看得出来：cursor:text + 正常底色的框「看着能改点进去不能改」
-   是第 1 轮实测里最费解的一处。灰字、无底、默认光标，聚焦也不亮边 */
+   是第 1 轮实测里最费解的一处。灰字、无底、默认光标，聚焦也不亮边。
+   **不限于 agents 页** —— 记忆页的 Key 也是 readOnly，而它此前套的是
+   普通输入框的样式：点了出光标、能打字、字一个都进不去（C-17） */
+.models__field input[readonly],
 .agents__editable[readonly],
 .agents__name-input[readonly] {
   color: var(--color-neutral-400);
@@ -5433,6 +5436,7 @@ fieldset.launch__field {
   cursor: default;
 }
 
+.models__field input[readonly]:focus,
 .agents__editable[readonly]:focus,
 .agents__name-input[readonly]:focus,
 .agents__name-input[readonly]:hover {

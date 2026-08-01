@@ -496,6 +496,13 @@ function MemoryEditor({
           readOnly={memory !== null}
           onChange={(event) => setKey(event.target.value)}
         />
+        {/* readOnly 与旁边 disabled 的「作用域」表现不一样：点了出光标、
+            能打字、打的字一个都进不去，而界面毫无反应也不解释
+            （第三方巡检 C-17）。说一句就够，不用改成 disabled ——
+            那会让读屏跳过它，而 Key 是这条记忆最重要的信息 */}
+        {memory !== null ? (
+          <span className="models__note">Key 是这条记忆的身份，建后不可改</span>
+        ) : null}
       </label>
       <label className="models__field">
         <span className="models__label">作用域</span>
