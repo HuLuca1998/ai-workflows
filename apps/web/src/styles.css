@@ -5375,17 +5375,21 @@ fieldset.launch__field {
 }
 
 .wf-table__delete-confirm {
+  display: inline-block;
+  width: auto;
+  vertical-align: middle;
   padding: 3px 8px;
   border: 1px solid var(--color-status-failed);
   border-radius: var(--radius-sm);
   background: none;
   color: var(--color-status-failed);
   font-size: 11px;
+  white-space: nowrap;
   cursor: pointer;
   margin-left: 4px;
 }
 
-.wf-table__actions button {
+.wf-table__actions button:not(.wf-table__delete-confirm) {
   display: inline-grid;
   place-items: center;
   vertical-align: middle;
@@ -5400,7 +5404,7 @@ fieldset.launch__field {
   cursor: pointer;
 }
 
-.wf-table__actions button:hover {
+.wf-table__actions button:not(.wf-table__delete-confirm):hover {
   background: var(--overlay-hover);
   color: var(--color-neutral-200);
 }
