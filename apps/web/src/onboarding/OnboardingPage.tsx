@@ -141,7 +141,9 @@ export function OnboardingPage() {
   const createDir = async () => {
     setError(null);
     try {
-      setDirCheck((await coreClient.call('env.createDirectory', { path: workdir })) as DirectoryCheck);
+      setDirCheck(
+        (await coreClient.call('env.createDirectory', { path: workdir })) as DirectoryCheck,
+      );
     } catch (err) {
       setError(describeError(err));
     }
