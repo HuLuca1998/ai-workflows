@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { applyPatch } from '../src/patch.js';
 import { getNodeDefinition } from '../src/nodes/index.js';
 import { topologicalOrder, validateGraph, type WorkflowGraph } from '../src/graph.js';
-import { WORKFLOW_TEMPLATES, templateById } from '../src/templates.js';
+import { WORKFLOW_TEMPLATES, templateById } from '../src/templates/index.js';
 
 /**
  * M1 的出口标准：「GitHub Issue 修复模板可完整搭出、校验通过并发布为 v1」。

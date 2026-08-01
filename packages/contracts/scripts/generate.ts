@@ -27,7 +27,7 @@ import { IMPLEMENTED_NODE_TYPES, NODE_TYPES, getNodeDefinition } from '../src/no
 import { PATCH_OPS } from '../src/patch.js';
 import { CONTRACTS_VERSION } from '../src/index.js';
 import { RUN_STATUSES, NODE_STATUSES } from '../src/state-machine.js';
-import { templateById } from '../src/templates.js';
+import { templateById } from '../src/templates/index.js';
 import { TRIGGER_DESCRIPTION_CASES } from '../src/trigger.js';
 
 const here = dirname(fileURLToPath(import.meta.url));

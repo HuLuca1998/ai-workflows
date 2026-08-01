@@ -1,6 +1,6 @@
 import type { WorkflowGraph } from './graph.js';
 import type { WorkflowPatch } from './patch.js';
-import { templateById } from './templates.js';
+import { templateById } from './templates/index.js';
 
 /**
  * 跨语言一致性夹具。

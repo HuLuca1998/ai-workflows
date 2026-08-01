@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import { applyPatch } from '../src/patch.js';
 import { getNodeDefinition, type NodeType } from '../src/nodes/index.js';
-import { WORKFLOW_TEMPLATES } from '../src/templates.js';
+import { WORKFLOW_TEMPLATES } from '../src/templates/index.js';
 import type { WorkflowGraph } from '../src/graph.js';
 
 /**

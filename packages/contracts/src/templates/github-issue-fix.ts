@@ -1,7 +1,7 @@
-import type { PatchOperation } from './patch.js';
+import { AGENT, type WorkflowTemplate } from './shared.js';
 
 /**
- * 内置模板。
+ * 「GitHub Issue 修复」模板。
  *
  * 「GitHub Issue 修复」是 M1 的出口标准：这个模板必须能完整搭出、校验通过、
  * 发布为 v1。节点与连线取自图纸「02 画布编辑器」里的示例工作流
@@ -12,22 +12,8 @@ import type { PatchOperation } from './patch.js';
  * 模板本身也就被同一套校验守住了。
  */
 
-export interface WorkflowTemplate {
-  id: string;
-  name: string;
-  summary: string;
-  operations: PatchOperation[];
-}
-
-const AGENT = {
-  analyst: 'builtin:analyst',
-  builder: 'builtin:builder',
-  reviewer: 'builtin:reviewer',
-  operator: 'builtin:operator',
-} as const;
-
 /** 图纸里那条 9 节点主线 + 3 路并行探索。 */
-const ISSUE_FIX: WorkflowTemplate = {
+export const ISSUE_FIX: WorkflowTemplate = {
   id: 'github-issue-fix',
   name: 'GitHub Issue 修复',
   summary: '读 Issue → 分析 → 审批 → worktree → 修复 → 审查 → 决策 → PR',
@@ -476,9 +462,3 @@ const ISSUE_FIX: WorkflowTemplate = {
     },
   ],
 };
-
-export const WORKFLOW_TEMPLATES: readonly WorkflowTemplate[] = [ISSUE_FIX];
-
-export function templateById(id: string): WorkflowTemplate | undefined {
-  return WORKFLOW_TEMPLATES.find((t) => t.id === id);
-}
