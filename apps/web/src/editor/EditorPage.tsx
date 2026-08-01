@@ -195,8 +195,8 @@ function EditorCanvas() {
   );
   const [versionsOpen, setVersionsOpen] = useState(false);
   const [launchOpen, setLaunchOpen] = useState(false);
-  /** 侧栏导航被离开守卫拦下时弹的确认。目标路径记着，用户确认后再走。 */
-  const [confirmingNavLeave, setConfirmingNavLeave] = useState(false);
+  /** 侧栏导航被离开守卫拦下时弹的确认。存的是**目标路径**，用户确认后去那里。 */
+  const [confirmingNavLeave, setConfirmingNavLeave] = useState<string | null>(null);
   /** 上一次连线被拒的理由。几秒后自己消失 —— 它是对刚才那个动作的回应。 */
   const [connectHint, setConnectHint] = useState<string | null>(null);
   /** 等确认的批量删除。非空时弹确认；确认后才真的落 removeNode。 */
@@ -293,8 +293,10 @@ function EditorCanvas() {
       clearLeaveGuard();
       return;
     }
-    registerLeaveGuard(() => {
-      setConfirmingNavLeave(true);
+    registerLeaveGuard((to) => {
+      // 记下用户想去哪：不记的话「丢弃并离开」只能回一个写死的路径，
+      // 点「记忆」确认丢弃会落在工作流列表（复核实测 B）
+      setConfirmingNavLeave(to);
       return false;
     });
     return () => clearLeaveGuard();
@@ -481,9 +483,30 @@ function EditorCanvas() {
    * 在 change 那一层拦下只会让**画布上删了而草稿里还在**，
    * 两边一不一致就白屏（实测过一次）。
    */
+  /**
+   * 已经确认过的那一批。
+   *
+   * 用户点「删除」之后要真的删，而删除只能走 React Flow 自己的
+   * `deleteElements` —— 绕过它直接 `apply(removeNode)` 的话，
+   * XYFlow 内部 store 里那些节点还在，它随后会为「消失的节点」
+   * 再发一轮 remove change，于是 `removeNode` 应用两遍：
+   * 第二遍找不到节点，整个编辑器崩成「节点 entry_1 不存在」
+   * （复核实测，含全新工作流必现）。
+   *
+   * 所以确认放行走这个 ref：deleteElements 会重新触发 onBeforeDelete，
+   * 那一次直接 true，删除照常经 onNodesChange 落一次草稿。
+   */
+  const confirmedDelete = useRef<Set<string>>(new Set());
+
   const onBeforeDelete = useCallback(async ({ nodes }: { nodes: { id: string }[] }) => {
-    if (!needsBulkDeleteConfirm(nodes.length)) return true;
-    setPendingDelete(nodes.map((node) => node.id));
+    const ids = nodes.map((node) => node.id);
+    // 这一批已经确认过：放行，让删除走正常那条路
+    if (ids.length > 0 && ids.every((id) => confirmedDelete.current.has(id))) {
+      for (const id of ids) confirmedDelete.current.delete(id);
+      return true;
+    }
+    if (!needsBulkDeleteConfirm(ids.length)) return true;
+    setPendingDelete(ids);
     return false;
   }, []);
 
@@ -609,20 +632,23 @@ function EditorCanvas() {
       {/* 侧栏导航被守卫拦下时的确认。文案与工具栏「返回」那个一致 ——
           同一件事在两条路上说两种话，用户会以为后果不同 */}
       <Dialog
-        open={confirmingNavLeave}
+        open={confirmingNavLeave !== null}
         title="有未保存的改动"
-        onClose={() => setConfirmingNavLeave(false)}
+        onClose={() => setConfirmingNavLeave(null)}
         width={420}
         actions={
           <>
-            <Button onClick={() => setConfirmingNavLeave(false)}>留下继续编辑</Button>
+            <Button onClick={() => setConfirmingNavLeave(null)}>留下继续编辑</Button>
             <Button
               variant="danger"
               onClick={() => {
-                setConfirmingNavLeave(false);
+                // 去**用户点的那个地方**。写死 '/' 的话他点「记忆」、
+                // 确认丢弃，落在工作流列表（复核实测 B）
+                const to = confirmingNavLeave ?? '/';
+                setConfirmingNavLeave(null);
                 // 守卫先撤，否则下一句 navigate 会被它自己拦下
                 clearLeaveGuard();
-                navigate('/');
+                void navigate(to);
               }}
             >
               丢弃并离开
@@ -655,9 +681,12 @@ function EditorCanvas() {
               onClick={() => {
                 const ids = pendingDelete ?? [];
                 setPendingDelete(null);
-                if (ids.length > 0) {
-                  apply(ids.map((nodeId) => ({ op: 'removeNode' as const, nodeId })));
-                }
+                if (ids.length === 0) return;
+                // 走 React Flow 自己的删除：直接 apply 的话它内部 store
+                // 里那些节点还在，随后会再发一轮 remove change，
+                // removeNode 应用两遍就崩（见 confirmedDelete 的注释）
+                for (const id of ids) confirmedDelete.current.add(id);
+                void flow.deleteElements({ nodes: ids.map((id) => ({ id })) });
               }}
             >
               删除
