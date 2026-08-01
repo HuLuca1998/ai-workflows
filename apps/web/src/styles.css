@@ -3488,6 +3488,44 @@
   line-height: 1.5;
 }
 
+/* 「一条模型都没启用」。这是开箱状态下的第一屏，要抢眼 ——
+   原来只有左栏底部一行 11px 灰字，而此时整个系统的 AI 能力都用不了 */
+.models__no-usable {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0 0 16px;
+  padding: 12px 14px;
+  border-radius: 10px;
+  border: 1px solid color-mix(in srgb, var(--color-status-waiting) 40%, transparent);
+  background: color-mix(in srgb, var(--color-status-waiting) 10%, transparent);
+  font-size: 12px;
+  line-height: 1.7;
+  color: var(--color-neutral-200);
+}
+
+.models__no-usable i {
+  flex: none;
+  font-size: 16px;
+  color: var(--color-status-waiting);
+}
+
+.models__no-usable button {
+  flex: none;
+  padding: 6px 12px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-neutral-700);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font: inherit;
+  font-size: 11.5px;
+  cursor: pointer;
+}
+
+.models__no-usable button:hover:not(:disabled) {
+  border-color: var(--color-accent);
+}
+
 .models__list-body {
   flex: 1;
   overflow: auto;

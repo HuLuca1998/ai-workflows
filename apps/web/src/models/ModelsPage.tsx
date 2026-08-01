@@ -329,6 +329,28 @@ export function ModelsPage() {
       </aside>
 
       <section className="models__detail" aria-label="模型详情">
+        {/*
+         * 一条都没启用时给出路。
+         *
+         * 内置那两条默认停用是**对的**（model_id 是示例值，两端 adapter
+         * 都不认，启用了每次运行都写 model_downgraded）—— 缺的一直是
+         * 「那我该做什么」：首次进来两条红色「已停用」，右边一个空态，
+         * 而所有 Agent 角色与 AI 节点的模型下拉全是空的，系统开箱不可用
+         * （第三方巡检 C-04 / DEBT O-18）。
+         */}
+        {items !== null && !items.some((model) => model.enabled) ? (
+          <p className="models__no-usable" role="status" aria-label="没有可用模型">
+            <i className="ph-fill ph-warning-circle" aria-hidden="true" />
+            <span>
+              <strong>还没有启用任何模型</strong> —— AI 节点与主管 AI 现在都跑不了。
+              内置那两条的模型名是示例值（adapter 不认）， 点「同步」让 runtime
+              自己报它现在能用什么。
+            </span>
+            <button type="button" onClick={() => void runSync()} disabled={syncing.running}>
+              {syncing.running ? '同步中…' : `从 ${runtimeLabel(syncRuntime)} 同步`}
+            </button>
+          </p>
+        ) : null}
         {error ? (
           <p className="runs__error" role="alert">
             {error}
