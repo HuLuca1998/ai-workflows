@@ -452,7 +452,7 @@
     "properties": {
       "trigger": {
         "default": "manual",
-        "description": "触发方式",
+        "description": "触发方式\n自动触发有两条前提，都是有意的取舍：\n① 只跑已发布版本 —— 改了草稿要重新发布才生效\n② 只在应用开着的时候触发，错过就是错过，不会补跑",
         "type": "string",
         "enum": [
           "manual",

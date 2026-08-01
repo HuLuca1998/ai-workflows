@@ -288,7 +288,15 @@ const DEFINITIONS: Record<NodeType, NodeDefinition> = {
        * 一行「触发：webhook」，到点什么都不发生 —— 正是「填了不生效」。
        * 真要做的时候再加回来，连同 `crates/engine/src/schedule.rs` 的分支。
        */
-      trigger: z.enum(['manual', 'schedule', 'interval']).default('manual').describe('触发方式'),
+      trigger: z
+        .enum(['manual', 'schedule', 'interval'])
+        .default('manual')
+        .describe(
+          '触发方式\n' +
+            '自动触发有两条前提，都是有意的取舍：\n' +
+            '① 只跑已发布版本 —— 改了草稿要重新发布才生效\n' +
+            '② 只在应用开着的时候触发，错过就是错过，不会补跑',
+        ),
       scheduleTime: z
         .string()
         .regex(/^([01]\d|2[0-3]):[0-5]\d$/u, '要写成 HH:MM（24 小时制），例如 09:30')

@@ -101,8 +101,11 @@ describe('副文本', () => {
     );
   });
 
-  it('入口显示触发方式', () => {
-    expect(summarize('entry', { trigger: 'manual' })).toBe('触发：manual');
+  it('入口显示触发方式 —— 说人话，不贴枚举值', () => {
+    // 原来断言的是 `触发：manual`，也就是把契约的枚举值原样贴给用户。
+    // 设了每天 9 点的入口显示「触发：schedule」，既看不出几点，
+    // 也看不出生效没有。细节在 entry-node-summary.test.ts
+    expect(summarize('entry', { trigger: 'manual' })).toBe('触发：手动触发');
   });
 
   it('AI 节点显示指令摘要，没指令时退回角色 id', () => {

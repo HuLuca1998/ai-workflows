@@ -4,8 +4,10 @@ import {
   fanIn,
   fanOut,
   getNodeDefinition,
+  describeTrigger,
   resolveNodeOutputs,
   type NodeType,
+  type TriggerConfig,
   type ValidationIssue,
   type WorkflowGraph,
 } from '@aiwf/contracts';
@@ -25,7 +27,11 @@ export function summarize(type: NodeType, config: unknown): string {
   const c = (config ?? {}) as Record<string, unknown>;
   switch (type) {
     case 'entry':
-      return `触发：${c.trigger ?? 'manual'}`;
+      // 走契约里那份 —— 画布、工作流列表、Rust 侧的调度日志说的
+      // 必须是同一句话（trigger_reach_test 守着两侧一致）。
+      // 原来是把枚举值原样贴出去：「触发：schedule」，
+      // 用户既不知道几点，也不知道那到底生效没有
+      return `触发：${describeTrigger(c as TriggerConfig)}`;
     case 'script.shell':
     case 'script.python': {
       const script = typeof c.script === 'string' ? c.script : '';
