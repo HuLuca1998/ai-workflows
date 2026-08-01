@@ -125,6 +125,35 @@ claude 实测：`{"used":28715,"size":1000000,"cost":{"amount":0.157499,"currenc
 | `mcpCapabilities.acp` | 未声明 | `false` |
 | `authMethods`（已登录时） | `[]` | `[api-key, chat-gpt]` |
 | `_meta` 位置 | `agentCapabilities._meta.claudeCode.promptQueueing` | 顶层 `_meta.steering.supported` |
+| **被抢占那一轮怎么结束** | **JSON-RPC 错误 `-32603`** | 正常 `stopReason: end_turn` |
+
+## `_session/steering`：turn 进行中插话
+
+**两端方法名与入参完全一致**，实测都返回 `{"outcome":"injected"}`
+（`transcripts/{codex,claude}-steering.jsonl`，`node docs/acp/reference/transcript-probe.mjs steering --agent codex`）：
+
+```jsonc
+// →
+{"jsonrpc":"2.0","id":4,"method":"_session/steering",
+ "params":{"sessionId":"…","prompt":[{"type":"text","text":"停，改成从 100 数到 103 就行。"}]}}
+// ←
+{"jsonrpc":"2.0","id":4,"result":{"outcome":"injected"}}
+```
+
+`outcome` 两种取值：`injected`（插进正在跑的那一轮）、以及没有活跃 turn 时
+adapter 自己开一轮的结果。**这不是「排队等下一轮」，是插进当前这一轮** ——
+claude 侧把它映射成 `SDKUserMessage.priority = 'now'`，会抢占当前生成
+（adapter 源码 `acp-agent.js:57-63` 的注释）。
+
+**差异在被抢占的那一轮上**（这一条是本次实测抓到的，两端行为不同）：
+
+| | 第一轮 `session/prompt` 的结局 |
+|---|---|
+| codex 1.1.7 | `{"stopReason":"end_turn"}` —— 正常收尾，正文里能看到它改按第二条消息做了 |
+| claude 0.63.0 | `{"error":{"code":-32603,"message":"Internal error: [ede_diagnostic] result_type=user …"}}` |
+
+所以**客户端不能把「第一轮报错」当成失败**：steering 成功之后那个错误是预期内的，
+要按「这一轮被插话接管了」处理，而不是把红色报错甩给用户。
 
 **注意 `sessionCapabilities` 的子项是空对象 `{}` 而不是布尔**：
 

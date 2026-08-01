@@ -237,6 +237,90 @@ const SCENARIOS = {
    * 第二轮**只发用户原话**（不重发任何系统提示词），第三轮问它前两轮说了什么 ——
    * 答得出来就证明上下文在 agent 侧（06-repo-rules 规则 1、2）。
    */
+  /**
+   * 一轮还没结束时再发一条消息会怎样。
+   *
+   * 两端握手都声明了这个能力（claude 是
+   * `agentCapabilities._meta.claudeCode.promptQueueing`，codex 是顶层
+   * `_meta.steering.supported`），而本仓库一处都没用过 ——
+   * 界面在 agent 忙时直接把用户打的字丢掉。
+   *
+   * codex adapter 的源码里方法名是 `_session/steering`，入参
+   * `{ sessionId, prompt: ContentBlock[] }`，返回 `{ outcome }`：
+   * 有活跃 turn 时 `injected`（插进当前这一轮），否则开新一轮。
+   * **这个场景就是去证实它。**
+   */
+  async steering(runtime, rec) {
+    const conn = new Conn(runtime, rec);
+    const init = await conn.initialize();
+    rec.note('握手声明的队列能力', {
+      claudePromptQueueing: init.agentCapabilities?._meta?.claudeCode?.promptQueueing ?? null,
+      steering: init._meta?.steering ?? null,
+    });
+
+    const cwd = freshCwd();
+    const { sessionId } = await conn.newSession(cwd);
+
+    // 第一轮故意给一个要想一会儿的任务，好在它还没答完时插话
+    rec.note('第 1 轮：发一个耗时的问题，不等它答完');
+    let firstReply = '';
+    conn.onUpdate = (p) => {
+      const u = p?.update ?? {};
+      if (u.sessionUpdate === 'agent_message_chunk') firstReply += u.content?.text ?? '';
+    };
+    const turn1 = conn.request(
+      'session/prompt',
+      {
+        sessionId,
+        prompt: [
+          {
+            type: 'text',
+            text: '从 1 数到 30，每个数字单独一行，中间不要说别的。',
+          },
+        ],
+      },
+      180_000,
+    );
+
+    // 等它开始输出再插话 —— 太早插的话 turn 还没建立
+    await new Promise((resolve) => setTimeout(resolve, 2500));
+
+    rec.note('turn 进行中：发 _session/steering');
+    let steerResult = null;
+    let steerError = null;
+    try {
+      steerResult = await conn.request(
+        '_session/steering',
+        {
+          sessionId,
+          prompt: [{ type: 'text', text: '停，改成从 100 数到 103 就行。' }],
+        },
+        60_000,
+      );
+      rec.note('steering 返回', { result: steerResult });
+    } catch (error) {
+      steerError = String(error);
+      rec.note('steering 报错', { error: steerError });
+    }
+
+    const turn1Result = await turn1;
+    conn.onUpdate = null;
+    rec.note('第 1 轮最终结果', {
+      stopReason: turn1Result?.stopReason,
+      replyTail: firstReply.slice(-200),
+    });
+
+    conn.kill();
+    rmSync(cwd, { recursive: true, force: true });
+    return {
+      steerResult,
+      steerError,
+      stopReason: turn1Result?.stopReason,
+      // 插话生效的判据：正文里出现了第二条消息要求的内容
+      injectedTookEffect: /10[0-3]/u.test(firstReply),
+    };
+  },
+
   async 'multi-turn'(runtime, rec) {
     const conn = new Conn(runtime, rec);
     await conn.initialize();
