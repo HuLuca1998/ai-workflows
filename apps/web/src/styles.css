@@ -1046,6 +1046,19 @@
   color: var(--color-neutral-800) !important;
 }
 
+/* 「引擎还没实现这种节点」。用等待色而不是失败色：它不是坏了，
+   是还没到；也不淡化到看不见 —— 这条标记存在的全部理由就是被看见 */
+.node-lib__todo {
+  flex: none;
+  padding: 1px 6px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--color-status-waiting) 45%, transparent);
+  background: color-mix(in srgb, var(--color-status-waiting) 14%, transparent);
+  font-size: 10.5px;
+  color: var(--color-status-waiting);
+  white-space: nowrap;
+}
+
 .node-lib__empty {
   margin: var(--space-4) 0 0;
   font-size: 11.5px;

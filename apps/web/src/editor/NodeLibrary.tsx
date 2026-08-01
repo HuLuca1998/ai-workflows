@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { NODE_LIBRARY, type NodeType } from '@aiwf/contracts';
+import { IMPLEMENTED_NODE_TYPES, NODE_LIBRARY, type NodeType } from '@aiwf/contracts';
 import { iconFor, isAiNode } from './nodeVisuals.js';
 
 export interface NodeLibraryProps {
@@ -36,6 +36,9 @@ export function NodeLibrary({ onDragStart, onAdd }: NodeLibraryProps) {
           entry.types.length > 1 ? `${entry.label.split(' / ')[0] ?? entry.label}` : entry.label,
         display: entry.types.length > 1 ? labelForScript(type) : entry.label,
         summary: entry.summary,
+        // 引擎跑不跑得了它。判据取自契约，不在这里抄一份 ——
+        // 抄的那份会在某个类型接上之后继续说它没实现
+        implemented: IMPLEMENTED_NODE_TYPES.includes(type),
       })),
     );
     if (!keyword) return flat;
@@ -82,9 +85,15 @@ export function NodeLibrary({ onDragStart, onAdd }: NodeLibraryProps) {
                 onAdd(item.type);
               }
             }}
-            title={item.summary}
+            title={
+              item.implemented
+                ? item.summary
+                : `${item.summary}\n\n引擎还没实现这种节点：搭进草稿没问题，运行会在这里停下。`
+            }
             role="button"
             tabIndex={0}
+            data-node-type={item.type}
+            data-implemented={item.implemented ? 'true' : 'false'}
           >
             <i
               className={`ph ${iconFor(item.type)}`}
@@ -92,6 +101,10 @@ export function NodeLibrary({ onDragStart, onAdd }: NodeLibraryProps) {
               aria-hidden="true"
             />
             <span className="node-lib__label">{item.display}</span>
+            {/* 文字而不只是颜色：纯色标注对读屏与色觉障碍用户等于不存在。
+                不禁用拖拽 —— 先把流程搭出来等实现落地是合法用法，
+                这一屏的职责是说清楚，不是拦住 */}
+            {item.implemented ? null : <span className="node-lib__todo">未实现</span>}
             <i className="ph ph-dots-six-vertical node-lib__grip" aria-hidden="true" />
           </div>
         ))}
