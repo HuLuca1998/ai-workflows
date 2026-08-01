@@ -468,6 +468,21 @@ export function RunsPage() {
                   <i className="ph ph-clock" aria-hidden="true" />
                   {formatTime(selected.startedAt)}
                 </span>
+                {/*
+                  谁发起的。手动那种不标 —— 那是默认，标了只是噪声。
+                  定时那种必须标：用户早上看到一条自己没点过的运行，
+                  界面上没有痕迹的话，他无从判断是调度器干的
+                  还是别人动了他的机器，而两者的处置完全不同
+                */}
+                {selected.trigger !== 'manual' ? (
+                  <span
+                    className="runs__trigger"
+                    title="入口节点设了自动触发，这一条是调度器到点起的"
+                  >
+                    <i className="ph ph-alarm" aria-hidden="true" />
+                    定时触发
+                  </span>
+                ) : null}
                 <span>
                   <i className="ph ph-hash" aria-hidden="true" />
                   {selected.id}
