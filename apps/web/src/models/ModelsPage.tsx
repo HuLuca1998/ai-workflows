@@ -249,7 +249,13 @@ export function ModelsPage() {
             {syncing.running ? '同步中…' : '同步'}
           </button>
         </div>
-        {syncNote ? <p className="models__sync-note">{syncNote}</p> : null}
+        {/* role=status：读屏要听得到同步结果。复核实测里这条回执被漏看了
+            （它在左栏底部，而注意力在右侧详情）—— 至少让读屏用户拿到 */}
+        {syncNote ? (
+          <p className="models__sync-note" role="status">
+            {syncNote}
+          </p>
+        ) : null}
 
         {/* 输入即搜（300ms 防抖）—— 与其余五个列表页同一套交互。
             模型 ID 也参与匹配：那是用户从文档里抄来的字符串 */}
