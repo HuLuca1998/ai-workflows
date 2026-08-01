@@ -6,6 +6,7 @@
  */
 
 export {
+  IMPLEMENTED_NODE_TYPES,
   NODE_GROUPS,
   NODE_LIBRARY,
   NODE_TYPES,

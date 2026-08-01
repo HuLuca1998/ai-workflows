@@ -77,6 +77,18 @@ export interface NodeDefinition {
   defaultCapabilities: Capabilities;
   /** 会对外部世界产生写操作（push / PR / 删除 / 第三方调用），重试前需核对外部状态。 */
   externalWrite: boolean;
+  /**
+   * 引擎真的能执行它吗。
+   *
+   * 这份表态原来只活在 `crates/engine/src/preflight.rs` 的 Rust 常量里，
+   * 界面拿不到 —— 于是节点库照常列出 16 种、拖得进画布、配置表单
+   * 字段齐全可填可存，**只字不提其中 6 种跑不了**，直到用户搭完整条
+   * 流程点了「运行」，Dry Run 才说「尚未实现，运行会在这个节点停下」。
+   *
+   * 放进契约之后 UI 能在**拖之前**就标出来。Rust 侧读生成物比，
+   * 两边对不上时 `contract_sync_test` 变红。
+   */
+  implemented: boolean;
   /** 全图唯一（入口节点）。 */
   singleton?: boolean;
   /**
@@ -166,6 +178,7 @@ const DEFINITIONS: Record<NodeType, NodeDefinition> = {
     },
     defaultCapabilities: caps({ file: 'read', memory: 'read' }),
     externalWrite: false,
+    implemented: true,
   },
 
   'ai.review': {
@@ -192,6 +205,7 @@ const DEFINITIONS: Record<NodeType, NodeDefinition> = {
     },
     defaultCapabilities: caps({ file: 'read', memory: 'read' }),
     externalWrite: false,
+    implemented: true,
   },
 
   'ai.decide': {
@@ -230,6 +244,7 @@ const DEFINITIONS: Record<NodeType, NodeDefinition> = {
     },
     defaultCapabilities: caps({ memory: 'read' }),
     externalWrite: false,
+    implemented: true,
   },
 
   'ai.execute': {
@@ -256,6 +271,7 @@ const DEFINITIONS: Record<NodeType, NodeDefinition> = {
     },
     defaultCapabilities: caps({ file: 'read-write', command: 'declared', memory: 'read' }),
     externalWrite: false,
+    implemented: true,
   },
 
   entry: {
@@ -281,6 +297,7 @@ const DEFINITIONS: Record<NodeType, NodeDefinition> = {
     ports: { inputs: [], outputs: [{ id: 'success', label: 'success' }] },
     defaultCapabilities: NO_CAPABILITIES,
     externalWrite: false,
+    implemented: true,
     singleton: true,
   },
 
@@ -316,6 +333,7 @@ const DEFINITIONS: Record<NodeType, NodeDefinition> = {
     },
     defaultCapabilities: NO_CAPABILITIES,
     externalWrite: false,
+    implemented: false,
   },
 
   branch: {
@@ -341,6 +359,7 @@ const DEFINITIONS: Record<NodeType, NodeDefinition> = {
     },
     defaultCapabilities: NO_CAPABILITIES,
     externalWrite: false,
+    implemented: false,
   },
 
   transform: {
@@ -360,6 +379,7 @@ const DEFINITIONS: Record<NodeType, NodeDefinition> = {
     ports: { inputs: [IN], outputs: [{ id: 'success', label: 'success' }] },
     defaultCapabilities: NO_CAPABILITIES,
     externalWrite: false,
+    implemented: false,
   },
 
   end: {
@@ -376,6 +396,7 @@ const DEFINITIONS: Record<NodeType, NodeDefinition> = {
     ports: { inputs: [IN], outputs: [] },
     defaultCapabilities: NO_CAPABILITIES,
     externalWrite: false,
+    implemented: true,
   },
 
   approval: {
@@ -440,6 +461,7 @@ const DEFINITIONS: Record<NodeType, NodeDefinition> = {
     },
     defaultCapabilities: NO_CAPABILITIES,
     externalWrite: false,
+    implemented: true,
   },
 
   notify: {
@@ -492,6 +514,7 @@ const DEFINITIONS: Record<NodeType, NodeDefinition> = {
     },
     defaultCapabilities: NO_CAPABILITIES,
     externalWrite: false,
+    implemented: true,
   },
 
   'script.shell': {
@@ -542,6 +565,7 @@ const DEFINITIONS: Record<NodeType, NodeDefinition> = {
     },
     defaultCapabilities: caps({ file: 'read-write', command: 'declared' }),
     externalWrite: false,
+    implemented: true,
   },
 
   'script.python': {
@@ -580,6 +604,7 @@ const DEFINITIONS: Record<NodeType, NodeDefinition> = {
     },
     defaultCapabilities: caps({ file: 'read-write', command: 'declared' }),
     externalWrite: false,
+    implemented: false,
   },
 
   'git.worktree': {
@@ -610,6 +635,7 @@ const DEFINITIONS: Record<NodeType, NodeDefinition> = {
     },
     defaultCapabilities: caps({ file: 'read-write', command: 'declared' }),
     externalWrite: false,
+    implemented: true,
   },
 
   env: {
@@ -636,6 +662,7 @@ const DEFINITIONS: Record<NodeType, NodeDefinition> = {
     ports: { inputs: [IN], outputs: [{ id: 'success', label: 'success' }] },
     defaultCapabilities: NO_CAPABILITIES,
     externalWrite: false,
+    implemented: false,
   },
 
   'mcp.tool': {
@@ -661,6 +688,7 @@ const DEFINITIONS: Record<NodeType, NodeDefinition> = {
     defaultCapabilities: caps({ network: 'allowlist' }),
     // 外部工具可能建 PR、发消息、删数据：一律按外部写操作对待
     externalWrite: true,
+    implemented: false,
   },
 };
 
@@ -724,6 +752,17 @@ export const NODE_LIBRARY: readonly NodeLibraryEntry[] = (() => {
   }
   return entries;
 })();
+
+/**
+ * 引擎真的能执行的那几种。
+ *
+ * 从各定义的 `implemented` 算出来，不再手写第二份清单 ——
+ * 手写的那份（`crates/engine/src/preflight.rs`）曾经与 executor 的
+ * match 分派各自维护、零一致性检查，`notify` 就是那么混进去的。
+ */
+export const IMPLEMENTED_NODE_TYPES: readonly NodeType[] = NODE_TYPES.filter(
+  (type) => DEFINITIONS[type].implemented,
+);
 
 export function getNodeDefinition(type: NodeType): NodeDefinition {
   const def = DEFINITIONS[type];

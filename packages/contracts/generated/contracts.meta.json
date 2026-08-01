@@ -83,6 +83,18 @@
     "env",
     "mcp.tool"
   ],
+  "implementedNodeTypes": [
+    "ai.analyze",
+    "ai.review",
+    "ai.decide",
+    "ai.execute",
+    "entry",
+    "end",
+    "approval",
+    "notify",
+    "script.shell",
+    "git.worktree"
+  ],
   "runStatuses": [
     "created",
     "preflight",

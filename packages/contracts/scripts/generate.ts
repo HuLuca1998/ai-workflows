@@ -23,7 +23,7 @@ import { ASK_KINDS, AskSpecSchema } from '../src/domain.js';
 import { PERMISSION_PRESETS } from '../src/capabilities.js';
 import { RunEventSchema, RUN_EVENT_TYPES, RUN_EVENT_CATEGORIES } from '../src/events.js';
 import { WorkflowGraphSchema } from '../src/graph.js';
-import { NODE_TYPES, getNodeDefinition } from '../src/nodes/index.js';
+import { IMPLEMENTED_NODE_TYPES, NODE_TYPES, getNodeDefinition } from '../src/nodes/index.js';
 import { PATCH_OPS } from '../src/patch.js';
 import { CONTRACTS_VERSION } from '../src/index.js';
 import { RUN_STATUSES, NODE_STATUSES } from '../src/state-machine.js';
@@ -42,6 +42,10 @@ const files: Record<string, unknown> = {
     eventCategories: RUN_EVENT_CATEGORIES,
     eventTypes: RUN_EVENT_TYPES,
     nodeTypes: NODE_TYPES,
+    // 引擎真能跑的那几种。原来只有 Rust 侧一份常量，界面拿不到 ——
+    // 于是节点库把 6 个跑不了的类型跟能跑的摆在一起，用户搭完
+    // 整条流程点运行才知道（第三方巡检 B-06）
+    implementedNodeTypes: IMPLEMENTED_NODE_TYPES,
     // 状态机也进生成物：Rust 侧的镜像要能**读着契约比**，
     // 而不是跟测试文件里硬编码的字面量比 —— 那种守卫加第 12 个状态
     // 照样绿，漂移完整出厂
