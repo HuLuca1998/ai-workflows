@@ -6243,6 +6243,15 @@ fieldset.launch__field {
   font-size: 11.5px;
 }
 
+/* 「目录不存在」下面的出路：创建按钮 + 一句「只 mkdir 这一个路径」 */
+.onboarding__dir-create {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0;
+  padding: 0 14px 12px;
+}
+
 /* 「现在能写，但更新之后要重新授权」这类提醒。
    比错误弱、比普通说明强 —— 它不阻塞，但用户现在不看，
    下次更新后会撞上 */

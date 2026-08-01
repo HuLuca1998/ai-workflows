@@ -129,6 +129,23 @@ export function OnboardingPage() {
     await checkDir(picked);
   };
 
+  /**
+   * 创建这个目录。
+   *
+   * 没有它的话首次启动就是死路：默认工作目录还没建过，探测只报
+   * 「不存在」，「开始使用」永远灰着，而应用里没有任何创建入口 ——
+   * 用户只能去应用外面手动 mkdir。创建由点按钮显式触发，
+   * 不违反「不静默修改系统」。
+   */
+  const createDir = async () => {
+    setError(null);
+    try {
+      setDirCheck((await coreClient.call('env.createDirectory', { path: workdir })) as DirectoryCheck);
+    } catch (err) {
+      setError(describeError(err));
+    }
+  };
+
   useEffect(() => {
     void probe(false);
     void readNotificationPermission().then(setNotify);
@@ -282,6 +299,17 @@ export function OnboardingPage() {
             ) : (
               (dirCheck.message ?? '这个目录用不了')
             )}
+          </p>
+        ) : null}
+
+        {/* 「不存在」和「写不进去」要分开对待：前者一个按钮就能解决，
+            后者是权限问题，创建解决不了 —— 只在前者给出路 */}
+        {dirCheck && !dirCheck.exists && workdir.trim() !== '' ? (
+          <p className="onboarding__dir-create">
+            <button type="button" className="runs__action" onClick={() => void createDir()}>
+              创建这个目录
+            </button>
+            <span className="models__note">应用会替你 mkdir 这一个路径，不动其他任何东西</span>
           </p>
         ) : null}
 
@@ -483,13 +511,15 @@ export function OnboardingPage() {
           导出脱敏诊断报告
         </button>
         <span className="runs__grow" />
-        {/* 点不动的按钮旁边必须说清为什么 —— 否则用户只看到一个灰按钮 */}
+        {/* 点不动的按钮旁边必须说清为什么 —— 否则用户只看到一个灰按钮。
+            缺工具时点名缺的是什么：「还差 2 项」要求用户回到上面逐行找红的，
+            而在小窗口里那几行可能在滚动区外 */}
         <span className="models__note">
           {canStart
             ? '配置会写入工作区设置，之后随时能在「设置」里改'
             : !dirUsable
               ? '先选一个能写入的工作目录'
-              : `还差 ${missingRequired.length} 项必需工具`}
+              : `还差：${missingRequired.map((item) => item.label).join('、')}`}
         </span>
       </footer>
 

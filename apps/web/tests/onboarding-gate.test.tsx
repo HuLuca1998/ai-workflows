@@ -284,6 +284,115 @@ describe('必需项没齐就不放行', () => {
   });
 });
 
+describe('目录不存在时给「创建」出口', () => {
+  // 首次启动的真实形态：默认工作目录 ~/Library/Application Support/AI Workflows
+  // 还没建过。只报「不存在」不给出路的话，「开始使用」永远灰着，
+  // 用户只能去应用外面手动 mkdir —— 那就是用户报的「被配置页拦截，
+  // 不知道缺什么」
+  const 缺的目录 = {
+    resolved: '/Users/luca/Library/Application Support/AI Workflows',
+    exists: false,
+    writable: false,
+    isGitRepo: false,
+    tccProtected: false,
+    message: '这个目录不存在：/Users/luca/Library/Application Support/AI Workflows',
+  };
+
+  it('探测报「不存在」时出现创建按钮 —— 不能只报错不给出路', async () => {
+    respond({ 'env.checkDirectory': () => 缺的目录 });
+    view();
+
+    expect(await screen.findByRole('button', { name: /创建这个目录/u })).toBeTruthy();
+  });
+
+  it('点创建调 env.createDirectory，成功后解锁「开始使用」', async () => {
+    respond({
+      'env.checkDirectory': () => 缺的目录,
+      'env.createDirectory': () => ({
+        resolved: 缺的目录.resolved,
+        exists: true,
+        writable: true,
+        isGitRepo: false,
+        tccProtected: false,
+      }),
+    });
+    const user = userEvent.setup();
+    view();
+
+    await user.click(await screen.findByRole('button', { name: /创建这个目录/u }));
+
+    await waitFor(() => {
+      expect(call).toHaveBeenCalledWith('env.createDirectory', {
+        path: expect.stringContaining('AI Workflows'),
+      });
+    });
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /开始使用/u })).not.toBeDisabled();
+    });
+    // 目录已经在了，按钮不该留着
+    expect(screen.queryByRole('button', { name: /创建这个目录/u })).toBeNull();
+  });
+
+  it('目录存在但写不进去时不给创建按钮 —— 创建解决不了权限', async () => {
+    respond({
+      'env.checkDirectory': () => ({
+        ...好目录,
+        writable: false,
+        message: '这个目录写不进去（权限被拒）',
+      }),
+    });
+    view();
+
+    await screen.findByText(/写不进去/u);
+    expect(screen.queryByRole('button', { name: /创建这个目录/u })).toBeNull();
+  });
+
+  it('创建失败时把原因摆出来，按钮还在', async () => {
+    respond({
+      'env.checkDirectory': () => 缺的目录,
+      'env.createDirectory': () => ({
+        ...缺的目录,
+        message: '这个目录建不出来（权限被拒）。换一个位置',
+      }),
+    });
+    const user = userEvent.setup();
+    view();
+
+    await user.click(await screen.findByRole('button', { name: /创建这个目录/u }));
+
+    expect(await screen.findByText(/建不出来/u)).toBeTruthy();
+    expect(screen.getByRole('button', { name: /创建这个目录/u })).toBeTruthy();
+  });
+});
+
+describe('灰着的按钮要说清还差哪几项', () => {
+  it('缺工具时点名缺的是什么，不是一个数字', async () => {
+    // 「还差 2 项必需工具」要求用户自己回到上面逐行找红的 ——
+    // 而在小窗口里那几行可能在滚动区外。点名的话一眼就知道
+    respond({
+      'env.health': () => ({
+        ready: false,
+        items: [
+          {
+            capability: 'git',
+            label: 'Git',
+            source: 'missing',
+            status: 'missing',
+            installHint: { command: 'xcode-select --install', source: 'macOS' },
+          },
+        ],
+      }),
+    });
+    view();
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /开始使用/u })).toBeDisabled();
+    });
+    const foot = document.querySelector('.onboarding__foot');
+    expect(foot?.textContent, '底栏要点名缺的工具').toMatch(/还差.*Git/u);
+  });
+});
+
 describe('审批档要在这里选', () => {
   it('三档都列出来，默认最严那一档', async () => {
     view();

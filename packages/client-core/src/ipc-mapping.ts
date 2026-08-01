@@ -33,6 +33,7 @@ const COMMANDS: Partial<Record<CoreApiMethod, string>> = {
   'workspace.reset': 'workspace_reset',
   'env.health': 'env_health',
   'env.checkDirectory': 'env_check_directory',
+  'env.createDirectory': 'env_create_directory',
   'github.repos': 'github_repos',
   'github.branches': 'github_branches',
   'run.diagnostics': 'run_diagnostics',
@@ -468,6 +469,7 @@ export function fromIpcResult(method: CoreApiMethod, raw: unknown): unknown {
     case 'workspace.reset':
     case 'env.health':
     case 'env.checkDirectory':
+    case 'env.createDirectory':
     case 'github.repos':
     case 'github.branches':
     case 'run.diagnostics':
