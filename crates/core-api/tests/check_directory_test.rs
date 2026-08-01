@@ -193,8 +193,8 @@ fn 创建目录_建不出来时说清原因而不是恐慌() {
     }
     std::fs::set_permissions(&只读, perms).unwrap();
 
-    let 结果 = aiwf_core_api::env::create_directory(&只读.join("新目录").display().to_string())
-        .unwrap();
+    let 结果 =
+        aiwf_core_api::env::create_directory(&只读.join("新目录").display().to_string()).unwrap();
     assert!(!结果.writable);
     let message = 结果.message.expect("失败了却没给理由");
     assert!(
