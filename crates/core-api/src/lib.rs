@@ -268,6 +268,7 @@ pub const COMMANDS: &[&str] = &[
     "workspace_reset",
     "env_health",
     "env_check_directory",
+    "env_create_directory",
     "run_artifact_content",
     "run_diagnostics",
     "workflow_create",

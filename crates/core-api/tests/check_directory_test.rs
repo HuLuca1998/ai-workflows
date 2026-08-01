@@ -135,3 +135,70 @@ fn 空路径不当成主目录() {
     assert!(!结果.writable);
     assert!(结果.message.is_some());
 }
+
+// ── 创建目录 ────────────────────────────────────────────────────────────
+//
+// 首次配置的死路：默认工作目录不存在时，探测只报「不存在」，
+// 应用里没有任何创建它的入口 ——「开始使用」永远灰着。
+
+#[test]
+fn 创建目录_建出来并且立刻可写() {
+    let dir = tempfile::tempdir().unwrap();
+    let 目标 = dir.path().join("AI Workflows");
+    let 结果 = aiwf_core_api::env::create_directory(&目标.display().to_string()).unwrap();
+
+    assert!(结果.exists, "说创建了却不存在");
+    assert!(结果.writable, "创建出来的目录写不进去：{:?}", 结果.message);
+    assert!(目标.is_dir());
+}
+
+#[test]
+fn 创建目录_中间层级一并补齐() {
+    // 默认路径是 ~/Library/Application Support/AI Workflows ——
+    // 逐层都可能缺，只建最后一层的话默认值照样是死路
+    let dir = tempfile::tempdir().unwrap();
+    let 目标 = dir.path().join("a/b/c");
+    let 结果 = aiwf_core_api::env::create_directory(&目标.display().to_string()).unwrap();
+
+    assert!(结果.writable);
+    assert!(目标.is_dir());
+}
+
+#[test]
+fn 创建目录_已存在时等价于一次探测() {
+    // 连点两次「创建」不能报错 —— create_dir_all 幂等
+    let dir = tempfile::tempdir().unwrap();
+    let 结果 = aiwf_core_api::env::create_directory(&dir.path().display().to_string()).unwrap();
+    assert!(结果.exists);
+    assert!(结果.writable);
+}
+
+#[test]
+fn 创建目录_空路径直接拒绝() {
+    // 与 check_directory 同一个坑：空串会变成当前目录
+    let 结果 = aiwf_core_api::env::create_directory("   ").unwrap();
+    assert!(!结果.writable);
+    assert!(结果.message.is_some());
+}
+
+#[test]
+fn 创建目录_建不出来时说清原因而不是恐慌() {
+    let dir = tempfile::tempdir().unwrap();
+    let 只读 = dir.path().join("只读");
+    std::fs::create_dir(&只读).unwrap();
+    let mut perms = std::fs::metadata(&只读).unwrap().permissions();
+    {
+        use std::os::unix::fs::PermissionsExt;
+        perms.set_mode(0o555);
+    }
+    std::fs::set_permissions(&只读, perms).unwrap();
+
+    let 结果 = aiwf_core_api::env::create_directory(&只读.join("新目录").display().to_string())
+        .unwrap();
+    assert!(!结果.writable);
+    let message = 结果.message.expect("失败了却没给理由");
+    assert!(
+        message.contains("建不出来") || message.contains("权限") || message.contains("写不"),
+        "理由要能看懂：{message}"
+    );
+}

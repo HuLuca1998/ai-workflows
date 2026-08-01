@@ -175,6 +175,53 @@ pub fn check_directory(path: &str) -> ApiResult<DirectoryCheck> {
     })
 }
 
+/// 创建目录，然后按 `check_directory` 的方式重新探测。
+///
+/// 首次配置的死路：默认工作目录不存在时，探测只报「不存在」，
+/// 应用里没有任何创建它的入口 ——「开始使用」永远灰着，
+/// 用户只能去应用外面手动 mkdir。创建由用户点按钮显式触发，
+/// 不违反「不静默修改系统」。
+///
+/// 返回值永远是「创建之后的真实探测结果」：创建调用没报错
+/// 不等于写得进去（TCC 可能拦在写入那一步），所以不信任
+/// `create_dir_all` 的 Ok，重新走一遍探针。
+pub fn create_directory(path: &str) -> ApiResult<DirectoryCheck> {
+    let trimmed = path.trim();
+    if trimmed.is_empty() {
+        // 与 check_directory 同一个坑：空串会变成当前目录
+        return Ok(DirectoryCheck {
+            resolved: String::new(),
+            exists: false,
+            writable: false,
+            is_git_repo: false,
+            tcc_protected: false,
+            message: Some("还没有选目录".to_string()),
+        });
+    }
+
+    let expanded = expand_tilde(trimmed);
+    if let Err(error) = std::fs::create_dir_all(&expanded) {
+        // 建不出来也走正常返回：这是用户要看的探测结论，不是内部错误
+        return Ok(DirectoryCheck {
+            resolved: expanded.display().to_string(),
+            exists: expanded.is_dir(),
+            writable: false,
+            is_git_repo: false,
+            tcc_protected: in_tcc_protected(&expanded),
+            message: Some(match error.kind() {
+                std::io::ErrorKind::PermissionDenied => format!(
+                    "这个目录建不出来（权限被拒）。换一个位置，\
+                     或到「系统设置 → 隐私与安全性」里授权：{}",
+                    expanded.display()
+                ),
+                _ => format!("这个目录建不出来：{error}"),
+            }),
+        });
+    }
+
+    check_directory(trimmed)
+}
+
 /// 写一个探针文件再删掉。
 fn probe(dir: &std::path::Path) -> std::result::Result<(), String> {
     // 名字带进程 id：两个实例同时探同一个目录时不会互相删掉对方的探针

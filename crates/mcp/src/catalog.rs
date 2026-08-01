@@ -25,10 +25,11 @@ const API_SCHEMA: &str = include_str!("../../../packages/contracts/generated/cor
 /// 开给 Agent 的话，`workflow_patch` 那套版本守卫与结构化审计
 /// 就有了旁路 —— 技术选型 §6 禁的正是这个。Agent 要改图走 `workflow_patch`。
 ///
-/// 三、`env_check_directory`：探测本机文件系统。
-/// 契约里它的 scope 就是 `null`（只允许本地 UI 触发）——
-/// 开给外部客户端的话，一个 Agent 能拿它把用户的目录结构扫一遍，
-/// 而每次调用都是一次「这个路径存不存在」的确定回答。
+/// 三、`env_check_directory` / `env_create_directory`：探测与改动本机文件系统。
+/// 契约里它们的 scope 就是 `null`（只允许本地 UI 触发）——
+/// 探测开给外部客户端的话，一个 Agent 能拿它把用户的目录结构扫一遍，
+/// 而每次调用都是一次「这个路径存不存在」的确定回答；
+/// 创建则更进一步：外部客户端能在用户机器上任意建目录。
 ///
 /// 其余的都开，包括 `supervisor_ask`（问一个懂这个系统的人）
 /// 与所有删除操作 —— 后者由权限档挡着，且描述里写明了「不可逆」。
@@ -39,6 +40,7 @@ pub const DELIBERATELY_HIDDEN: &[&str] = &[
     "mcp_decide_confirm",
     "workflow_save_draft",
     "env_check_directory",
+    "env_create_directory",
 ];
 
 #[derive(Debug, Clone)]
