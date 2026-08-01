@@ -7063,3 +7063,17 @@ fieldset.launch__field {
   font-size: 11.5px;
   color: var(--color-accent-300);
 }
+
+/* 统计卡做成链接的那几张。四张卡原来全是死的，而「等待审批 3」的
+   第一反应就是点它看是哪三个（第三方巡检 A-12）。
+   只有有对应视图、且数字非 0 的才是链接 —— 其余保持不可点。 */
+.stat--link {
+  text-decoration: none;
+  color: inherit;
+  cursor: pointer;
+  transition: border-color 120ms ease;
+}
+
+.stat--link:hover {
+  border-color: color-mix(in srgb, var(--color-accent) 45%, var(--color-divider));
+}

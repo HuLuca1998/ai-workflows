@@ -88,9 +88,12 @@ const view = () =>
 
 const card = async (label: string) => {
   const region = await screen.findByRole('region', { name: '概览统计' });
-  const found = within(region)
-    .getAllByRole('group')
-    .find((el) => el.textContent?.startsWith(label));
+  // 有明细可看且数字非 0 的卡是链接（role=link），其余是 group ——
+  // 「等待审批 3」的第一反应就是点它看是哪三个（第三方巡检 A-12）
+  const found = [
+    ...within(region).queryAllByRole('group'),
+    ...within(region).queryAllByRole('link'),
+  ].find((el) => el.textContent?.startsWith(label));
   if (!found) throw new Error(`没有「${label}」这张卡`);
   return found;
 };

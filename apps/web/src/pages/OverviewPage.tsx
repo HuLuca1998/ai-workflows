@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { formatBytes } from '../data/format.js';
 import { useDebouncedSearch } from '../hooks/useDebouncedSearch.js';
-import { useNavigate } from 'react-router';
+import { Link, useNavigate } from 'react-router';
 import { Button, type RunStatusName, StatusBadge, Tag } from '@aiwf/ui';
 import { WORKFLOW_TEMPLATES, type Workflow, LIST_PAGE_SIZE } from '@aiwf/contracts';
 import { Pager } from '../layout/Pager.js';
@@ -185,17 +185,21 @@ export function OverviewPage() {
       </header>
 
       <section className="stats" role="region" aria-label="概览统计">
+        {/* 数字为 0 时不做成链接：点进去只会看到一个空列表，
+            那比不可点更让人费解 */}
         <Stat
           label="等待审批"
           accent
           {...(stats ? { value: String(stats.pendingApprovals) } : {})}
           {...(stats?.pendingApprovalHint ? { note: stats.pendingApprovalHint } : {})}
+          {...(stats && stats.pendingApprovals > 0 ? { to: '/runs?status=waiting_approval' } : {})}
         />
         <Stat
           label="今日运行"
           noteTone="success"
           {...(stats ? { value: String(stats.runsToday) } : {})}
           {...(stats ? { note: `${stats.runsTodaySucceeded} 成功` } : {})}
+          {...(stats && stats.runsToday > 0 ? { to: '/runs' } : {})}
         />
         <Stat
           label="Token 用量"
@@ -482,15 +486,26 @@ function Stat({
   note,
   accent,
   noteTone,
+  to,
 }: {
   label: string;
   value?: string;
   note?: string;
   accent?: boolean;
   noteTone?: 'success';
+  /**
+   * 点进去看明细的去处。
+   *
+   * 「等待审批 3」的第一反应就是点它看是哪三个，而四张卡原来全是死的
+   * （`cursor:auto`、无 role、不可点，第三方巡检 A-12）。
+   *
+   * **只给有对应视图的那几张**：「Token 用量」与「活跃 worktree」
+   * 没有能落地的屏，做成可点是另一个假承诺。
+   */
+  to?: string;
 }) {
-  return (
-    <div className="stat" role="group" aria-label={label}>
+  const inner = (
+    <>
       <p className="stat__label">{label}</p>
       <p className="stat__value" data-accent={accent ? 'true' : undefined}>
         <span className="stat__number">{value ?? ''}</span>
@@ -498,6 +513,20 @@ function Stat({
           {note ?? ''}
         </span>
       </p>
+    </>
+  );
+
+  if (to) {
+    return (
+      <Link className="stat stat--link" to={to} aria-label={`${label}：${value ?? ''}，查看明细`}>
+        {inner}
+      </Link>
+    );
+  }
+
+  return (
+    <div className="stat" role="group" aria-label={label}>
+      {inner}
     </div>
   );
 }
