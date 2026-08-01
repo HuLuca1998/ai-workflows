@@ -198,7 +198,10 @@ describe('登记新模型', () => {
     await user.type(cred, 'sk-ant-secret');
     await user.click(screen.getByRole('button', { name: '保存' }));
 
-    expect(screen.getByText(/必须是 keychain:\/\/ 引用/u)).toBeTruthy();
+    // 拦住明文是这条测试的核心；那句话怎么写归
+    // model-credential-honesty.test.tsx 管（它要求说清怎么办，
+    // 而不是把用户丢在「请先存进钥匙串」上）
+    expect(screen.getByText(/不收明文/u)).toBeTruthy();
     expect(call).not.toHaveBeenCalledWith('model.create', expect.anything());
   });
 

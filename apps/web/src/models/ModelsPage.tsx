@@ -580,7 +580,13 @@ function ModelForm({ onCancel, onSaved }: { onCancel: () => void; onSaved: () =>
     // 明文密钥在界面这一层就拦住：让它走到 IPC 再报错，
     // 那一路上它已经出现在日志与错误上报里了
     if (credentialRef && !credentialRef.startsWith('keychain://')) {
-      setError('凭据必须是 keychain:// 引用。请先把密钥存进钥匙串，再在这里引用它。');
+      // 只说「请先存进钥匙串」是死胡同 —— 没说怎么存，也没说
+      // 当前两个 runtime 压根不需要它（第三方巡检 C-29）
+      setError(
+        '凭据不收明文。两个 ACP runtime 都不需要凭据，留空即可；' +
+          '真要存的话先跑 `security add-generic-password -s aiwf -a <名字> -w`，' +
+          '再在这里填 keychain://<名字>。',
+      );
       return;
     }
     if (!name.trim() || !modelId.trim() || !contextWindow.trim()) {
@@ -669,10 +675,23 @@ function ModelForm({ onCancel, onSaved }: { onCancel: () => void; onSaved: () =>
         <span className="models__label">凭据</span>
         <input
           type="text"
-          placeholder="keychain://…"
+          placeholder="留空即可"
           value={credentialRef}
           onChange={(e) => setCredentialRef(e.target.value)}
         />
+        {/*
+         * 说清现状。`cred_ref` 在引擎与 core-api 里**零消费点**，
+         * 而 `sync_models` 的注释自己写着「ACP 不用凭据（登录态由 CLI
+         * 自己管）」—— 当前两个 runtime 都不需要它。
+         *
+         * 不说的话用户会以为这是必要配置，填了明文被拦下，
+         * 而拦下的那句话只说「先把密钥存进钥匙串」，没说怎么存
+         * （第三方巡检 C-29 的死胡同）。
+         */}
+        <span className="models__note">
+          两个 ACP runtime 都不需要凭据（登录态由 CLI 自己管），<strong>留空即可</strong>。 将来接
+          API 直连时才用得上 —— 那时只收 <code>keychain://</code> 引用，明文不入库。
+        </span>
       </label>
 
       {error ? (
