@@ -15,17 +15,33 @@ import { useAppVersion } from '../updater/useAppVersion.js';
  */
 export function VersionPanel() {
   const versionInfo = useAppVersion();
+  /*
+   * 有没有自更新这条路，决定下面那句话该不该说。
+   *
+   * 「检查、下载、重启安装三步都由你按」原来是不分形态常驻的 ——
+   * 而 Web 形态下这一屏**零个按钮**，同一屏上方还写着
+   * 「Web 形态由服务端更新，刷新页面即为最新」：两段话自相矛盾，
+   * 用户会一直找那三个按不到的按钮（第三方巡检 A-06）。
+   */
+  const backend = createUpdaterBackend();
 
   return (
     <section className="verpanel" aria-label="系统版本">
-      <UpdateCard versionInfo={versionInfo} backend={createUpdaterBackend()} />
+      <UpdateCard versionInfo={versionInfo} backend={backend} />
 
       {/* 更新怎么来的说清楚。用户点「下载更新」时下载的是什么、
           从哪来、验没验签，这些不说就只能靠信任 */}
-      <p className="verpanel__note">
-        更新包由 GitHub Releases 分发，安装前校验签名。 应用不会自动下载或自动安装 ——
-        检查、下载、重启安装三步都由你按。
-      </p>
+      {backend ? (
+        <p className="verpanel__note">
+          更新包由 GitHub Releases 分发，安装前校验签名。 应用不会自动下载或自动安装 ——
+          检查、下载、重启安装三步都由你按。
+        </p>
+      ) : (
+        <p className="verpanel__note">
+          这个形态没有自更新：页面由服务端提供，刷新一次拿到的就是最新的。 桌面版才有「检查更新 /
+          下载 / 重启安装」那三步。
+        </p>
+      )}
     </section>
   );
 }
