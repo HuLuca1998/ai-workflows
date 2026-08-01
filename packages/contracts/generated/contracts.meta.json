@@ -49,6 +49,8 @@
     "approval.expired",
     "artifact.created",
     "artifact.truncated",
+    "artifact.missing",
+    "artifact.rejected",
     "system.checkpoint_saved",
     "system.env_snapshot",
     "system.memory_injected",

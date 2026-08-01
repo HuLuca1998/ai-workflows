@@ -80,6 +80,16 @@ export const RUN_EVENT_TYPES = [
   // 产物
   'artifact.created',
   'artifact.truncated',
+  /**
+   * `end.artifacts` 里声明了、而工作目录里没有那个文件。
+   *
+   * 必须是一条事件而不是静默跳过：用户在结束节点写了 `report.json`、
+   * 运行绿着结束、报告抽屉里什么都没有 —— 没有这条，
+   * 他没有任何办法知道是文件名写错了还是上游没生成。
+   */
+  'artifact.missing',
+  /** 声明的产物指向工作目录之外，或存不下。产物会进导出物，这条边界要守。 */
+  'artifact.rejected',
 
   // 系统：可解释性的关键证据都在这里
   'system.checkpoint_saved',
