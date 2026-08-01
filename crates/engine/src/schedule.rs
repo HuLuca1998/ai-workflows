@@ -130,60 +130,95 @@ fn at_local(date: chrono::NaiveDate, at: NaiveTime) -> Option<DateTime<Local>> {
     Local.from_local_datetime(&date.and_time(at)).single()
 }
 
-/// 下一次该跑的时刻（本机时区）。`Manual` 返回 `None`。
+/// 「现在或之前，最近一个已经过去的触发点」。`None` = 一个都还没到过。
 ///
-/// `last` 是**上一次真的跑起来**的时刻。`None` 表示这个进程还没让它跑过 ——
-/// 此时也不立刻跑（见模块头第二条），而是从 `now` 往后找第一个触发点。
+/// 这是判断「该不该跑」的正确形状。**不能反过来算「下一次是什么时候」**：
+/// `Interval` 那一支如果写成 `now + step`，每次扫描都算出一个未来时刻，
+/// 于是永远不到点 —— 实跑五分钟一次都没触发，而单测全绿
+/// （单测只断言了「第一次不立刻跑」，没断言「一个间隔之后要跑」）。
+///
+/// `anchor` 是没跑过时的起算点，用发布时刻：语义是
+/// 「这份版本发布之后，每 N 分钟一次」。它落在库里，重启也不变。
 #[must_use]
-pub fn next_fire_at(
+pub fn last_point_before(
     trigger: &Trigger,
     now: DateTime<Local>,
-    last: Option<DateTime<Local>>,
+    anchor: DateTime<Local>,
 ) -> Option<DateTime<Local>> {
     match trigger {
         Trigger::Manual => None,
         Trigger::Daily { hour, minute } => {
             let at = NaiveTime::from_hms_opt(*hour, *minute, 0)?;
             let today = now.date_naive();
-            let tomorrow = || at_local(today + Duration::days(1), at);
             match at_local(today, at) {
-                // 今天这个点还没到 —— 就是它
-                Some(point) if point > now => Some(point),
-                // 已经过了：跑过就等明天，没跑过就是它（宽限判断交给 `due`）
-                Some(point) => {
-                    if last.is_some_and(|l| l >= point) {
-                        tomorrow()
-                    } else {
-                        Some(point)
-                    }
-                }
-                // 夏令时空档，跳过这一天
-                None => tomorrow(),
+                // 今天这个点还没到 —— 最近一个是昨天那个
+                Some(point) if point > now => at_local(today - Duration::days(1), at),
+                Some(point) => Some(point),
+                // 夏令时空档：这一天没有这个时刻，退到昨天
+                None => at_local(today - Duration::days(1), at),
             }
         }
-        // 没跑过就从「现在」起算，而不是立刻跑
         Trigger::Interval { minutes } => {
-            Some(last.unwrap_or(now) + Duration::minutes(i64::from(*minutes)))
+            let step = Duration::minutes(i64::from(*minutes));
+            let elapsed = now - anchor;
+            if elapsed < step {
+                return None;
+            }
+            // 第 k 个整间隔点。用整除而不是循环累加：
+            // 应用关了三天再打开时，循环要跑四千多次
+            let k = elapsed.num_seconds() / step.num_seconds();
+            Some(anchor + step * i32::try_from(k).unwrap_or(i32::MAX))
+        }
+    }
+}
+
+/// 下一次该跑的时刻（本机时区）。`Manual` 返回 `None`。
+///
+/// 只用来**显示**（「下次 09:30」）。要不要跑由 [`due`] 判断 ——
+/// 两者用同一个 [`last_point_before`]，不会各算各的。
+#[must_use]
+pub fn next_fire_at(
+    trigger: &Trigger,
+    now: DateTime<Local>,
+    anchor: DateTime<Local>,
+) -> Option<DateTime<Local>> {
+    match trigger {
+        Trigger::Manual => None,
+        Trigger::Daily { hour, minute } => {
+            let at = NaiveTime::from_hms_opt(*hour, *minute, 0)?;
+            let today = now.date_naive();
+            match at_local(today, at) {
+                Some(point) if point > now => Some(point),
+                _ => at_local(today + Duration::days(1), at),
+            }
+        }
+        Trigger::Interval { minutes } => {
+            let step = Duration::minutes(i64::from(*minutes));
+            Some(last_point_before(trigger, now, anchor).map_or(anchor + step, |p| p + step))
         }
     }
 }
 
 /// 一次扫描里，现在该不该把它跑起来。
 ///
-/// `grace` 是宽限期：扫描是按固定间隔轮询的，触发点必然落在两次扫描之间。
-/// 超过宽限就当作**错过**，不补跑 —— 应用关了一整天，第二天开机
-/// 不该冒出一串昨天的运行。
+/// 三个条件全要满足：
+///
+/// 1. 有一个已经过去的触发点
+/// 2. 它距现在不超过 `grace` —— 扫描是轮询的，触发点必然落在两次之间；
+///    超过就当作**错过**，不补跑（应用关了一整天，开机不该冒出一串昨天的运行）
+/// 3. 上一次真的跑起来是在那个触发点**之前** —— 否则同一个点会连跑好几轮
 #[must_use]
 pub fn due(
     trigger: &Trigger,
     now: DateTime<Local>,
+    anchor: DateTime<Local>,
     last: Option<DateTime<Local>>,
     grace: Duration,
 ) -> bool {
-    let Some(at) = next_fire_at(trigger, now, last) else {
+    let Some(point) = last_point_before(trigger, now, anchor) else {
         return false;
     };
-    at <= now && now - at <= grace
+    now >= point && now - point <= grace && last.is_none_or(|l| l < point)
 }
 
 #[cfg(test)]
@@ -202,6 +237,11 @@ mod tests {
     }
 
     const GRACE: Duration = Duration::minutes(5);
+
+    /// 发布时刻。间隔触发从它起算。
+    fn anchor() -> DateTime<Local> {
+        local(2026, 8, 2, 9, 0)
+    }
 
     #[test]
     fn 缺_trigger_字段按契约的默认值当手动() {
@@ -239,72 +279,171 @@ mod tests {
     fn 手动触发不会自己跑() {
         let now = local(2026, 8, 2, 9, 0);
         assert!(!Trigger::Manual.is_automatic());
-        assert_eq!(next_fire_at(&Trigger::Manual, now, None), None);
-        assert!(!due(&Trigger::Manual, now, None, GRACE));
+        assert_eq!(next_fire_at(&Trigger::Manual, now, anchor()), None);
+        assert!(!due(&Trigger::Manual, now, anchor(), None, GRACE));
     }
+
+    // ── 每天定时 ────────────────────────────────────────────────────────────
+
+    const 每天九点半: Trigger = Trigger::Daily {
+        hour: 9,
+        minute: 30,
+    };
 
     #[test]
     fn 每天定时从没跑过时也不在启动那一刻跑() {
-        // 模块头第二条语义。没有它，每次重启应用所有定时工作流
-        // 都会在启动瞬间齐刷刷跑一遍
+        // 没有这条，每次重启应用所有定时工作流都会在启动瞬间齐刷刷跑一遍
         let trigger = Trigger::Daily {
             hour: 12,
             minute: 0,
         };
-        assert!(!due(&trigger, local(2026, 8, 2, 9, 0), None, GRACE));
+        assert!(!due(
+            &trigger,
+            local(2026, 8, 2, 9, 0),
+            anchor(),
+            None,
+            GRACE
+        ));
     }
 
     #[test]
     fn 每天定时到点就跑() {
-        let trigger = Trigger::Daily {
-            hour: 9,
-            minute: 30,
-        };
         // 扫描发生在 09:31，触发点是 09:30 —— 落在宽限内
-        assert!(due(&trigger, local(2026, 8, 2, 9, 31), None, GRACE));
+        assert!(due(
+            &每天九点半,
+            local(2026, 8, 2, 9, 31),
+            anchor(),
+            None,
+            GRACE
+        ));
     }
 
     #[test]
     fn 错过太久就不补跑() {
-        let trigger = Trigger::Daily {
-            hour: 9,
-            minute: 30,
-        };
         // 应用晚上八点才打开，早上那个点已经过去十个多小时
         assert!(
-            !due(&trigger, local(2026, 8, 2, 20, 0), None, GRACE),
+            !due(&每天九点半, local(2026, 8, 2, 20, 0), anchor(), None, GRACE),
             "补跑会让用户在晚上八点收到一条以为早上跑过的运行"
         );
     }
 
     #[test]
     fn 同一天不会跑第二次() {
-        let trigger = Trigger::Daily {
-            hour: 9,
-            minute: 30,
-        };
         let fired = local(2026, 8, 2, 9, 31);
         // 下一次扫描（一分钟后）不能再跑一遍
-        assert!(!due(&trigger, local(2026, 8, 2, 9, 32), Some(fired), GRACE));
-        // 下一次是明天同一时刻
+        assert!(!due(
+            &每天九点半,
+            local(2026, 8, 2, 9, 32),
+            anchor(),
+            Some(fired),
+            GRACE
+        ));
+    }
+
+    #[test]
+    fn 第二天同一时刻会再跑() {
+        // 「不重复跑」写过头就变成「只跑一次」—— 这条守着那个方向
+        let fired = local(2026, 8, 2, 9, 31);
+        assert!(due(
+            &每天九点半,
+            local(2026, 8, 3, 9, 31),
+            anchor(),
+            Some(fired),
+            GRACE
+        ));
+    }
+
+    #[test]
+    fn 每天定时的下一次是明天同一时刻() {
         let next =
-            next_fire_at(&trigger, local(2026, 8, 2, 9, 32), Some(fired)).expect("要有下一次");
+            next_fire_at(&每天九点半, local(2026, 8, 2, 9, 32), anchor()).expect("要有下一次");
         assert_eq!(next.day(), 3);
         assert_eq!((next.hour(), next.minute()), (9, 30));
     }
 
-    #[test]
-    fn 间隔触发从上次跑完起算() {
-        let trigger = Trigger::Interval { minutes: 30 };
-        let fired = local(2026, 8, 2, 9, 0);
-        assert!(!due(&trigger, local(2026, 8, 2, 9, 20), Some(fired), GRACE));
-        assert!(due(&trigger, local(2026, 8, 2, 9, 31), Some(fired), GRACE));
-    }
+    // ── 按间隔 ──────────────────────────────────────────────────────────────
+
+    const 每半小时: Trigger = Trigger::Interval { minutes: 30 };
 
     #[test]
     fn 间隔触发第一次也等一个间隔() {
-        let trigger = Trigger::Interval { minutes: 30 };
-        assert!(!due(&trigger, local(2026, 8, 2, 9, 0), None, GRACE));
+        assert!(!due(
+            &每半小时,
+            local(2026, 8, 2, 9, 0),
+            anchor(),
+            None,
+            GRACE
+        ));
+        assert!(!due(
+            &每半小时,
+            local(2026, 8, 2, 9, 20),
+            anchor(),
+            None,
+            GRACE
+        ));
+    }
+
+    #[test]
+    fn 间隔触发在一个间隔之后真的会跑起来() {
+        /*
+         * **这条是实跑抓出来的缺口。**
+         *
+         * 原来的实现是 `next_fire_at = last.unwrap_or(now) + step`：
+         * 没跑过时每次扫描都算出「当刻 + 一个间隔」，永远在未来，
+         * 于是永远不到点。实跑五分钟一条运行都没有，而单测全绿 ——
+         * 因为单测只断言了「第一次不立刻跑」（上面那条），
+         * 从没断言过「等够一个间隔之后要跑」。
+         */
+        assert!(
+            due(&每半小时, local(2026, 8, 2, 9, 31), anchor(), None, GRACE),
+            "从没跑过的间隔触发，等够一个间隔之后必须跑起来"
+        );
+    }
+
+    #[test]
+    fn 间隔触发从上次跑完起算() {
+        let fired = local(2026, 8, 2, 9, 31);
+        assert!(!due(
+            &每半小时,
+            local(2026, 8, 2, 9, 50),
+            anchor(),
+            Some(fired),
+            GRACE
+        ));
+        assert!(
+            due(
+                &每半小时,
+                local(2026, 8, 2, 10, 1),
+                anchor(),
+                Some(fired),
+                GRACE
+            ),
+            "下一个整间隔点是 10:00，10:01 扫到时该跑"
+        );
+    }
+
+    #[test]
+    fn 应用关了很久再打开_间隔触发不会补一串() {
+        // 关了三天：中间漏掉的一百多个触发点不该一口气冒出来。
+        // `due` 只看**最近一个**触发点，所以最多跑一条
+        let now = local(2026, 8, 5, 9, 17);
+        let point = last_point_before(&每半小时, now, anchor()).expect("三天里有很多个触发点");
+        assert_eq!(
+            (point.day(), point.hour(), point.minute()),
+            (5, 9, 0),
+            "最近一个整间隔点是当天 09:00，不是三天前那个"
+        );
+        assert!(
+            !due(&每半小时, now, anchor(), None, GRACE),
+            "09:17 距 09:00 有 17 分钟，超过宽限 —— 等下一个整点半"
+        );
+        assert!(due(
+            &每半小时,
+            local(2026, 8, 5, 9, 1),
+            anchor(),
+            None,
+            GRACE
+        ));
     }
 
     #[test]

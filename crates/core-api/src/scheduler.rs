@@ -53,9 +53,14 @@ pub enum Decision {
 
 /// 单个工作流这一轮该怎么办。**纯函数**，不碰数据库也不碰时钟 ——
 /// 所有判定分支都能在测试里走到。
+///
+/// `anchor` 是这份版本的发布时刻。间隔触发从它起算 ——
+/// 语义是「发布之后每 N 分钟一次」，而不是「进程启动之后」：
+/// 后者会让每次重启都把节奏重置一遍，而重启是常事。
 #[must_use]
 pub fn decide(
     graph_json: Option<&str>,
+    anchor: DateTime<Local>,
     now: DateTime<Local>,
     last_auto: Option<DateTime<Local>>,
 ) -> Decision {
@@ -85,7 +90,7 @@ pub fn decide(
     if !trigger.is_automatic() {
         return Decision::Manual;
     }
-    if schedule::due(&trigger, now, last_auto, GRACE) {
+    if schedule::due(&trigger, now, anchor, last_auto, GRACE) {
         Decision::Fire(trigger)
     } else {
         Decision::NotYet
@@ -173,8 +178,15 @@ fn scan_once(store: &Store, supervisor: &Supervisor, data_dir: &std::path::Path)
             .flatten()
             .and_then(|iso| parse_iso_local(&iso));
 
+        // 间隔触发的起算点：这份版本什么时候发布的
+        let anchor = published
+            .as_ref()
+            .and_then(|v| parse_iso_local(&v.published_at))
+            .unwrap_or(now);
+
         match decide(
             published.as_ref().map(|v| v.graph_json.as_str()),
+            anchor,
             now,
             last_auto,
         ) {
@@ -229,6 +241,11 @@ mod tests {
             .expect("测试时刻在本机时区里应当唯一")
     }
 
+    /// 发布时刻。间隔触发从它起算。
+    fn anchor() -> DateTime<Local> {
+        local(9, 0)
+    }
+
     fn graph(entry_config: serde_json::Value) -> String {
         serde_json::json!({
             "nodes": [
@@ -244,7 +261,7 @@ mod tests {
     fn 没发布过版本的工作流不会被定时跑() {
         // 草稿是可变的，半夜跑一份改到一半的图是最糟的形态
         assert_eq!(
-            decide(None, local(9, 31), None),
+            decide(None, anchor(), local(9, 31), None),
             Decision::NoPublishedVersion
         );
     }
@@ -252,7 +269,10 @@ mod tests {
     #[test]
     fn 手动触发的工作流不归调度器管() {
         let json = graph(serde_json::json!({ "trigger": "manual", "inputSchema": {} }));
-        assert_eq!(decide(Some(&json), local(9, 31), None), Decision::Manual);
+        assert_eq!(
+            decide(Some(&json), anchor(), local(9, 31), None),
+            Decision::Manual
+        );
     }
 
     #[test]
@@ -261,7 +281,7 @@ mod tests {
             "trigger": "schedule", "scheduleTime": "09:30", "inputSchema": {}
         }));
         assert_eq!(
-            decide(Some(&json), local(9, 31), None),
+            decide(Some(&json), anchor(), local(9, 31), None),
             Decision::Fire(Trigger::Daily {
                 hour: 9,
                 minute: 30
@@ -274,7 +294,10 @@ mod tests {
         let json = graph(serde_json::json!({
             "trigger": "schedule", "scheduleTime": "09:30", "inputSchema": {}
         }));
-        assert_eq!(decide(Some(&json), local(9, 0), None), Decision::NotYet);
+        assert_eq!(
+            decide(Some(&json), anchor(), local(9, 0), None),
+            Decision::NotYet
+        );
     }
 
     #[test]
@@ -286,7 +309,7 @@ mod tests {
         }));
         let fired = local(9, 30);
         assert_eq!(
-            decide(Some(&json), local(9, 32), Some(fired)),
+            decide(Some(&json), anchor(), local(9, 32), Some(fired)),
             Decision::NotYet
         );
     }
@@ -295,7 +318,7 @@ mod tests {
     fn 触发配置不合法时报出来而不是静默跳过() {
         // 静默跳过 = 用户设了定时、什么都没发生、日志里也没有痕迹
         let json = graph(serde_json::json!({ "trigger": "schedule", "inputSchema": {} }));
-        let Decision::Unreadable(why) = decide(Some(&json), local(9, 31), None) else {
+        let Decision::Unreadable(why) = decide(Some(&json), anchor(), local(9, 31), None) else {
             panic!("缺 scheduleTime 应当报 Unreadable");
         };
         assert!(why.contains("scheduleTime"), "{why}");
@@ -304,7 +327,7 @@ mod tests {
     #[test]
     fn 没有入口节点的图报出来() {
         let json = serde_json::json!({ "nodes": [], "edges": [] }).to_string();
-        let Decision::Unreadable(why) = decide(Some(&json), local(9, 31), None) else {
+        let Decision::Unreadable(why) = decide(Some(&json), anchor(), local(9, 31), None) else {
             panic!("没有入口节点应当报 Unreadable");
         };
         assert!(why.contains("入口"), "{why}");
@@ -316,12 +339,32 @@ mod tests {
             "trigger": "interval", "intervalMinutes": 30, "inputSchema": {}
         }));
         assert_eq!(
-            decide(Some(&json), local(9, 31), Some(local(9, 0))),
+            decide(Some(&json), anchor(), local(9, 31), Some(local(9, 0))),
             Decision::Fire(Trigger::Interval { minutes: 30 })
         );
         assert_eq!(
-            decide(Some(&json), local(9, 20), Some(local(9, 0))),
+            decide(Some(&json), anchor(), local(9, 20), Some(local(9, 0))),
             Decision::NotYet
+        );
+    }
+
+    #[test]
+    fn 从没跑过的间隔触发_一个间隔之后会点火() {
+        /*
+         * **这条是实跑抓出来的缺口。**
+         *
+         * 上一版实现里 `next_fire_at` 对 `last = None` 的间隔触发返回
+         * 「当刻 + 一个间隔」，每次扫描都是未来时刻，永远不到点。
+         * 实跑五分钟一条运行都没有，而这一层的九条用例全绿 ——
+         * 没有一条覆盖「发布之后从没自动跑过、等够一个间隔」。
+         */
+        let json = graph(serde_json::json!({
+            "trigger": "interval", "intervalMinutes": 30, "inputSchema": {}
+        }));
+        assert_eq!(
+            decide(Some(&json), anchor(), local(9, 31), None),
+            Decision::Fire(Trigger::Interval { minutes: 30 }),
+            "发布之后从没自动跑过的工作流，等够一个间隔必须跑起来"
         );
     }
 
