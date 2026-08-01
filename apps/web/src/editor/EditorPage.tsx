@@ -844,7 +844,33 @@ function EditorCanvas() {
               at={menu.at}
               ctx={{ graph, selection }}
               onClose={() => setMenu(null)}
-              onApply={apply}
+              /*
+               * 删节点走 React Flow，其余操作照旧直接 apply。
+               *
+               * 直接 `apply(removeNode)` 的话，XYFlow 内部 store 里那个节点
+               * **还在** —— 随后任何一次批量删除都会把它算进去，
+               * 确认后对着一个草稿里已经没有的 id 再 removeNode 一次，
+               * 整页崩成「节点 notify_1 不存在」（复核实测 N1）。
+               *
+               * 只在 rev0 的草稿上复现：保存过一次之后 load 会重建
+               * 整个 graph，XYFlow 的 store 跟着重来，那条脏记录就没了。
+               * 也就是说「先建流程、存一次、再测删除」的验证一定是绿的 ——
+               * 上一轮的修复正是这么被放过的。
+               */
+              onApply={(ops) => {
+                const removals = ops.filter(
+                  (op): op is { op: 'removeNode'; nodeId: string } => op.op === 'removeNode',
+                );
+                const rest = ops.filter((op) => op.op !== 'removeNode');
+                if (rest.length > 0) apply(rest);
+                if (removals.length > 0) {
+                  // 这一批已经在菜单上确认过意图了，别再弹批量确认
+                  for (const removal of removals) confirmedDelete.current.add(removal.nodeId);
+                  void flow.deleteElements({
+                    nodes: removals.map((removal) => ({ id: removal.nodeId })),
+                  });
+                }
+              }}
               onEditNode={setConfigNodeId}
             />
           ) : null}
