@@ -18,6 +18,16 @@ import { dirname, resolve } from 'node:path';
  *
  * 判据只看**引擎**读没读：节点配置表单是 schema 驱动自动渲染的，
  * 所有字段都会显示在界面上，所以「前端出现过这个字符串」证明不了任何事。
+ *
+ * ## 这道门守不住什么
+ *
+ * 判据是「字段名的字符串在引擎源码里出现过」，所以**名字越普通越守不住**。
+ * `end.artifacts` 就是这样：`artifacts` 在引擎里到处都是（ArtifactStore、
+ * save_output……），把 `end` 节点的收集逻辑整段删掉，这里照样绿。
+ * 那种字段只能靠行为测试守 —— `crates/engine/tests/end_artifacts_test.rs`
+ * 删掉实现会红 5 条。
+ *
+ * 换句话说：**这道门抓的是「一次都没提过」，不是「真的用了」**。
  */
 
 const 仓库根 = resolve(dirname(fileURLToPath(import.meta.url)), '../../..');
@@ -149,7 +159,6 @@ const 引擎不消费: Record<string, string> = {
   'ai.execute.verifyCommands': '欠账：验证命令一条都不会跑',
 
   'entry.injectedFields': '欠账：系统注入字段没实现，run.id / run.startedAt 不会自动进 inputs',
-  'end.artifacts': '欠账：最终产物清单不生效，产物由各节点自己写，末尾不做汇总',
 
   // approval.bodyMarkdown 接上了：AI 审批者的提示词里带着它
   // （`executor.rs` 的 审批提示词）—— 门守的是什么，批的那位要知道

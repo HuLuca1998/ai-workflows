@@ -1124,14 +1124,17 @@ impl NodeExecutor {
         }
 
         match node.node_type.as_str() {
-            // entry / end 什么都不做是**对的** —— 它们就是标记。
-            //
-            // `notify` 曾经也在这一档里：什么都不做，返回成功。
-            // 于是用户第一条能跑的工作流，最后一个节点是绿的、
-            // 什么也不会发生（DEBT.md 的 B-1）
-            "entry" | "end" => Ok(NodeOutcome::Succeeded {
+            // entry 什么都不做是**对的** —— 它就是个标记
+            "entry" => Ok(NodeOutcome::Succeeded {
                 port: "success".to_string(),
             }),
+
+            // end 也是标记，但它多做一件事：把 `artifacts` 里声明的文件
+            // 从工作目录收进产物库。没有这一步的话 `end.artifacts`
+            // 就是「填了不生效」，而**报告抽屉永远打不开** ——
+            // 界面按 `report.json` 找产物，引擎只会存 stdout.log / agent.md
+            // 那几个固定名字
+            "end" => self.collect_final_artifacts(node, sink),
 
             "notify" => self.run_notify(node, scope, sink),
 
@@ -1499,6 +1502,119 @@ impl NodeExecutor {
             Err(error) => Ok(NodeOutcome::Failed {
                 message: error.to_string(),
             }),
+        }
+    }
+
+    /// 把 `end.artifacts` 里声明的文件从工作目录收进产物库。
+    ///
+    /// 三条规矩，每条都对应一种「悄悄出错」：
+    ///
+    /// - **找不到就发事件说出来**。静默跳过的话，用户在 end 上写了
+    ///   `report.json`、运行绿着结束、抽屉里什么都没有，而没有一处
+    ///   告诉他文件名写错了
+    /// - **不许逃出工作目录**。产物会进导出物与诊断包，
+    ///   `../../.ssh/id_rsa` 是一条真实的外泄路径
+    /// - **收不到不让运行失败**。正事都做完了，因为一个报告文件
+    ///   把整条运行判失败，用户会去查一个根本没出问题的流程
+    fn collect_final_artifacts(
+        &self,
+        node: &GraphNode,
+        sink: &EventSink<'_>,
+    ) -> Result<NodeOutcome> {
+        let declared = node
+            .config
+            .get("artifacts")
+            .and_then(serde_json::Value::as_array)
+            .map(|items| {
+                items
+                    .iter()
+                    .filter_map(|item| item.as_str())
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+
+        for rel in declared {
+            let rel = rel.trim();
+            if rel.is_empty() {
+                continue;
+            }
+            let Some(path) = self.resolve_in_workdir(rel) else {
+                sink(NodeEvent {
+                    kind: "artifact.rejected",
+                    node_id: node.id.clone(),
+                    summary: format!("产物 {rel} 指向工作目录之外，没有收集"),
+                    payload_ref: None,
+                });
+                continue;
+            };
+            let Ok(bytes) = std::fs::read(&path) else {
+                sink(NodeEvent {
+                    kind: "artifact.missing",
+                    node_id: node.id.clone(),
+                    summary: format!(
+                        "声明的最终产物 {rel} 没找到 —— 上游节点没写出来，或者文件名不对"
+                    ),
+                    payload_ref: None,
+                });
+                continue;
+            };
+            // 名字只取最后一段：产物列表按 name 找（界面找的是
+            // `report.json`），带上目录会让它对不上
+            let name = std::path::Path::new(rel)
+                .file_name()
+                .and_then(|s| s.to_str())
+                .unwrap_or(rel);
+            match self
+                .artifacts
+                .save(&self.run_id, &node.id, ArtifactKind::Report, name, &bytes)
+            {
+                Ok(saved) => sink(NodeEvent {
+                    kind: "artifact.created",
+                    node_id: node.id.clone(),
+                    summary: format!("最终产物 {name} · {} 字节", saved.bytes),
+                    payload_ref: Some(format!("{}/{name}", node.id)),
+                }),
+                Err(error) => sink(NodeEvent {
+                    kind: "artifact.rejected",
+                    node_id: node.id.clone(),
+                    summary: format!("最终产物 {name} 存不下：{error}"),
+                    payload_ref: None,
+                }),
+            }
+        }
+
+        Ok(NodeOutcome::Succeeded {
+            port: "success".to_string(),
+        })
+    }
+
+    /// 把一个相对路径解析到工作目录内。逃出去的返回 `None`。
+    ///
+    /// 与 `ArtifactStore::read` 同一个判据：先显式拒 `/` 开头与 `..` 段，
+    /// 再逐段拼。一次性 join 的话 `PathBuf` 会把 `..` 当成上级目录
+    /// 直接处理掉，而那正是要挡的。
+    /// 不在工作目录内时返回 `None`；在的话返回路径，**文件存不存在不管**。
+    ///
+    /// 「逃出工作目录」和「文件没写出来」必须分开报。合在一起的话，
+    /// 用户只是把文件名打错，收到的却是一句「指向工作目录之外」——
+    /// 他会去查权限、查路径，而真正的原因是上游节点根本没生成那个文件。
+    fn resolve_in_workdir(&self, rel: &str) -> Option<std::path::PathBuf> {
+        if rel.starts_with('/') || rel.split('/').any(|seg| seg == "..") {
+            return None;
+        }
+        let mut path = self.workdir.clone();
+        for segment in rel.split('/') {
+            if segment.is_empty() || segment == "." {
+                continue;
+            }
+            path.push(segment);
+        }
+        // 路径字符串本身可以完全正常 —— 软链要 canonicalize 才看得出。
+        // 文件不存在时 canonicalize 会失败，那不是「逃逸」，交给调用方按
+        // 「没找到」处理
+        match (path.canonicalize(), self.workdir.canonicalize()) {
+            (Ok(real), Ok(root)) if !real.starts_with(&root) => None,
+            _ => Some(path),
         }
     }
 
