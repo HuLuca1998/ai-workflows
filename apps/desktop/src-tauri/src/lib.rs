@@ -668,6 +668,12 @@ fn env_check_directory(path: String) -> IpcResult<api::env::DirectoryCheck> {
     api::env::check_directory(&path)
 }
 
+/// 创建目录并重新探测。首次配置的「创建这个目录」按钮靠它。
+#[tauri::command]
+fn env_create_directory(path: String) -> IpcResult<api::env::DirectoryCheck> {
+    api::env::create_directory(&path)
+}
+
 #[tauri::command]
 fn github_repos(query: Option<String>, limit: Option<i64>) -> IpcResult<api::github::RepoListDto> {
     // 同样不碰 store：它问的是当前 gh 账号能看到什么
@@ -1014,6 +1020,7 @@ pub fn run() {
             workspace_reset,
             env_health,
             env_check_directory,
+            env_create_directory,
             github_repos,
             github_branches,
             run_diagnostics,
