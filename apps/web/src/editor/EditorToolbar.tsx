@@ -47,7 +47,11 @@ export function EditorToolbar({
   // dirty 时点返回先确认 —— 静默丢改动是第 2 轮实测抓到的数据丢失路径：
   // 弹层的「保存到草稿」只落本地草稿，用户以为存了，一个返回全没了
   const [confirmingLeave, setConfirmingLeave] = useState(false);
+  /** 问题清单展开着吗。默认收起 —— 顶栏是常驻的，展开的一摞会挡画布 */
+  const [issuesOpen, setIssuesOpen] = useState(false);
   const errorCount = validation.issues.filter((i) => i.level === 'error').length;
+  const warningCount = validation.issues.length - errorCount;
+  const issueCount = validation.issues.length;
 
   const commitRename = (next: string) => {
     setRenaming(false);
@@ -122,17 +126,61 @@ export function EditorToolbar({
 
       <span className="editor-bar__grow" />
 
-      <span className="editor-bar__validation" data-ok={errorCount === 0 ? 'true' : 'false'}>
-        <i
-          className={`ph ${errorCount === 0 ? 'ph-check-circle' : 'ph-warning-circle'}`}
-          aria-hidden="true"
-        />
-        {errorCount === 0
-          ? `校验通过 · ${nodeCount} 节点 ${edgeCount} 连接`
-          : `${errorCount} 个问题 · ${nodeCount} 节点 ${edgeCount} 连接`}
+      {/*
+       * 校验结果。**「N 个问题」必须说得出是哪 N 个** ——
+       * 它原来是一段死文字（无 title、无 onclick），而节点只描红边：
+       * 用户被禁用的「运行」卡住，却拿不到任何线索（第三方巡检 B-02）。
+       * 同一份 issues 一直就在手里，只是没渲染出来。
+       *
+       * 只有警告时也不说「校验通过」：15 个互不相连的节点顶栏写着通过，
+       * 点运行才知道 Dry Run 报「这些节点从入口走不到」（B-07）。
+       */}
+      <span
+        className="editor-bar__validation"
+        data-ok={errorCount === 0 && warningCount === 0 ? 'true' : 'false'}
+      >
+        {issueCount === 0 ? (
+          <>
+            <i className="ph ph-check-circle" aria-hidden="true" />
+            {`校验通过 · ${nodeCount} 节点 ${edgeCount} 连接`}
+          </>
+        ) : (
+          <button
+            type="button"
+            className="editor-bar__issues-trigger"
+            aria-expanded={issuesOpen}
+            onClick={() => setIssuesOpen((open) => !open)}
+          >
+            <i
+              className={`ph ${errorCount > 0 ? 'ph-warning-circle' : 'ph-info'}`}
+              aria-hidden="true"
+            />
+            {errorCount > 0 ? `${errorCount} 个问题` : `${warningCount} 项提醒`}
+            {` · ${nodeCount} 节点 ${edgeCount} 连接`}
+            <i
+              className={`ph ${issuesOpen ? 'ph-caret-up' : 'ph-caret-down'}`}
+              aria-hidden="true"
+            />
+          </button>
+        )}
         {/* 运行为什么灰着必须可见 —— 藏在 title 里的解释等于没有解释 */}
         {dirty && errorCount === 0 ? (
           <span className="editor-bar__hint">未保存 —— 保存草稿后才能运行</span>
+        ) : null}
+
+        {issuesOpen && issueCount > 0 ? (
+          <ul className="editor-bar__issues" role="list">
+            {validation.issues.map((issue, index) => (
+              <li key={`${issue.code}:${issue.nodeId ?? index}`} data-level={issue.level}>
+                <span className="editor-bar__issue-level">
+                  {issue.level === 'error' ? '错误' : '提醒'}
+                </span>
+                <span>{issue.message}</span>
+                {/* 节点 id 单独显示：用户要能拿它在画布上找到那个节点 */}
+                {issue.nodeId ? <code>{issue.nodeId}</code> : null}
+              </li>
+            ))}
+          </ul>
         ) : null}
       </span>
 

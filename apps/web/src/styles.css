@@ -924,6 +924,80 @@
   color: var(--color-status-waiting);
 }
 
+/* 「N 个问题」是个按钮 —— 它原来是死文字，用户被禁用的「运行」卡住
+   却查不出是哪 N 个。位置固定，展开的清单绝对定位挂在它下面 */
+.editor-bar__validation {
+  position: relative;
+}
+
+.editor-bar__issues-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.editor-bar__issues-trigger:hover {
+  color: var(--color-text);
+}
+
+.editor-bar__issues {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 30;
+  margin: 0;
+  padding: 8px;
+  list-style: none;
+  width: max-content;
+  max-width: 460px;
+  max-height: 320px;
+  overflow: auto;
+  border-radius: 10px;
+  border: 1px solid var(--color-neutral-700);
+  background: color-mix(in srgb, var(--color-surface) 55%, var(--color-bg));
+  box-shadow: 0 20px 50px rgb(0 0 0 / 60%);
+}
+
+.editor-bar__issues li {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  font-size: 11.5px;
+  line-height: 1.6;
+  color: var(--color-neutral-300);
+}
+
+.editor-bar__issues li + li {
+  border-top: 1px solid var(--color-divider);
+}
+
+.editor-bar__issue-level {
+  flex: none;
+  font-size: 10.5px;
+}
+
+.editor-bar__issues li[data-level='error'] .editor-bar__issue-level {
+  color: var(--color-status-failed);
+}
+
+.editor-bar__issues li[data-level='warning'] .editor-bar__issue-level {
+  color: var(--color-status-waiting);
+}
+
+.editor-bar__issues code {
+  flex: none;
+  font-size: 10.5px;
+  color: var(--color-neutral-500);
+}
+
 /* 运行置灰的原因。比状态字略突出 —— 它是用户下一步动作的指引 */
 .editor-bar__hint {
   color: var(--color-status-waiting);
