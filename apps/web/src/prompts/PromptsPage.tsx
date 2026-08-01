@@ -765,6 +765,20 @@ function VarsTab({ vars, sections }: { vars: readonly PromptVar[]; sections: rea
 
   return (
     <div className="prompts__vars">
+      {/*
+       * **这张表的后两列引擎目前不读。**
+       *
+       * 实证：`onMissing` 在引擎生产代码里零消费（只有种子 SQL 与测试
+       * 提到它）。引擎按正文占位符插值，缺了就统一报
+       * 「未定义的引用 ${…}」并让节点失败 —— 三档缺失策略一档都不生效。
+       *
+       * 不说的话这就是一张等着被填的假配置表（第三方巡检 C-07）。
+       * 写法照 NodeConfigDialog 那条：在界面上直说。
+       */}
+      <p className="prompts__vars-note">
+        「运行时来源」与「缺失时」是登记信息，<strong>引擎目前不读它们</strong> ——
+        它按正文里的占位符取值，取不到就报「未定义的引用」并让那个节点失败。
+      </p>
       <div className="prompts__vars-head">
         <span>变量</span>
         <span>运行时来源</span>

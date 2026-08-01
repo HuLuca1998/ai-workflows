@@ -7094,3 +7094,16 @@ fieldset.launch__field {
   color: var(--color-status-waiting);
   white-space: nowrap;
 }
+
+/* 变量表顶上那句「引擎目前不读它们」。比普通说明重一档 ——
+   不说的话那两列看起来是等着被填的配置项（第三方巡检 C-07）。 */
+.prompts__vars-note {
+  margin: 0 0 10px;
+  padding: 9px 12px;
+  border-radius: 8px;
+  border: 1px solid color-mix(in srgb, var(--color-status-waiting) 32%, transparent);
+  background: color-mix(in srgb, var(--color-status-waiting) 9%, transparent);
+  font-size: 11.5px;
+  line-height: 1.7;
+  color: var(--color-neutral-300);
+}
