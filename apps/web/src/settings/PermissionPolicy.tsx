@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { APPROVAL_MODES, APPROVAL_MODE_LABELS, migrateApprovalMode } from '@aiwf/contracts';
+import { pushWorkspaceSettings } from '../data/useWorkspaceSettings.js';
 import { coreClient } from '../data/workspace.js';
 
 /**
@@ -44,6 +45,8 @@ export function PermissionPolicy() {
     setMode(next);
     try {
       await coreClient.call('workspace.updateSettings', { permissionPreset: next });
+      // 推给外壳，侧栏那一块立刻跟着换 —— 不推的话要重启应用才对得上
+      pushWorkspaceSettings({ permissionPreset: next });
     } catch (err) {
       // 写失败就退回去：留一个假的选中态，用户会以为已经改了
       setMode(previous);

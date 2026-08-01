@@ -121,6 +121,64 @@ describe('首次启动', () => {
   });
 });
 
+describe('配置完成后真的能进去', () => {
+  it('点「开始使用」写完设置进首页 —— 不被门禁弹回配置屏', async () => {
+    // 外壳的设置只在启动时读一次。配置屏写完设置跳首页时，
+    // 外壳手里还是「未配置」，重定向守卫立刻把用户弹回来 ——
+    // 于是「配置永远完不成」，正是用户报的「被配置页拦截进不去」
+    const userEvent = (await import('@testing-library/user-event')).default;
+    const 好目录 = {
+      resolved: '/tmp/ws',
+      exists: true,
+      writable: true,
+      isGitRepo: false,
+      tccProtected: false,
+    };
+    const checked = createContractCall({
+      'workspace.settings': () => freshWorkspace(),
+      'env.health': () => HEALTH,
+      'env.checkDirectory': () => 好目录,
+      'run.list': () => ({ items: [], total: 0 }),
+      'workflow.list': () => ({ items: [], total: 0 }),
+      'workspace.stats': () => ({
+        workflows: 0,
+        runsActive: 0,
+        runsTotal: 0,
+        pendingApprovals: 0,
+        runsToday: 0,
+        runsTodaySucceeded: 0,
+        activeWorktrees: 0,
+        worktreeBytes: 0,
+      }),
+      'workspace.updateSettings': () => ({ ok: true }),
+    });
+    call.mockImplementation((m: string, i: unknown) => checked(m, i));
+
+    const user = userEvent.setup();
+    render(
+      <MemoryRouter initialEntries={['/onboarding']}>
+        <AppShell />
+      </MemoryRouter>,
+    );
+
+    const start = await screen.findByRole('button', { name: /开始使用/u });
+    await waitFor(() => {
+      expect(start).not.toBeDisabled();
+    });
+    await user.click(start);
+
+    // 真正的判据：配置屏消失了，而不是「navigate 被调用过」——
+    // 弹回时 navigate 也被调用过
+    await waitFor(() => {
+      expect(screen.queryByText('配置这台机器')).toBeNull();
+    });
+    // 并且**保持**消失。弹回是异步的：waitFor 在「跳走了、还没弹回来」
+    // 的窗口里首次成功就返回 —— 只断言一次会假性通过
+    await new Promise((resolve) => setTimeout(resolve, 250));
+    expect(screen.queryByText('配置这台机器'), '进去之后又被弹回配置屏').toBeNull();
+  });
+});
+
 describe('首次配置这一屏', () => {
   it('没有跳过这个出口 —— 配完之前进不去', async () => {
     // 用户要求：「引导完成之前不允许进入 app」。

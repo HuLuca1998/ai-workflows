@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { coreClient } from '../data/workspace.js';
 import { describeError } from '../data/describeError.js';
+import { pushWorkspaceSettings } from '../data/useWorkspaceSettings.js';
 import { CopyButton } from '../layout/CopyButton.js';
 
 /**
@@ -72,9 +73,10 @@ export function EnvHealth() {
         // 用户装好缺的东西、回这里点了重新检查、看到全绿，
         // 而侧栏还挂着几天前的时间
         try {
-          await coreClient.call('workspace.updateSettings', {
-            envCheckedAt: new Date().toISOString(),
-          });
+          const next = { envCheckedAt: new Date().toISOString() };
+          await coreClient.call('workspace.updateSettings', next);
+          // 侧栏那行「上次检查」跟着更新，不用重启应用
+          pushWorkspaceSettings(next);
         } catch {
           // 记不下不影响这一屏已经查出来的结果 —— 那才是用户点这个按钮想要的
         }

@@ -16,6 +16,23 @@ export interface WorkspaceSettings {
   envCheckedAt?: string;
 }
 
+type SettingsListener = (next: WorkspaceSettings) => void;
+const settingsListeners = new Set<SettingsListener>();
+
+/**
+ * 设置写成功之后，把新值推给所有订阅方（外壳的面包屑、侧栏、门禁）。
+ *
+ * 外壳只在启动时读一次。不推的话，首次配置写完设置跳首页，
+ * 外壳手里还是「未配置」，重定向门禁立刻把用户弹回配置屏 ——
+ * **配置永远完不成**。推「值」而不是通知「去重读」：重读是异步的，
+ * 跳转后的门禁判断赶在它回来之前，照样弹回。
+ *
+ * 只在 `workspace.updateSettings` 成功后调用，传写进去的那份增量。
+ */
+export function pushWorkspaceSettings(next: WorkspaceSettings): void {
+  for (const listener of settingsListeners) listener(next);
+}
+
 /**
  * 审批三档的显示名。存的是 ID，显示的是这些文案。
  *
@@ -69,6 +86,16 @@ export function useWorkspaceSettings(): {
 
   useEffect(() => {
     void reload();
+    // 订阅设置写入：增量合并进已有值 —— 设置页只改权限档时，
+    // 工作目录不能被冲掉
+    const listener: SettingsListener = (next) => {
+      setSettings((prev) => ({ ...prev, ...next }));
+      setLoaded(true);
+    };
+    settingsListeners.add(listener);
+    return () => {
+      settingsListeners.delete(listener);
+    };
   }, []);
 
   return { settings, health, loaded, reload };

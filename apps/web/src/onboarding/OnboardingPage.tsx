@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router';
 import { APPROVAL_MODES, APPROVAL_MODE_LABELS } from '@aiwf/contracts';
 
 import { describeError } from '../data/describeError.js';
+import { pushWorkspaceSettings } from '../data/useWorkspaceSettings.js';
 import { coreClient } from '../data/workspace.js';
 import {
   pickDirectory,
@@ -184,11 +185,15 @@ export function OnboardingPage() {
     setSaving(true);
     setError(null);
     try {
-      await coreClient.call('workspace.updateSettings', {
+      const next = {
         workdir: dirCheck?.resolved ?? workdir,
         permissionPreset: mode,
         envCheckedAt: new Date().toISOString(),
-      });
+      };
+      await coreClient.call('workspace.updateSettings', next);
+      // 先推给外壳再跳转：外壳的门禁读的是它启动时那份设置，
+      // 不推的话跳过去立刻被弹回来 —— 配置永远完不成
+      pushWorkspaceSettings(next);
       navigate('/');
     } catch (err) {
       // 写失败就留在这一屏。跳走的话用户看到的还是「尚未授权」，
