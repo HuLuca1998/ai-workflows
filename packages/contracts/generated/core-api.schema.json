@@ -6466,6 +6466,57 @@
       ]
     }
   },
+  "env.createDirectory": {
+    "summary": "创建目录并重新探测",
+    "scope": null,
+    "mutates": true,
+    "audited": false,
+    "input": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "path": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "path"
+      ]
+    },
+    "output": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "resolved": {
+          "type": "string",
+          "minLength": 1
+        },
+        "exists": {
+          "type": "boolean"
+        },
+        "writable": {
+          "type": "boolean"
+        },
+        "isGitRepo": {
+          "type": "boolean"
+        },
+        "tccProtected": {
+          "type": "boolean"
+        },
+        "message": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "resolved",
+        "exists",
+        "writable",
+        "isGitRepo",
+        "tccProtected"
+      ]
+    }
+  },
   "run.diagnostics": {
     "summary": "导出脱敏的诊断包",
     "scope": null,

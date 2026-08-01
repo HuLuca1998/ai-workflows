@@ -1243,6 +1243,32 @@ const SPECS = {
     scope: null,
     summary: '检查一个目录能不能用',
   },
+  /**
+   * 创建一个目录，然后按 `env.checkDirectory` 的方式重新探测并返回结果。
+   *
+   * 它存在的理由是首次配置的死路：默认工作目录不存在时，探测只会
+   * 报「这个目录不存在」，而应用里没有任何创建它的入口 ——
+   * 「开始使用」永远灰着，用户只能去应用外面手动 mkdir。
+   * 创建是用户点按钮显式触发的，不违反「不静默修改系统」。
+   */
+  'env.createDirectory': {
+    input: z.object({ path: z.string().min(1) }),
+    // 与 env.checkDirectory 同一形状：创建完立刻真探测一次，
+    // 界面拿到的是「现在真的能不能写」，不是「创建调用没报错」
+    output: z.object({
+      resolved: z.string().min(1),
+      exists: z.boolean(),
+      writable: z.boolean(),
+      isGitRepo: z.boolean(),
+      tccProtected: z.boolean(),
+      message: z.string().optional(),
+    }),
+    mutates: true,
+    audited: false,
+    // 与 env.checkDirectory 同一条理由：动本机文件系统的操作只允许本地 UI 触发
+    scope: null,
+    summary: '创建目录并重新探测',
+  },
   'run.diagnostics': {
     // 图纸「03 执行记录」失败横幅的第四个按钮。
     // M5 的出口标准写着「诊断包不含 Secret」—— 那是这个方法存在的全部理由：
