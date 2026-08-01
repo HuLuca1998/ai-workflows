@@ -1,6 +1,12 @@
 import { z } from 'zod';
 import { CapabilitiesSchema } from './capabilities.js';
-import { NODE_TYPES, describeIssue, getNodeDefinition, resolveNodeOutputs } from './nodes/index.js';
+import {
+  NODE_TYPES,
+  describeIssue,
+  fieldName,
+  getNodeDefinition,
+  resolveNodeOutputs,
+} from './nodes/index.js';
 
 /**
  * 工作流图。
@@ -88,6 +94,9 @@ export const VALIDATION_CODES = [
   'CYCLE',
   'ORPHAN_NODE',
   'JOIN_QUORUM_INVALID',
+  // 还带着 seed 里那个占位值的字段。warning ——
+  // 编辑中途留着占位是正常状态（DEBT O-14）
+  'PLACEHOLDER_CONFIG',
 ] as const;
 export type ValidationCode = (typeof VALIDATION_CODES)[number];
 
@@ -149,6 +158,31 @@ export function validateGraph(graph: WorkflowGraph): ValidationResult {
         .map((issue) => describeIssue(issue, definition.configSchema))
         .join('；');
       err('INVALID_CONFIG', `配置不合法 —— ${detail}`, { nodeId: node.id });
+    }
+
+    /*
+     * 还带着占位值的字段。
+     *
+     * 拖进画布时用 `seed` 填一份能过 configSchema 的初始配置，而那些
+     * 占位值是**真实字符串**（`待填写指令` / `待选择角色`），于是
+     * `z.string().min(1)` 一路放行：顶栏说「校验通过」，用户放心保存，
+     * 点运行才发现 Dry Run 报「8 项缺失」（DEBT O-14）。
+     *
+     * warning 而不是 error：编辑中途留着占位是正常状态，
+     * 此时禁掉保存会很难用。判据是「值与 seed 里那个占位一模一样」——
+     * 用户自己打出「待填写指令」这几个字的概率可以忽略，
+     * 而按前缀猜会误伤「待办清单」这类正当内容。
+     */
+    const seed = definition.seed ?? {};
+    const unfilled = Object.entries(seed)
+      .filter(([key, placeholder]) => {
+        if (typeof placeholder !== 'string' || !/待[填选]/u.test(placeholder)) return false;
+        return (node.config as Record<string, unknown>)[key] === placeholder;
+      })
+      .map(([key]) => fieldName([key], definition.configSchema));
+
+    if (unfilled.length > 0) {
+      warn('PLACEHOLDER_CONFIG', `这几项还没填：${unfilled.join('、')}`, { nodeId: node.id });
     }
   }
 

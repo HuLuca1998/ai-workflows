@@ -174,6 +174,41 @@ export const CONFORMANCE_CASES: ConformanceCase[] = [
     },
   },
   {
+    /*
+     * 还带着 seed 占位值的配置。
+     *
+     * 这些占位是**真实字符串**，`z.string().min(1)` 一路放行 ——
+     * 顶栏说「校验通过」，点运行才发现 Dry Run 报缺失（DEBT O-14）。
+     * 两侧要给出同一条 warning，不然界面与引擎对同一张图各说各话。
+     */
+    name: '配置还是占位值',
+    graph: {
+      nodes: [
+        {
+          id: 'entry',
+          type: 'entry',
+          title: '入口',
+          position: 位置,
+          config: { trigger: 'manual', inputSchema: { type: 'object' } },
+        },
+        {
+          id: 'ai',
+          type: 'ai.analyze',
+          title: 'AI · 分析',
+          position: 位置,
+          // 逐字取自 definitions.ts 的 seed
+          config: {
+            agentProfileId: '待选择角色',
+            instruction: '待填写指令',
+            target: '待填写对象',
+          },
+        },
+      ],
+      edges: [],
+      groups: [],
+    },
+  },
+  {
     name: '节点 id 重复',
     graph: {
       nodes: [

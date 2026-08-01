@@ -23,4 +23,4 @@ export {
 
 export { fieldDescriptors, type FieldControl, type FieldDescriptor } from './fields.js';
 
-export { describeIssue } from './issue-text.js';
+export { describeIssue, fieldName } from './issue-text.js';

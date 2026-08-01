@@ -65,7 +65,13 @@ export function describeIssue(issue: z.core.$ZodIssue, schema: z.ZodType): strin
  *
  * 取不到就退回路径本身 —— 显示 `weird_field` 也好过显示一句英文。
  */
-function fieldName(path: readonly PropertyKey[], schema: z.ZodType): string {
+/**
+ * 字段的人话标签。
+ *
+ * 导出给图校验复用 —— 占位值那条 warning 要说「任务指令、Agent 角色」
+ * 而不是 `instruction、agentProfileId`，而那份映射就在 `.describe()` 里。
+ */
+export function fieldName(path: readonly PropertyKey[], schema: z.ZodType): string {
   if (path.length === 0) return '这一项';
 
   const described = describeAt(path, schema);

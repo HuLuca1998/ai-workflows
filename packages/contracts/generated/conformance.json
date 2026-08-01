@@ -361,6 +361,66 @@
       }
     },
     {
+      "name": "配置还是占位值",
+      "graph": {
+        "nodes": [
+          {
+            "id": "entry",
+            "type": "entry",
+            "title": "入口",
+            "position": {
+              "x": 0,
+              "y": 0
+            },
+            "config": {
+              "trigger": "manual",
+              "inputSchema": {
+                "type": "object"
+              }
+            }
+          },
+          {
+            "id": "ai",
+            "type": "ai.analyze",
+            "title": "AI · 分析",
+            "position": {
+              "x": 0,
+              "y": 0
+            },
+            "config": {
+              "agentProfileId": "待选择角色",
+              "instruction": "待填写指令",
+              "target": "待填写对象"
+            }
+          }
+        ],
+        "edges": [],
+        "groups": []
+      },
+      "validation": {
+        "ok": true,
+        "issues": [
+          {
+            "level": "warning",
+            "code": "PLACEHOLDER_CONFIG",
+            "message": "这几项还没填：Agent 角色、任务指令、分析对象",
+            "nodeId": "ai"
+          },
+          {
+            "level": "warning",
+            "code": "END_MISSING",
+            "message": "没有结束节点，运行结果不会被显式标记"
+          },
+          {
+            "level": "warning",
+            "code": "ORPHAN_NODE",
+            "message": "从入口连不到这个节点，但运行时它仍会被执行 —— 多半是忘了连线",
+            "nodeId": "ai"
+          }
+        ]
+      }
+    },
+    {
       "name": "节点 id 重复",
       "graph": {
         "nodes": [
