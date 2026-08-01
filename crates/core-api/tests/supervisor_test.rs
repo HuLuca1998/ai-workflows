@@ -49,6 +49,57 @@ fn 坏掉的_json_当作没有提议而不是报错() {
     assert!(text.contains("试试这个"));
 }
 
+// ── 会话内容的脱敏 ──────────────────────────────────────────────────────
+//
+// 主管 AI 的回答可能带着密钥形态的内容 —— 实测：runtime 上游 502 时,
+// codex 把带 `sec-…` 令牌的网关 URL 原样写进回答文本,它随后进库、
+// 进界面、进历史。与 run.events 的读取兜底同一条理由:
+// 脱敏规则会补新形态,规则加之前写下的历史消息仍带明文。
+
+#[test]
+fn 历史会话的消息读取时脱敏() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = aiwf_store::Store::open_workspace(&dir.path().join("aiwf.sqlite")).unwrap();
+    let id = store
+        .create_supervisor_session("普通问题", None, None)
+        .unwrap();
+    store
+        .append_supervisor_message(
+            &id,
+            "agent",
+            "上游报错:https://api.example.com/sec-FAKE0123456789abcdef012345/v1/responses",
+        )
+        .unwrap();
+
+    let detail = aiwf_core_api::supervisor_session(&store, id).unwrap();
+    let text = &detail.messages[0].text;
+    assert!(
+        !text.contains("FAKE0123456789abcdef012345"),
+        "sec- 令牌原样送到了界面:{text}"
+    );
+    assert!(text.contains("上游报错"), "脱敏不该把正文吞掉:{text}");
+}
+
+#[test]
+fn 会话列表的标题读取时脱敏() {
+    // 标题取自第一句提问 —— 用户可能把密钥直接粘进问题里。
+    // token 要短于标题的 40 字符截断,否则被切掉一截后正则匹配不上,
+    // 这条测试就是假绿(第一版真的犯了这个错)
+    let dir = tempfile::tempdir().unwrap();
+    let store = aiwf_store::Store::open_workspace(&dir.path().join("aiwf.sqlite")).unwrap();
+    store
+        .create_supervisor_session("看看 sk-FAKEabcdef0123456 咋回事", None, None)
+        .unwrap();
+
+    let sessions = aiwf_core_api::supervisor_sessions(&store, None).unwrap();
+    assert!(
+        !sessions[0].title.contains("FAKEabcdef0123456"),
+        "密钥出现在会话列表标题里:{}",
+        sessions[0].title
+    );
+    assert!(sessions[0].title.contains("咋回事"), "脱敏不该吞掉正文");
+}
+
 #[test]
 fn 操作不合契约时整个提议作废() {
     // 半个能用的提议比没有更危险：用户看到 Diff 少了一半却以为是全部

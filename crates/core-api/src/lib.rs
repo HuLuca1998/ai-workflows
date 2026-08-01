@@ -1788,7 +1788,9 @@ pub struct SupervisorSessionDetail {
 fn to_session_dto(row: aiwf_store::SupervisorSessionRow) -> SupervisorSessionDto {
     SupervisorSessionDto {
         id: row.id,
-        title: row.title,
+        // 标题取自第一句提问，用户可能把密钥直接粘在里面。
+        // 读取时脱一道，与 run.events 的兜底同一条理由
+        title: aiwf_engine::redactor::redact_shared(&row.title),
         started_at: row.started_at,
         updated_at: row.updated_at,
         message_count: row.message_count,
@@ -1820,7 +1822,10 @@ pub fn supervisor_session(store: &Store, session_id: String) -> ApiResult<Superv
             .into_iter()
             .map(|row| SupervisorMessageDto {
                 role: row.role,
-                text: row.text,
+                // 实测：runtime 上游 502 时，codex 把带 sec- 令牌的网关 URL
+                // 原样写进回答文本。读取兜底 —— 脱敏规则会补新形态，
+                // 规则加之前写下的历史消息仍带明文
+                text: aiwf_engine::redactor::redact_shared(&row.text),
                 at: row.at,
             })
             .collect(),
@@ -2302,6 +2307,11 @@ pub fn supervisor_ask(
     }
 
     let (text, proposal) = extract_proposal(&text);
+    // 写入前脱一道（读取还有兜底）。回答可能带密钥形态的内容 ——
+    // 实测：上游 502 时 codex 把带 sec- 令牌的网关 URL 原样写进回答。
+    // 流式帧不脱：token 可能被帧边界切开而漏网，完成时界面会用
+    // 这份脱敏后的全文替换流式内容
+    let text = aiwf_engine::redactor::redact_shared(&text);
 
     // 落会话。不存的话每次关掉抽屉对话就没了 ——
     // 而用户常常是隔天回来接着问「上次它说那个来着」。
