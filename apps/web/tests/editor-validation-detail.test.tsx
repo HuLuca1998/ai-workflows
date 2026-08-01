@@ -3,6 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import { MemoryRouter } from 'react-router';
 
+import type { ValidationResult } from '@aiwf/contracts';
 import { EditorToolbar } from '../src/editor/EditorToolbar.js';
 
 /**
@@ -30,20 +31,20 @@ const base = {
   onRename: vi.fn(),
 };
 
-const 两个问题 = {
+const 两个问题: ValidationResult = {
   ok: false,
   issues: [
-    { level: 'error' as const, code: 'NO_ENTRY', message: '工作流缺少入口节点' },
+    { level: 'error' as const, code: 'ENTRY_MISSING' as const, message: '工作流缺少入口节点' },
     {
       level: 'error' as const,
-      code: 'SELF_LOOP',
+      code: 'CYCLE' as const,
       message: '节点 n2 连到了自己',
       nodeId: 'n2',
     },
   ],
 };
 
-const view = (validation: typeof 两个问题) =>
+const view = (validation: ValidationResult) =>
   render(
     <MemoryRouter>
       <EditorToolbar {...base} validation={validation} />
@@ -82,10 +83,10 @@ describe('校验结果要查得出细节', () => {
     view({
       ok: false,
       issues: [
-        { level: 'error' as const, code: 'NO_ENTRY', message: '工作流缺少入口节点' },
+        { level: 'error' as const, code: 'ENTRY_MISSING' as const, message: '工作流缺少入口节点' },
         {
           level: 'warning' as const,
-          code: 'ORPHAN',
+          code: 'ORPHAN_NODE' as const,
           message: '节点 n5 从入口走不到，但仍会被执行',
           nodeId: 'n5',
         },
@@ -102,7 +103,7 @@ describe('校验结果要查得出细节', () => {
       issues: [
         {
           level: 'warning' as const,
-          code: 'ORPHAN',
+          code: 'ORPHAN_NODE' as const,
           message: '节点 n5 从入口走不到，但仍会被执行',
           nodeId: 'n5',
         },
