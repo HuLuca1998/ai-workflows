@@ -338,7 +338,9 @@ export function ModelsPage() {
          * 而所有 Agent 角色与 AI 节点的模型下拉全是空的，系统开箱不可用
          * （第三方巡检 C-04 / DEBT O-18）。
          */}
-        {items !== null && !items.some((model) => model.enabled) ? (
+        {/* 列表**非空**却一条都没启用时才出现。列表空着的时候左栏
+            已经有一个说同一件事的空态，两条一样的话会互相削弱 */}
+        {items !== null && items.length > 0 && !items.some((model) => model.enabled) ? (
           <p className="models__no-usable" role="status" aria-label="没有可用模型">
             <i className="ph-fill ph-warning-circle" aria-hidden="true" />
             <span>

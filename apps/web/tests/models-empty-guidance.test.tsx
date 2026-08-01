@@ -108,10 +108,13 @@ describe('一条模型都没启用时要给出路', () => {
     expect(screen.queryByRole('status', { name: /没有可用模型/u })).toBeNull();
   });
 
-  it('列表为空（连内置都没有）时同样给出路', async () => {
+  it('列表空着时不重复 —— 左栏空态已经说了同一件事', async () => {
+    // 两条一样的提示会互相削弱，而且 models-page 的空态测试
+    // 会因为「找到多个」而红
     respond([]);
     view();
 
-    expect(await screen.findByRole('status', { name: /没有可用模型/u })).toBeTruthy();
+    await screen.findByText(/点「同步」/u);
+    expect(screen.queryByRole('status', { name: /没有可用模型/u })).toBeNull();
   });
 });
