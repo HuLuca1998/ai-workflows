@@ -150,14 +150,27 @@ export function RunsPage() {
     next.set('run', runId);
     setParams(next, { replace: true });
   };
+  /**
+   * `?status=` 深链。
+   *
+   * 概览页的「等待审批 3」是个链接（统计卡原来全是死的，第三方巡检 A-12），
+   * 而这一页此前不读这个参数 —— 用户被送到「全部」，看到一整页运行，
+   * 还得自己再点一次筛选。一个不落地的深链比不可点更糟。
+   *
+   * 认不出的值当没传：一个坏链接不该让人空白一屏。
+   */
+  const requestedStatus = params.get('status');
   useEffect(() => {
-    void useRuns
-      .getState()
-      .load()
-      .then(() => {
-        if (requested) void useRuns.getState().select(requested);
-      });
-  }, [requested]);
+    const wanted = FILTERS.find((entry) => entry.key === requestedStatus);
+    const state = useRuns.getState();
+    if (wanted && state.filter !== wanted.key) {
+      void state.setFilter(wanted.key);
+      return;
+    }
+    void state.load().then(() => {
+      if (requested) void useRuns.getState().select(requested);
+    });
+  }, [requested, requestedStatus]);
 
   const live = selected !== null && isActive(selected.status);
   useEffect(() => {
