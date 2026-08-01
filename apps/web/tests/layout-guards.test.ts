@@ -120,6 +120,54 @@ describe('首次配置页的子块不能被压扁', () => {
   });
 });
 
+/**
+ * 模态弹层必须按**视口**定位并限高。
+ *
+ * `.cfg__backdrop` 原来是 `position: absolute` —— 定位上下文是画布那层，
+ * 而画布可以比视口大、可以有偏移，于是 900×600 下弹窗落在 x=258 宽 728
+ * （右边界 986 > 视口 900）：「应用改动」只露 7px、关闭按钮整个飞出屏幕，
+ * 而 body 禁了横向滚动 —— **改了配置存不下去**。
+ *
+ * 限高同理：`max-height: 660px` 是死数，640 高的视口下 footer 在屏幕外，
+ * 用户打开弹窗就以为没有保存按钮。
+ */
+describe('模态弹层不能被视口裁掉', () => {
+  const 视口定位 = (css: string, selector: string): boolean => {
+    const rule = parseRules(css).find((entry) => entry.selector === selector);
+    return rule !== undefined && /position:\s*fixed/u.test(rule.body);
+  };
+
+  /** 限高里出现视口单位或 min()，就说明它会跟着窗口缩。 */
+  const 跟着视口限高 = (css: string, selector: string): boolean => {
+    const rule = parseRules(css).find((entry) => entry.selector === selector);
+    if (rule === undefined) return false;
+    const maxHeight = /max-height:\s*([^;]+)/u.exec(rule.body)?.[1] ?? '';
+    return /\d+(?:dv|s|l)?vh|min\(|calc\([^)]*vh/u.test(maxHeight);
+  };
+
+  it('配置弹窗的遮罩按视口定位', () => {
+    expect(
+      视口定位(CSS, '.cfg__backdrop'),
+      'position:absolute 时定位上下文是画布 —— 900×600 下弹窗右边界超出视口，' +
+        '「应用改动」只露 7px 且横向滚不动',
+    ).toBe(true);
+  });
+
+  it('配置弹窗的高度跟着视口缩', () => {
+    expect(
+      跟着视口限高(CSS, '.cfg'),
+      'max-height 是死像素值时，矮视口（1024×640）下整条 footer 在屏幕外',
+    ).toBe(true);
+  });
+
+  it('这两条守卫自己会红', () => {
+    const 假的 = `.cfg__backdrop { position: absolute; inset: 0; }
+      .cfg { max-height: 660px; }`;
+    expect(视口定位(假的, '.cfg__backdrop')).toBe(false);
+    expect(跟着视口限高(假的, '.cfg')).toBe(false);
+  });
+});
+
 describe('模型的启用状态色', () => {
   const rules = parseRules(CSS).filter((entry) => entry.selector.includes('models__item-state'));
 

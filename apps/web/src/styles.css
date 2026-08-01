@@ -1415,19 +1415,27 @@
 }
 
 /* ── 节点配置弹层（图纸：760px 居中浮层）───────────────────────────────── */
+/* 按视口定位，不是按画布。absolute 时定位上下文是编辑器那层 ——
+   它可以比视口大、可以有偏移，于是 900×600 下弹窗右边界落在 986px
+   （视口才 900）：「应用改动」只露 7px、关闭按钮整个飞出屏幕，
+   而 body 禁了横向滚动 —— 改了配置存不下去 */
 .cfg__backdrop {
-  position: absolute;
+  position: fixed;
   inset: 0;
   z-index: 20;
   display: grid;
   place-items: center;
   background: var(--overlay-scrim);
+  /* 视口再矮也留出边距，弹窗贴边时看不出还有没有内容 */
+  padding: 16px;
 }
 
 .cfg {
   width: 760px;
-  max-width: calc(100% - 32px);
-  max-height: 660px;
+  max-width: 100%;
+  /* 跟着视口缩。死数 660px 在 640 高的视口下会把整条 footer
+     推出屏幕，用户打开弹窗只看到「没有保存按钮」 */
+  max-height: min(660px, 100%);
   display: flex;
   flex-direction: column;
   border-radius: 14px;
