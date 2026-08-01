@@ -76,8 +76,12 @@ export const REPO_DIGEST: WorkflowTemplate = {
           // 会报 `illegal option -- d`（实测）。python3 两边都有
           'FROM=$(DAYS="$DAYS" python3 -c \'import datetime,os; print((datetime.datetime.now(datetime.timezone.utc)-datetime.timedelta(days=int(os.environ["DAYS"]))).strftime("%Y-%m-%dT%H:%M:%SZ"))\')',
           'echo "统计区间自 $FROM" >&2',
-          'ISSUES=$(gh issue list --repo "$REPO" --state all --search "updated:>$FROM" --limit 50 --json number,title,state,updatedAt)',
-          'PRS=$(gh pr list --repo "$REPO" --state all --search "updated:>$FROM" --limit 50 --json number,title,state,mergedAt,author)',
+          // createdAt 必须要：没有它就算不出「新开了多少 issue」。
+          // 第一次实跑时漏了，agent 老老实实在报告里写了「新开 issue 数
+          // 没有查到：issue 数据缺少 createdAt」—— 提示词里那句
+          // 「没有数据支撑的不要写」起作用了，但缺的数据还是得补上
+          'ISSUES=$(gh issue list --repo "$REPO" --state all --search "updated:>$FROM" --limit 50 --json number,title,state,createdAt,updatedAt,closedAt)',
+          'PRS=$(gh pr list --repo "$REPO" --state all --search "updated:>$FROM" --limit 50 --json number,title,state,createdAt,updatedAt,mergedAt,author)',
           'COMMITS=$(gh api "repos/$REPO/commits?since=$FROM&per_page=50" --jq \'[.[] | {sha: .sha[0:7], message: (.commit.message | split("\\n")[0]), author: .commit.author.name, date: .commit.author.date}]\')',
           'printf \'{"from":"%s","issues":%s,"pullRequests":%s,"commits":%s}\' "$FROM" "$ISSUES" "$PRS" "$COMMITS"',
         ].join('\n'),
