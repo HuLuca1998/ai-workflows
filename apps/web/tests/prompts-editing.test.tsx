@@ -73,14 +73,19 @@ describe('分段可改', () => {
     await user.click(screen.getByRole('button', { name: '保存新版本' }));
 
     await waitFor(() => {
-      expect(call).toHaveBeenCalledWith('prompt.update', {
-        id: 'prompt_1',
-        ver: 2,
-        sections: [
-          { title: 'Role', body: '你是根因分析者' },
-          { title: 'Task', body: '只改这段' },
-        ],
-      });
+      // objectContaining 而不是全等：保存还会带上 name（副本要能改名，
+      // 见 prompt-rename.test.tsx）。这条守的是「只有被改的那段变了」
+      expect(call).toHaveBeenCalledWith(
+        'prompt.update',
+        expect.objectContaining({
+          id: 'prompt_1',
+          ver: 2,
+          sections: [
+            { title: 'Role', body: '你是根因分析者' },
+            { title: 'Task', body: '只改这段' },
+          ],
+        }),
+      );
     });
   });
 
