@@ -6470,7 +6470,7 @@
     "summary": "创建目录并重新探测",
     "scope": null,
     "mutates": true,
-    "audited": false,
+    "audited": true,
     "input": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "type": "object",

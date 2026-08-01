@@ -1264,7 +1264,7 @@ const SPECS = {
       message: z.string().optional(),
     }),
     mutates: true,
-    audited: false,
+    audited: true,
     // 与 env.checkDirectory 同一条理由：动本机文件系统的操作只允许本地 UI 触发
     scope: null,
     summary: '创建目录并重新探测',
