@@ -12,8 +12,14 @@
  * 而叠一摞守卫会让「谁该被注销」变成一个要维护的问题。
  */
 
-/** 返回 true 表示放行；false 表示拦下（弹确认之类由守卫自己做）。 */
-export type LeaveGuard = () => boolean;
+/**
+ * 返回 true 表示放行；false 表示拦下（弹确认之类由守卫自己做）。
+ *
+ * `to` 是用户想去的地方。守卫要记住它 —— 不记的话「丢弃并离开」
+ * 只能回一个写死的路径：用户点「记忆」，确认丢弃，落在工作流列表
+ * （复核实测 B）。
+ */
+export type LeaveGuard = (to: string) => boolean;
 
 let current: LeaveGuard | null = null;
 
@@ -27,6 +33,6 @@ export function clearLeaveGuard(): void {
 }
 
 /** 没有守卫时一律放行。 */
-export function canLeave(): boolean {
-  return current === null || current();
+export function canLeave(to: string): boolean {
+  return current === null || current(to);
 }

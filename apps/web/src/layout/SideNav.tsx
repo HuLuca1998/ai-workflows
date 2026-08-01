@@ -45,7 +45,9 @@ export function SideNav({ counts, permission, environment }: SideNavProps) {
                  点一下「记忆」，改动静默丢失 —— 而工具栏的「返回」
                  一直是问的，同一个动作两种结果 */
               onClick={(event) => {
-                if (!canLeave()) event.preventDefault();
+                // 带上目标：守卫要记住用户想去哪，否则「丢弃并离开」
+                // 只能回一个写死的路径（复核实测 B）
+                if (!canLeave(item.path)) event.preventDefault();
               }}
             >
               <i className={`ph ${item.icon}`} aria-hidden="true" />

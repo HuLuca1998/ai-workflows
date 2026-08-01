@@ -49,6 +49,21 @@ describe('侧栏导航要尊重离开守卫', () => {
     expect(screen.getByText('编辑器')).toBeTruthy();
   });
 
+  it('守卫拿得到用户想去哪 —— 不然「丢弃并离开」只能回一个写死的路径', async () => {
+    // 复核实测 B：点「记忆」、确认丢弃，落在工作流列表
+    let target: string | null = null;
+    registerLeaveGuard((to) => {
+      target = to;
+      return false;
+    });
+    const user = userEvent.setup();
+    view();
+
+    await user.click(screen.getByRole('link', { name: /记忆/u }));
+
+    expect(target).toBe('/memory');
+  });
+
   it('守卫放行时正常跳转', async () => {
     registerLeaveGuard(() => true);
     const user = userEvent.setup();
