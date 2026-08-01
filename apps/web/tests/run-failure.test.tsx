@@ -55,12 +55,16 @@ const EVENTS = [
     nodeId: 'script_shell_2',
     nodeLabel: '解析日志',
     attempt: 1,
+    ts: '2026-07-28T09:12:00.000Z',
     summary: '解析日志 开始',
   }),
   event(3, 'node.failed', {
     nodeId: 'script_shell_2',
     nodeLabel: '解析日志',
     attempt: 1,
+    // 这一步自己跑了 48s(node.started→node.failed),不是整条运行墙钟 ——
+    // 失败横幅显示的是节点耗时(第 9 轮实测 #4)
+    ts: '2026-07-28T09:12:48.000Z',
     summary: 'exitCode 124 · killed after 30s',
   }),
   event(4, 'run.failed', { summary: '节点「解析日志」失败' }),
