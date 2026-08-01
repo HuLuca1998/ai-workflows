@@ -30,7 +30,8 @@ fn 起一次(
         None,
         Some(0),
         "{}".to_string(),
-        None, // ← 不指定工作目录，走默认
+        None, // ← 不指定工作目录，走默认,
+        aiwf_engine::schedule::Trigger::Manual,
     )
     .expect("run_start 应当返回 run id（哪怕 preflight 没过）");
 
@@ -96,6 +97,7 @@ fn 用户显式指定的目录原样使用_不被拆成子目录() {
         Some(0),
         "{}".to_string(),
         Some(指定.display().to_string()),
+        aiwf_engine::schedule::Trigger::Manual,
     )
     .unwrap();
 

@@ -230,6 +230,7 @@ fn 启动运行必须指定跑哪个版本() {
         Some(1),
         "{}".to_string(),
         None,
+        aiwf_engine::schedule::Trigger::Manual,
     );
     assert!(both.is_err(), "同时给两个应当被拒");
 
@@ -242,6 +243,7 @@ fn 启动运行必须指定跑哪个版本() {
         None,
         "{}".to_string(),
         None,
+        aiwf_engine::schedule::Trigger::Manual,
     );
     assert!(neither.is_err(), "一个都不给应当被拒");
 }

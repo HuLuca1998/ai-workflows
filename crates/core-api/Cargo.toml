@@ -9,6 +9,7 @@ publish = false
 workspace = true
 
 [dependencies]
+chrono = { version = "0.4.45", default-features = false, features = ["clock", "std"] }
 aiwf-engine = { path = "../engine" }
 aiwf-store = { path = "../store" }
 serde = { workspace = true }

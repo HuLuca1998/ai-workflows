@@ -594,6 +594,7 @@ mod 入口固定工作目录 {
             "{}".to_string(),
             // 调用方(界面)照旧传一个别的目录 —— 固定值要压过它
             Some(dir.path().join("别的目录").display().to_string()),
+            aiwf_engine::schedule::Trigger::Manual,
         )
         .unwrap();
 

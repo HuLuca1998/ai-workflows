@@ -80,6 +80,14 @@ fn main() {
     let supervisor = Arc::new(supervisor);
     let data_dir = Arc::new(data_dir);
 
+    // 定时触发。只有执行宿主起它 —— 共库的 aiwf-mcp 也起一个的话，
+    // 同一个定时任务会跑两遍。绑到一个活到进程结束的变量上：
+    // Drop 会停掉扫描线程
+    let _scheduler = aiwf_core_api::scheduler::Scheduler::start(
+        std::path::PathBuf::from(&db_path),
+        Arc::clone(&supervisor),
+    );
+
     // 每个线程一份**自己的**数据库连接。
     //
     // 共用一个 Mutex<Store> 的话，线程池救不了任何东西：慢请求整段

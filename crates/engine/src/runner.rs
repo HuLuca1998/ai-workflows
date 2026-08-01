@@ -184,6 +184,9 @@ pub struct RunRequest {
     pub draft_rev: Option<i64>,
     pub inputs_json: String,
     pub workdir: String,
+    /// 谁发起的。人点的是 `Manual`，调度器起的带上它自己那一种 ——
+    /// 界面据此把定时跑出来的运行标出来
+    pub trigger: crate::schedule::Trigger,
 }
 
 /// 节点执行的结果。真实执行器（脚本 / AI / worktree）产出这个。
@@ -274,6 +277,7 @@ impl Runner {
             request.draft_rev,
             &request.inputs_json,
             Some(&request.workdir),
+            request.trigger.kind(),
         )?;
 
         self.emit(store, &run_id, "run.created", None, "engine", "运行已创建")?;

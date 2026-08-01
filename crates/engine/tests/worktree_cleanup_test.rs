@@ -103,6 +103,7 @@ fn run_worktree_flow(
                 draft_rev: Some(0),
                 inputs_json: "{}".to_string(),
                 workdir: workdir.display().to_string(),
+                trigger: aiwf_engine::schedule::Trigger::Manual,
             },
         )
         .unwrap();
@@ -272,6 +273,7 @@ fn 审批被拒的终止路径也按_on_run_end_清理() {
                 draft_rev: Some(0),
                 inputs_json: "{}".to_string(),
                 workdir: workdir.display().to_string(),
+                trigger: aiwf_engine::schedule::Trigger::Manual,
             },
         )
         .unwrap();

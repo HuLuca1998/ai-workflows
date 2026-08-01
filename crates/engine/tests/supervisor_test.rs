@@ -113,6 +113,7 @@ fn 后台运行真的执行脚本并留下副作用() {
                 draft_rev: Some(0),
                 inputs_json: "{}".to_string(),
                 workdir: path.parent().unwrap().display().to_string(),
+                trigger: aiwf_engine::schedule::Trigger::Manual,
             },
         )
         .unwrap();
@@ -180,6 +181,7 @@ fn 同一工作流的两个并行运行互不影响() {
                         draft_rev: Some(0),
                         inputs_json: "{}".to_string(),
                         workdir: workdir.display().to_string(),
+                        trigger: aiwf_engine::schedule::Trigger::Manual,
                     },
                 )
                 .unwrap(),
@@ -254,6 +256,7 @@ fn 取消能让运行停下而不是跑到底() {
                 draft_rev: Some(0),
                 inputs_json: "{}".to_string(),
                 workdir: dir.display().to_string(),
+                trigger: aiwf_engine::schedule::Trigger::Manual,
             },
         )
         .unwrap();
@@ -317,6 +320,7 @@ fn 运行到审批就停下等人_不占着线程() {
                 draft_rev: Some(0),
                 inputs_json: "{}".to_string(),
                 workdir: dir.display().to_string(),
+                trigger: aiwf_engine::schedule::Trigger::Manual,
             },
         )
         .unwrap();
@@ -372,6 +376,7 @@ fn 审批通过后能继续跑到结束() {
                 draft_rev: Some(0),
                 inputs_json: "{}".to_string(),
                 workdir: dir.display().to_string(),
+                trigger: aiwf_engine::schedule::Trigger::Manual,
             },
         )
         .unwrap();
@@ -448,6 +453,7 @@ fn 杀掉进程后重新打开数据库_能回到同一审批点并跑完() {
                     draft_rev: Some(0),
                     inputs_json: "{}".to_string(),
                     workdir: dir.display().to_string(),
+                    trigger: aiwf_engine::schedule::Trigger::Manual,
                 },
             )
             .unwrap();
@@ -541,6 +547,7 @@ fn 事件流可完整回放_从第一条到最后一条连续无缺口() {
                 draft_rev: Some(0),
                 inputs_json: "{}".to_string(),
                 workdir: dir.display().to_string(),
+                trigger: aiwf_engine::schedule::Trigger::Manual,
             },
         )
         .unwrap();
@@ -630,6 +637,7 @@ fn 重复提交审批不会让同一个运行跑起两个线程() {
                 draft_rev: Some(0),
                 inputs_json: "{}".to_string(),
                 workdir: dir.display().to_string(),
+                trigger: aiwf_engine::schedule::Trigger::Manual,
             },
         )
         .unwrap();
@@ -705,6 +713,7 @@ fn 审批决定必须指向当前真正在等的那个节点() {
                 draft_rev: Some(0),
                 inputs_json: "{}".to_string(),
                 workdir: dir.display().to_string(),
+                trigger: aiwf_engine::schedule::Trigger::Manual,
             },
         )
         .unwrap();
@@ -768,6 +777,7 @@ fn 已经结束的运行不能被迟到的取消改状态() {
                 draft_rev: Some(0),
                 inputs_json: "{}".to_string(),
                 workdir: dir.display().to_string(),
+                trigger: aiwf_engine::schedule::Trigger::Manual,
             },
         )
         .unwrap();
@@ -824,6 +834,7 @@ fn 已取消的运行不能被恢复() {
                 draft_rev: Some(0),
                 inputs_json: "{}".to_string(),
                 workdir: dir.display().to_string(),
+                trigger: aiwf_engine::schedule::Trigger::Manual,
             },
         )
         .unwrap();

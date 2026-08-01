@@ -15,6 +15,7 @@ pub mod env;
 pub mod github;
 pub mod mcp_clients;
 pub mod mcp_config;
+pub mod scheduler;
 
 pub use env::{
     EnvHealthItem, EnvHealthReport, EnvSource, EnvStatus, adapter_missing_detail, env_health,
@@ -309,6 +310,9 @@ pub struct RunSummary {
     started_at: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     ended_at: Option<String>,
+    /// 谁发起的。定时跑出来的运行要在列表上一眼可辨 ——
+    /// 否则用户早上看到一条自己没点过的运行，无从判断是什么起的
+    trigger: String,
 }
 
 #[derive(Serialize)]
@@ -617,6 +621,7 @@ impl From<aiwf_store::RunRow> for RunSummary {
             workdir: row.workdir,
             started_at: row.started_at,
             ended_at: row.ended_at,
+            trigger: row.trigger_kind,
         }
     }
 }
@@ -728,6 +733,7 @@ pub fn run_start(
     draft_rev: Option<i64>,
     inputs_json: String,
     workdir: Option<String>,
+    trigger: aiwf_engine::schedule::Trigger,
 ) -> ApiResult<String> {
     // 契约写的是「versionId 与 draftRev 必须且只能提供一个」，但那条约束
     // 原来只活在 Zod 里 —— HTTP 桥接与 MCP 都能绕过去。
@@ -783,6 +789,7 @@ pub fn run_start(
             draft_rev,
             inputs_json,
             workdir: workdir.display().to_string(),
+            trigger,
         },
     )?;
     Ok(run_id)
@@ -2703,6 +2710,9 @@ pub fn run_rewind_to_approval(store: &Store, run_id: String) -> ApiResult<Rewind
         run.draft_rev,
         &run.inputs_json,
         run.workdir.as_deref(),
+        // 回溯重跑跟着原来那条的来源：定时跑出来的运行回溯之后
+        // 仍然算定时那一支，否则运行列表上会凭空多出一条「手动」
+        &run.trigger_kind,
     )?;
 
     Ok(RewindResult {

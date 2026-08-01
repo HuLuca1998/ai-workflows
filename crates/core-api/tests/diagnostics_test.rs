@@ -150,7 +150,14 @@ fn 诊断包列出产物但不含内容() {
     let store = Store::open_in_memory().unwrap();
     let wf = store.create_workflow("有产物的", None).unwrap();
     let run = store
-        .create_run_in(&wf, None, Some(1), "{}", Some(dir.path().to_str().unwrap()))
+        .create_run_in(
+            &wf,
+            None,
+            Some(1),
+            "{}",
+            Some(dir.path().to_str().unwrap()),
+            "manual",
+        )
         .unwrap();
 
     let artifacts = aiwf_engine::artifacts::ArtifactStore::new(dir.path().join(".aiwf-artifacts"));

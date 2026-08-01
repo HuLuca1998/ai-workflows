@@ -396,6 +396,8 @@ fn run_start(
         draft_rev,
         inputs_json,
         workdir,
+        // 从界面点过来的一律算手动。调度器不走 IPC
+        aiwf_engine::schedule::Trigger::Manual,
     )
 }
 
@@ -833,9 +835,12 @@ pub struct AppState {
      * SQLite 开着 WAL，多连接并发读写正是它支持的用法。
      */
     supervisor_store: Mutex<Store>,
-    supervisor: Supervisor,
+    supervisor: std::sync::Arc<Supervisor>,
     /// 应用数据目录。运行目录、产物都落在它下面。
     data_dir: PathBuf,
+    /// 定时触发的扫描线程。只是拿着它 —— Drop 会停掉扫描，
+    /// 所以它必须活到进程结束
+    _scheduler: aiwf_core_api::scheduler::Scheduler,
 }
 
 /// 回滚：把某个已发布版本的图写成**新的**草稿修订。
@@ -971,13 +976,11 @@ pub fn run() {
             // 种子已经由上面那条走过了
             let supervisor_store = Store::open(&path)?;
 
-            app.manage(AppState {
-                store: Mutex::new(store),
-                supervisor_store: Mutex::new(supervisor_store),
-                // 通知发送器在这里接上。不接的话 `notify` 节点会
-                // 明确报「这个环境发不了系统通知」—— 那是真话，
-                // 但在桌面 App 里它不该是真的
-                supervisor: Supervisor::new(path)
+            // 通知发送器在这里接上。不接的话 `notify` 节点会
+            // 明确报「这个环境发不了系统通知」—— 那是真话，
+            // 但在桌面 App 里它不该是真的
+            let supervisor = std::sync::Arc::new(
+                Supervisor::new(path.clone())
                     .with_notifier(std::sync::Arc::new(notify::DesktopNotifier::new(
                         app.handle().clone(),
                     )))
@@ -985,7 +988,21 @@ pub fn run() {
                     // 运行面板上只有几条工具调用在动，agent 说的话要等
                     // 节点结束才一次性出现
                     .with_stream(std::sync::Arc::new(WindowChunkSink(app.handle().clone()))),
+            );
+
+            // 定时触发。桌面壳是执行宿主，调度器归它起 ——
+            // 共库的 aiwf-mcp 不起，否则同一个定时任务会跑两遍
+            let scheduler = aiwf_core_api::scheduler::Scheduler::start(
+                path,
+                std::sync::Arc::clone(&supervisor),
+            );
+
+            app.manage(AppState {
+                store: Mutex::new(store),
+                supervisor_store: Mutex::new(supervisor_store),
+                supervisor,
                 data_dir,
+                _scheduler: scheduler,
             });
             build_tray(app.handle())?;
             Ok(())

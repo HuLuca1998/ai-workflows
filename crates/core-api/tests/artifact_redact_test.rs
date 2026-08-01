@@ -20,7 +20,14 @@ const 密钥: &str = "sk-TESTLEAK-1234567890abcdefghijklmnopqrstuvwxyz";
 fn 造一份产物(store: &Store, dir: &std::path::Path, 内容: &str) -> String {
     let wf = store.create_workflow("产物脱敏验证", None).unwrap();
     let run = store
-        .create_run_in(&wf, None, Some(1), "{}", Some(&dir.display().to_string()))
+        .create_run_in(
+            &wf,
+            None,
+            Some(1),
+            "{}",
+            Some(&dir.display().to_string()),
+            "manual",
+        )
         .unwrap();
 
     let 产物目录 = dir.join(".aiwf-artifacts").join(&run);

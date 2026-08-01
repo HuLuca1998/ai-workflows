@@ -57,6 +57,7 @@ fn request(workflow_id: &str) -> RunRequest {
         draft_rev: Some(0),
         inputs_json: "{}".to_string(),
         workdir: "/tmp/aiwf-test".to_string(),
+        trigger: aiwf_engine::schedule::Trigger::Manual,
     }
 }
 
@@ -809,6 +810,7 @@ mod 权限档审批 {
             draft_rev: Some(0),
             inputs_json: "{}".to_string(),
             workdir: "/tmp/aiwf-test".to_string(),
+            trigger: aiwf_engine::schedule::Trigger::Manual,
         }
     }
 
@@ -987,6 +989,7 @@ mod 事件不留明文 {
                     draft_rev: Some(0),
                     inputs_json: "{}".to_string(),
                     workdir: "/tmp".to_string(),
+                    trigger: aiwf_engine::schedule::Trigger::Manual,
                 },
             )
             .unwrap();
@@ -1098,6 +1101,7 @@ mod 端到端_人工介入 {
                     draft_rev: Some(0),
                     inputs_json: "{}".to_string(),
                     workdir: dir.display().to_string(),
+                    trigger: aiwf_engine::schedule::Trigger::Manual,
                 },
             )
             .unwrap();
@@ -1215,6 +1219,7 @@ mod 超长摘要不该压垮运行 {
                     draft_rev: Some(0),
                     inputs_json: "{}".to_string(),
                     workdir: "/tmp".to_string(),
+                    trigger: aiwf_engine::schedule::Trigger::Manual,
                 },
             )
             .unwrap();
@@ -1275,6 +1280,7 @@ mod 超长摘要不该压垮运行 {
                     draft_rev: Some(0),
                     inputs_json: "{}".to_string(),
                     workdir: "/tmp".to_string(),
+                    trigger: aiwf_engine::schedule::Trigger::Manual,
                 },
             )
             .unwrap();
@@ -1340,6 +1346,7 @@ mod 角色快照要留痕 {
                     draft_rev: Some(0),
                     inputs_json: "{}".to_string(),
                     workdir: std::env::temp_dir().display().to_string(),
+                    trigger: aiwf_engine::schedule::Trigger::Manual,
                 },
             )
             .unwrap();
@@ -1400,6 +1407,7 @@ mod 角色快照要留痕 {
                     draft_rev: Some(0),
                     inputs_json: "{}".to_string(),
                     workdir: "/tmp".to_string(),
+                    trigger: aiwf_engine::schedule::Trigger::Manual,
                 },
             )
             .unwrap();

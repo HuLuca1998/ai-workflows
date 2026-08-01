@@ -214,6 +214,10 @@ pub fn dispatch(
             opt_int(input, "draftRev"),
             string(input, "inputsJson")?,
             opt_string(input, "workdir"),
+            // 走 dispatch 的一律算手动：界面、MCP、HTTP 桥接背后都是人。
+            // 调度器不走这里，它直接调 `api::run_start` —— 那条路上
+            // 触发来源是它自己算出来的，不能由入参决定
+            aiwf_engine::schedule::Trigger::Manual,
         )?),
         "run_dry_run" => to_value(api::run_dry_run(
             &store,

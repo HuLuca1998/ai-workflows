@@ -54,6 +54,7 @@ fn run_flow(store: &Store, graph: &str) -> String {
                 draft_rev: Some(0),
                 inputs_json: "{}".to_string(),
                 workdir: workdir.display().to_string(),
+                trigger: aiwf_engine::schedule::Trigger::Manual,
             },
         )
         .unwrap();
@@ -170,6 +171,7 @@ fn 库分段里的变量会被插值成真实内容() {
                 draft_rev: Some(0),
                 inputs_json: r#"{"topic":"季度复盘"}"#.to_string(),
                 workdir: workdir.display().to_string(),
+                trigger: aiwf_engine::schedule::Trigger::Manual,
             },
         )
         .unwrap();

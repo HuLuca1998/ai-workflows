@@ -125,6 +125,38 @@ pub fn validate_graph(graph: &Value) -> ValidationResult {
             ));
         }
     }
+    for entry in &entries {
+        // 选了定时却没填时刻 —— 调度器读不出触发点，只能跳过。
+        // error 而不是 warning：这份图发布出去也永远不会自己跑起来，
+        // 而没有任何地方会告诉他
+        let trigger = entry.config.get("trigger").and_then(Value::as_str);
+        if trigger == Some("schedule")
+            && !entry
+                .config
+                .get("scheduleTime")
+                .is_some_and(Value::is_string)
+        {
+            issues.push(error(
+                "TRIGGER_INCOMPLETE",
+                "选了每天定时，但没填几点（HH:MM）".to_string(),
+                Some(entry.id.to_string()),
+                None,
+            ));
+        }
+        if trigger == Some("interval")
+            && !entry
+                .config
+                .get("intervalMinutes")
+                .is_some_and(Value::is_number)
+        {
+            issues.push(error(
+                "TRIGGER_INCOMPLETE",
+                "选了按间隔触发，但没填间隔多少分钟".to_string(),
+                Some(entry.id.to_string()),
+                None,
+            ));
+        }
+    }
     if !by_id.is_empty() && !by_id.iter().any(|n| n.node_type == "end") {
         issues.push(warning(
             "END_MISSING",

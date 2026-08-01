@@ -297,6 +297,7 @@ fn 跑一条含各类节点的工作流_每条事件都合契约() {
                 draft_rev: Some(0),
                 inputs_json: "{}".to_string(),
                 workdir: dir.path().display().to_string(),
+                trigger: aiwf_engine::schedule::Trigger::Manual,
             },
         )
         .unwrap();
