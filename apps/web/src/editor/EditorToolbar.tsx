@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router';
 import { Button, Dialog } from '@aiwf/ui';
 import type { ValidationResult } from './editorDeps.js';
@@ -52,6 +52,32 @@ export function EditorToolbar({
   const errorCount = validation.issues.filter((i) => i.level === 'error').length;
   const warningCount = validation.issues.length - errorCount;
   const issueCount = validation.issues.length;
+
+  /**
+   * Esc 与点外面都能关。
+   *
+   * 原来只能再点一次触发器 —— 而节点配置弹窗的 Esc 是好使的，
+   * 同一个应用两套行为（复核实测 C）。这个浮层还会盖住模态弹窗：
+   * 900×600 下开着它再双击节点，配置弹窗有三个标签点不到。
+   */
+  const issuesRef = useRef<HTMLSpanElement>(null);
+  useEffect(() => {
+    if (!issuesOpen) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setIssuesOpen(false);
+    };
+    const onPointerDown = (event: PointerEvent) => {
+      // 点清单里面不关：用户要能选中文字复制节点 id
+      if (issuesRef.current?.contains(event.target as Node)) return;
+      setIssuesOpen(false);
+    };
+    window.addEventListener('keydown', onKeyDown);
+    window.addEventListener('pointerdown', onPointerDown);
+    return () => {
+      window.removeEventListener('keydown', onKeyDown);
+      window.removeEventListener('pointerdown', onPointerDown);
+    };
+  }, [issuesOpen]);
 
   const commitRename = (next: string) => {
     setRenaming(false);
@@ -136,6 +162,7 @@ export function EditorToolbar({
        * 点运行才知道 Dry Run 报「这些节点从入口走不到」（B-07）。
        */}
       <span
+        ref={issuesRef}
         className="editor-bar__validation"
         data-ok={errorCount === 0 && warningCount === 0 ? 'true' : 'false'}
       >

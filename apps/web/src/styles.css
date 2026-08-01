@@ -971,7 +971,10 @@
   position: absolute;
   top: calc(100% + 8px);
   right: 0;
-  z-index: 30;
+  /* 低于节点配置弹窗的遮罩（20）。它原来是 30，于是 900×600 下
+     开着这个浮层再双击节点，配置弹窗有三个标签点不到（复核实测 D）。
+     浮层现在点外面会自己关，这一条是双保险 */
+  z-index: 19;
   margin: 0;
   padding: 8px;
   list-style: none;

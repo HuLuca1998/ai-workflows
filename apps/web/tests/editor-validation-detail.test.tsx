@@ -97,6 +97,39 @@ describe('校验结果要查得出细节', () => {
     expect(screen.getByText(/从入口走不到/u)).toBeTruthy();
   });
 
+  it('Esc 能关掉展开的清单 —— 应用里别处的浮层都能', async () => {
+    // 复核实测 C：Esc 无效、点外面无效，只能再点一次触发器。
+    // 而节点配置弹窗的 Esc 是好使的 —— 同一个应用两套行为
+    const user = userEvent.setup();
+    view(两个问题);
+    await user.click(screen.getByRole('button', { name: /2 个问题/u }));
+    expect(screen.getByText(/工作流缺少入口节点/u)).toBeTruthy();
+
+    await user.keyboard('{Escape}');
+
+    expect(screen.queryByText(/工作流缺少入口节点/u)).toBeNull();
+  });
+
+  it('点浮层外面也关 —— 它挡着画布', async () => {
+    const user = userEvent.setup();
+    view(两个问题);
+    await user.click(screen.getByRole('button', { name: /2 个问题/u }));
+
+    await user.click(document.body);
+
+    expect(screen.queryByText(/工作流缺少入口节点/u)).toBeNull();
+  });
+
+  it('点清单里面不关 —— 用户要能选中文字复制节点 id', async () => {
+    const user = userEvent.setup();
+    view(两个问题);
+    await user.click(screen.getByRole('button', { name: /2 个问题/u }));
+
+    await user.click(screen.getByText(/工作流缺少入口节点/u));
+
+    expect(screen.getByText(/工作流缺少入口节点/u)).toBeTruthy();
+  });
+
   it('只有警告时不说「校验通过」—— 那会让人以为什么都没有', () => {
     view({
       ok: true,
