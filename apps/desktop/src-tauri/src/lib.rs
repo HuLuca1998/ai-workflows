@@ -134,7 +134,7 @@ fn memory_update(
     base_ver: i64,
     value: Option<String>,
     tags: Option<Vec<String>>,
-) -> IpcResult<()> {
+) -> IpcResult<api::VerOnly> {
     let store = lock(&state)?;
     api::memory_update(&store, id, base_ver, value, tags)
 }
