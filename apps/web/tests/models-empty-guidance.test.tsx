@@ -53,6 +53,7 @@ const 停用的内置两条 = [
 function respond(items: unknown[]) {
   const checked = createContractCall({
     'model.list': () => ({ items, total: items.length }),
+    'model.update': () => ({ ok: true }),
     'model.sync': () => ({
       models: [{ value: 'gpt-5-codex', label: 'gpt-5-codex' }],
       efforts: [
@@ -98,6 +99,43 @@ describe('一条模型都没启用时要给出路', () => {
         expect.objectContaining({ runtime: expect.any(String) }),
       );
     });
+  });
+
+  it('同步完把这一端的条目真的启用 —— 否则按钮点了等于没点', async () => {
+    /*
+     * 复核实测 N2：横幅让你点「同步」，点了回执写「清单没有变化」，
+     * 12 条模型全部仍是「已停用」，横幅继续挂着 —— 引导本身成了死路。
+     *
+     * 根因在存储层：`sync_models` 对已存在的条目只更新 name，不动 enabled
+     * （那是对的 —— 用户主动停用某条模型的意图不该被一次同步冲掉）。
+     * 所以「启用」这一步归横幅这个场景做：这里本来就是「一条都没有可用的」。
+     */
+    const user = userEvent.setup();
+    view();
+    const banner = await screen.findByRole('status', { name: /没有可用模型/u });
+
+    await user.click(within(banner).getByRole('button', { name: /同步/u }));
+
+    await waitFor(() => {
+      // 同步回来之后，这一端的条目要被启用
+      expect(call).toHaveBeenCalledWith('model.update', expect.objectContaining({ enabled: true }));
+    });
+  });
+
+  it('只启用同步的那一端 —— 别把另一端用户特意停掉的也打开', async () => {
+    const user = userEvent.setup();
+    view();
+    const banner = await screen.findByRole('status', { name: /没有可用模型/u });
+    await user.click(within(banner).getByRole('button', { name: /同步/u }));
+
+    await waitFor(() => {
+      expect(call).toHaveBeenCalledWith('model.update', expect.anything());
+    });
+    const 启用过的 = call.mock.calls
+      .filter(([method]) => method === 'model.update')
+      .map(([, input]) => (input as { id: string }).id);
+    // 夹具里 model:claude 是 claude 侧的，默认同步的是 codex
+    expect(启用过的).not.toContain('model:claude');
   });
 
   it('有启用的模型时不显示这条提示 —— 常驻的提醒会被无视', async () => {

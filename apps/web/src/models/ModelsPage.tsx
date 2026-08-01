@@ -144,28 +144,75 @@ export function ModelsPage() {
   const [syncNote, setSyncNote] = useState<string | null>(null);
   const [syncRuntime, setSyncRuntime] = useState<string>(AGENT_RUNTIMES[0]);
 
+  /** 只做同步这一步，返回回执文案。两个入口共用。 */
+  const runSyncOnce = async (): Promise<string> => {
+    const result = (await coreClient.call('model.sync', { runtime: syncRuntime })) as {
+      models: { value: string }[];
+      efforts: { value: string }[];
+      currentModel: string;
+      added: number;
+    };
+    return (
+      `${runtimeLabel(syncRuntime)}：${result.models.length} 个模型 / ` +
+      `${result.efforts.length} 档推理深度` +
+      (result.added > 0 ? `，新增 ${result.added} 条` : '，清单没有变化') +
+      (result.currentModel ? ` · 当前默认 ${result.currentModel}` : '')
+    );
+  };
+
   const runSync = () =>
     syncing.run(async () => {
       setSyncNote(null);
       setError(null);
       try {
-        const result = (await coreClient.call('model.sync', { runtime: syncRuntime })) as {
-          models: { value: string }[];
-          efforts: { value: string }[];
-          currentModel: string;
-          added: number;
-        };
-        setSyncNote(
-          `${runtimeLabel(syncRuntime)}：${result.models.length} 个模型 / ` +
-            `${result.efforts.length} 档推理深度` +
-            (result.added > 0 ? `，新增 ${result.added} 条` : '，清单没有变化') +
-            (result.currentModel ? ` · 当前默认 ${result.currentModel}` : ''),
-        );
+        setSyncNote(await runSyncOnce());
         // 同步完必须重拉：不拉的话用户点完什么都没变，
         // 而条目其实已经进库了 —— 他会以为没点上，再点几次
         await load(0);
       } catch (err) {
         // 空列表与「adapter 没装」在界面上长得一样，而要做的事完全不同
+        setError(describeError(err));
+      }
+    });
+
+  /**
+   * 横幅那个按钮：同步**并启用**。
+   *
+   * 光同步不够 —— `sync_models` 对已存在的条目只更新 name，不动 `enabled`
+   * （那是对的：用户主动停用某条模型的意图不该被一次同步冲掉）。
+   * 于是横幅让用户点「同步」，点完回执写「清单没有变化」，一条都没启用回来，
+   * 横幅继续挂着 —— 引导本身成了死路（复核实测 N2）。
+   *
+   * 「启用」这一步只属于这个场景：**这里本来就是「一条可用的都没有」**。
+   * 列表上那个「同步」按钮保持原样，不碰用户的停用意图。
+   *
+   * 只启用**同步的那一端**：另一端的条目可能是用户特意停掉的。
+   */
+  const syncAndEnable = () =>
+    syncing.run(async () => {
+      setSyncNote(null);
+      setError(null);
+      try {
+        await runSyncOnce();
+        const fresh = (await coreClient.call('model.list', {
+          enabledOnly: false,
+          limit: LIST_PAGE_SIZE,
+          offset: 0,
+        })) as { items: ModelRow[] };
+
+        const toEnable = fresh.items.filter(
+          (model) => model.runtime === syncRuntime && !model.enabled,
+        );
+        for (const model of toEnable) {
+          await coreClient.call('model.update', { id: model.id, enabled: true });
+        }
+        setSyncNote(
+          toEnable.length > 0
+            ? `${runtimeLabel(syncRuntime)}：已启用 ${toEnable.length} 条模型`
+            : `${runtimeLabel(syncRuntime)}：没有可启用的条目 —— 这一端的 adapter 可能没装`,
+        );
+        await load(0);
+      } catch (err) {
         setError(describeError(err));
       }
     });
@@ -354,8 +401,8 @@ export function ModelsPage() {
               内置那两条的模型名是示例值（adapter 不认）， 点「同步」让 runtime
               自己报它现在能用什么。
             </span>
-            <button type="button" onClick={() => void runSync()} disabled={syncing.running}>
-              {syncing.running ? '同步中…' : `从 ${runtimeLabel(syncRuntime)} 同步`}
+            <button type="button" onClick={() => void syncAndEnable()} disabled={syncing.running}>
+              {syncing.running ? '同步中…' : `从 ${runtimeLabel(syncRuntime)} 同步并启用`}
             </button>
           </p>
         ) : null}
