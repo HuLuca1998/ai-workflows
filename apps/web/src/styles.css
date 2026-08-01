@@ -7080,3 +7080,17 @@ fieldset.launch__field {
 .stat--link:hover {
   border-color: color-mix(in srgb, var(--color-accent) 45%, var(--color-divider));
 }
+
+/* 画布卡片上的「未实现」。与节点库那个徽章同色同语义 ——
+   节点库标了而画布没标，用户搭图时看的是画布（复核实测 F）。 */
+.wf-node__todo {
+  flex: none;
+  padding: 0 5px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--color-status-waiting) 45%, transparent);
+  background: color-mix(in srgb, var(--color-status-waiting) 14%, transparent);
+  font-size: 9.5px;
+  line-height: 1.5;
+  color: var(--color-status-waiting);
+  white-space: nowrap;
+}

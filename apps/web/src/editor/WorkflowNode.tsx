@@ -36,6 +36,12 @@ export interface WorkflowNodeData extends Record<string, unknown> {
   joinBadge: string;
   /** 校验有问题时画布上要能定位到（图纸：工具栏转为问题计数并可定位）。 */
   hasIssue?: boolean;
+  /**
+   * 引擎跑不了这种节点。
+   *
+   * 节点库标了而画布没标 —— 用户搭图时看的是画布（复核实测 F）。
+   */
+  unimplemented?: boolean;
 }
 
 export const WorkflowNode = memo(function WorkflowNode({ data, selected }: NodeProps) {
@@ -56,6 +62,13 @@ export const WorkflowNode = memo(function WorkflowNode({ data, selected }: NodeP
           aria-hidden="true"
         />
         <span className="wf-node__title">{node.title}</span>
+        {/* 文字而不只是颜色 —— 与节点库那个徽章同一套判据（契约的
+            implemented），读屏与色觉障碍用户同样拿得到 */}
+        {node.unimplemented ? (
+          <span className="wf-node__todo" title="引擎还没实现这种节点：运行会在这里停下">
+            未实现
+          </span>
+        ) : null}
         {node.joinBadge ? <span className="wf-node__join">{node.joinBadge}</span> : null}
         <span className="wf-node__badge" data-filled={visual.badgeFilled ? 'true' : undefined}>
           {visual.badge}

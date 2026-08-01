@@ -85,3 +85,56 @@ describe('搜索时标记不丢', () => {
     expect(item?.getAttribute('data-implemented')).toBe('false');
   });
 });
+
+/**
+ * 画布上的节点同样要标。
+ *
+ * 复核实测 F：节点库标了「未实现」，而拖进画布之后卡片上无徽章、
+ * 无 title，顶栏校验也不提 —— 只有点了「运行」，Dry Run 才说
+ * 「节点类型 branch 尚未实现，运行会在这个节点停下」。
+ *
+ * 用户搭图时看的是画布，不是节点库。
+ */
+describe('画布上的节点也标未实现', () => {
+  it('未实现的类型在卡片上带标记', async () => {
+    const { toFlowNodes } = await import('../src/editor/graphAdapter.js');
+    const 未实现 = NODE_TYPES.find((type) => !IMPLEMENTED_NODE_TYPES.includes(type))!;
+    const [flowNode] = toFlowNodes({
+      nodes: [
+        {
+          id: 'n1',
+          type: 未实现,
+          title: '试试',
+          position: { x: 0, y: 0 },
+          config: getNodeDefinition(未实现).seed ?? {},
+        },
+      ],
+      edges: [],
+      groups: [],
+    });
+
+    expect(
+      (flowNode!.data as { unimplemented?: boolean }).unimplemented,
+      `${未实现} 在画布上没有任何「跑不了」的标记`,
+    ).toBe(true);
+  });
+
+  it('已实现的不带 —— 满屏都是标记等于没标', async () => {
+    const { toFlowNodes } = await import('../src/editor/graphAdapter.js');
+    const [flowNode] = toFlowNodes({
+      nodes: [
+        {
+          id: 'n1',
+          type: 'approval',
+          title: '审批',
+          position: { x: 0, y: 0 },
+          config: getNodeDefinition('approval').seed ?? {},
+        },
+      ],
+      edges: [],
+      groups: [],
+    });
+
+    expect((flowNode!.data as { unimplemented?: boolean }).unimplemented).toBeUndefined();
+  });
+});

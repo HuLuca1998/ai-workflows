@@ -1,5 +1,6 @@
 import { MarkerType, type Edge, type Node } from '@xyflow/react';
 import {
+  IMPLEMENTED_NODE_TYPES,
   fanIn,
   fanOut,
   getNodeDefinition,
@@ -88,6 +89,13 @@ export function toFlowNodes(graph: WorkflowGraph, options: ToFlowOptions = {}): 
       tone: options.toneOf?.(node.id) ?? 'idle',
       joinBadge: joinBadge(fanIn(graph, node.id), fanOut(graph, node.id), node.join?.strategy),
       ...(issueNodeIds.has(node.id) ? { hasIssue: true } : {}),
+      /*
+       * 引擎跑不了这种节点。
+       *
+       * 节点库标了，而拖进画布之后卡片上什么都没有 —— 用户搭图时看的是
+       * 画布，不是节点库（复核实测 F）。判据取自契约，不在这里抄一份。
+       */
+      ...(IMPLEMENTED_NODE_TYPES.includes(node.type) ? {} : { unimplemented: true }),
     };
     return {
       id: node.id,
