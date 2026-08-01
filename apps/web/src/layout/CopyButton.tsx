@@ -49,7 +49,11 @@ export function CopyButton({
       type="button"
       className={className}
       disabled={!available}
-      title={available ? value : '当前环境没有剪贴板权限（需要 https 或桌面版）'}
+      /* **不放 value。** MCP 接入地址在界面上是打了码的，旁边还写着
+         「别贴进截图或工单」—— 而把完整值塞进 title，悬停约一秒
+         系统气泡就把整条令牌显示出来（第三方巡检 A-03）。
+         防护与漏洞隔了不到十行。用途说明足够了，内容用户自己知道。 */
+      title={available ? '复制到剪贴板' : '当前环境没有剪贴板权限（需要 https 或桌面版）'}
       {...(ariaLabel ? { 'aria-label': ariaLabel } : {})}
       onClick={() => void copy()}
     >

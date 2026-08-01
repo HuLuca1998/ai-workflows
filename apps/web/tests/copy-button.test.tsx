@@ -51,6 +51,26 @@ describe('CopyButton', () => {
     expect(button.title).toContain('剪贴板');
   });
 
+  it('不把要复制的内容塞进 title —— 那会让打了码的东西一悬停就全露', async () => {
+    // 第三方巡检 A-03：MCP 接入地址在界面上打了码（`/mcp/••••••••`）
+    // 并写着「别贴进截图或工单」，而「复制」按钮的 title 里是完整明文，
+    // 悬停约一秒系统气泡就把整条令牌显示出来 —— 防护与漏洞隔了不到十行
+    userEvent.setup();
+    stubClipboard(() => Promise.resolve());
+    const 令牌 = 'http://127.0.0.1:5178/mcp/269d163593c6d0fcf1aeba81c0bc6f6';
+    render(<CopyButton value={令牌} label="复制" />);
+
+    const button = screen.getByRole('button', { name: /复制/u });
+    expect(button.title, '完整值出现在悬停气泡里').not.toContain('269d163593c6d0fcf1aeba81c0bc6f6');
+  });
+
+  it('可用时仍给一句说明 —— 空 title 会让人不确定按钮做什么', async () => {
+    userEvent.setup();
+    stubClipboard(() => Promise.resolve());
+    render(<CopyButton value="secret-value" label="复制" />);
+    expect(screen.getByRole('button', { name: /复制/u }).title).toBeTruthy();
+  });
+
   it('写入失败要说失败，不能显示「已复制」', async () => {
     const user = userEvent.setup();
     stubClipboard(() => Promise.reject(new Error('拒绝访问')));
