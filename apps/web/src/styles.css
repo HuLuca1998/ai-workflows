@@ -6126,6 +6126,13 @@ fieldset.launch__field {
   overflow: auto;
 }
 
+/* 子项禁止收缩：__block 自带 overflow:hidden（裁圆角），它把 flex 的
+   自动最小高度归零 —— 内容装不下时子块被压扁裁切，页面总高恰好塞满
+   容器，滚动条永远不出现（内容看不全、也滚不动）。 */
+.onboarding > * {
+  flex-shrink: 0;
+}
+
 .onboarding h1 {
   margin: 0;
   font-size: 19px;

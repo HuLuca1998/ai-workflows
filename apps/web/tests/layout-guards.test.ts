@@ -80,6 +80,46 @@ describe('状态色不能与状态语义反着来', () => {
   });
 });
 
+/**
+ * 首次配置页是 column-flex 滚动容器，而 `.onboarding__block` 自带
+ * `overflow: hidden`（裁圆角）—— 这会把 flex 项的自动最小高度归零，
+ * 于是内容装不下时**子块被压扁裁切**而不是触发容器滚动：
+ * 页面总高恰好塞满容器，滚动条永远不出现，内容看不全也滚不动。
+ * 1440×900 实测：五个块合计约 300px 内容被藏掉，Python 行拦腰截断。
+ */
+describe('首次配置页的子块不能被压扁', () => {
+  const 压扁陷阱 = (css: string): boolean => {
+    const rules = parseRules(css);
+    const container = rules.find((entry) => entry.selector === '.onboarding');
+    const isFlexScroll =
+      container !== undefined &&
+      /display:\s*flex/u.test(container.body) &&
+      /overflow(?:-y)?:\s*auto/u.test(container.body);
+    if (!isFlexScroll) return false;
+    const childRule = rules.find((entry) => /\.onboarding\s*>\s*\*/u.test(entry.selector));
+    return childRule === undefined || !/flex-shrink:\s*0/u.test(childRule.body);
+  };
+
+  it('滚动容器的直接子项必须 flex-shrink: 0', () => {
+    expect(
+      压扁陷阱(CSS),
+      '.onboarding 是 flex 列滚动容器，但没有 `.onboarding > * { flex-shrink: 0 }` ——' +
+        '子块（overflow:hidden）会被压扁裁切，页面永远不出滚动条',
+    ).toBe(false);
+  });
+
+  it('这条守卫自己会红', () => {
+    const 假的 = `.onboarding { display: flex; flex-direction: column; overflow: auto; }
+      .onboarding__block { overflow: hidden; }`;
+    expect(压扁陷阱(假的)).toBe(true);
+  });
+
+  it('不是滚动容器时不误报', () => {
+    const 对的 = `.onboarding { display: block; }`;
+    expect(压扁陷阱(对的)).toBe(false);
+  });
+});
+
 describe('模型的启用状态色', () => {
   const rules = parseRules(CSS).filter((entry) => entry.selector.includes('models__item-state'));
 
