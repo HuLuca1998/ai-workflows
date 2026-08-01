@@ -770,9 +770,16 @@ impl Runner {
             let summarize = profiles
                 .iter()
                 .map(|p| {
+                    // 模型显示人看得懂的名字,不是内部登记 id ——
+                    // env_snapshot 曾写 model:codex,而 model_resolved 写 gpt-5.2,
+                    // 同一条运行两个说法(第 9 轮实测 #10)。查不到就退回原值
+                    let model_label = models
+                        .iter()
+                        .find(|m| m.id == p.model_ref)
+                        .map_or(p.model_ref.as_str(), |m| m.model_id.as_str());
                     format!(
                         "{}（{}）· runtime {} · 模型 {} · 权限 {}",
-                        p.name, p.id, p.runtime, p.model_ref, p.capabilities_json
+                        p.name, p.id, p.runtime, model_label, p.capabilities_json
                     )
                 })
                 .collect::<Vec<_>>()

@@ -669,6 +669,24 @@ fn 运行记录说得清这一步用了哪个角色与模型() {
             解析.summary
         );
     }
+
+    // env_snapshot 也要用人看得懂的模型名,不是内部登记 id ——
+    // 两处一个写 model:codex、一个写 gpt-5-codex 会让用户答不出用了哪个
+    // (第 9 轮实测 #10)
+    let 快照 = events
+        .iter()
+        .find(|e| e.kind == "system.env_snapshot")
+        .expect("有 AI 节点该留一条 system.env_snapshot");
+    assert!(
+        快照.summary.contains("gpt-5-codex"),
+        "env_snapshot 要写模型名而不是登记 id：{}",
+        快照.summary
+    );
+    assert!(
+        !快照.summary.contains("· 模型 model:"),
+        "env_snapshot 不该露出内部登记 id：{}",
+        快照.summary
+    );
 }
 
 #[test]
