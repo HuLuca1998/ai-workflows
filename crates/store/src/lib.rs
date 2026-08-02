@@ -469,6 +469,8 @@ pub struct RunRow {
     pub ended_at: Option<String>,
     /// 谁发起的：`manual` / `schedule` / `interval`。契约 `Run.trigger` 的镜像。
     pub trigger_kind: String,
+    /// 子工作流调用的父运行。契约 `Run.parentRunId` 的镜像。
+    pub parent_run_id: Option<String>,
 }
 
 fn map_run_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<RunRow> {
@@ -491,6 +493,7 @@ fn map_run_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<RunRow> {
         started_at: row.get(9)?,
         ended_at: row.get(10)?,
         trigger_kind: row.get(11)?,
+        parent_run_id: row.get(12)?,
     })
 }
 
@@ -1234,10 +1237,14 @@ impl Store {
             inputs_json,
             None,
             "manual",
+            None,
         )
     }
 
     /// 带工作目录的建 Run。并行运行靠不同的工作目录互不干扰。
+    // 参数多是「一次写全一行」的本质。拆成 struct 会让七个调用点
+    // 各自多一段构造，而它们本来就是把已有的值原样传下来
+    #[allow(clippy::too_many_arguments)]
     pub fn create_run_in(
         &self,
         workflow_id: &str,
@@ -1246,6 +1253,7 @@ impl Store {
         inputs_json: &str,
         workdir: Option<&str>,
         trigger_kind: &str,
+        parent_run_id: Option<&str>,
     ) -> Result<String> {
         let id = new_id("run");
 
@@ -1259,8 +1267,8 @@ impl Store {
         let inputs_json = redact_inputs(inputs_json);
 
         self.conn.execute(
-            "INSERT INTO run(id, workflow_id, version_id, draft_rev, status, inputs_json, workdir, started_at, trigger_kind)
-             VALUES (?1, ?2, ?3, ?4, 'created', ?5, ?6, ?7, ?8)",
+            "INSERT INTO run(id, workflow_id, version_id, draft_rev, status, inputs_json, workdir, started_at, trigger_kind, parent_run_id)
+             VALUES (?1, ?2, ?3, ?4, 'created', ?5, ?6, ?7, ?8, ?9)",
             params![
                 id,
                 workflow_id,
@@ -1269,10 +1277,57 @@ impl Store {
                 inputs_json,
                 workdir,
                 now_iso(),
-                trigger_kind
+                trigger_kind,
+                parent_run_id
             ],
         )?;
         Ok(id)
+    }
+
+    /// 某条运行的直接子运行。子工作流节点起的那些。
+    ///
+    /// 只查一层：整棵树由调用方按需递归。运行详情页要展示
+    /// 「这一步跑了哪条子流程、结果如何」，靠的就是它。
+    pub fn child_runs(&self, parent_run_id: &str) -> Result<Vec<RunRow>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT r.id, r.workflow_id, w.name, r.version_id, r.draft_rev, r.status,
+                    r.inputs_json, r.current_node, r.workdir, r.started_at, r.ended_at,
+                    r.trigger_kind, r.parent_run_id
+             FROM run r JOIN workflow w ON w.id = r.workflow_id
+             WHERE r.parent_run_id = ?1
+             ORDER BY r.started_at ASC, r.rowid ASC",
+        )?;
+        let rows: rusqlite::Result<Vec<RunRow>> = stmt
+            .query_map(params![parent_run_id], map_run_row)?
+            .collect();
+        Ok(rows?)
+    }
+
+    /// 从这条运行往上数，祖先运行所属的工作流 id（含它自己）。
+    ///
+    /// 嵌套调用的环检测靠它：`A → B → A` 不会立刻爆栈，
+    /// 它会安静地一直套下去直到把机器跑满。
+    pub fn run_ancestry(&self, run_id: &str) -> Result<Vec<String>> {
+        let mut chain = Vec::new();
+        let mut current = Some(run_id.to_string());
+        // 上限兜底：数据坏掉时（父指向自己）不能死循环
+        for _ in 0..64 {
+            let Some(id) = current else { break };
+            let row: Option<(String, Option<String>)> = self
+                .conn
+                .query_row(
+                    "SELECT workflow_id, parent_run_id FROM run WHERE id = ?1",
+                    params![id],
+                    |row| Ok((row.get(0)?, row.get(1)?)),
+                )
+                .optional()?;
+            let Some((workflow_id, parent)) = row else {
+                break;
+            };
+            chain.push(workflow_id);
+            current = parent;
+        }
+        Ok(chain)
     }
 
     /// 这个工作流上一次**自动**跑起来是什么时候（ISO 字符串）。
@@ -1327,7 +1382,7 @@ impl Store {
             .query_row(
                 "SELECT r.id, r.workflow_id, w.name, r.version_id, r.draft_rev, r.status,
                         r.inputs_json, r.current_node, r.workdir, r.started_at, r.ended_at,
-                    r.trigger_kind
+                    r.trigger_kind, r.parent_run_id
                  FROM run r JOIN workflow w ON w.id = r.workflow_id
                  WHERE r.id = ?1",
                 params![run_id],
@@ -1358,7 +1413,7 @@ impl Store {
         let sql = format!(
             "SELECT r.id, r.workflow_id, w.name, r.version_id, r.draft_rev, r.status,
                     r.inputs_json, r.current_node, r.workdir, r.started_at, r.ended_at,
-                    r.trigger_kind
+                    r.trigger_kind, r.parent_run_id
              FROM run r JOIN workflow w ON w.id = r.workflow_id
              WHERE (?1 IS NULL OR r.workflow_id = ?1)
                AND (?2 IS NULL OR r.id LIKE ?2 OR w.name LIKE ?2 OR r.inputs_json LIKE ?2)
@@ -1420,7 +1475,7 @@ impl Store {
         let sql = format!(
             "SELECT r.id, r.workflow_id, w.name, r.version_id, r.draft_rev, r.status,
                     r.inputs_json, r.current_node, r.workdir, r.started_at, r.ended_at,
-                    r.trigger_kind
+                    r.trigger_kind, r.parent_run_id
              FROM run r JOIN workflow w ON w.id = r.workflow_id
              {where_clause}
              ORDER BY r.started_at DESC, r.rowid DESC
