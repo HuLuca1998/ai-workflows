@@ -280,9 +280,21 @@ export const ISSUE_FIX: WorkflowTemplate = {
            */
           '# 已跟踪文件的改动全部纳入',
           'git add -u',
-          '# 新文件按需纳入，但排开构建与依赖产物',
+          /*
+           * 新文件按需纳入，排开构建产物、依赖目录，**以及未跟踪的锁文件**。
+           *
+           * 锁文件那一条是实测加的：`verifyCommands` 里的 `pnpm test`
+           * 在一个没有 lockfile 的仓库里必然生成一个 `pnpm-lock.yaml`，
+           * 于是它被当成「这次修复新增的文件」提交进 PR
+           * （run_ff4b95648b3eb581 的 PR #2 里除了它什么都没有）。
+           *
+           * 只排**未跟踪**的：仓库本来就跟踪锁文件的话，上面那句
+           * `git add -u` 已经把它的改动纳入了 —— 真的加了依赖的修复不会漏。
+           */
+          '# 新文件按需纳入，但排开构建产物、依赖目录与未跟踪的锁文件',
           'git ls-files --others --exclude-standard -z |',
           "  grep -zEv '^(node_modules|dist|build|target|\\.venv|__pycache__)/' |",
+          "  grep -zEv '(^|/)(pnpm-lock\\.yaml|package-lock\\.json|yarn\\.lock|Cargo\\.lock|poetry\\.lock|uv\\.lock)$' |",
           '  while IFS= read -r -d \'\' f; do git add -- "$f"; done',
           "git diff --cached --quiet && { echo '没有任何改动，不建 PR'; exit 1; }",
           'git commit -qm "fix: 关闭 #$ISSUE"',
@@ -498,10 +510,37 @@ export const ISSUE_FIX: WorkflowTemplate = {
       source: { nodeId: 'push_pr', port: 'success' },
       target: { nodeId: 'notify', port: 'input' },
     },
+    /*
+     * `done` 现在有两条**互斥**入边（notify 的 success 与 failed）——
+     * 必须显式声明「任一到达」。默认是「等全部到齐」，
+     * 而互斥端口永远只会来一条，那个终点就再也走不到了。
+     */
+    {
+      op: 'setJoin',
+      nodeId: 'done',
+      join: { strategy: 'any', merge: 'namespaced', onPartialFailure: 'fail' },
+    },
     {
       op: 'connect',
       edgeId: 'e_notify_done',
       source: { nodeId: 'notify', port: 'success' },
+      target: { nodeId: 'done', port: 'input' },
+    },
+    /*
+     * **通知发不出去不该把整条流程判失败** —— PR 已经开出来了。
+     *
+     * 实测（run_ff4b95648b3eb581，Web 形态）：devserver 没有桌面通知
+     * 发送器，`notify` 如实走 `failed`，而这个端口没有下游，
+     * 于是整条运行收在「停在「系统通知」的 failed 端口上」——
+     * 而那次 PR 是真的建好了的。
+     *
+     * 别的三条带 notify 的模板（repo-digest / server-log-triage /
+     * pr-followup）本来就接了这条边，只有这里漏了。
+     */
+    {
+      op: 'connect',
+      edgeId: 'e_notify_done_failed',
+      source: { nodeId: 'notify', port: 'failed' },
       target: { nodeId: 'done', port: 'input' },
     },
 

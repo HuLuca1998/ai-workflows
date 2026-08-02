@@ -202,9 +202,21 @@ export const ISSUE_FEATURE: WorkflowTemplate = {
            */
           '# 已跟踪文件的改动全部纳入',
           'git add -u',
-          '# 新文件按需纳入，但排开构建与依赖产物',
+          /*
+           * 新文件按需纳入，排开构建产物、依赖目录，**以及未跟踪的锁文件**。
+           *
+           * 锁文件那一条是实测加的：`verifyCommands` 里的 `pnpm test`
+           * 在一个没有 lockfile 的仓库里必然生成一个 `pnpm-lock.yaml`，
+           * 于是它被当成「这次修复新增的文件」提交进 PR
+           * （run_ff4b95648b3eb581 的 PR #2 里除了它什么都没有）。
+           *
+           * 只排**未跟踪**的：仓库本来就跟踪锁文件的话，上面那句
+           * `git add -u` 已经把它的改动纳入了 —— 真的加了依赖的修复不会漏。
+           */
+          '# 新文件按需纳入，但排开构建产物、依赖目录与未跟踪的锁文件',
           'git ls-files --others --exclude-standard -z |',
           "  grep -zEv '^(node_modules|dist|build|target|\\.venv|__pycache__)/' |",
+          "  grep -zEv '(^|/)(pnpm-lock\\.yaml|package-lock\\.json|yarn\\.lock|Cargo\\.lock|poetry\\.lock|uv\\.lock)$' |",
           '  while IFS= read -r -d \'\' f; do git add -- "$f"; done',
           "git diff --cached --quiet && { echo '没有任何改动，不建 PR'; exit 1; }",
           'git commit -qm "feat: 实现 #$ISSUE"',
