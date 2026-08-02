@@ -3384,7 +3384,7 @@
             },
             "config": {
               "interpreter": "zsh",
-              "script": "gh issue view ${input.issue} --repo ${input.repo.name} --json title,body,labels",
+              "script": "set -euo pipefail\ngh issue view ${input.issue} --repo ${input.repo.name} --json title,body,labels",
               "outputParse": "json",
               "timeoutMs": 60000
             }
@@ -3903,7 +3903,7 @@
               },
               "config": {
                 "interpreter": "zsh",
-                "script": "gh issue view ${input.issue} --repo ${input.repo.name} --json title,body,labels",
+                "script": "set -euo pipefail\ngh issue view ${input.issue} --repo ${input.repo.name} --json title,body,labels",
                 "env": {},
                 "secretEnv": {},
                 "outputParse": "json",
@@ -4405,7 +4405,7 @@
               "label": "node script.shell「读取 Issue」",
               "after": {
                 "interpreter": "zsh",
-                "script": "gh issue view ${input.issue} --repo ${input.repo.name} --json title,body,labels",
+                "script": "set -euo pipefail\ngh issue view ${input.issue} --repo ${input.repo.name} --json title,body,labels",
                 "env": {},
                 "secretEnv": {},
                 "outputParse": "json",

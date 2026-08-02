@@ -156,6 +156,41 @@ pub fn validate_graph(graph: &Value) -> ValidationResult {
                 None,
             ));
         }
+        // 自动触发时没有人在场填启动表单，调度器只能拿 inputSchema 的
+        // `default`。必填字段缺默认值 = 这份图一到点就死在第一个用到它的
+        // 节点上，而手动跑一切正常 —— 在发布时拦，别等它每天失败一次
+        if matches!(trigger, Some("schedule") | Some("interval")) {
+            let schema = entry.config.get("inputSchema");
+            let properties = schema.and_then(|s| s.get("properties"));
+            let missing: Vec<String> = schema
+                .and_then(|s| s.get("required"))
+                .and_then(Value::as_array)
+                .map(|required| {
+                    required
+                        .iter()
+                        .filter_map(Value::as_str)
+                        .filter(|key| {
+                            properties
+                                .and_then(|p| p.get(*key))
+                                .and_then(|spec| spec.get("default"))
+                                .is_none()
+                        })
+                        .map(str::to_string)
+                        .collect()
+                })
+                .unwrap_or_default();
+            if !missing.is_empty() {
+                issues.push(error(
+                    "TRIGGER_INPUT_NO_DEFAULT",
+                    format!(
+                        "自动触发时没有人填表，这些必填参数要有默认值：{}",
+                        missing.join("、")
+                    ),
+                    Some(entry.id.to_string()),
+                    None,
+                ));
+            }
+        }
     }
     if !by_id.is_empty() && !by_id.iter().any(|n| n.node_type == "end") {
         issues.push(warning(

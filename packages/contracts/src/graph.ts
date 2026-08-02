@@ -100,6 +100,9 @@ export const VALIDATION_CODES = [
   // 选了定时/间隔触发却没填时刻或间隔。error ——
   // 这种图发布出去，调度器只能沉默地不跑它
   'TRIGGER_INCOMPLETE',
+  // 自动触发 + 必填参数没有默认值。error ——
+  // 定时没有人在场填表，调度器只能拿 inputSchema 的默认值
+  'TRIGGER_INPUT_NO_DEFAULT',
 ] as const;
 export type ValidationCode = (typeof VALIDATION_CODES)[number];
 
@@ -210,6 +213,28 @@ export function validateGraph(graph: WorkflowGraph): ValidationResult {
     }
     if (config['trigger'] === 'interval' && typeof config['intervalMinutes'] !== 'number') {
       err('TRIGGER_INCOMPLETE', '选了按间隔触发，但没填间隔多少分钟', { nodeId: entry.id });
+    }
+    /*
+     * 自动触发时**没有人在场填启动表单** —— 调度器只能拿
+     * `inputSchema` 里每个字段的 `default`。必填字段没有默认值的话，
+     * 这份图一到点就死在第一个用到那个参数的节点上
+     * （`未定义的引用 ${input.repo}`），而手动跑一切正常，
+     * 所以问题只在半夜发生、只留下一条查不出原因的失败运行。
+     *
+     * 在**发布时**拦下来，而不是等它每天失败一次。
+     */
+    if (config['trigger'] === 'schedule' || config['trigger'] === 'interval') {
+      const schema = config['inputSchema'] as
+        { required?: unknown; properties?: Record<string, { default?: unknown }> } | undefined;
+      const required = Array.isArray(schema?.required) ? (schema.required as string[]) : [];
+      const 没默认值 = required.filter((key) => schema?.properties?.[key]?.default === undefined);
+      if (没默认值.length > 0) {
+        err(
+          'TRIGGER_INPUT_NO_DEFAULT',
+          `自动触发时没有人填表，这些必填参数要有默认值：${没默认值.join('、')}`,
+          { nodeId: entry.id },
+        );
+      }
     }
   }
   if (byId.size > 0 && ![...byId.values()].some((n) => n.type === 'end')) {

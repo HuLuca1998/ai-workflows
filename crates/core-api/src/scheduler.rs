@@ -47,8 +47,65 @@ pub enum Decision {
     Unreadable(String),
     /// 还没到点。
     NotYet,
-    /// 该跑了。
-    Fire(Trigger),
+    /// 该跑了，带上从 inputSchema 默认值算出来的入参。
+    Fire(Trigger, serde_json::Value),
+    /// 到点了，但必填参数填不出来 —— 定时没有人在场填表。
+    ///
+    /// **不硬跑**：跑出去必然死在第一个用到参数的节点上，
+    /// 而用户看到的是「每天一条失败运行」，查不到原因。
+    MissingInputs(Vec<String>),
+}
+
+/// 定时起运行时的入参：从入口的 `inputSchema` 取每个字段的 `default`。
+///
+/// **这是定时触发唯一的参数来源。** 没有人在场填表 —— 原来这里写死
+/// `"{}"`，于是任何有必填参数的工作流一到点就死在第二个节点上
+/// （`未定义的引用 ${input.repo.name}`）。手动点运行则一切正常，
+/// 所以实跑记录里看不出来（独立复核抓到的）。
+///
+/// 缺默认值的必填字段由 `validateGraph` 在**发布时**就拦下
+/// （`TRIGGER_INPUT_NO_DEFAULT`），走到这里的图不该再有那种字段；
+/// 真有的话下面 `missing_required` 会把它报出来而不是硬跑。
+#[must_use]
+pub fn inputs_from_defaults(config: &serde_json::Value) -> serde_json::Value {
+    let mut inputs = serde_json::Map::new();
+    let Some(properties) = config
+        .get("inputSchema")
+        .and_then(|schema| schema.get("properties"))
+        .and_then(serde_json::Value::as_object)
+    else {
+        return serde_json::Value::Object(inputs);
+    };
+    for (key, spec) in properties {
+        if let Some(value) = spec.get("default") {
+            inputs.insert(key.clone(), value.clone());
+        }
+    }
+    serde_json::Value::Object(inputs)
+}
+
+/// 必填却没有默认值的字段。定时触发填不出它们。
+#[must_use]
+pub fn missing_required(config: &serde_json::Value) -> Vec<String> {
+    let schema = config.get("inputSchema");
+    let properties = schema.and_then(|s| s.get("properties"));
+    schema
+        .and_then(|s| s.get("required"))
+        .and_then(serde_json::Value::as_array)
+        .map(|required| {
+            required
+                .iter()
+                .filter_map(serde_json::Value::as_str)
+                .filter(|key| {
+                    properties
+                        .and_then(|p| p.get(*key))
+                        .and_then(|spec| spec.get("default"))
+                        .is_none()
+                })
+                .map(str::to_string)
+                .collect()
+        })
+        .unwrap_or_default()
 }
 
 /// 单个工作流这一轮该怎么办。**纯函数**，不碰数据库也不碰时钟 ——
@@ -90,11 +147,14 @@ pub fn decide(
     if !trigger.is_automatic() {
         return Decision::Manual;
     }
-    if schedule::due(&trigger, now, anchor, last_auto, GRACE) {
-        Decision::Fire(trigger)
-    } else {
-        Decision::NotYet
+    if !schedule::due(&trigger, now, anchor, last_auto, GRACE) {
+        return Decision::NotYet;
     }
+    let missing = missing_required(config);
+    if !missing.is_empty() {
+        return Decision::MissingInputs(missing);
+    }
+    Decision::Fire(trigger, inputs_from_defaults(config))
 }
 
 /// 后台扫描线程的把手。丢掉它会停掉线程 —— 桌面壳与 devserver
@@ -190,7 +250,15 @@ fn scan_once(store: &Store, supervisor: &Supervisor, data_dir: &std::path::Path)
             now,
             last_auto,
         ) {
-            Decision::Fire(trigger) => {
+            Decision::MissingInputs(missing) => {
+                eprintln!(
+                    "[aiwf] {} 到点了但填不出必填参数（{}），没有起运行 —— \
+                     定时触发没有人在场填表，给这些字段配上默认值",
+                    workflow.name,
+                    missing.join("、")
+                );
+            }
+            Decision::Fire(trigger, inputs) => {
                 // published 一定是 Some —— Fire 只可能从「有图」那条路出来
                 let Some(version) = published else { continue };
                 match crate::run_start(
@@ -200,7 +268,7 @@ fn scan_once(store: &Store, supervisor: &Supervisor, data_dir: &std::path::Path)
                     workflow.id.clone(),
                     Some(version.id),
                     None,
-                    "{}".to_string(),
+                    inputs.to_string(),
                     None,
                     trigger,
                 ) {
@@ -282,10 +350,13 @@ mod tests {
         }));
         assert_eq!(
             decide(Some(&json), anchor(), local(9, 31), None),
-            Decision::Fire(Trigger::Daily {
-                hour: 9,
-                minute: 30
-            })
+            Decision::Fire(
+                Trigger::Daily {
+                    hour: 9,
+                    minute: 30
+                },
+                serde_json::json!({})
+            )
         );
     }
 
@@ -340,7 +411,7 @@ mod tests {
         }));
         assert_eq!(
             decide(Some(&json), anchor(), local(9, 31), Some(local(9, 0))),
-            Decision::Fire(Trigger::Interval { minutes: 30 })
+            Decision::Fire(Trigger::Interval { minutes: 30 }, serde_json::json!({}))
         );
         assert_eq!(
             decide(Some(&json), anchor(), local(9, 20), Some(local(9, 0))),
@@ -363,9 +434,61 @@ mod tests {
         }));
         assert_eq!(
             decide(Some(&json), anchor(), local(9, 31), None),
-            Decision::Fire(Trigger::Interval { minutes: 30 }),
+            Decision::Fire(Trigger::Interval { minutes: 30 }, serde_json::json!({})),
             "发布之后从没自动跑过的工作流，等够一个间隔必须跑起来"
         );
+    }
+
+    #[test]
+    fn 定时起运行时带上入参默认值() {
+        /*
+         * **这条是独立复核抓到的。**
+         *
+         * 原来调度器起运行时 inputsJson 写死 `"{}"`，于是任何有必填参数
+         * 的工作流一到点就死在第二个节点上（`未定义的引用 ${input.repo}`）。
+         * 手动点运行填表则一切正常 —— 所以实跑记录里完全看不出来，
+         * 而四条定时模板全都有必填参数。
+         */
+        let json = graph(serde_json::json!({
+            "trigger": "schedule", "scheduleTime": "09:30",
+            "inputSchema": {
+                "type": "object",
+                "required": ["repo"],
+                "properties": {
+                    "repo": { "type": "string", "default": "cli/cli" },
+                    "days": { "type": "string", "default": "7" },
+                    "note": { "type": "string" }
+                }
+            }
+        }));
+        let Decision::Fire(_, inputs) = decide(Some(&json), anchor(), local(9, 31), None) else {
+            panic!("到点了却没点火");
+        };
+        assert_eq!(inputs["repo"], "cli/cli");
+        assert_eq!(inputs["days"], "7");
+        assert!(
+            inputs.get("note").is_none(),
+            "没有默认值的可选字段不该凭空造一个出来"
+        );
+    }
+
+    #[test]
+    fn 必填字段没有默认值时不硬跑_而是报出来() {
+        // 硬跑的话用户每天收到一条失败运行，而失败原因在第二个节点里，
+        // 查到的是「未定义的引用」，看不出根因是「定时没人填表」
+        let json = graph(serde_json::json!({
+            "trigger": "schedule", "scheduleTime": "09:30",
+            "inputSchema": {
+                "type": "object",
+                "required": ["repo", "path"],
+                "properties": { "repo": { "type": "string", "default": "x" } }
+            }
+        }));
+        let Decision::MissingInputs(missing) = decide(Some(&json), anchor(), local(9, 31), None)
+        else {
+            panic!("填不出必填参数却点火了");
+        };
+        assert_eq!(missing, vec!["path".to_string()]);
     }
 
     #[test]
