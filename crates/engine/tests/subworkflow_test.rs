@@ -326,3 +326,72 @@ fn 工作流调用自己时挡住_而不是无限套娃() {
         "环检测该在建子运行之前就拦住"
     );
 }
+
+#[test]
+fn 子流程入口的默认值会被补上_不只发映射里那几个() {
+    /*
+     * **实跑抓到的。** `release-pipeline` 调 `release-checklist` 时
+     * 只映射了 `repoPath`，而后者还要 `testCommand` / `buildCommand`
+     * （两个都有默认值）。子运行死在第一个用到它们的节点上：
+     * 「未定义的引用 ${input.testCommand}」。
+     *
+     * 与调度器那条完全同构 —— 两条路都是「没有人在场填启动表单」，
+     * 而 `inputSchema` 的 default 是唯一的参数来源。
+     */
+    let 场地 = 场地();
+    let 产出 = 场地.workdir.join("默认值.txt");
+    let 子 = serde_json::json!({
+        "nodes": [
+            {"id":"entry","type":"entry","title":"入口","position":{"x":0,"y":0},
+             "config":{"inputSchema":{"type":"object","required":["text","suffix"],
+                       "properties":{"text":{"type":"string"},
+                                     "suffix":{"type":"string","default":"（默认后缀）"}}}}},
+            {"id":"sh","type":"script.shell","title":"写","position":{"x":1,"y":0},
+             "config":{"interpreter":"zsh",
+                       "script":format!("printf '%s%s' ${{input.text}} ${{input.suffix}} > {}", 产出.display())}},
+            {"id":"done","type":"end","title":"结束","position":{"x":2,"y":0},
+             "config":{"outcome":"success","artifacts":[]}}
+        ],
+        "edges": [
+            {"id":"a","source":{"nodeId":"entry","port":"success"},"target":{"nodeId":"sh","port":"input"}},
+            {"id":"b","source":{"nodeId":"sh","port":"success"},"target":{"nodeId":"done","port":"input"}}
+        ],
+        "groups": []
+    })
+    .to_string();
+    let child = 场地
+        .store
+        .create_workflow_with_graph("子流程", None, &子)
+        .unwrap();
+    // 父流程只映射 text，不映射 suffix
+    let parent = 场地
+        .store
+        .create_workflow_with_graph("父流程", None, &父图(&child, serde_json::json!({})))
+        .unwrap();
+
+    let runner = Runner::new();
+    let run_id = runner
+        .start(
+            &场地.store,
+            RunRequest {
+                workflow_id: parent,
+                version_id: None,
+                draft_rev: Some(0),
+                inputs_json: r#"{"说什么":"正文"}"#.to_string(),
+                workdir: 场地.workdir.display().to_string(),
+                trigger: Trigger::Manual,
+            },
+        )
+        .unwrap();
+    let status = runner.run_all(&场地.store, &run_id).unwrap();
+
+    assert_eq!(
+        status, "succeeded",
+        "子流程死在没映射的那个字段上 —— 它有默认值，该补上"
+    );
+    assert_eq!(
+        std::fs::read_to_string(&产出).unwrap(),
+        "正文（默认后缀）",
+        "默认值没被补进子运行的 inputs"
+    );
+}

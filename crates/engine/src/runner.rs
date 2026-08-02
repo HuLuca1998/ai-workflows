@@ -1504,7 +1504,25 @@ impl Runner {
         // 值是 `${…}` 模板，按**父运行**的作用域解析。
         // 解析不出来直接失败：带着一个字面量 `${input.x}` 跑下去的话，
         // 错误会出现在子运行的某个节点里，离原因很远
+        /*
+         * **先铺子流程入口的 `inputSchema` 默认值，再让映射覆盖。**
+         *
+         * 只发映射里那几个字段的话，子流程其余带默认值的必填项一个都没有 ——
+         * 它会死在第一个用到它们的节点上（`未定义的引用 ${input.testCommand}`）。
+         * 这与调度器那条完全同构（`scheduler.rs` 的 `inputs_from_defaults`）：
+         * 两条路都是「没有人在场填启动表单」。
+         *
+         * 实测：`release-pipeline` 调 `release-checklist` 时只映射了
+         * `repoPath`，而后者还要 `testCommand` / `buildCommand`（都有默认值）。
+         */
         let mut inputs = serde_json::Map::new();
+        if let Some(defaults) =
+            Self::child_entry_defaults(store, workflow_id, version_id.as_deref(), draft_rev)
+        {
+            for (key, value) in defaults {
+                inputs.insert(key, value);
+            }
+        }
         if let Some(mapping) = config.get("inputMapping").and_then(|v| v.as_object()) {
             for (key, value) in mapping {
                 let Some(template) = value.as_str() else {
@@ -1635,6 +1653,39 @@ impl Runner {
                 message: format!("子运行 {child_id} 以 {status} 结束"),
             })
         }
+    }
+
+    /// 子流程入口 `inputSchema` 里每个字段的 `default`。
+    ///
+    /// 与 `scheduler.rs` 的 `inputs_from_defaults` 同一件事：
+    /// 没有人在场填启动表单时，默认值是唯一的参数来源。
+    fn child_entry_defaults(
+        store: &Store,
+        workflow_id: &str,
+        version_id: Option<&str>,
+        draft_rev: Option<i64>,
+    ) -> Option<serde_json::Map<String, serde_json::Value>> {
+        let graph_json = match version_id {
+            Some(id) => store.get_version(id).ok()??.graph_json,
+            None => store.get_draft(workflow_id, draft_rev?).ok()??,
+        };
+        let graph: serde_json::Value = serde_json::from_str(&graph_json).ok()?;
+        let entry =
+            graph.get("nodes")?.as_array()?.iter().find(|node| {
+                node.get("type").and_then(serde_json::Value::as_str) == Some("entry")
+            })?;
+        let properties = entry
+            .get("config")?
+            .get("inputSchema")?
+            .get("properties")?
+            .as_object()?;
+        let mut out = serde_json::Map::new();
+        for (key, spec) in properties {
+            if let Some(value) = spec.get("default") {
+                out.insert(key.clone(), value.clone());
+            }
+        }
+        Some(out)
     }
 
     /// `node.succeeded` 专用：把出口端口一并写下。
