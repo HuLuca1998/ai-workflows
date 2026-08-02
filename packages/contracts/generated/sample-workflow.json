@@ -125,7 +125,7 @@
         },
         "config": {
           "agentProfileId": "builtin:builder",
-          "instruction": "按选定方案修改代码，小步提交，每步可验证。",
+          "instruction": "要修的 Issue：\n${read_issue.success.stdout}\n\n分析给出的方案（已经过人工选定）：\n${analyze.success}\n\n按上面的方案改代码。小步提交，每步可验证。\n\n**改完自己核一遍**：真的动了要动的那个文件吗？\n一个字都没改的话，直说「没有改动」并说明为什么 ——\n不要跑一遍测试就当交差。",
           "turnLimit": 12,
           "workdirSource": "worktree",
           "verifyCommands": [
@@ -169,7 +169,7 @@
         },
         "config": {
           "agentProfileId": "builtin:operator",
-          "instruction": "按影响面给出 L1–L3 分级；push 与建 PR 属于 L3。",
+          "instruction": "审查结论：\n${review.passed}\n\n按影响面给出 L1–L3 分级；push 与建 PR 属于 L3。",
           "turnLimit": 12,
           "rules": [],
           "autoDecideUpTo": "L2",

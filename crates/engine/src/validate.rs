@@ -400,10 +400,121 @@ pub fn validate_graph(graph: &Value) -> ValidationResult {
         }
     }
 
+    /*
+     * **上一个节点的产出，下一个 AI 节点用到了吗。**
+     *
+     * 每个 AI 节点各开一条 ACP 会话，没有跨节点上下文 —— 上一步的结论
+     * 不显式写进 `instruction` / `target`，模型就真的看不到。
+     *
+     * 实测（真 GitHub 仓库的 issue 修复）：`fix` 节点指令全文是
+     * 「按选定方案修改代码，小步提交，每步可验证。」——
+     * 上游分析给出的方案一个字都没接进来，最后开出的 PR 里
+     * 只有一个多余的锁文件。
+     *
+     * **穿过审批节点往上找**：审批不携带内容往下传。
+     * 与 `packages/contracts/src/graph.ts` 逐字等价（含文案）。
+     */
+    for node in &by_id {
+        if !AI_NODE_TYPES.contains(&node.node_type) {
+            continue;
+        }
+        let config = node.config.to_string();
+        let referenced = referenced_nodes(&config);
+        let missing: Vec<String> = nearest_producers(node.id, &by_id, &edges)
+            .into_iter()
+            .filter(|id| !referenced.contains(id))
+            .collect();
+        if !missing.is_empty() {
+            issues.push(warning(
+                "UPSTREAM_UNUSED",
+                format!(
+                    "上游 {} 的产出没有出现在这个节点的指令里 —— \
+                     AI 节点之间没有共享上下文，不用 ${{节点id.端口}} 接进来它就看不到",
+                    missing.join("、")
+                ),
+                Some(node.id.to_string()),
+                None,
+            ));
+        }
+    }
+
     ValidationResult {
         ok: !issues.iter().any(|issue| issue.level == "error"),
         issues,
     }
+}
+
+/// 指令里引用上游才看得到内容的节点类型。
+const AI_NODE_TYPES: &[&str] = &["ai.analyze", "ai.execute", "ai.review", "ai.decide"];
+
+/// 会产出内容、值得被下游引用的节点类型。
+const PRODUCER_TYPES: &[&str] = &[
+    "script.shell",
+    "ai.analyze",
+    "ai.execute",
+    "ai.review",
+    "ai.decide",
+    "subworkflow",
+];
+
+/// 配置里出现过的 `${节点id.` 引用。
+fn referenced_nodes(config: &str) -> std::collections::HashSet<String> {
+    let mut out = std::collections::HashSet::new();
+    let bytes = config.as_bytes();
+    let mut i = 0;
+    while i + 1 < bytes.len() {
+        if bytes[i] == b'$' && bytes[i + 1] == b'{' {
+            let rest = &config[i + 2..];
+            if let Some(dot) = rest.find('.') {
+                let name = &rest[..dot];
+                if !name.is_empty() && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') {
+                    out.insert(name.to_string());
+                }
+            }
+        }
+        i += 1;
+    }
+    out
+}
+
+/// 穿过审批等不产出内容的节点，找最近的产出祖先。
+///
+/// `entry` 不算：它的产出是 `${input.*}`，不以节点 id 引用。
+fn nearest_producers(node_id: &str, nodes: &[NodeView<'_>], edges: &[&Value]) -> Vec<String> {
+    let mut found = std::collections::BTreeSet::new();
+    let mut seen = std::collections::HashSet::new();
+    let mut stack = vec![node_id.to_string()];
+
+    while let Some(current) = stack.pop() {
+        for edge in edges {
+            let target = edge
+                .get("target")
+                .and_then(|t| t.get("nodeId"))
+                .and_then(Value::as_str)
+                .unwrap_or_default();
+            if target != current {
+                continue;
+            }
+            let source = edge
+                .get("source")
+                .and_then(|s| s.get("nodeId"))
+                .and_then(Value::as_str)
+                .unwrap_or_default();
+            if source.is_empty() || !seen.insert(source.to_string()) {
+                continue;
+            }
+            let kind = nodes
+                .iter()
+                .find(|n| n.id == source)
+                .map_or("", |n| n.node_type);
+            if PRODUCER_TYPES.contains(&kind) {
+                found.insert(source.to_string());
+            } else {
+                stack.push(source.to_string());
+            }
+        }
+    }
+    found.into_iter().collect()
 }
 
 /// Kahn 排不掉的节点就是环上的节点。

@@ -109,6 +109,8 @@ export const VALIDATION_CODES = [
   // 多条入边来自不同来源，却没显式声明汇聚策略。error ——
   // 默认「等全部到齐」，互斥端口只会走一条，那个节点永远执行不到
   'JOIN_STRATEGY_MISSING',
+  /** AI 节点的指令里没引用上游的产出 —— 它看不到上一步的结论。 */
+  'UPSTREAM_UNUSED',
 ] as const;
 export type ValidationCode = (typeof VALIDATION_CODES)[number];
 
@@ -375,7 +377,82 @@ export function validateGraph(graph: WorkflowGraph): ValidationResult {
     }
   }
 
+  /*
+   * **上一个节点的产出，下一个 AI 节点用到了吗。**
+   *
+   * 每个 AI 节点各开一条 ACP 会话，没有跨节点上下文 —— 上一步的结论
+   * 不显式写进 `instruction` / `target`，模型就真的看不到，
+   * 它的提示词里只有角色、记忆和这段指令。
+   *
+   * 实测（真 GitHub 仓库的 issue 修复）：`fix` 节点指令全文是
+   * 「按选定方案修改代码，小步提交，每步可验证。」——
+   * 上游分析给出的方案一个字都没接进来，那个 agent 手上什么都没有，
+   * 最后开出的 PR 里只有一个多余的锁文件。
+   *
+   * **穿过审批节点往上找**：审批不携带内容往下传，
+   * 只看直接上游的话，`分析 → 审批 → 执行` 这条链上什么都查不出来。
+   *
+   * warning 不是 error：编辑中途还没写完指令是正常状态，
+   * 而「有意不引用、让 agent 自己用系统 MCP 去读」也是合法做法。
+   */
+  for (const node of byId.values()) {
+    if (!AI_NODE_TYPES.has(node.type)) continue;
+    const referenced = new Set(
+      [...JSON.stringify(node.config ?? {}).matchAll(/\$\{(\w+)\./gu)].map((m) => m[1]!),
+    );
+    const missing = nearestProducers(graph, node.id).filter((id) => !referenced.has(id));
+    if (missing.length > 0) {
+      warn(
+        'UPSTREAM_UNUSED',
+        `上游 ${missing.join('、')} 的产出没有出现在这个节点的指令里 —— ` +
+          'AI 节点之间没有共享上下文，不用 ${节点id.端口} 接进来它就看不到',
+        { nodeId: node.id },
+      );
+    }
+  }
+
   return { ok: !issues.some((i) => i.level === 'error'), issues };
+}
+
+/** 指令里引用上游才看得到内容的节点类型。 */
+const AI_NODE_TYPES = new Set(['ai.analyze', 'ai.execute', 'ai.review', 'ai.decide']);
+
+/** 会产出内容、值得被下游引用的节点类型。 */
+const PRODUCER_TYPES = new Set([
+  'script.shell',
+  'ai.analyze',
+  'ai.execute',
+  'ai.review',
+  'ai.decide',
+  'subworkflow',
+]);
+
+/**
+ * 穿过审批等不产出内容的节点，找最近的产出祖先。
+ *
+ * `entry` 不算：它的产出是 `${input.*}`，不以节点 id 引用。
+ */
+export function nearestProducers(graph: WorkflowGraph, nodeId: string): string[] {
+  const byType = new Map(graph.nodes.map((n) => [n.id, n.type]));
+  const parents = new Map<string, string[]>();
+  for (const edge of graph.edges) {
+    const list = parents.get(edge.target.nodeId) ?? [];
+    list.push(edge.source.nodeId);
+    parents.set(edge.target.nodeId, list);
+  }
+
+  const found = new Set<string>();
+  const seen = new Set<string>();
+  const walk = (id: string) => {
+    for (const parent of parents.get(id) ?? []) {
+      if (seen.has(parent)) continue;
+      seen.add(parent);
+      if (PRODUCER_TYPES.has(byType.get(parent) ?? '')) found.add(parent);
+      else walk(parent);
+    }
+  };
+  walk(nodeId);
+  return [...found].sort();
 }
 
 // ── 拓扑工具 ────────────────────────────────────────────────────────────────
