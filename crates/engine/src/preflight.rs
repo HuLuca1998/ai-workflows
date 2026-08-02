@@ -58,6 +58,10 @@ pub const IMPLEMENTED: &[&str] = &[
     "ai.execute",
     "ai.review",
     "ai.decide",
+    // sync 调用是真的（`runner.rs` 的 `run_subworkflow`）。
+    // parallel 与 onFailure:retry 在节点执行时明确报「尚未实现」——
+    // 那是配置层面的限制，不是「这种节点跑不了」，所以在这份清单里
+    "subworkflow",
 ];
 
 /// 不带角色的 Dry Run。

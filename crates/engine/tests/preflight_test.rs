@@ -187,10 +187,13 @@ fn 没有_git_节点时不检查_git_不列无关条目() {
 #[test]
 fn 尚未实现的节点类型在_dry_run_就说清楚() {
     // 跑到一半才说「这个类型没实现」太晚了，那时已经产生了副作用
+    // 例子用 branch：subworkflow 的 sync 调用已经实现了
+    // （`runner.rs` 的 `run_subworkflow`），拿它当反例这条测试永远不红
     let with_sub = serde_json::json!({
         "nodes": [
             {"id": "entry", "type": "entry", "title": "入口", "config": {}},
-            {"id": "sub", "type": "subworkflow", "title": "子流程", "config": {"workflowId": "wf_1"}}
+            {"id": "sub", "type": "branch", "title": "条件分支",
+             "config": {"cases": [{"port": "a", "when": "x"}]}}
         ],
         "edges": [
             {"id": "e1", "source": {"nodeId": "entry", "port": "success"}, "target": {"nodeId": "sub", "port": "input"}}
@@ -201,7 +204,7 @@ fn 尚未实现的节点类型在_dry_run_就说清楚() {
     let unimplemented = report
         .checks
         .iter()
-        .find(|c| c.label.contains("subworkflow"))
+        .find(|c| c.label.contains("branch"))
         .expect("应当指出未实现的节点类型");
     assert_eq!(unimplemented.status, CheckStatus::Failed);
     assert!(!report.ok);

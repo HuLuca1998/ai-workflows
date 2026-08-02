@@ -72,6 +72,33 @@ fn run_one(node_type: &str) -> aiwf_engine::executor::Result<NodeOutcome> {
         .execute(&node, &mut scope)
 }
 
+/// 在 runner 那一层分派、不经过 executor 的节点类型。
+///
+/// 每一条都要写明**为什么非在 runner 不可** —— 否则这个名单会变成
+/// 「executor 里没实现就往这儿放」的后门，而那正是这条守卫要防的。
+///
+/// 判据是「它需要 executor 刻意不给的东西」：executor 不碰数据库
+/// （角色、提示词、模型都是 runner 一次性查好传进去的），
+/// 所以要建 Run、要读运行树的，只能在 runner。
+const RUNNER_LEVEL: &[(&str, &str)] = &[(
+    "subworkflow",
+    "要建独立子 Run（带 parent_run_id）、要读运行祖先做环检测、     要递归调 Runner —— 三样都得碰数据库，而 executor 刻意不碰。     行为守卫在 crates/engine/tests/subworkflow_test.rs",
+)];
+
+#[test]
+fn runner_层的每一条都写了理由并且确实在_implemented_里() {
+    for (node_type, reason) in RUNNER_LEVEL {
+        assert!(
+            !reason.trim().is_empty(),
+            "{node_type} 进了 runner 层名单却没写理由"
+        );
+        assert!(
+            IMPLEMENTED.contains(node_type),
+            "{node_type} 在 runner 层名单里却不在 IMPLEMENTED —— 名单该跟着删"
+        );
+    }
+}
+
 #[test]
 fn 清单里的每一种类型都不在_implemented_与分派脱节() {
     let contract_types = contract_node_types();
@@ -94,6 +121,11 @@ fn 清单里的每一种类型都不在_implemented_与分派脱节() {
         );
 
         if implemented {
+            // runner 层分派的那几种，executor 报「尚未实现」是**对的**：
+            // 它确实没实现，实现在 runner。名单本身由上面那条守着
+            if RUNNER_LEVEL.iter().any(|(t, _)| t == node_type) {
+                continue;
+            }
             assert!(
                 !unimplemented_reported,
                 "{node_type} 在 IMPLEMENTED 里，executor 却报「尚未实现」—— 两份清单脱节"

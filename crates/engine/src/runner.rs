@@ -1,9 +1,16 @@
 use aiwf_store::{NewRunEvent, Store};
 
 use crate::executor::NodeExecutor;
-use crate::graph::WorkflowGraph;
+use crate::graph::{GraphNode, WorkflowGraph};
 use crate::interp::Scope;
 use crate::plan::ExecutionPlan;
+
+/// 子工作流的嵌套层数上限。
+///
+/// 有环检测挡住了 A → B → A，但 A → B → C → D → … 这样一路往下
+/// 是合法的、也是没有尽头的。每一层占一条线程（子运行同步跑在
+/// 父运行的线程里），八层已经远超任何真实用法。
+const MAX_NESTING: usize = 8;
 
 /// Run 的生命周期与推进。
 ///
@@ -278,38 +285,52 @@ impl Runner {
             &request.inputs_json,
             Some(&request.workdir),
             request.trigger.kind(),
+            // 顶层运行没有父运行。子工作流那条路走 `begin_existing`
+            None,
         )?;
+        self.begin_existing(store, &run_id)?;
+        Ok(run_id)
+    }
 
-        self.emit(store, &run_id, "run.created", None, "engine", "运行已创建")?;
+    /// 已经建好的 Run 走一遍生命周期开场：preflight + 四条事件。
+    ///
+    /// 单独拆出来是给子工作流用的 —— 子运行要带 `parent_run_id`，
+    /// 建 Run 那一步不一样，而**开场必须一模一样**：
+    /// 子运行在界面上是一条一等的运行记录，它该有和别人相同的事件流。
+    pub fn begin_existing(&self, store: &Store, run_id: &str) -> Result<()> {
+        let run_id = run_id.to_string();
+        let run_id = &run_id;
 
-        match self.load_plan(store, &run_id) {
+        self.emit(store, run_id, "run.created", None, "engine", "运行已创建")?;
+
+        match self.load_plan(store, run_id) {
             Ok(_) => {
                 self.emit(
                     store,
-                    &run_id,
+                    run_id,
                     "run.preflight_passed",
                     None,
                     "engine",
                     "依赖检查通过",
                 )?;
-                self.emit(store, &run_id, "run.queued", None, "engine", "已进入队列")?;
-                self.emit(store, &run_id, "run.started", None, "engine", "开始执行")?;
-                store.set_run_status(&run_id, "running", None)?;
+                self.emit(store, run_id, "run.queued", None, "engine", "已进入队列")?;
+                self.emit(store, run_id, "run.started", None, "engine", "开始执行")?;
+                store.set_run_status(run_id, "running", None)?;
             }
             Err(error) => {
                 self.emit(
                     store,
-                    &run_id,
+                    run_id,
                     "run.preflight_failed",
                     None,
                     "engine",
                     &format!("依赖检查未通过：{error}"),
                 )?;
-                store.set_run_status(&run_id, "failed", None)?;
+                store.set_run_status(run_id, "failed", None)?;
             }
         }
 
-        Ok(run_id)
+        Ok(())
     }
 
     /// 推进一步：挑一个就绪节点执行。
@@ -520,6 +541,10 @@ impl Runner {
         // 交给执行器决定的话，一个实现得不对的执行器就能把人工审批绕过去。
         let outcome = if node.node_type == "approval" {
             NodeOutcome::NeedsApproval
+        } else if node.node_type == "subworkflow" {
+            // 子工作流也归引擎管，不归执行器：它要建 Run、要落
+            // parent_run_id、要递归调 Runner —— 执行器刻意不碰数据库
+            self.run_subworkflow(store, run_id, node, scope)?
         } else {
             execute(node, scope)
         };
@@ -1372,6 +1397,246 @@ impl Runner {
 
     /// 节点事件。**标题一并记下** —— 界面显示的是它，不是内部 id。
     #[allow(clippy::too_many_arguments)]
+    /// 跑一个子工作流节点。
+    ///
+    /// 子调用表达成**独立的 Run + `parent_run_id`**，不是把子图内联进父图 ——
+    /// 内联的话运行记录里看不出边界，而「这一步实际上跑了另一条工作流」
+    /// 正是最需要看见的事。
+    ///
+    /// **同步**：子运行在父运行这条线程里跑完。代价是一条被占住的线程，
+    /// 换来的是「父节点的成功/失败就是子运行的成功/失败」这条简单语义。
+    /// 子运行停在审批点时父运行跟着等 —— 那个审批出现在审批列表里
+    /// （它是一条真的 Run），用户决定之后下一轮继续。
+    fn run_subworkflow(
+        &self,
+        store: &Store,
+        run_id: &str,
+        node: &GraphNode,
+        scope: &mut Scope,
+    ) -> Result<NodeOutcome> {
+        let config = &node.config;
+        let text = |key: &str| config.get(key).and_then(serde_json::Value::as_str);
+
+        // ── 先把做不到的说清楚 ──
+        //
+        // 悄悄按 sync 跑是最坏的：`concurrencyLimit: 5` 看起来生效，
+        // 而实际串行跑了五遍，用户等五倍时间并且找不到原因
+        let mode = text("mode").unwrap_or("sync");
+        if mode != "sync" {
+            return Ok(NodeOutcome::Failed {
+                message: format!(
+                    "调用方式 {mode} 尚未实现，只做得到 sync。\
+                     parallel（多实例并发调用）要先有跨运行的并发上限，\
+                     现在把它当 sync 跑的话 concurrencyLimit 就是个摆设"
+                ),
+            });
+        }
+        let on_failure = text("onFailure").unwrap_or("fail_parent");
+        if on_failure == "retry" {
+            return Ok(NodeOutcome::Failed {
+                message: "失败策略 retry 尚未实现，只做得到 fail_parent / continue".to_string(),
+            });
+        }
+
+        let Some(workflow_id) = text("workflowId").filter(|id| !id.trim().is_empty()) else {
+            return Ok(NodeOutcome::Failed {
+                message: "没有选择要调用的工作流".to_string(),
+            });
+        };
+
+        // ── 环检测 ──
+        //
+        // A → B → A 不会立刻爆栈，它会安静地一直套下去直到把机器跑满
+        let ancestry = store.run_ancestry(run_id).unwrap_or_default();
+        if ancestry.iter().any(|id| id == workflow_id) {
+            return Ok(NodeOutcome::Failed {
+                message: format!(
+                    "工作流 {workflow_id} 已经在这条调用链上了，嵌套调用会无限套下去。\
+                     调用链：{}",
+                    ancestry.join(" → ")
+                ),
+            });
+        }
+        if ancestry.len() >= MAX_NESTING {
+            return Ok(NodeOutcome::Failed {
+                message: format!("嵌套层数超过 {MAX_NESTING} 层，停在这里"),
+            });
+        }
+
+        // ── 选版本 ──
+        let version_ref = text("versionRef").unwrap_or("latest");
+        let version_id = if version_ref == "latest" {
+            match store.latest_version(workflow_id) {
+                Ok(Some(version)) => Some(version.id),
+                Ok(None) => None,
+                Err(error) => {
+                    return Ok(NodeOutcome::Failed {
+                        message: format!("读不到 {workflow_id} 的版本：{error}"),
+                    });
+                }
+            }
+        } else {
+            store
+                .list_versions(workflow_id)
+                .unwrap_or_default()
+                .into_iter()
+                .find(|v| v.version.to_string() == version_ref)
+                .map(|v| v.id)
+        };
+        // 没有已发布版本就跑最新草稿。这与调度器那边**刻意不同**：
+        // 定时是无人值守的，而子调用是父运行显式要求的，
+        // 用户此刻就在等结果，让他先去发布一个版本是白白卡一道
+        let draft_rev = if version_id.is_none() {
+            match store.draft_revision(workflow_id) {
+                Ok(Some(rev)) => Some(rev),
+                _ => {
+                    return Ok(NodeOutcome::Failed {
+                        message: format!("工作流 {workflow_id} 既没有发布版本也没有草稿"),
+                    });
+                }
+            }
+        } else {
+            None
+        };
+
+        // ── 入参映射 ──
+        //
+        // 值是 `${…}` 模板，按**父运行**的作用域解析。
+        // 解析不出来直接失败：带着一个字面量 `${input.x}` 跑下去的话，
+        // 错误会出现在子运行的某个节点里，离原因很远
+        let mut inputs = serde_json::Map::new();
+        if let Some(mapping) = config.get("inputMapping").and_then(|v| v.as_object()) {
+            for (key, value) in mapping {
+                let Some(template) = value.as_str() else {
+                    continue;
+                };
+                match crate::interp::interpolate(template, scope) {
+                    Ok(resolved) => {
+                        inputs.insert(key.clone(), serde_json::Value::String(resolved));
+                    }
+                    Err(error) => {
+                        return Ok(NodeOutcome::Failed {
+                            message: format!("入参映射 {key} 解析不出来：{error}"),
+                        });
+                    }
+                }
+            }
+        }
+
+        // ── 建子运行 ──
+        let workdir = self.workdir(store, run_id)?;
+        let child_id = store.create_run_in(
+            workflow_id,
+            version_id.as_deref(),
+            draft_rev,
+            &serde_json::Value::Object(inputs).to_string(),
+            Some(&workdir.display().to_string()),
+            // 子运行跟着父运行的来源：定时跑出来的父运行，
+            // 它的子运行也不是人点的
+            &store
+                .get_run(run_id)?
+                .map_or_else(|| "manual".to_string(), |row| row.trigger_kind),
+            Some(run_id),
+        )?;
+
+        self.emit_node(
+            store,
+            run_id,
+            "node.output_emitted",
+            &node.id,
+            &node.title,
+            "engine",
+            &format!("子运行 {child_id} 已创建（工作流 {workflow_id}）"),
+        )?;
+
+        // ── 跑起来 ──
+        //
+        // 走完整的 `start`（preflight + 生命周期事件），不是直接 run_all：
+        // 子运行在界面上是一条一等的运行记录，它该有和别人一样的事件流
+        let child = Runner::new();
+        let child = match (&self.notifier, &self.stream) {
+            (Some(notifier), _) => child.with_notifier(notifier.clone()),
+            _ => child,
+        };
+        if let Err(error) = child.begin_existing(store, &child_id) {
+            return Ok(NodeOutcome::Failed {
+                message: format!("子运行起不来：{error}"),
+            });
+        }
+
+        let status = loop {
+            let status = child.run_all(store, &child_id)?;
+            if status != "waiting_approval" {
+                break status;
+            }
+            // 子运行停在审批点。它是一条真的 Run，审批就在审批列表里 ——
+            // 父运行在这里等着，用户决定之后下一轮继续
+            std::thread::sleep(std::time::Duration::from_millis(500));
+        };
+
+        // ── 出参映射 ──
+        //
+        // 子运行的产出以 `子节点id.端口` 的形式放进父作用域，
+        // 供下游 `${sub.success.xxx}` 引用
+        let mut outputs = serde_json::Map::new();
+        outputs.insert(
+            "runId".to_string(),
+            serde_json::Value::String(child_id.clone()),
+        );
+        outputs.insert(
+            "status".to_string(),
+            serde_json::Value::String(status.clone()),
+        );
+        if let Some(mapping) = config.get("outputMapping").and_then(|v| v.as_object()) {
+            for (key, value) in mapping {
+                if let Some(template) = value.as_str() {
+                    // 出参模板按**子运行结束时的作用域**解析。
+                    // 拿不到就跳过并留痕，不让整个节点失败 ——
+                    // 正事（子流程）已经跑完了
+                    match child.restore_scope(store, &child_id) {
+                        Ok(child_scope) => match crate::interp::interpolate(template, &child_scope)
+                        {
+                            Ok(resolved) => {
+                                outputs.insert(key.clone(), serde_json::Value::String(resolved));
+                            }
+                            Err(error) => self.emit_node(
+                                store,
+                                run_id,
+                                "node.output_emitted",
+                                &node.id,
+                                &node.title,
+                                "engine",
+                                &format!("出参映射 {key} 取不到：{error}"),
+                            )?,
+                        },
+                        Err(error) => {
+                            eprintln!("[runner] 子运行作用域读不出来：{error}");
+                        }
+                    }
+                }
+            }
+        }
+
+        let port = if status == "succeeded" {
+            "success"
+        } else {
+            "failed"
+        };
+        scope.set_node_output(&node.id, port, serde_json::Value::Object(outputs));
+
+        if status == "succeeded" || on_failure == "continue" {
+            // continue 也走 failed 端口 —— 「不把父运行拖挂」
+            // 不等于「假装子流程成功了」
+            Ok(NodeOutcome::Succeeded {
+                port: port.to_string(),
+            })
+        } else {
+            Ok(NodeOutcome::Failed {
+                message: format!("子运行 {child_id} 以 {status} 结束"),
+            })
+        }
+    }
+
     /// `node.succeeded` 专用：把出口端口一并写下。
     ///
     /// 走的仍是 `emit_full` 那条**唯一**写入口 —— 我自己另开一条时
