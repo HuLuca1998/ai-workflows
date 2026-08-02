@@ -14,6 +14,7 @@ path = "src/main.rs"
 
 [dependencies]
 aiwf-core-api = { path = "../core-api" }
+aiwf-mcp = { path = "../mcp" }
 aiwf-engine = { path = "../engine" }
 aiwf-store = { path = "../store" }
 serde = { workspace = true }

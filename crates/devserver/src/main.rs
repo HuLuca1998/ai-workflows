@@ -80,6 +80,27 @@ fn main() {
     let supervisor = Arc::new(supervisor);
     let data_dir = Arc::new(data_dir);
 
+    /*
+     * 系统 MCP 跟着 devserver 一起起来。
+     *
+     * **不起的话主管 AI 在 Web 形态下没有工具** —— 而「AI 主管对话
+     * 建工作流」这条能力全靠那 50 个契约派生工具。症状不是报错：
+     * agent 会如实说「当前工具不可用，请你自己去界面里点」
+     * （`SupervisorTools::None` 那一档），于是同一句话在桌面壳里
+     * 它直接把工作流建出来，在这里让用户自己点六步。
+     * 实测抓到的，守卫在 `crates/core-api/tests/supervisor_tools_reach_test.rs`。
+     *
+     * 起不来不拦住服务：MCP 只是把能力开给外部客户端与主管 AI，
+     * HTTP 桥接本身照常可用。但要留一行日志 —— 静默失败的症状是
+     * 「主管 AI 突然不会干活了」，而用户无从知道服务没起来。
+     */
+    match aiwf_mcp::config::load_or_create(&data_dir)
+        .and_then(|config| aiwf_mcp::start(&data_dir, std::path::PathBuf::from(&db_path), config))
+    {
+        Ok(handle) => println!("  系统 MCP：{}", handle.plain_url()),
+        Err(error) => eprintln!("系统 MCP 没起来（主管 AI 将没有工具）：{error}"),
+    }
+
     // 定时触发。只有执行宿主起它 —— 共库的 aiwf-mcp 也起一个的话，
     // 同一个定时任务会跑两遍。绑到一个活到进程结束的变量上：
     // Drop 会停掉扫描线程
