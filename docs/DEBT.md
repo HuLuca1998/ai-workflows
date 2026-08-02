@@ -544,14 +544,37 @@ CLAUDE.md 明写「别把 agent 报的结论直接采信」，而我照抄了）
   含 `workflow_patch`**
 - token/端口不对 —— 配置文件与监听端口一致，`curl` 调得通
 
-**还没定位的**：agent 那一端。它确实调了 4 次工具（`toolCalls: 4`），
-却在回答里说工具不可用。可能是那 4 次调用失败后它据此判断，
-也可能是 `SessionSpec.mcp` 下发的形状 codex 不认。
+**根因（已实证到底）**：`@agentclientprotocol/codex-acp` **1.1.7**
+接受 `session/new` 里的 `mcpServers` 参数（不报错、正常返回 sessionId），
+但**从不去连那个 server**。
 
-**追下去的第一步**：拿 `docs/acp/reference/transcript-probe.mjs` 抓一份
-真实往返，看 `session/new` 里 mcpServers 那一段发出去长什么样、
-agent 的 `tools/list` 回了什么。**别只读代码** —— 这一条的每一层
-单看都是对的。
+逐层排除的实测记录：
+
+| 环节                       | 结论                                                                                              |
+| -------------------------- | ------------------------------------------------------------------------------------------------- |
+| codex 声明支持 HTTP MCP 吗 | **是**：`mcpCapabilities: {acp:false, http:true, sse:false}`                                      |
+| 我们发的形状对吗           | 用裸探针发同一份 `[{type:"http",name,url,headers:[{name,value}]}]` —— `session/new` 成功返回      |
+| `mcp_alive` 探测通吗       | `POST /mcp/<token>` 的 ping 回 **HTTP 200**                                                       |
+| MCP 真的暴露工具吗         | 带 token 直调 `tools/list` → **51 个，含 `workflow_patch`**                                       |
+| **codex 去连了吗**         | **没有**。整轮对话下来 MCP 服务端 `initialize`/`tools/list` 命中数 **0**，5179 的连接数前后都是 2 |
+
+所以 agent 那句「本会话没有接入系统 MCP」是**真话** —— 它手上确实没有。
+`toolCalls: 4` 是它自己的内建工具（读文件之类），不是系统 MCP 的。
+
+**这不是我们这一侧的缺陷**，是 codex adapter 的能力声明与实际行为不一致：
+声明 `http: true` 而不实现。
+
+**下一步只有三条路**：
+
+1. 换 claude adapter 验一遍（它的 `mcpCapabilities` 与实现可能一致）——
+   但 CLAUDE.md 那条「测试优先用 codex」是为了别搅乱开发会话，
+   这一条属于「涉及跨 runtime 语义的改动」，两端都要验
+2. 给 codex 提 issue，同时在界面上**如实告诉用户**
+   「当前 runtime 的 adapter 不支持系统 MCP，主管 AI 只能对话」——
+   现在用户看到的是 agent 自己在回答里说，那是 agent 的话不是产品的话
+3. 等 adapter 修
+
+**在那之前不要说「AI 主管能建工作流」** —— 至少在 codex 这一端不能。
 
 严重程度 **高**：「AI 主管对话建工作流」是任务清单第 1 条，
 而它现在在两种形态下都做不到（桌面壳没验过，devserver 实测不行）。
