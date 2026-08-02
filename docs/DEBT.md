@@ -805,50 +805,6 @@ agent 保守解读是对的，所以要改的是那段话。现在它明说：
 
 ### 还没修
 
-### B-20 · Issue 修复开出了一个不含修复的 PR（最重的一条）
-
-**真跑 `github-issue-fix` 走完全程之后看 PR 才发现的
-（run_ff4b95648b3eb581，仓库 `HuLuca1998/aiwf-cart-08022310` PR #2）。**
-
-九个节点全部走完、两道人工审批都过了、PR 真的开出来了 ——
-标题是「fix: 关闭 #1」。而 diff 里**只有一个多余的 `pnpm-lock.yaml`**，
-对 `src/cart.js` 的修复一个字都没有。
-
-事件流里线索是全的，只是没有一处会拦：
-
-```text
-# 91 node.succeeded  fix      执行 · Fix Agent 完成 · 走 needs_decision 分支
-        node.output_emitted   改了 1 个文件：pnpm-lock.yaml
-# 98 node.succeeded  approve_diff  审批通过
-#107 node.succeeded  push_pr  Commit / Push / PR 完成 · 走 success 分支
-```
-
-- `fix` 自己说走 `needs_decision`（它没定），而模板把这个端口接到了
-  `approve_diff` —— 那是**有意的**（AI 没把握时让人看一眼）
-- `approve_diff` 把一份空 diff 交给人批；这次批的是自动批准器，
-  真人多半会发现，但**流程不该依赖人一定注意到**
-- `push_pr` 里 `git add -u` + 新文件筛选照跑，**没有「没有实质改动就别开 PR」这道判断**
-
-**「开一个不含修复的 PR」比失败糟得多**：它看起来像做完了，
-issue 上多了一条引用，而下一个人要读完 diff 才知道什么都没发生。
-
-修的方向（还没做）：`push_pr` 在 commit 之前判一次「暂存区是不是空的」，
-空就走 `failed` 端口而不是继续；`approve_diff` 的审批正文里
-把 diff 的行数写出来，让「0 行」在卡片上一眼可见。
-
-顺带记两条同一跑挖出的小账：
-
-- **`notify` 在 Web 形态必然失败**（devserver 没有通知发送器，
-  它如实报「桌面外壳没有接上通知发送器」），而模板里 `notify.failed`
-  **没有下游** —— 于是每一条在 Web 形态跑完的 issue 修复都收在
-  「停在「系统通知」的 failed 端口上」。PR 明明开出来了。
-  这条恰好证明了 O-27 的修复在生产里给出了精确定位，
-  但模板该把 `notify.failed` 接到成功终点：发不出桌面通知不该让整条流程判失败
-- **`fix` agent 在仓库里跑了 `pnpm` 之类的东西**，留下 `pnpm-lock.yaml`
-  并被 `git add` 的新文件筛选放行（那个筛选排的是 `node_modules/` 等目录，
-  不排锁文件）。这条与上面那条是同一件事的两面：
-  没有实质改动的判断，和「什么算实质改动」
-
 ### O-27 · 一个终点都没到达的运行，仍然报 succeeded
 
 **B-15 的同族第二条，修完 B-15 之后当场看见的。**
