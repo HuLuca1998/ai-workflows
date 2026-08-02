@@ -778,6 +778,17 @@ function RunItem({
       // 状态挂在元素上：e2e 要挑一条「跑完了因而必然有事件」的运行，
       // 按顺序取第一条的话，刚创建还没跑的那条会让断言落空
       data-status={run.status}
+      /*
+       * 无障碍名里**始终**带工作流名。
+       *
+       * 分组之后行内那格显示的是参数或 run id 尾号（工作流名在分组标题上），
+       * 而分组标题是个裸 `<p>` —— 读屏用户听到的整句会是
+       * 「issue=42 运行中 刚刚」，完全不知道这属于哪条工作流。
+       * 定时起的运行 inputs 恒为 `{}`，那种行连参数都没有。
+       */
+      aria-label={[run.workflowName, run.parentRunId ? '子运行' : '', params, run.status]
+        .filter(Boolean)
+        .join(' · ')}
       onClick={onSelect}
     >
       <span className="runs__item-row">

@@ -207,3 +207,46 @@ describe('子运行', () => {
     expect(列表().queryByText(/子运行/u)).toBeNull();
   });
 });
+
+describe('分组的无障碍', () => {
+  it('分组行的无障碍名里带着工作流名', () => {
+    /*
+     * **这是分组改动引入的回退。** `hideName` 把行内唯一的名字换成
+     * 参数或 hex 尾号，而分组标题是个裸 `<p>` —— 读屏用户听到的整句是
+     * 「issue=42 运行中 刚刚」，完全不知道这属于哪条工作流。
+     * 改之前行里是有工作流名的。
+     *
+     * 定时起的运行 inputs 恒为 `{}`，那种行连参数都没有，
+     * 听到的只有一串十六进制。
+     */
+    seed([
+      run({ id: 'run_1', inputs: { issue: '42' } }),
+      run({ id: 'run_2', inputs: { issue: '43' } }),
+    ]);
+    view();
+
+    for (const 行 of 列表().getAllByRole('button')) {
+      expect(
+        行.getAttribute('aria-label') ?? '',
+        `读屏用户听到的是「${行.textContent}」—— 认不出属于哪条工作流`,
+      ).toMatch(/Issue 修复/u);
+    }
+  });
+
+  it('不分组时也有无障碍名', () => {
+    seed([run({ id: 'run_1', inputs: { issue: '42' } })]);
+    view();
+    const 行 = 列表().getAllByRole('button')[0]!;
+    expect(行.getAttribute('aria-label') ?? 行.textContent ?? '').toMatch(/Issue 修复/u);
+  });
+
+  it('子运行的无障碍名里说清它是子运行', () => {
+    seed([
+      run({ id: 'run_p', workflowName: '父流程' }),
+      run({ id: 'run_c', workflowId: 'wf_sub', workflowName: '子流程', parentRunId: 'run_p' }),
+    ]);
+    view();
+    const 子行 = screen.getByText('子流程').closest('button')!;
+    expect(子行.getAttribute('aria-label') ?? '').toMatch(/子运行/u);
+  });
+});
