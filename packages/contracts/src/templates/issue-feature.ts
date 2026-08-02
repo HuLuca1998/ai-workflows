@@ -126,8 +126,15 @@ export const ISSUE_FEATURE: WorkflowTemplate = {
       position: { x: 1040, y: 184 },
       config: {
         agentProfileId: AGENT.builder,
+        // **方案必须显式接进来**（与 `github-issue-fix.fix` 同一个坑）：
+        // AI 节点之间没有共享上下文，「上一步确认的方案」不引用的话
+        // 这个 agent 一个字都看不到。`shape` 只有 success 一个端口
+        // 通向审批再到这里，引用它不会在别的路径上炸
         instruction: [
-          '按上一步确认的方案实现，小步提交，每步可单独验证。',
+          '确认过的方案与验收标准：',
+          '${shape.success}',
+          '',
+          '按上面的方案实现，小步提交，每步可单独验证。',
           '**先写测试**：验收标准里的每一条都该有一条测试对应它。',
           '偏离方案的话停下来走 needs_decision，不要自己改需求。',
         ].join('\n'),

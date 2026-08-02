@@ -155,7 +155,31 @@ export const ISSUE_FIX: WorkflowTemplate = {
       position: { x: 540, y: 184 },
       config: {
         agentProfileId: AGENT.builder,
-        instruction: '按选定方案修改代码，小步提交，每步可验证。',
+        /*
+         * **上一步的产出必须显式接进来。**
+         *
+         * 原来这里只有「按选定方案修改代码」一句 —— 而 AI 节点之间
+         * 没有共享上下文，那个 agent 手上一个字的方案都没有。
+         * 实测（真仓库 issue 修复）：它什么也改不了，跑了一次
+         * `pnpm test` 留下个锁文件就走 `needs_decision`，
+         * 而流程照样把那个锁文件开成了 PR。
+         *
+         * `analyze` 是 `${analyze.success}`——  它只有 success 一个端口
+         * 通向审批再到这里，引用它不会在别的路径上炸。
+         */
+        instruction: [
+          '要修的 Issue：',
+          '${read_issue.success.stdout}',
+          '',
+          '分析给出的方案（已经过人工选定）：',
+          '${analyze.success}',
+          '',
+          '按上面的方案改代码。小步提交，每步可验证。',
+          '',
+          '**改完自己核一遍**：真的动了要动的那个文件吗？',
+          '一个字都没改的话，直说「没有改动」并说明为什么 ——',
+          '不要跑一遍测试就当交差。',
+        ].join('\n'),
         workdirSource: 'worktree',
         verifyCommands: ['pnpm test'],
       },
@@ -181,7 +205,14 @@ export const ISSUE_FIX: WorkflowTemplate = {
       position: { x: 40, y: 184 },
       config: {
         agentProfileId: AGENT.operator,
-        instruction: '按影响面给出 L1–L3 分级；push 与建 PR 属于 L3。',
+        // 审查结论要接进来 —— 不接的话它按什么分级？
+        // `review` 只有 passed 一个端口通向这里
+        instruction: [
+          '审查结论：',
+          '${review.passed}',
+          '',
+          '按影响面给出 L1–L3 分级；push 与建 PR 属于 L3。',
+        ].join('\n'),
         autoDecideUpTo: 'L2',
         onTimeout: 'escalate',
       },
