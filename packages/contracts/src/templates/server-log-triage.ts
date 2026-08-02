@@ -54,6 +54,10 @@ export const SERVER_LOG_TRIAGE: WorkflowTemplate = {
               type: 'string',
               title: 'SSH 目标',
               description: '形如 root@1.2.3.4。端口不是 22 时在下面单独填',
+              // 定时触发没人填表，必填字段必须有默认值
+              // （发布时由 TRIGGER_INPUT_NO_DEFAULT 拦）。
+              // 这个默认值指向本机，改成真实机器之前它只会连不上并如实报错
+              default: 'root@127.0.0.1',
             },
             sshPort: {
               type: 'string',
@@ -65,6 +69,7 @@ export const SERVER_LOG_TRIAGE: WorkflowTemplate = {
               type: 'string',
               title: '应用日志路径',
               description: '服务器上的绝对路径，支持通配。例：/srv/pp-game-live/logs/*.log',
+              default: '/var/log/*.log',
             },
             slowLogPath: {
               type: 'string',
@@ -123,9 +128,14 @@ export const SERVER_LOG_TRIAGE: WorkflowTemplate = {
           'REMOTE="set -u;',
           'files=\\$(find $LOG -type f -mmin -$MINUTES 2>/dev/null | head -20);',
           '[ -z \\"\\$files\\" ] && { echo NO_LOG_FILES; exit 0; };',
-          "grep -hiE 'error|exception|fatal|panic|traceback' \\$files 2>/dev/null",
-          "  | sed -E 's/[0-9-]{10}[T ][0-9:.,]+//g; s/[0-9a-f]{8,}/<id>/g; s/[0-9]+/<n>/g'",
-          '  | sort | uniq -c | sort -rn | head -20"',
+          // 管道符放**行尾**。放在续行行首的话换行已经终止了命令，
+          // bash/sh/zsh 三个都报 parse error —— 而错误发生在远端，
+          // 本地的 `zsh -n` 看不见：抓错误那半边于是一直没工作过，
+          // 节点照样绿、JSON 照样合法，只是 sed 归一化 / uniq 计数 /
+          // head 截断三样全没执行（独立复核实测）
+          "grep -hiE 'error|exception|fatal|panic|traceback' \\$files 2>/dev/null |",
+          "  sed -E 's/[0-9-]{10}[T ][0-9:.,]+//g; s/[0-9a-f]{8,}/<id>/g; s/[0-9]+/<n>/g' |",
+          '  sort | uniq -c | sort -rn | head -20"',
           '',
           'ERRORS=$(ssh -p "$PORT" -o BatchMode=yes -o ConnectTimeout=15 "$TARGET" "$REMOTE" || echo SSH_FAILED)',
           'if [ -n "$SLOW" ]; then',
@@ -172,7 +182,18 @@ export const SERVER_LOG_TRIAGE: WorkflowTemplate = {
       position: { x: 790, y: 34 },
       config: {
         agentProfileId: AGENT.builder,
-        instruction: REPORT_INSTRUCTION,
+        instruction: [
+          // **上一步的结论必须显式接进来。**
+          // `ai.execute` 的契约里没有 `target` 字段，而每个 AI 节点
+          // 各开一条 ACP 会话、没有跨节点上下文 —— 不接的话它的提示词里
+          // 只有角色 + 记忆 + 这段指令，「把上一步的结论写成报告」
+          // 说的那个「上一步」它一个字都看不到，只能编一份格式完美的空报告
+          // （与 B-5 的 `ai.analyze.target` 完全同构）
+          '上一步的结论：',
+          '${triage.success}',
+          '',
+          REPORT_INSTRUCTION,
+        ].join('\n'),
         workdirSource: 'inherit',
         verifyCommands: [],
       },

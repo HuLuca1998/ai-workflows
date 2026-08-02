@@ -77,7 +77,13 @@ export const ISSUE_FIX: WorkflowTemplate = {
          * `${…}` 的值由引擎加过单引号（`interp.rs` 的 `shell_quote`），
          * 所以外面**不要**再套引号 —— 套了会变成 `"'573'"`。
          */
-        script: 'gh issue view ${input.issue} --repo ${input.repo.name} --json title,body,labels',
+        // `set -euo pipefail` 不是仪式：没有它，后面有人加一个
+        // `| head` 裁输出时，gh 的失败会被管道最后一节的退出码盖掉 ——
+        // 节点显示成功，而分析师收到的是空字符串
+        script: [
+          'set -euo pipefail',
+          'gh issue view ${input.issue} --repo ${input.repo.name} --json title,body,labels',
+        ].join('\n'),
         outputParse: 'json',
         timeoutMs: 60_000,
       },
