@@ -200,14 +200,20 @@ export const ISSUE_FEATURE: WorkflowTemplate = {
         agentProfileId: AGENT.builder,
         instruction: [
           /*
-           * 上一步的结论必须显式接进来（见 repo-digest.ts 那段说明）。
+           * **这里不接 `${review.…}`。**
            *
-           * 这条模板的 write_report 有三条互斥入边（推完 PR / 拒批 / 审查要改），
-           * 取不到单一上游 —— 接 `review` 那份：它内容最全（含验收标准逐条核对），
-           * 而且三条路里它都已经跑过了。
+           * write_report 有三条互斥入边，`review` 的两个端口
+           * （passed / changes_requested）都通向它 —— 运行时只有其中
+           * 一个进作用域，引用哪个都会在另一半场景下炸
+           * （`未定义的引用`）。`template-references.test.ts` 现在守着这条。
+           *
+           * 审查结论让 agent 自己去读：它带着系统 MCP，
+           * `${run.id}` 给了它入口。
            */
-          '审查的结论：',
-          '${review.passed}',
+          '这次运行的 id 是 ${run.id}。',
+          '审查节点（review）的结论在这条运行的事件流里 —— 用系统 MCP 的',
+          '`run_events` 读出来，找 `conversation.agent_message` 里 review 那条。',
+          '读不到就直说读不到，别猜它写了什么。',
           '',
           REPORT_INSTRUCTION,
           '',

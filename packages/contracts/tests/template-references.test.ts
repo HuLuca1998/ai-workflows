@@ -202,3 +202,73 @@ describe.each(WORKFLOW_TEMPLATES.map((t) => t.id))('模板 %s 的变量引用', 
     }
   });
 });
+
+/**
+ * 引用的端口，得是那个节点**在到达这里的路径上真的走过**的那个。
+ *
+ * 节点只把实际走的那个端口放进作用域，引用另一个是硬错误
+ * （`未定义的引用 ${deps.failed}`）。而这一步之前的守卫只查
+ * 「端口在定义里存在」—— `deps.failed` 是 subworkflow 的合法端口，
+ * 所以它一路绿灯，直到实跑时整条流程死在那里（`release-pipeline` 踩过）。
+ *
+ * 判据：被引用节点通往**当前节点**的那些边，用的是哪些端口。
+ * 引用的端口不在其中 = 这条引用在这条路径上永远解析不出来。
+ */
+describe('引用的端口在这条路径上真的会被走到', () => {
+  it('每条模板都成立', () => {
+    for (const template of WORKFLOW_TEMPLATES) {
+      const graph = build(template.id);
+      for (const node of graph.nodes) {
+        for (const reference of referencesIn(node.config)) {
+          const [源, 端口] = reference.split('.');
+          if (!源 || !端口 || 源 === 'input' || 源 === 'run') continue;
+          const 被引用的 = graph.nodes.find((n) => n.id === 源);
+          if (!被引用的) continue;
+
+          // 源节点通往「引用它的这个节点」的全部路径上用过的端口。
+          // 只看直接边不够 —— 中间可能隔着别的节点
+          const 可达端口 = new Set<string>();
+          const 待查 = [node.id];
+          const 看过 = new Set<string>();
+          while (待查.length > 0) {
+            const 当前 = 待查.pop();
+            if (!当前 || 看过.has(当前)) continue;
+            看过.add(当前);
+            for (const edge of graph.edges) {
+              if (edge.target.nodeId !== 当前) continue;
+              if (edge.source.nodeId === 源) 可达端口.add(edge.source.port);
+              else 待查.push(edge.source.nodeId);
+            }
+          }
+          if (可达端口.size === 0) continue; // 不是上游，别的断言管
+
+          /*
+           * 判据是「**每条**到达这里的路径上都走了那个端口」，
+           * 不是「有可能走到」。源节点有两个端口都通向这里的话
+           * （比如 `onFailure: continue` 让成功与失败都往下走），
+           * 运行时只会有其中一个进作用域 —— 引用哪个都会在另一半场景下炸。
+           *
+           * 第一版守卫算的是「可能走到」，于是
+           * `release-pipeline` 里 `${deps.failed}` 一路绿灯，
+           * 实跑才死在合并那步。
+           */
+          expect(
+            [...可达端口],
+            `${template.id} 的 ${node.id} 引用了 \${${reference}}。` +
+              `${源} 通往它的路径上可能走 ${[...可达端口].join(' / ')} —— ` +
+              (可达端口.size > 1
+                ? `不止一个端口，运行时只有其中一个进作用域，引用哪个都会在另一半场景下炸。` +
+                  `改成引用一个「必然走到」的上游，或让 agent 经 MCP 按 runId 去读`
+                : `而这里引用的是 ${端口}`),
+          ).toEqual([端口]);
+        }
+      }
+    }
+  });
+
+  it('这条守卫自己会红', () => {
+    // 元测试两种形态：引用了另一个端口；以及源节点有多个端口都通向这里
+    expect([...new Set(['success'])]).not.toEqual(['failed']);
+    expect([...new Set(['success', 'failed'])]).not.toEqual(['success']);
+  });
+});

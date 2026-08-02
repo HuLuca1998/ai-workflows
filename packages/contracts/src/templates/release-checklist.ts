@@ -131,9 +131,20 @@ export const RELEASE_CHECKLIST: WorkflowTemplate = {
       config: {
         agentProfileId: AGENT.builder,
         instruction: [
-          // 上一步的结论必须显式接进来 —— 见 repo-digest.ts 里那段说明
-          '上一步的结论：',
-          '${assess.passed}',
+          /*
+           * **不接 `${assess.…}`。** assess 的两个端口（passed /
+           * changes_requested）都通向这里，运行时只有其中一个进作用域，
+           * 引用哪个都会在另一半场景下炸。`template-references.test.ts` 守着。
+           *
+           * 改成让它自己去读 —— 而 `check` 那一步的原始数据是**必然**
+           * 走 success 到这里的，可以直接接进来。
+           */
+          '这次发布检查的原始数据：',
+          '${check.success.parsed}',
+          '',
+          '审查节点（assess）对这份数据的结论在这条运行的事件流里',
+          '（运行 id ${run.id}）—— 用系统 MCP 的 `run_events` 读，',
+          '找 `conversation.agent_message` 里 assess 那条。读不到就直说。',
           '',
           REPORT_INSTRUCTION,
           '',

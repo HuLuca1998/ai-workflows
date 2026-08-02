@@ -89,15 +89,25 @@ export const RELEASE_PIPELINE: WorkflowTemplate = {
       position: { x: 790, y: 34 },
       config: {
         agentProfileId: AGENT.analyst,
-        // 两个子运行的产出。子工作流节点把 {runId, status} 放进作用域，
-        // 详细结论在各自子运行的产物里 —— 这里给的是「跑没跑成」，
-        // agent 拿着 runId 可以经系统 MCP 去读那条运行的报告
-        target: '依赖巡检：${deps.failed}\n发布前检查：${checklist.success}',
+        /*
+         * 引用 `${deps.success}` 而不是 `${deps.failed}`。
+         *
+         * 子工作流节点只把**实际走的那个端口**放进作用域 ——
+         * 引用另一个端口时是硬错误（`未定义的引用 ${deps.failed}`）。
+         * 实跑踩过：deps 成功了，而这里写的是 failed，整条流程死在合并那步。
+         *
+         * `onFailure: continue` 让 deps 失败时也走 `failed` 端口继续往下，
+         * 那时这个引用同样解析不出来 —— 所以**只引用 checklist**（它是
+         * fail_parent，走到 merge 就一定是 success），deps 的结果让 agent
+         * 经系统 MCP 按 runId 去读。
+         */
+        target: '发布前检查：${checklist.success}',
         instruction: [
-          '这是两条子流程的运行结果，每条带着自己的 runId 与状态。',
+          '这是「发布前检查单」子流程的运行结果，带着它的 runId 与状态。',
           '',
-          '两份详细结论在各自子运行的 `report.json` 产物里 ——',
-          '用系统 MCP 的 `run_artifacts` / `run_artifact_content` 按 runId 读。',
+          '**依赖升级巡检**也跑过了，它是这条流程的第一步 ——',
+          '用系统 MCP 的 `run_list`（按 parentRunId 找子运行）拿到它的 runId，',
+          '再用 `run_artifacts` / `run_artifact_content` 读两份 `report.json`。',
           '',
           '合成一句话回答：**这次能不能发**。',
           '',
