@@ -479,3 +479,71 @@ fn 父运行已结束时_等审批的子运行跟着停下() {
         "子运行被取消了，而它审批之后那一步的副作用还是发生了"
     );
 }
+
+#[test]
+fn 子流程入口声明的固定工作目录会生效() {
+    /*
+     * `run_start` 里那段「固定目录压过调用方」的规则，注释自称
+     * 「全部调用方（界面 / MCP / HTTP 桥接）的必经之路」——
+     * 而 `run_subworkflow` 直接 `store.create_run_in`，绕开了它。
+     *
+     * 后果是典型的「填了不生效」：子流程入口上明明写着固定目录，
+     * 子运行却跑在父运行的工作目录里（独立复核实测）。
+     */
+    let 场地 = 场地();
+    let 固定目录 = 场地.workdir.join("子流程专用");
+    std::fs::create_dir_all(&固定目录).unwrap();
+    let 产出 = 固定目录.join("在这里.txt");
+
+    let 子 = serde_json::json!({
+        "nodes": [
+            {"id":"entry","type":"entry","title":"入口","position":{"x":0,"y":0},
+             "config":{"inputSchema":{"type":"object"},
+                       "workdirSource":"fixed","workdir":固定目录.display().to_string()}},
+            {"id":"sh","type":"script.shell","title":"写在 cwd 下","position":{"x":1,"y":0},
+             // 相对路径 —— 落在哪取决于运行目录
+             "config":{"interpreter":"zsh","script":"echo x > 在这里.txt"}},
+            {"id":"done","type":"end","title":"结束","position":{"x":2,"y":0},
+             "config":{"outcome":"success","artifacts":[]}}
+        ],
+        "edges": [
+            {"id":"a","source":{"nodeId":"entry","port":"success"},"target":{"nodeId":"sh","port":"input"}},
+            {"id":"b","source":{"nodeId":"sh","port":"success"},"target":{"nodeId":"done","port":"input"}}
+        ],
+        "groups": []
+    })
+    .to_string();
+    let child = 场地
+        .store
+        .create_workflow_with_graph("子流程", None, &子)
+        .unwrap();
+    let parent = 场地
+        .store
+        .create_workflow_with_graph("父流程", None, &父图(&child, serde_json::json!({})))
+        .unwrap();
+
+    let runner = Runner::new();
+    let run_id = runner
+        .start(
+            &场地.store,
+            RunRequest {
+                workflow_id: parent,
+                version_id: None,
+                draft_rev: Some(0),
+                inputs_json: r#"{"说什么":"随便"}"#.to_string(),
+                workdir: 场地.workdir.display().to_string(),
+                trigger: Trigger::Manual,
+            },
+        )
+        .unwrap();
+    runner.run_all(&场地.store, &run_id).unwrap();
+
+    assert!(
+        产出.exists(),
+        "子运行跑在父运行的工作目录里 —— 入口上那句「固定工作目录」填了不生效"
+    );
+    assert!(
+        !场地.workdir.join("在这里.txt").exists(),
+        "文件落在了父运行的目录下"
+    );
+}

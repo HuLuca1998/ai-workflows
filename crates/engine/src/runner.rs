@@ -945,6 +945,28 @@ impl Runner {
                 )?;
             }
             let _ = store.advance_run_status(run_id, "running", Some(node_id))?;
+        } else if self.node_type(store, run_id, node_id)? == "approval"
+            && self.rejected_port_has_downstream(store, run_id, node_id)?
+        {
+            /*
+             * 拒批**走 `rejected` 端口**，前提是图上真的接了它。
+             *
+             * 原来一律 `node.failed` + `run.failed` —— 于是图上接在
+             * `approval.rejected` 上的分支（内置模板里那条「结束 · 方案被否」）
+             * 一次都走不到，而画布上那条线画得好好的（DEBT O-24）。
+             *
+             * 没接下游时保持原样（判失败）：那时「拒批」确实就是这条运行的
+             * 终点，发一个走不通的端口只会让运行卡在那里。
+             */
+            self.emit_node_exit(
+                store,
+                run_id,
+                node_id,
+                &label,
+                &format!("审批未通过：{decision}，走 rejected 分支"),
+                "rejected",
+            )?;
+            let _ = store.advance_run_status(run_id, "running", Some(node_id))?;
         } else {
             self.emit_node(
                 store,
@@ -1577,7 +1599,14 @@ impl Runner {
         }
 
         // ── 建子运行 ──
-        let workdir = self.workdir(store, run_id)?;
+        //
+        // 子流程入口若声明了「固定工作目录」，那条声明对子运行同样生效。
+        // 原来直接继承父运行的 workdir —— `run_start` 里那段
+        // 「固定目录压过调用方」的规则自称「全部调用方的必经之路」，
+        // 而 `run_subworkflow` 绕开了它（典型「填了不生效」）。
+        let workdir =
+            Self::child_fixed_workdir(store, workflow_id, version_id.as_deref(), draft_rev)
+                .map_or_else(|| self.workdir(store, run_id), |dir| Ok(dir.into()))?;
         let child_id = store.create_run_in(
             workflow_id,
             version_id.as_deref(),
@@ -1714,6 +1743,23 @@ impl Runner {
         }
     }
 
+    /// 这个审批节点的 `rejected` 端口在图上接了下游吗。
+    ///
+    /// 没接的话，拒批就是这条运行的终点 —— 那时判失败是对的，
+    /// 发一个走不通的端口只会让运行卡在那里而看不出原因。
+    fn rejected_port_has_downstream(
+        &self,
+        store: &Store,
+        run_id: &str,
+        node_id: &str,
+    ) -> Result<bool> {
+        let (graph, _) = self.load_plan(store, run_id)?;
+        Ok(graph
+            .edges
+            .iter()
+            .any(|edge| edge.source.node_id == node_id && edge.source.port == "rejected"))
+    }
+
     /// 父运行没了 —— 把子运行也取消掉，并说清为什么。
     ///
     /// 不取消的话子运行会继续产生副作用（模板里那一步是 `git push`），
@@ -1729,6 +1775,43 @@ impl Runner {
         )?;
         let _ = store.advance_run_status(child_id, "cancelled", None)?;
         Ok("cancelled".to_string())
+    }
+
+    /// 子流程入口声明的「固定工作目录」。没声明就是 `None`。
+    ///
+    /// 与 `core-api` 的 `run_start` 同一条规则：`workdirSource: fixed`
+    /// 时那个目录压过调用方给的。子调用绕开了 `run_start`，
+    /// 所以这条规则要在这里再走一遍。
+    fn child_fixed_workdir(
+        store: &Store,
+        workflow_id: &str,
+        version_id: Option<&str>,
+        draft_rev: Option<i64>,
+    ) -> Option<String> {
+        let graph_json = match version_id {
+            Some(id) => store.get_version(id).ok()??.graph_json,
+            None => store.get_draft(workflow_id, draft_rev?).ok()??,
+        };
+        let graph: serde_json::Value = serde_json::from_str(&graph_json).ok()?;
+        let config = graph
+            .get("nodes")?
+            .as_array()?
+            .iter()
+            .find(|node| node.get("type").and_then(serde_json::Value::as_str) == Some("entry"))?
+            .get("config")?;
+        if config
+            .get("workdirSource")
+            .and_then(serde_json::Value::as_str)
+            != Some("fixed")
+        {
+            return None;
+        }
+        config
+            .get("workdir")
+            .and_then(serde_json::Value::as_str)
+            .map(str::trim)
+            .filter(|dir| !dir.is_empty())
+            .map(str::to_string)
     }
 
     /// 子流程入口 `inputSchema` 里每个字段的 `default`。
