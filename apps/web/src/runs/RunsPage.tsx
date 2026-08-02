@@ -1,4 +1,4 @@
-import { type CSSProperties, useEffect, useMemo, useState } from 'react';
+import { Fragment, type CSSProperties, useEffect, useMemo, useState } from 'react';
 import { LIST_PAGE_SIZE, isRunResumable, isRunTerminal, type RunStatus } from '@aiwf/contracts';
 import { formatBytes } from '../data/format.js';
 import { useDebouncedSearch } from '../hooks/useDebouncedSearch.js';
@@ -238,7 +238,7 @@ export function RunsPage() {
           </div>
         </div>
 
-        <div className="runs__list-body">
+        <div className="runs__list-body" data-testid="runs-list-body">
           {runs.error ? (
             <p className="runs__error" role="status">
               {runs.error}
@@ -261,14 +261,34 @@ export function RunsPage() {
               并行进行中 · {active.length}
             </p>
           ) : null}
-          {active.map((run) => (
-            <RunItem
-              key={run.id}
-              run={run}
-              selected={run.id === runs.selectedId}
-              onSelect={() => selectRun(run.id)}
-              now={now}
-            />
+          {/*
+            同一条工作流并行跑好几个时，把它们收在一个小标题下面。
+            「Issue 修复」可能同时在修三个 issue —— 平铺之后是三行
+            一模一样的工作流名，用户要逐行读 `issue=42` 才分得清，
+            而「现在有几个在跑」这个最该一眼看到的数字没有地方写。
+
+            **只在 ≥2 个时才加标题**：一个也加的话，每条运行头上
+            都顶一行「X · 1 个在跑」，那等于没有分组
+          */}
+          {groupActiveRuns(active).map((group) => (
+            <Fragment key={group.workflowId}>
+              {group.runs.length > 1 ? (
+                <p className="runs__group runs__group--parallel">
+                  {group.workflowName} · {group.runs.length} 个在跑
+                </p>
+              ) : null}
+              {group.runs.map((run) => (
+                <RunItem
+                  key={run.id}
+                  run={run}
+                  selected={run.id === runs.selectedId}
+                  onSelect={() => selectRun(run.id)}
+                  now={now}
+                  // 分组标题已经写了工作流名，行内再写一遍是重复
+                  hideName={group.runs.length > 1}
+                />
+              ))}
+            </Fragment>
           ))}
 
           {past.length > 0 ? <p className="runs__group">历史 · {past.length}</p> : null}
@@ -712,17 +732,38 @@ export function RunsPage() {
   );
 }
 
+/**
+ * 按工作流把「在跑的」分组，保持原有的时间顺序。
+ *
+ * 分组的键是 `workflowId` 而不是名字：两条工作流可以重名，
+ * 按名字分会把它们混成一组，而那时用户看到的是一个虚高的并发数。
+ */
+export function groupActiveRuns(
+  runs: readonly RunSummary[],
+): { workflowId: string; workflowName: string; runs: RunSummary[] }[] {
+  const groups: { workflowId: string; workflowName: string; runs: RunSummary[] }[] = [];
+  for (const run of runs) {
+    const existing = groups.find((group) => group.workflowId === run.workflowId);
+    if (existing) existing.runs.push(run);
+    else groups.push({ workflowId: run.workflowId, workflowName: run.workflowName, runs: [run] });
+  }
+  return groups;
+}
+
 function RunItem({
   run,
   selected,
   onSelect,
   now,
+  hideName = false,
 }: {
   run: RunSummary;
   selected: boolean;
   onSelect: () => void;
   /** 由页面统一给一个时刻，避免每行各取一次 Date.now() 导致同屏时间不一致 */
   now: number;
+  /** 分组标题已经写了工作流名时置为 true，行内不再重复 */
+  hideName?: boolean;
 }) {
   const params = Object.entries(run.inputs)
     .map(([key, value]) => `${key}=${paramText(value)}`)
@@ -740,7 +781,18 @@ function RunItem({
       onClick={onSelect}
     >
       <span className="runs__item-row">
-        <span className="runs__item-name">{run.workflowName}</span>
+        {/* 分组标题已经写了工作流名，行内改显示 run id 尾号 ——
+            三行同名之外还得有个能指认的东西 */}
+        <span className="runs__item-name">{hideName ? run.id.slice(-8) : run.workflowName}</span>
+        {/*
+          子工作流调用起来的那条。不标的话，用户看到一条自己
+          没启动过的运行，无从判断是谁叫起来的
+        */}
+        {run.parentRunId ? (
+          <span className="runs__item-child" title={`由 ${run.parentRunId} 调起`}>
+            子运行
+          </span>
+        ) : null}
         <StatusBadge status={runStatus(run.status)} />
       </span>
       {params ? <span className="runs__item-params">{params}</span> : null}

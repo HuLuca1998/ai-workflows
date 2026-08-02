@@ -730,6 +730,27 @@
  * 「设了定时但没发布」。用警示色而不是灰色：这是一条**死路**，
  * 用户以为它每天在跑而它一次都没跑过，灰色会被当成普通说明扫过去
  */
+/*
+ * 同一条工作流并行跑好几个时的分组标题。
+ * 比「并行进行中」那条低一级：它是那条下面的细分
+ */
+.runs__group--parallel {
+  padding-left: var(--space-4);
+  font-size: 11.5px;
+  color: var(--color-neutral-500);
+}
+
+/* 子运行标记。小而明确 —— 用户要能一眼看出这条不是他启动的 */
+.runs__item-child {
+  padding: 0 5px;
+  border: 1px solid var(--color-divider);
+  border-radius: 4px;
+  font-size: 10.5px;
+  line-height: 1.5;
+  white-space: nowrap;
+  color: var(--color-neutral-500);
+}
+
 /* 运行详情里的「定时触发」标记。与等待色同一支：都在说「这不是人点的」*/
 .runs__trigger {
   display: inline-flex;
