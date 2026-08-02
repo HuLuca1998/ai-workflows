@@ -991,6 +991,21 @@ export function SupervisorDrawer({
               type="button"
               className="runs__action"
               onClick={() => {
+                /*
+                 * **先叫停 agent，再收拾界面。**
+                 *
+                 * 只做下面那几步（原来就是这样）的话，取消是纯前端的：
+                 * 界面显示「已取消」，而 agent 照说不误 —— 配额照烧、
+                 * 会话槽位照占，用户接着发的下一句还得排在它后面。
+                 *
+                 * 不 await：用户按下取消要立刻看到反应，而这条命令
+                 * 只是往 adapter 的 stdin 写一行（实测 7ms 停下）。
+                 * 失败也不打扰他 —— 他要的是「别说了」，而界面这一侧
+                 * 已经做到了；真失败多半是那一轮刚好已经结束。
+                 */
+                if (sessionId) {
+                  void coreClient.call('supervisor.cancel', { sessionId }).catch(() => undefined);
+                }
                 // 号码一变，回来的答案就会被丢掉
                 askSeq.current += 1;
                 setBusy(false);
