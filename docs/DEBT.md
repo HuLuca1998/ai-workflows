@@ -729,7 +729,125 @@ agent 照我们自己的指令写出来的报告，**被我们自己的解析器
 报「未登记的 Core API 方法：undefined」，错误位置还指向 mock 实现那一行。
 表达式体改块体就好。
 
+### B-18 · AI 节点够不着它要分析的文件 —— 两处叠加（已修）
+
+**真跑 `github-issue-fix`（真 GitHub 仓库、真 issue）挖出来的，
+两条都不修的话 `ai.analyze` 永远走「材料不足」。**
+
+第一次实测（run_699e0fd0a30ed998），`analyze` 原话：
+
+> 当前环境未提供「只读文件且不执行命令」的读取手段，
+> 无法核对 `src/cart.js` 和测试文件
+
+**第一处：提示词从没说过 agent 在哪个目录。**
+引擎把 `agent_cwd` 算出来了、也传给了 ACP 会话，而提示词一个字没提。
+agent 手上只有 issue 正文里那句「`src/cart.js` 的 applyDiscount」——
+一个相对路径，相对于哪它不知道。
+
+补上之后**仍然不通**（run_18c806aff02191e8），新的原话：
+
+> 在「文件 read、命令 none」的边界下，当前没有可用的
+> 非命令文件读取手段，因此无法检查 `src/cart.js`
+
+**第二处：`文件 read · 命令 none` 这组声明对 codex 是自相矛盾的。**
+它读文件本身就是一次工具调用，agent 把那归进「命令」于是拒绝执行。
+而 `builtin:analyst`（四个内置角色之一，被每条模板的分析节点用着）
+声明的正是这一组 —— 它**永远读不了任何东西**。
+
+agent 保守解读是对的，所以要改的是那段话。现在它明说：
+「这里的『命令』指会改变什么的命令（安装、构建、测试、git 写操作、
+调外部服务）。读文件、列目录、搜索内容不算命令」。
+
+**修完的实测（run_18c806db182eb3c0）**：`analyze` 走 `success`，
+工具调用是 `pwd` → `rg --files` → `sed -n '1,240p' src/cart.js`，
+结论里引用到 `src/cart.js:15` 那一行的 `total - total * rate`，
+流程推进到审批节点。
+
+守卫两条，都在 `crates/engine/tests/executor_test.rs`
+（`提示词里要告诉_agent_它在哪个目录`、`边界那段话要说清读文件不算命令`），
+突变验证过。
+
+**这条的教训**：`capability_note` 那段话原本读起来毫无问题 ——
+「文件 read · 命令 none」在人看来清清楚楚。它只在**特定 runtime 的
+工具模型下**才成为矛盾，而那种矛盾只有真跑才会暴露。
+单元测试断言的是「这段话出现在提示词里」，那条断言一直是绿的。
+
+### B-19 · 枚举外的审批决定被静默当成拒批（已修）
+
+**跑真 issue 修复时撞到的，与会话开头那条 `mcp_decide_confirm` 同一形态。**
+
+给 `approval_decide` 发 `decision: "approve"`（少个 d）。引擎里判的是
+`decision == "approved"`，别的一律当拒批，于是事件流里是：
+
+```text
+#41 approval.decided  approve_plan  决定：approve
+#42 node.succeeded    approve_plan  审批未通过：approve，走 rejected 分支
+#46 run.failed        -             走到了「结束 · 材料不足」
+```
+
+**摘要回显了调用方发来的那个词**，读起来像「他批了但还是没过」。
+整条 issue 修复流程就此走进失败终点。
+
+修法：`dispatch` 加 `enumerated`，契约里声明为必填枚举的字段，
+候选之外的值一律报 VALIDATION。四处都接上了
+（`approval_decide.decision` / `memory_create.scope` /
+`model_create.runtime` / `agent_create.runtime` / `mcp_connect.client`）。
+
+守卫把 `required_boolean_test.rs` 从「必填布尔」推广到「必填枚举」，
+两类都**从契约的 `required` + `enum` 里捞**，以后新增自动覆盖。
+
+**这条守卫自己被突变验证抓过一次假的**：第一版只断言「有 error」，
+而占位的 runId 会让 `approval_decide` 在校验 decision **之前**就
+因「找不到运行」失败 —— 退回 `string` 之后测试照样绿。
+现在判据是「报错里提到了这个字段或它的候选值」，那只有校验真的跑到才成立；
+夹具也改成**从 schema 自己捞必填参数**，不手写清单
+（手写的话下一个加必填字段的人不会来改这里，报错会变成「缺少参数 name」）。
+
 ### 还没修
+
+### B-20 · Issue 修复开出了一个不含修复的 PR（最重的一条）
+
+**真跑 `github-issue-fix` 走完全程之后看 PR 才发现的
+（run_ff4b95648b3eb581，仓库 `HuLuca1998/aiwf-cart-08022310` PR #2）。**
+
+九个节点全部走完、两道人工审批都过了、PR 真的开出来了 ——
+标题是「fix: 关闭 #1」。而 diff 里**只有一个多余的 `pnpm-lock.yaml`**，
+对 `src/cart.js` 的修复一个字都没有。
+
+事件流里线索是全的，只是没有一处会拦：
+
+```text
+# 91 node.succeeded  fix      执行 · Fix Agent 完成 · 走 needs_decision 分支
+        node.output_emitted   改了 1 个文件：pnpm-lock.yaml
+# 98 node.succeeded  approve_diff  审批通过
+#107 node.succeeded  push_pr  Commit / Push / PR 完成 · 走 success 分支
+```
+
+- `fix` 自己说走 `needs_decision`（它没定），而模板把这个端口接到了
+  `approve_diff` —— 那是**有意的**（AI 没把握时让人看一眼）
+- `approve_diff` 把一份空 diff 交给人批；这次批的是自动批准器，
+  真人多半会发现，但**流程不该依赖人一定注意到**
+- `push_pr` 里 `git add -u` + 新文件筛选照跑，**没有「没有实质改动就别开 PR」这道判断**
+
+**「开一个不含修复的 PR」比失败糟得多**：它看起来像做完了，
+issue 上多了一条引用，而下一个人要读完 diff 才知道什么都没发生。
+
+修的方向（还没做）：`push_pr` 在 commit 之前判一次「暂存区是不是空的」，
+空就走 `failed` 端口而不是继续；`approve_diff` 的审批正文里
+把 diff 的行数写出来，让「0 行」在卡片上一眼可见。
+
+顺带记两条同一跑挖出的小账：
+
+- **`notify` 在 Web 形态必然失败**（devserver 没有通知发送器，
+  它如实报「桌面外壳没有接上通知发送器」），而模板里 `notify.failed`
+  **没有下游** —— 于是每一条在 Web 形态跑完的 issue 修复都收在
+  「停在「系统通知」的 failed 端口上」。PR 明明开出来了。
+  这条恰好证明了 O-27 的修复在生产里给出了精确定位，
+  但模板该把 `notify.failed` 接到成功终点：发不出桌面通知不该让整条流程判失败
+- **`fix` agent 在仓库里跑了 `pnpm` 之类的东西**，留下 `pnpm-lock.yaml`
+  并被 `git add` 的新文件筛选放行（那个筛选排的是 `node_modules/` 等目录，
+  不排锁文件）。这条与上面那条是同一件事的两面：
+  没有实质改动的判断，和「什么算实质改动」
 
 ### O-27 · 一个终点都没到达的运行，仍然报 succeeded
 
