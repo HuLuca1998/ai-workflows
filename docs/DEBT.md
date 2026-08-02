@@ -527,57 +527,95 @@ CLAUDE.md 明写「别把 agent 报的结论直接采信」，而我照抄了）
 
 守卫 `crates/engine/tests/ai_port_routing_test.rs`（7 条，突变验证过）。
 
+### 又一条工作方法上的教训：「已确认不是的」清单指错了方向
+
+**这一条我原来记错了根因，先说清楚错在哪。**
+
+原记录的结论是：「codex adapter 声明 `mcpCapabilities.http: true` 而不实现，
+接受 `session/new` 里的 `mcpServers` 却从不去连 —— 不是我们这一侧的缺陷」，
+并据此写了「在那之前不要说 AI 主管能建工作流」。
+
+**那个结论是错的。** 用户一句话点破：ACP 拉起的就是本机的 codex，
+本机 codex 接了 MCP，助理应该也拿得到。照这条查下去当场看到：
+
+```
+~/.codex/config.toml → [mcp_servers.aiwf]
+  url = "http://127.0.0.1:5178/mcp/299f5b20...1699d41c"   ← 快照
+实际服务                = "http://127.0.0.1:5179/mcp/269d1635...8b0e031d"   ← 现况
+```
+
+端口与令牌**两个都不对**。codex 老老实实按 config.toml 去连了，
+连的是一个不存在的地址。
+
+**为什么会漂**：「一键接入」（`mcp_connect`）把当时的地址写进 config.toml，
+那是一张**快照**。而端口在启动时可能被占用后重绑
+（`crates/mcp/src/http.rs` 读回实际端口），换工作区令牌也变。
+`mcp_clients::connected()` 只查「那一条在不在」，不查它对不对 ——
+于是设置页一直显示「已接入」。
+
+**修法**：执行宿主起完 MCP 就把已接入客户端刷新到当前地址
+（`mcp_clients::refresh_connected`），两个宿主都接上。
+
+**实测验证（2026-08-02，devserver:5205）**：
+
+| 步骤           | 结果                                                                              |
+| -------------- | --------------------------------------------------------------------------------- |
+| 启动时刷新     | config.toml 从 `:5178/...299f5b20` 改写成 `:5179/...269d1635`                     |
+| 主管 AI 第一问 | `toolCalls: 16`，它自己说「系统 MCP 已确认可用」                                  |
+| 走完确认链再问 | `toolCalls: 32`，建出 `wf_56d6a9e3ef787c54`「CI 早班车」，3 节点 2 连线，校验通过 |
+| 建出来的图     | `entry(trigger=schedule, scheduleTime=08:00)` → `script.shell` → `end`，端口全对  |
+
+**「codex 真的连上了」是有硬证据的，不是推断**：那 8 条待确认单是
+`crates/mcp/src/protocol.rs` 的 `request_confirmation` 写的，
+而那一行只有「MCP 工具被调用」这一条路径能走到。
+
+守卫 `crates/core-api/tests/supervisor_tools_reach_test.rs` 补了第二半：
+起了 MCP 的宿主必须刷新地址（突变验证过 —— 拆掉 devserver 那一行它变红）。
+
+**顺带咬到的一条**（已单独修）：批准脚本把参数写成
+`{"id":…,"decision":"approve"}`，`dispatch.rs` 的 `boolean()` 是
+`unwrap_or(false)`，于是八次调用全返回 200、八条确认单**全被拒批**，
+而 agent 侧只看到「还在等确认」。现在契约标必填的布尔少传即报 VALIDATION，
+守卫 `crates/core-api/tests/required_boolean_test.rs` 从契约的 `required`
+里捞，以后再加必填布尔自动覆盖。
+
+**这条留下的教训**（比缺陷本身值钱）：
+
+- **「已确认不是的」清单里那三条，每条单独都对，合起来仍然指错了方向。**
+  「配置文件与监听端口一致」——我查的是**当前进程刚生成的**那份配置，
+  不是 codex 会去读的 `~/.codex/config.toml`。**查对了文件才算查过**
+- 「不是我们这一侧的缺陷」是最该被怀疑的那类结论。它一成立，
+  整条路就从「继续找」变成「等别人修」——代价是一整条能力停在那里
+- 用户比我更早想到「ACP 调的是本机 codex」。**顺着调用链往外想一层**，
+  比在协议参数里逐字比对更快找到它
+
+---
+
 ### 还没修
 
-### B-14 · 主管 AI 说自己「没有系统 MCP 工具」，而工具其实在
+### 隔离系统 MCP 与 skill：调查到哪了（未实现，用户明确说先不急）
 
-**实测（2026-08-02）**：让主管 AI「建一条每天 08:00 看 CI 的工作流」，
-它回「本会话没有接入 AI Workflows 的系统 MCP，`workflow_patch` 不可用，
-请你自己去界面里点」，工作流数量前后都是 9。
+用户的另一半要求：「我们这个软件自己提供 mcp 和 skill，
+让 ACP 调用的 codex / claude 只能用我们提供的，不加载系统的」。
+现状是**反过来的** —— 上面那条修复正是靠「用系统的」才通的。
 
-**已确认不是的**：
+已找到的钩子（`@agentclientprotocol/codex-acp` 1.1.7 的 `dist/index.js`）：
 
-- MCP 服务没起 —— **是真问题的一半**：devserver 原来根本不起系统 MCP
-  （只有桌面壳起）。补上之后 `toolCalls` 从 0 变成 4。
-  守卫 `crates/core-api/tests/supervisor_tools_reach_test.rs`
-- MCP 没暴露工具 —— 拿 token 直接调 `tools/list`：**51 个工具，
-  含 `workflow_patch`**
-- token/端口不对 —— 配置文件与监听端口一致，`curl` 调得通
+```js
+const codexPath = process.env['CODEX_PATH'];
+const configString = process.env['CODEX_CONFIG']; // JSON，parse 后当 config 传进去
+const config2 = configString ? JSON.parse(configString) : void 0;
+```
 
-**根因（已实证到底）**：`@agentclientprotocol/codex-acp` **1.1.7**
-接受 `session/new` 里的 `mcpServers` 参数（不报错、正常返回 sessionId），
-但**从不去连那个 server**。
+另有 `this.codexAcpClient.getHomePath()`，报错文案里提到
+「Check <homePath> and project .codex directories, especially their config.toml files,
+or any CODEX_CONFIG override」—— 说明三个来源叠加，且 `CODEX_CONFIG` 是覆盖层。
 
-逐层排除的实测记录：
+**还没验的**：`CODEX_CONFIG` 能不能整段替掉 `mcp_servers`（而不是合并）、
+claude adapter 那侧有没有对应机制、skill 从哪加载。
+两端语义差异必须各跑一遍探针 —— 只测 codex 一端发现不了那类差异。
 
-| 环节                       | 结论                                                                                              |
-| -------------------------- | ------------------------------------------------------------------------------------------------- |
-| codex 声明支持 HTTP MCP 吗 | **是**：`mcpCapabilities: {acp:false, http:true, sse:false}`                                      |
-| 我们发的形状对吗           | 用裸探针发同一份 `[{type:"http",name,url,headers:[{name,value}]}]` —— `session/new` 成功返回      |
-| `mcp_alive` 探测通吗       | `POST /mcp/<token>` 的 ping 回 **HTTP 200**                                                       |
-| MCP 真的暴露工具吗         | 带 token 直调 `tools/list` → **51 个，含 `workflow_patch`**                                       |
-| **codex 去连了吗**         | **没有**。整轮对话下来 MCP 服务端 `initialize`/`tools/list` 命中数 **0**，5179 的连接数前后都是 2 |
-
-所以 agent 那句「本会话没有接入系统 MCP」是**真话** —— 它手上确实没有。
-`toolCalls: 4` 是它自己的内建工具（读文件之类），不是系统 MCP 的。
-
-**这不是我们这一侧的缺陷**，是 codex adapter 的能力声明与实际行为不一致：
-声明 `http: true` 而不实现。
-
-**下一步只有三条路**：
-
-1. 换 claude adapter 验一遍（它的 `mcpCapabilities` 与实现可能一致）——
-   但 CLAUDE.md 那条「测试优先用 codex」是为了别搅乱开发会话，
-   这一条属于「涉及跨 runtime 语义的改动」，两端都要验
-2. 给 codex 提 issue，同时在界面上**如实告诉用户**
-   「当前 runtime 的 adapter 不支持系统 MCP，主管 AI 只能对话」——
-   现在用户看到的是 agent 自己在回答里说，那是 agent 的话不是产品的话
-3. 等 adapter 修
-
-**在那之前不要说「AI 主管能建工作流」** —— 至少在 codex 这一端不能。
-
-严重程度 **高**：「AI 主管对话建工作流」是任务清单第 1 条，
-而它现在在两种形态下都做不到（桌面壳没验过，devserver 实测不行）。
+---
 
 ---
 
