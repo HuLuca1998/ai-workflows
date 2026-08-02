@@ -8,7 +8,7 @@
 //! 于是从 MCP 连进来的 Agent 没法在提交前自己检查一遍 ——
 //! 它只能把一张可能有问题的图写进草稿，等用户打开界面才发现。
 
-use std::collections::{BTreeMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashSet};
 
 use serde::Serialize;
 use serde_json::Value;
@@ -199,6 +199,76 @@ pub fn validate_graph(graph: &Value) -> ValidationResult {
             None,
             None,
         ));
+    }
+
+    /*
+     * 端口有没有下游 / 汇聚策略有没有声明。
+     *
+     * 两条原来只守着内置模板（`templates.test.ts`），用户自己画的图
+     * 完全不受保护：Dry Run 全绿，跑起来一条静默停在半路（以「成功」
+     * 结束而什么都没做），另一条判 failed 且没有 `node.failed` 事件。
+     */
+    {
+        let mut out_ports: BTreeMap<&str, BTreeSet<&str>> = BTreeMap::new();
+        let mut in_sources: BTreeMap<&str, BTreeSet<String>> = BTreeMap::new();
+        let ids: HashSet<&str> = by_id.iter().map(|n| n.id).collect();
+        for edge in &edges {
+            let source_id = nested(edge, "source", "nodeId");
+            let target_id = nested(edge, "target", "nodeId");
+            if !ids.contains(source_id) || !ids.contains(target_id) {
+                continue;
+            }
+            out_ports
+                .entry(source_id)
+                .or_default()
+                .insert(nested(edge, "source", "port"));
+            in_sources
+                .entry(target_id)
+                .or_default()
+                .insert(format!("{source_id}.{}", nested(edge, "source", "port")));
+        }
+
+        for node in &by_id {
+            if !catalog::is_known(node.node_type) {
+                continue;
+            }
+            if let Some(used) = out_ports.get(node.id).filter(|set| !set.is_empty()) {
+                let missing: Vec<String> = catalog::outputs(node.node_type, node.config)
+                    .into_iter()
+                    .map(|port| port.id)
+                    .filter(|id| !used.contains(id.as_str()))
+                    .collect();
+                if !missing.is_empty() {
+                    issues.push(warning(
+                        "PORT_NO_DOWNSTREAM",
+                        format!(
+                            "这些端口没有下游：{}。走到它们时运行会静默停下 —— \
+                             以「成功」结束而后面什么都没做",
+                            missing.join("、")
+                        ),
+                        Some(node.id.to_string()),
+                        None,
+                    ));
+                }
+            }
+            let sources = in_sources.get(node.id).map_or(0, BTreeSet::len);
+            let has_join = node
+                .join
+                .and_then(|join| join.get("strategy"))
+                .is_some_and(|value| !value.is_null());
+            if sources >= 2 && !has_join {
+                issues.push(error(
+                    "JOIN_STRATEGY_MISSING",
+                    format!(
+                        "有 {sources} 条来自不同来源的入边，却没声明汇聚策略。\
+                         默认是「等全部到齐」—— 那几条如果是互斥分支（走了这条就不走那条），\
+                         这个节点永远执行不到，而运行会判失败且看不出死在哪"
+                    ),
+                    Some(node.id.to_string()),
+                    None,
+                ));
+            }
+        }
     }
 
     // ── 连线 ──

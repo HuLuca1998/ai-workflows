@@ -72,6 +72,85 @@ export const CONFORMANCE_CASES: ConformanceCase[] = [
   { name: '空图', graph: 空图() },
   { name: '最小可用图', graph: 最小图() },
   {
+    // 端口悬空：脚本的 failed 口没有下游。走到它时运行静默停下，
+    // 以「成功」结束而后面什么都没做（PORT_NO_DOWNSTREAM）
+    name: '端口没有下游',
+    graph: {
+      nodes: [
+        {
+          id: 'entry',
+          type: 'entry',
+          title: '入口',
+          position: 位置,
+          config: { trigger: 'manual', inputSchema: { type: 'object' } },
+        },
+        {
+          id: 'sh',
+          type: 'script.shell',
+          title: '跑',
+          position: 位置,
+          config: { interpreter: 'zsh', script: 'echo ok' },
+        },
+        { id: 'done', type: 'end', title: '结束', position: 位置, config: { outcome: 'success' } },
+      ],
+      edges: [
+        {
+          id: 'e1',
+          source: { nodeId: 'entry', port: 'success' },
+          target: { nodeId: 'sh', port: 'input' },
+        },
+        {
+          id: 'e2',
+          source: { nodeId: 'sh', port: 'success' },
+          target: { nodeId: 'done', port: 'input' },
+        },
+      ],
+      groups: [],
+    },
+  },
+  {
+    // 互斥入边 + 没声明汇聚策略。默认「等全部到齐」，
+    // 那个节点永远执行不到（JOIN_STRATEGY_MISSING）
+    name: '合流点没声明汇聚策略',
+    graph: {
+      nodes: [
+        {
+          id: 'entry',
+          type: 'entry',
+          title: '入口',
+          position: 位置,
+          config: { trigger: 'manual', inputSchema: { type: 'object' } },
+        },
+        {
+          id: 'sh',
+          type: 'script.shell',
+          title: '跑',
+          position: 位置,
+          config: { interpreter: 'zsh', script: 'echo ok' },
+        },
+        { id: 'done', type: 'end', title: '结束', position: 位置, config: { outcome: 'success' } },
+      ],
+      edges: [
+        {
+          id: 'e1',
+          source: { nodeId: 'entry', port: 'success' },
+          target: { nodeId: 'sh', port: 'input' },
+        },
+        {
+          id: 'e2',
+          source: { nodeId: 'sh', port: 'success' },
+          target: { nodeId: 'done', port: 'input' },
+        },
+        {
+          id: 'e3',
+          source: { nodeId: 'sh', port: 'failed' },
+          target: { nodeId: 'done', port: 'input' },
+        },
+      ],
+      groups: [],
+    },
+  },
+  {
     name: '缺入口',
     graph: {
       nodes: [

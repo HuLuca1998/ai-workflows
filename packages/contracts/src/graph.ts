@@ -103,6 +103,12 @@ export const VALIDATION_CODES = [
   // 自动触发 + 必填参数没有默认值。error ——
   // 定时没有人在场填表，调度器只能拿 inputSchema 的默认值
   'TRIGGER_INPUT_NO_DEFAULT',
+  // 某个输出端口没有下游，而同一节点的别的端口有。warning ——
+  // 走到那个口就静默停下，运行**以成功结束而什么都没做**
+  'PORT_NO_DOWNSTREAM',
+  // 多条入边来自不同来源，却没显式声明汇聚策略。error ——
+  // 默认「等全部到齐」，互斥端口只会走一条，那个节点永远执行不到
+  'JOIN_STRATEGY_MISSING',
 ] as const;
 export type ValidationCode = (typeof VALIDATION_CODES)[number];
 
@@ -239,6 +245,58 @@ export function validateGraph(graph: WorkflowGraph): ValidationResult {
   }
   if (byId.size > 0 && ![...byId.values()].some((n) => n.type === 'end')) {
     warn('END_MISSING', '没有结束节点，运行结果不会被显式标记');
+  }
+
+  /*
+   * 端口有没有下游 / 汇聚策略有没有声明。
+   *
+   * 这两条原来只在 `tests/templates.test.ts` 里守着内置模板 ——
+   * **用户自己画的图完全不受保护**：Dry Run 全绿，跑起来一条
+   * 静默停在半路（运行以成功结束而什么都没做），另一条判 failed
+   * 且没有 `node.failed` 事件（界面上是一条不知道死在哪的失败运行）。
+   * 两种症状都是独立复核实跑出来的。
+   */
+  const 出边 = new Map<string, Set<string>>();
+  const 入边 = new Map<string, { nodeId: string; port: string }[]>();
+  for (const edge of graph.edges) {
+    if (!byId.has(edge.source.nodeId) || !byId.has(edge.target.nodeId)) continue;
+    const ports = 出边.get(edge.source.nodeId) ?? new Set<string>();
+    ports.add(edge.source.port);
+    出边.set(edge.source.nodeId, ports);
+    const list = 入边.get(edge.target.nodeId) ?? [];
+    list.push({ nodeId: edge.source.nodeId, port: edge.source.port });
+    入边.set(edge.target.nodeId, list);
+  }
+
+  for (const node of byId.values()) {
+    if (!knownTypes.has(node.type)) continue;
+    const 用过的 = 出边.get(node.id);
+    // 一条出边都没有 = 这是个终点，正常
+    if (用过的 && 用过的.size > 0) {
+      const 全部 = resolveNodeOutputs(node.type, node.config).map((port) => port.id);
+      const 漏掉的 = 全部.filter((port) => !用过的.has(port));
+      if (漏掉的.length > 0) {
+        warn(
+          'PORT_NO_DOWNSTREAM',
+          `这些端口没有下游：${漏掉的.join('、')}。走到它们时运行会静默停下 —— ` +
+            `以「成功」结束而后面什么都没做`,
+          { nodeId: node.id },
+        );
+      }
+    }
+
+    const ins = 入边.get(node.id) ?? [];
+    // 来源不同（节点或端口不同）才需要汇聚策略；同一来源的重复边不算
+    const 来源 = new Set(ins.map((e) => `${e.nodeId}.${e.port}`));
+    if (来源.size >= 2 && node.join?.strategy === undefined) {
+      err(
+        'JOIN_STRATEGY_MISSING',
+        `有 ${来源.size} 条来自不同来源的入边，却没声明汇聚策略。` +
+          `默认是「等全部到齐」—— 那几条如果是互斥分支（走了这条就不走那条），` +
+          `这个节点永远执行不到，而运行会判失败且看不出死在哪`,
+        { nodeId: node.id },
+      );
+    }
   }
 
   // 连线

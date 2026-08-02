@@ -72,6 +72,183 @@
       }
     },
     {
+      "name": "端口没有下游",
+      "graph": {
+        "nodes": [
+          {
+            "id": "entry",
+            "type": "entry",
+            "title": "入口",
+            "position": {
+              "x": 0,
+              "y": 0
+            },
+            "config": {
+              "trigger": "manual",
+              "inputSchema": {
+                "type": "object"
+              }
+            }
+          },
+          {
+            "id": "sh",
+            "type": "script.shell",
+            "title": "跑",
+            "position": {
+              "x": 0,
+              "y": 0
+            },
+            "config": {
+              "interpreter": "zsh",
+              "script": "echo ok"
+            }
+          },
+          {
+            "id": "done",
+            "type": "end",
+            "title": "结束",
+            "position": {
+              "x": 0,
+              "y": 0
+            },
+            "config": {
+              "outcome": "success"
+            }
+          }
+        ],
+        "edges": [
+          {
+            "id": "e1",
+            "source": {
+              "nodeId": "entry",
+              "port": "success"
+            },
+            "target": {
+              "nodeId": "sh",
+              "port": "input"
+            }
+          },
+          {
+            "id": "e2",
+            "source": {
+              "nodeId": "sh",
+              "port": "success"
+            },
+            "target": {
+              "nodeId": "done",
+              "port": "input"
+            }
+          }
+        ],
+        "groups": []
+      },
+      "validation": {
+        "ok": true,
+        "issues": [
+          {
+            "level": "warning",
+            "code": "PORT_NO_DOWNSTREAM",
+            "message": "这些端口没有下游：failed。走到它们时运行会静默停下 —— 以「成功」结束而后面什么都没做",
+            "nodeId": "sh"
+          }
+        ]
+      }
+    },
+    {
+      "name": "合流点没声明汇聚策略",
+      "graph": {
+        "nodes": [
+          {
+            "id": "entry",
+            "type": "entry",
+            "title": "入口",
+            "position": {
+              "x": 0,
+              "y": 0
+            },
+            "config": {
+              "trigger": "manual",
+              "inputSchema": {
+                "type": "object"
+              }
+            }
+          },
+          {
+            "id": "sh",
+            "type": "script.shell",
+            "title": "跑",
+            "position": {
+              "x": 0,
+              "y": 0
+            },
+            "config": {
+              "interpreter": "zsh",
+              "script": "echo ok"
+            }
+          },
+          {
+            "id": "done",
+            "type": "end",
+            "title": "结束",
+            "position": {
+              "x": 0,
+              "y": 0
+            },
+            "config": {
+              "outcome": "success"
+            }
+          }
+        ],
+        "edges": [
+          {
+            "id": "e1",
+            "source": {
+              "nodeId": "entry",
+              "port": "success"
+            },
+            "target": {
+              "nodeId": "sh",
+              "port": "input"
+            }
+          },
+          {
+            "id": "e2",
+            "source": {
+              "nodeId": "sh",
+              "port": "success"
+            },
+            "target": {
+              "nodeId": "done",
+              "port": "input"
+            }
+          },
+          {
+            "id": "e3",
+            "source": {
+              "nodeId": "sh",
+              "port": "failed"
+            },
+            "target": {
+              "nodeId": "done",
+              "port": "input"
+            }
+          }
+        ],
+        "groups": []
+      },
+      "validation": {
+        "ok": false,
+        "issues": [
+          {
+            "level": "error",
+            "code": "JOIN_STRATEGY_MISSING",
+            "message": "有 2 条来自不同来源的入边，却没声明汇聚策略。默认是「等全部到齐」—— 那几条如果是互斥分支（走了这条就不走那条），这个节点永远执行不到，而运行会判失败且看不出死在哪",
+            "nodeId": "done"
+          }
+        ]
+      }
+    },
+    {
       "name": "缺入口",
       "graph": {
         "nodes": [
@@ -235,6 +412,12 @@
             "level": "warning",
             "code": "END_MISSING",
             "message": "没有结束节点，运行结果不会被显式标记"
+          },
+          {
+            "level": "warning",
+            "code": "PORT_NO_DOWNSTREAM",
+            "message": "这些端口没有下游：failed。走到它们时运行会静默停下 —— 以「成功」结束而后面什么都没做",
+            "nodeId": "sh"
           },
           {
             "level": "error",
@@ -575,6 +758,12 @@
         "ok": false,
         "issues": [
           {
+            "level": "warning",
+            "code": "PORT_NO_DOWNSTREAM",
+            "message": "这些端口没有下游：success。走到它们时运行会静默停下 —— 以「成功」结束而后面什么都没做",
+            "nodeId": "entry"
+          },
+          {
             "level": "error",
             "code": "UNKNOWN_PORT",
             "message": "entry 没有输出端口 并没有这个端口",
@@ -749,6 +938,24 @@
             "level": "warning",
             "code": "END_MISSING",
             "message": "没有结束节点，运行结果不会被显式标记"
+          },
+          {
+            "level": "warning",
+            "code": "PORT_NO_DOWNSTREAM",
+            "message": "这些端口没有下游：failed。走到它们时运行会静默停下 —— 以「成功」结束而后面什么都没做",
+            "nodeId": "a"
+          },
+          {
+            "level": "error",
+            "code": "JOIN_STRATEGY_MISSING",
+            "message": "有 2 条来自不同来源的入边，却没声明汇聚策略。默认是「等全部到齐」—— 那几条如果是互斥分支（走了这条就不走那条），这个节点永远执行不到，而运行会判失败且看不出死在哪",
+            "nodeId": "a"
+          },
+          {
+            "level": "warning",
+            "code": "PORT_NO_DOWNSTREAM",
+            "message": "这些端口没有下游：failed。走到它们时运行会静默停下 —— 以「成功」结束而后面什么都没做",
+            "nodeId": "b"
           },
           {
             "level": "error",
@@ -1026,6 +1233,18 @@
       "validation": {
         "ok": false,
         "issues": [
+          {
+            "level": "warning",
+            "code": "PORT_NO_DOWNSTREAM",
+            "message": "这些端口没有下游：low、兜底。走到它们时运行会静默停下 —— 以「成功」结束而后面什么都没做",
+            "nodeId": "br"
+          },
+          {
+            "level": "error",
+            "code": "JOIN_STRATEGY_MISSING",
+            "message": "有 2 条来自不同来源的入边，却没声明汇聚策略。默认是「等全部到齐」—— 那几条如果是互斥分支（走了这条就不走那条），这个节点永远执行不到，而运行会判失败且看不出死在哪",
+            "nodeId": "done"
+          },
           {
             "level": "error",
             "code": "UNKNOWN_PORT",
@@ -4940,7 +5159,38 @@
         },
         "validation": {
           "ok": true,
-          "issues": []
+          "issues": [
+            {
+              "level": "warning",
+              "code": "PORT_NO_DOWNSTREAM",
+              "message": "这些端口没有下游：failed。走到它们时运行会静默停下 —— 以「成功」结束而后面什么都没做",
+              "nodeId": "read_issue"
+            },
+            {
+              "level": "warning",
+              "code": "PORT_NO_DOWNSTREAM",
+              "message": "这些端口没有下游：failed。走到它们时运行会静默停下 —— 以「成功」结束而后面什么都没做",
+              "nodeId": "worktree"
+            },
+            {
+              "level": "warning",
+              "code": "PORT_NO_DOWNSTREAM",
+              "message": "这些端口没有下游：failed。走到它们时运行会静默停下 —— 以「成功」结束而后面什么都没做",
+              "nodeId": "fix"
+            },
+            {
+              "level": "warning",
+              "code": "PORT_NO_DOWNSTREAM",
+              "message": "这些端口没有下游：failed。走到它们时运行会静默停下 —— 以「成功」结束而后面什么都没做",
+              "nodeId": "push_pr"
+            },
+            {
+              "level": "warning",
+              "code": "PORT_NO_DOWNSTREAM",
+              "message": "这些端口没有下游：failed。走到它们时运行会静默停下 —— 以「成功」结束而后面什么都没做",
+              "nodeId": "notify"
+            }
+          ]
         }
       }
     }
