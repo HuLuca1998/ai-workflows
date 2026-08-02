@@ -153,7 +153,6 @@ const 引擎不消费: Record<string, string> = {
   'ai.decide.autoDecideUpTo': '欠账：自动决策层级不生效，决策结果不会按它转人工',
   'ai.decide.onTimeout': '欠账：超时策略没实现',
   'ai.decide.decisionSchema': '欠账：决策结构不校验',
-  'ai.execute.verifyCommands': '欠账：验证命令一条都不会跑',
 
   'entry.injectedFields': '欠账：系统注入字段没实现，run.id / run.startedAt 不会自动进 inputs',
 

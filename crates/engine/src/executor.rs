@@ -1607,6 +1607,86 @@ impl NodeExecutor {
         }
     }
 
+    /// 只给测试用的入口 —— 验证命令那一段能单独验，
+    /// 而 AI 那半要连真 adapter。
+    pub fn run_verify_commands_for_test(
+        &self,
+        node: &GraphNode,
+        cwd: &str,
+        sink: &EventSink<'_>,
+    ) -> Option<String> {
+        self.run_verify_commands(node, cwd, sink)
+    }
+
+    /// 跑节点声明的验证命令。返回 `Some(原因)` 表示有命令没通过。
+    ///
+    /// 每条单独跑、单独发事件：三条命令里第二条红了，用户要看得出
+    /// 是哪一条，而不是一段拼在一起的输出。
+    fn run_verify_commands(
+        &self,
+        node: &GraphNode,
+        cwd: &str,
+        sink: &EventSink<'_>,
+    ) -> Option<String> {
+        let commands: Vec<String> = node
+            .config
+            .get("verifyCommands")
+            .and_then(serde_json::Value::as_array)
+            .map(|items| {
+                items
+                    .iter()
+                    .filter_map(serde_json::Value::as_str)
+                    .map(str::trim)
+                    .filter(|command| !command.is_empty())
+                    .map(str::to_string)
+                    .collect()
+            })
+            .unwrap_or_default();
+        if commands.is_empty() {
+            return None;
+        }
+
+        for command in &commands {
+            let outcome = run_script(ScriptRequest {
+                interpreter: "zsh".to_string(),
+                script: command.clone(),
+                workdir: PathBuf::from(cwd),
+                env: Vec::new(),
+                // 验证命令是测试与构建，五分钟通常不够；十五分钟够了
+                timeout: std::time::Duration::from_secs(900),
+                output_parse: "text".to_string(),
+            });
+            let (ok, detail) = match &outcome {
+                Ok(ExecOutcome::Completed {
+                    code,
+                    stdout,
+                    stderr,
+                    ..
+                }) => (
+                    *code == 0,
+                    format!("退出码 {code}\n{}", summarize(&format!("{stdout}{stderr}"))),
+                ),
+                Ok(ExecOutcome::TimedOut { timeout, .. }) => {
+                    (false, format!("超过 {} 秒还没结束", timeout.as_secs()))
+                }
+                Err(error) => (false, format!("跑不起来：{error}")),
+            };
+            sink(NodeEvent {
+                kind: if ok { "script.exited" } else { "node.failed" },
+                node_id: node.id.clone(),
+                summary: format!(
+                    "验证命令 `{command}` {}：{detail}",
+                    if ok { "通过" } else { "**没通过**" }
+                ),
+                payload_ref: None,
+            });
+            if !ok {
+                return Some(format!("验证命令 `{command}` 没通过 —— 走 failed 分支"));
+            }
+        }
+        None
+    }
+
     /// 把 `end.artifacts` 里声明的文件从工作目录收进产物库。
     ///
     /// 三条规矩，每条都对应一种「悄悄出错」：
@@ -2312,7 +2392,34 @@ impl NodeExecutor {
                 // 让分支永远走同一条，那道人工审批门就再也不会出现
                 let all_ports = crate::catalog::outputs(&node.node_type, &node.config);
                 let port_names: Vec<&str> = all_ports.iter().map(|p| p.id.as_str()).collect();
-                let (port, note) = choose_ai_port(&node.node_type, &port_names, &text);
+                /*
+                 * 验证命令。**契约里叫 `verifyCommands`，而引擎此前一次都没读过**
+                 * （`grep -rn verifyCommands crates` 零命中），
+                 * 而 `issue-feature` 的 summary 写着「→ 实现 → **自测** → 审查 →」。
+                 *
+                 * 跑法上的两个刻意选择：
+                 *
+                 * - **在 agent 的 cwd 里跑**：验证的是它刚改的那份代码，
+                 *   不是父运行的工作目录
+                 * - **失败不让节点失败，走 `failed` 端口**：验证红了是一条
+                 *   要交给下游判断的事实（审查节点该看到它），
+                 *   而不是「这个节点崩了」。图上没接 failed 端口时
+                 *   PORT_NO_DOWNSTREAM 会在校验期就提醒
+                 */
+                let verify_failed = self.run_verify_commands(node, &agent_cwd, sink);
+
+                let (port, note) = match &verify_failed {
+                    // 验证红了 —— 端口由事实决定，不由模型自述决定
+                    Some(reason) => (
+                        if port_names.contains(&"failed") {
+                            "failed".to_string()
+                        } else {
+                            port_names.first().map_or("success", |p| *p).to_string()
+                        },
+                        Some(reason.clone()),
+                    ),
+                    None => choose_ai_port(&node.node_type, &port_names, &text),
+                };
                 if let Some(note) = note {
                     sink(NodeEvent {
                         kind: "system.port_fallback",
@@ -2331,6 +2438,7 @@ impl NodeExecutor {
                 //
                 // 所以把改动本身发成事件：不判成败（不改文件有时是对的），
                 // 只让「什么都没做」当场看得见。
+
                 let changes = workspace_changes(Path::new(&agent_cwd));
                 if let Some(changes) = &changes {
                     sink(NodeEvent {
