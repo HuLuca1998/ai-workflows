@@ -32,7 +32,13 @@ export const PR_FOLLOWUP: WorkflowTemplate = {
           type: 'object',
           required: ['repo'],
           properties: {
-            repo: { type: 'object', format: 'repo', title: '仓库与分支' },
+            repo: {
+              type: 'object',
+              format: 'repo',
+              title: '仓库与分支',
+              // 定时触发没人填表，必填字段必须有默认值
+              default: { name: 'cli/cli', branch: 'trunk' },
+            },
             author: {
               type: 'string',
               title: 'PR 作者',
@@ -126,6 +132,10 @@ export const PR_FOLLOWUP: WorkflowTemplate = {
       config: {
         agentProfileId: AGENT.builder,
         instruction: [
+          // 上一步的结论必须显式接进来 —— 见 repo-digest.ts 里那段说明
+          '上一步的结论：',
+          '${triage.success}',
+          '',
           REPORT_INSTRUCTION,
           '',
           '「等我回」那一类放在最前面，并且用 links 块给出可点的 PR 链接 ——',

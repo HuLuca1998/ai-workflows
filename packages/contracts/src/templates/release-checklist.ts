@@ -131,6 +131,10 @@ export const RELEASE_CHECKLIST: WorkflowTemplate = {
       config: {
         agentProfileId: AGENT.builder,
         instruction: [
+          // 上一步的结论必须显式接进来 —— 见 repo-digest.ts 里那段说明
+          '上一步的结论：',
+          '${assess.passed}',
+          '',
           REPORT_INSTRUCTION,
           '',
           '这份报告要在**第一屏**回答「能不能发」：',

@@ -31,9 +31,22 @@ export const REPO_DIGEST: WorkflowTemplate = {
         workdirSource: 'prompt',
         inputSchema: {
           type: 'object',
+          /*
+           * 定时触发时**没有人在场填表** —— 调度器只能拿这里的
+           * `default`。必填字段没有默认值的话，一到点就死在第一个
+           * 用到它的节点上（`未定义的引用 ${input.repo.name}`），
+           * 而手动跑一切正常，所以问题只在半夜发生。
+           * `TRIGGER_INPUT_NO_DEFAULT` 在发布时就会拦下这种图。
+           */
           required: ['repo', 'sinceDays'],
           properties: {
-            repo: { type: 'object', format: 'repo', title: '仓库与分支' },
+            repo: {
+              type: 'object',
+              format: 'repo',
+              title: '仓库与分支',
+              // 定时跑用的默认仓库。手动跑时表单里可以改
+              default: { name: 'cli/cli', branch: 'trunk' },
+            },
             sinceDays: {
               type: 'string',
               title: '回看几天',
@@ -116,7 +129,18 @@ export const REPO_DIGEST: WorkflowTemplate = {
       position: { x: 790, y: 34 },
       config: {
         agentProfileId: AGENT.builder,
-        instruction: REPORT_INSTRUCTION,
+        instruction: [
+          // **上一步的结论必须显式接进来。**
+          // `ai.execute` 的契约里没有 `target` 字段，而每个 AI 节点
+          // 各开一条 ACP 会话、没有跨节点上下文 —— 不接的话它的提示词里
+          // 只有角色 + 记忆 + 这段指令，「把上一步的结论写成报告」
+          // 说的那个「上一步」它一个字都看不到，只能编一份格式完美的空报告
+          // （与 B-5 的 `ai.analyze.target` 完全同构）
+          '上一步的结论：',
+          '${digest.success}',
+          '',
+          REPORT_INSTRUCTION,
+        ].join('\n'),
         // inherit：写进**运行目录**，结束节点从那里收。
         // worktree 那档会写进一个临时工作树，结束节点找不到
         workdirSource: 'inherit',

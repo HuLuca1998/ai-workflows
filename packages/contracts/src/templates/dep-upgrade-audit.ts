@@ -36,6 +36,10 @@ export const DEP_UPGRADE_AUDIT: WorkflowTemplate = {
               type: 'string',
               title: '本地仓库路径',
               description: '含 package.json 的目录。只读，不会改动任何文件',
+              // 定时触发没人填表，必填字段必须有默认值。
+              // `.` 是运行目录 —— 不改的话扫的是运行目录本身，
+              // 那里没有 package.json，脚本会明确报「仓库路径不存在」
+              default: '.',
             },
           },
         },
@@ -110,7 +114,18 @@ export const DEP_UPGRADE_AUDIT: WorkflowTemplate = {
       position: { x: 790, y: 34 },
       config: {
         agentProfileId: AGENT.builder,
-        instruction: REPORT_INSTRUCTION,
+        instruction: [
+          // **上一步的结论必须显式接进来。**
+          // `ai.execute` 的契约里没有 `target` 字段，而每个 AI 节点
+          // 各开一条 ACP 会话、没有跨节点上下文 —— 不接的话它的提示词里
+          // 只有角色 + 记忆 + 这段指令，「把上一步的结论写成报告」
+          // 说的那个「上一步」它一个字都看不到，只能编一份格式完美的空报告
+          // （与 B-5 的 `ai.analyze.target` 完全同构）
+          '上一步的结论：',
+          '${triage.success}',
+          '',
+          REPORT_INSTRUCTION,
+        ].join('\n'),
         workdirSource: 'inherit',
         verifyCommands: [],
       },

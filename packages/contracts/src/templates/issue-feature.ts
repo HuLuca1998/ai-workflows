@@ -199,6 +199,16 @@ export const ISSUE_FEATURE: WorkflowTemplate = {
       config: {
         agentProfileId: AGENT.builder,
         instruction: [
+          /*
+           * 上一步的结论必须显式接进来（见 repo-digest.ts 那段说明）。
+           *
+           * 这条模板的 write_report 有三条互斥入边（推完 PR / 拒批 / 审查要改），
+           * 取不到单一上游 —— 接 `review` 那份：它内容最全（含验收标准逐条核对），
+           * 而且三条路里它都已经跑过了。
+           */
+          '审查的结论：',
+          '${review.passed}',
+          '',
           REPORT_INSTRUCTION,
           '',
           '这份报告的读者是**提需求的人**。三件事必须有：',
