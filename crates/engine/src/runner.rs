@@ -236,6 +236,15 @@ pub struct Runner {
     acp_override: Option<(String, Vec<String>)>,
     /// AI 节点的实时帧往哪推。None = 不推。
     stream: Option<std::sync::Arc<dyn crate::acp::ChunkSink>>,
+    /// 系统 MCP 的接入点。**由执行宿主注入** —— 引擎自己不知道
+    /// MCP 起在哪个端口、用什么令牌。
+    ///
+    /// 不接的话 AI 节点建会话时发的是空的 `mcpServers`：它能不能用工具
+    /// 就完全取决于本机 `~/.codex/config.toml` 碰巧指对了没有，
+    /// 而 `acp.claude` 根本不读那份配置。
+    /// 内置模板（`release-checklist` / `release-pipeline`）的指令里
+    /// 明写着让节点用 `run_events` 读上一步的结论 —— 那条路走不通。
+    mcp: Vec<crate::acp::McpHttpServer>,
 }
 
 impl Runner {
@@ -243,6 +252,7 @@ impl Runner {
         Self {
             notifier: None,
             acp_override: None,
+            mcp: Vec::new(),
             stream: None,
         }
     }
@@ -251,6 +261,16 @@ impl Runner {
     #[must_use]
     pub fn with_notifier(mut self, notifier: std::sync::Arc<dyn crate::notify::Notifier>) -> Self {
         self.notifier = Some(notifier);
+        self
+    }
+
+    /// 把系统 MCP 接给 AI 节点。
+    ///
+    /// 执行宿主（桌面壳 / devserver）在起完 MCP 之后调它 ——
+    /// 引擎自己不知道 MCP 在哪个端口、用什么令牌。
+    #[must_use]
+    pub fn with_mcp(mut self, servers: &[crate::acp::McpHttpServer]) -> Self {
+        self.mcp = servers.to_vec();
         self
     }
 
@@ -827,7 +847,10 @@ impl Runner {
             .with_approved_nodes(&approved)
             .with_agent_profiles(&profiles)
             .with_prompts(&prompts)
-            .with_models(&models);
+            .with_models(&models)
+            // 系统 MCP 接给节点。空的时候 `with_mcp` 也照调 ——
+            // 那与「没接」是同一个结果，而少一个分支
+            .with_mcp(&self.mcp);
 
         // 通知发送器从外壳一路传下来。没有它时 `notify` 节点
         // 明确报「这个环境发不了」—— 那正是 B-1 要修的

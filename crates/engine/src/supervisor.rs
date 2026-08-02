@@ -39,6 +39,13 @@ pub struct Supervisor {
     /// 谁把系统通知发出去。桌面壳在 setup 里注入，
     /// 每条运行的后台线程都从这里拿一份。
     notifier: Option<Arc<dyn crate::notify::Notifier>>,
+    /// 系统 MCP 的接入点，转给每一条运行的 AI 节点。
+    ///
+    /// **与 notifier 同一条理由**：由执行宿主注入 —— 引擎不知道
+    /// MCP 起在哪个端口、用什么令牌。不接的话 AI 节点建会话时
+    /// 发的是空的 `mcpServers`，它能不能用工具就取决于本机
+    /// `~/.codex/config.toml` 碰巧指对了没有，而 acp.claude 不读那份。
+    mcp: Vec<crate::acp::McpHttpServer>,
     /// AI 节点的实时帧往哪推。与 notifier 一样要跟进后台线程。
     stream: Option<Arc<dyn crate::acp::ChunkSink>>,
 }
@@ -49,6 +56,7 @@ impl Supervisor {
             db_path,
             cancels: Arc::new(Mutex::new(HashMap::new())),
             notifier: None,
+            mcp: Vec::new(),
             stream: None,
         }
     }
@@ -56,6 +64,15 @@ impl Supervisor {
     /// 接上系统通知的发送器。桌面壳在 setup 里调它 ——
     /// 不调的话 `notify` 节点会明确报「这个环境发不了」。
     #[must_use]
+    /// 把系统 MCP 接给每一条运行的 AI 节点。
+    ///
+    /// 执行宿主起完 MCP 之后调它。守卫
+    /// `crates/engine/tests/node_mcp_reach_test.rs`。
+    pub fn with_mcp(mut self, servers: &[crate::acp::McpHttpServer]) -> Self {
+        self.mcp = servers.to_vec();
+        self
+    }
+
     pub fn with_notifier(mut self, notifier: Arc<dyn crate::notify::Notifier>) -> Self {
         self.notifier = Some(notifier);
         self
@@ -73,7 +90,7 @@ impl Supervisor {
 
     /// 建一个接好了通知与实时帧的 Runner。
     fn runner(&self) -> Runner {
-        let mut runner = Runner::new();
+        let mut runner = Runner::new().with_mcp(&self.mcp);
         if let Some(notifier) = &self.notifier {
             runner = runner.with_notifier(notifier.clone());
         }
