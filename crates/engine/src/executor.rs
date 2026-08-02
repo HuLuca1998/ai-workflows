@@ -1408,6 +1408,37 @@ impl NodeExecutor {
                     }),
                 );
 
+                /*
+                 * 配了 `outputParse: 'json'` 而没解析出来 —— 走 `failed` 端口。
+                 *
+                 * 原来无条件走 success：`${x.success.parsed}` 于是插值出
+                 * **字面量 `null`**，下游 AI 拿着 `null` 写一份「一切正常」
+                 * 的报告。七条内置模板全都只读 `.parsed`，没有一条读
+                 * `.parseError` —— 引擎把解析失败当成一条可查询的元数据，
+                 * 而没有任何一处消费它（独立复核 code-verified）。
+                 *
+                 * 触发它的现实路径不止一条：输出撞上 `MAX_OUTPUT_BYTES`
+                 * 被截断、脚本多打了一行、gh 认证失效时的异常输出。
+                 *
+                 * 只在**显式配了 json** 时才这么判：没配 outputParse 的
+                 * 脚本本来就不产出结构化数据，那时 parse_error 是 None。
+                 */
+                if let Some(reason) = &parse_error {
+                    sink(NodeEvent {
+                        kind: "script.exited",
+                        node_id: node.id.clone(),
+                        summary: format!(
+                            "退出码 0，但输出解析不成 JSON：{reason}。\
+                             配了 outputParse: json 就以「解析得出来」为准 —— \
+                             下游引用 .parsed 会拿到 null"
+                        ),
+                        payload_ref: None,
+                    });
+                    return Ok(NodeOutcome::Succeeded {
+                        port: "failed".to_string(),
+                    });
+                }
+
                 Ok(NodeOutcome::Succeeded {
                     port: "success".to_string(),
                 })
