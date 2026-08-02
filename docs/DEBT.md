@@ -688,6 +688,34 @@ CLAUDE.md 明写「别把 agent 报的结论直接采信」，而我照抄了）
 
 ### 还没修
 
+### O-27 · 一个终点都没到达的运行，仍然报 succeeded
+
+**B-15 的同族第二条，修完 B-15 之后当场看见的。**
+
+复跑同一条嵌套工作流（run_e973ccf3795ecd60）时，子运行「发布前检查单」：
+
+```text
+#62 node.succeeded  write_report  写出 report.json 完成 · 走 failed 分支
+#64 run.succeeded   -             全部节点已完成
+```
+
+`write_report` 走了 `failed` 端口，而 `release-checklist` 的图里那个端口
+**没有任何下游** —— 于是这条运行**一个 `end` 节点都没执行过**，
+`reachable_all_done` 仍判 true（够得着的都跑完了），状态 succeeded。
+
+「全部节点已完成」这句话本身是真的，问题在于它不等于「跑成了」。
+
+**这条无歧义**：校验强制要求至少有一个 `end` 节点
+（`crates/engine/src/validate.rs:195`、`packages/contracts/src/graph.ts:246`），
+所以「一条运行结束时一个终点都没到达」只可能是卡住了，不可能是设计。
+
+修法：收尾判据再加一条 —— 没执行过任何 `end` 节点就不算成功，
+事件摘要要说清最后停在哪个节点的哪个端口上（否则用户只看到
+一句「全部节点已完成」跟着一个 failed）。
+
+与 B-15 分开记是因为判据不同：B-15 是「到达了失败终点」，
+这条是「哪个终点都没到达」。
+
 ### O-26 · 内置模型 `gpt-5-codex` 已被 codex 淘汰，每个 AI 节点都降级一次
 
 `seed_builtins.sql:42` 写死 `model_id = 'gpt-5-codex'`，四个内置角色
