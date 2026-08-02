@@ -47,8 +47,8 @@ runtime 实际发的可能更多（比如两个官方 schema 里没有的 `sessi
 | `session/list` | 列出该 agent 已有的会话 | ⛔ 未用 |
 | `session/close` | 关掉单条会话，**不必杀整个进程** | ⛔ 未用（见 [07 O-5](07-violations.md)） |
 | `session/delete` | 删除会话及其历史（需 `session.delete`） | ⛔ 未用 |
-| `session/prompt` | 发一轮，阻塞到整个 turn 结束 | ✅ `acp.rs:348` |
-| `session/cancel` | 中止当前 turn（**通知，不是请求**） | ⚠️ `acp.rs:388` 实现了但**零调用点** |
+| `session/prompt` | 发一轮，阻塞到整个 turn 结束 | ✅ `acp.rs:452`。**注意超时是每条消息的，不是整轮的** —— 见 DEBT O-25 |
+| `session/cancel` | 中止当前 turn（**通知，不是请求**） | ✅ `acp.rs:665`（`CancelHandle::cancel`，唯一拼那行 JSON 的地方）。界面「取消」按钮 → `supervisor.cancel` → `SessionPool::cancel`。**当作请求发会被 `-32601` 拒掉且那一轮照跑**，实测见 `crates/engine/tests/acp_cancel_test.rs` |
 | `_session/steering` | **turn 进行中插一条消息**（不是排队，是插进当前这一轮） | ⛔ 未用 —— **已实测两端都可用**，见 [08 运行时差异](08-runtime-abstraction.md) |
 | `session/set_mode` | 切权限档 / 沙箱档 | ⛔ 未用（见 [07 O-3](07-violations.md)） |
 | `session/set_config_option` | 逐项设置会话配置（**参数是 `configId`**，不是 `optionId`） | ⛔ 未用 —— 但**已实测可用**，见下 |
