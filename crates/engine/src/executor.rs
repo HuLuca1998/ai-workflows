@@ -2517,6 +2517,10 @@ impl WorkspaceChanges {
 /// 不是 git 仓库时返回 `None` 而不是「0 个文件」：`workdirSource` 为
 /// inherit / declared 的节点可能跑在任意目录里，那时根本没有「改了什么」
 /// 可谈，编一个 0 出来是拿假证据冒充真证据。
+/// 产物目录在工作目录下的名字。`workspace_changes` 按这个前缀把它排除掉 ——
+/// 那里面的东西是引擎写的，不是 agent 改的。
+const ARTIFACTS_DIR_PREFIX: &str = ".aiwf-artifacts/";
+
 #[must_use]
 pub fn workspace_changes(dir: &Path) -> Option<WorkspaceChanges> {
     // `--porcelain` 一行一个文件，格式稳定（专门给程序读的）；
@@ -2550,6 +2554,21 @@ pub fn workspace_changes(dir: &Path) -> Option<WorkspaceChanges> {
                 .to_string()
         })
         .filter(|path| !path.is_empty())
+        /*
+         * **产物目录不算 agent 干的事。**
+         *
+         * 它就在工作目录下面，于是引擎每写一条 prompt.md / stdout.log /
+         * agent.md 都会被 `git status` 数进来 —— 而这句摘要回答的是
+         * 「这个节点改了什么」。
+         *
+         * 实测（run_e97c3005197b58d8）：一个只调 MCP 读报告的**只读**节点
+         * 报「改了 1072 个文件」，第一个还是**子运行**的产物 ——
+         * 父子共用工作目录，父把子的产物也认领了。
+         *
+         * 按目录前缀而不是 `contains`：`docs/aiwf-artifacts-说明.md`
+         * 是一个正常文件。
+         */
+        .filter(|path| !path.starts_with(ARTIFACTS_DIR_PREFIX))
         .collect();
 
     let summary = if files.is_empty() {
