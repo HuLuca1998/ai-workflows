@@ -97,7 +97,20 @@ fn main() {
     match aiwf_mcp::config::load_or_create(&data_dir)
         .and_then(|config| aiwf_mcp::start(&data_dir, std::path::PathBuf::from(&db_path), config))
     {
-        Ok(handle) => println!("  系统 MCP：{}", handle.plain_url()),
+        Ok(handle) => {
+            println!("  系统 MCP：{}", handle.plain_url());
+            // 已经「一键接入」过的客户端刷新到当前地址。
+            // 端口换了或换了工作区的话，那条快照就指错了 ——
+            // 而症状是主管 AI 突然一个工具都没有
+            for outcome in aiwf_core_api::mcp_clients::refresh_connected(handle.port, &handle.token)
+            {
+                println!(
+                    "  刷新 MCP 接入：{} {}",
+                    outcome.client.label(),
+                    outcome.detail
+                );
+            }
+        }
         Err(error) => eprintln!("系统 MCP 没起来（主管 AI 将没有工具）：{error}"),
     }
 

@@ -968,7 +968,16 @@ pub fn run() {
             match aiwf_mcp::config::load_or_create(&data_dir)
                 .and_then(|config| aiwf_mcp::start(&data_dir, path.clone(), config))
             {
-                Ok(handle) => println!("[aiwf] 系统 MCP 已就绪：{}", handle.plain_url()),
+                Ok(handle) => {
+                    println!("[aiwf] 系统 MCP 已就绪：{}", handle.plain_url());
+                    // 已接入过的客户端刷新到当前地址 —— 那条配置是快照，
+                    // 端口一换就指错，而症状是主管 AI 一个工具都没有
+                    for outcome in
+                        aiwf_core_api::mcp_clients::refresh_connected(handle.port, &handle.token)
+                    {
+                        println!("[aiwf] 刷新 MCP 接入：{}", outcome.detail);
+                    }
+                }
                 Err(error) => eprintln!("[aiwf] 系统 MCP 没起来：{error}"),
             }
 

@@ -23,6 +23,10 @@ pub enum Client {
     Codex,
 }
 
+/// 全部支持的客户端。加一种就在这里加一条 —— `refresh_connected`
+/// 靠它遍历，漏了那一种的配置就再也不会被刷新。
+pub const ALL: &[Client] = &[Client::Claude, Client::Codex];
+
 impl Client {
     #[must_use]
     pub fn cli(self) -> &'static str {
@@ -213,6 +217,30 @@ pub fn connect(client: Client, port: u16, token: &str) -> ConnectOutcome {
             command: cmdline,
         },
     }
+}
+
+/// 把**已经接入过**的客户端刷新到当前地址。
+///
+/// ## 为什么必须有这一步
+///
+/// 「一键接入」写进客户端配置的是一份**快照**（`http://127.0.0.1:<港>/mcp/<令牌>`）。
+/// 而端口在服务启动时可能被换掉（默认端口被占就换一个，见
+/// `crates/mcp/src/http.rs`），换工作区也会换一份令牌 ——
+/// 那条快照于是悄悄指向一个不存在的地址。
+///
+/// 后果不是报错：客户端连不上就当作「没有这个 server」，
+/// **主管 AI 手上一个工具都没有**，而它会如实说「当前工具不可用，
+/// 请你自己去界面里点」。用户看到的是 AI 突然不会干活了，
+/// 而「一键接入」那个按钮明明是绿的（`connected()` 只查条目在不在，
+/// 不查它指的地址还对不对）。
+///
+/// **只刷新已经接过的**，不主动给没接过的客户端写配置 ——
+/// 那是用户的全局配置，没点过按钮就不该被写。
+pub fn refresh_connected(port: u16, token: &str) -> Vec<ConnectOutcome> {
+    ALL.iter()
+        .filter(|client| client.installed() && connected(**client))
+        .map(|client| connect(*client, port, token))
+        .collect()
 }
 
 /// 这个客户端里已经有 aiwf 这条了吗。

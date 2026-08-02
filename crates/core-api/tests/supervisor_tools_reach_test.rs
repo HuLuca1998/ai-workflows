@@ -60,9 +60,54 @@ fn 每个执行宿主都起系统_mcp() {
 }
 
 #[test]
-fn 这条守卫自己会红() {
+fn 起了_mcp_就要把地址刷新给已接入的客户端() {
+    /*
+     * 「起来了」还不够 —— **接入地址是一张快照**。
+     *
+     * 「一键接入」把 `http://127.0.0.1:<port>/mcp/<token>` 写进
+     * `~/.codex/config.toml` 的 `[mcp_servers.aiwf]`。而端口在启动时
+     * 可能被占用后重绑（`crates/mcp/src/http.rs`），换个工作区 token 也变，
+     * 于是那条快照指向一个不存在的地址。
+     *
+     * `mcp_clients::connected()` 只查「那一条在不在」，不查它对不对，
+     * 所以设置页照样显示「已接入」。实测：config.toml 里躺着
+     * `:5178/...299f5b20`，实际服务在 `:5179/...269d1635` ——
+     * 主管 AI 一个工具都没有，而 MCP 服务本身活得好好的。
+     *
+     * 那条 curl 得到的是连接被拒，agent 侧只表现为「没有这个工具」，
+     * 于是它老老实实说「当前工具不可用」——
+     * 与整个 MCP 没起来的症状**一模一样**。
+     */
+    let mut 漏了 = Vec::new();
+    for (rel, 名字) in 执行宿主 {
+        let source = 读(rel);
+        if !source.contains("aiwf_mcp::start") {
+            continue;
+        }
+        if !source.contains("refresh_connected") {
+            漏了.push(format!("{名字}（{rel}）"));
+        }
+    }
+    assert!(
+        漏了.is_empty(),
+        "这些宿主起了 MCP 却不刷新已接入客户端的地址：{漏了:?}。\n\
+         端口重绑或换工作区之后，`~/.codex/config.toml` 里那条快照就指错了，\
+         而设置页仍显示「已接入」—— 症状与「MCP 完全没起来」无法区分"
+    );
+}
+
+#[test]
+fn 这两条守卫自己都会红() {
     // 元测试：假装一个宿主只有 Supervisor 没有 MCP
-    let 假源码 = "let supervisor = Supervisor::new(path);";
-    assert!(假源码.contains("Supervisor::new"));
-    assert!(!假源码.contains("aiwf_mcp::start"), "守卫抓不到就不是守卫");
+    let 缺_mcp = "let supervisor = Supervisor::new(path);";
+    assert!(缺_mcp.contains("Supervisor::new"));
+    assert!(!缺_mcp.contains("aiwf_mcp::start"), "守卫抓不到就不是守卫");
+
+    // 起了 MCP 但不刷新 —— 这正是实测撞到的那一版
+    let 缺刷新 = "let handle = aiwf_mcp::start(&data_dir, db, config)?;";
+    assert!(缺刷新.contains("aiwf_mcp::start"));
+    assert!(
+        !缺刷新.contains("refresh_connected"),
+        "刷新那条守卫抓不到「起了但没刷新」，就不是守卫"
+    );
 }
