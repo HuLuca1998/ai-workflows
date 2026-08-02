@@ -63,6 +63,13 @@ const BATCHES: &[(&str, Body)] = &[
     // 生成物早已修好，这一批把老库里「从未被用户动过」的样例修到同一终点。
     // 与 builtins.v1-fix 同一条理由与同一份克制：用户动过的一概不碰。
     ("sample.v1-fix", Body::Code(crate::sample::fix_sample)),
+    // 出厂的标准工作流。示例那一条（sample.v1）留着不动 ——
+    // 它是「一键初始化之后立刻有一条能点开的东西」，
+    // 而这一批是「一套能直接用的标准流程」，两件事
+    (
+        "builtin-workflows.v1",
+        Body::Code(crate::builtin_workflows::seed_builtin_workflows),
+    ),
 ];
 
 /// 把没种过的批次种上。

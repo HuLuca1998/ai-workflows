@@ -1,0 +1,2426 @@
+[
+  {
+    "id": "workflow:github-issue-fix",
+    "templateId": "github-issue-fix",
+    "name": "GitHub Issue 修复",
+    "summary": "读 Issue → 分析 → 审批 → worktree → 修复 → 审查 → 决策 → PR",
+    "graph": {
+      "nodes": [
+        {
+          "id": "entry",
+          "type": "entry",
+          "title": "入口 · Issue 输入",
+          "position": {
+            "x": 40,
+            "y": 34
+          },
+          "config": {
+            "trigger": "manual",
+            "workdirSource": "prompt",
+            "inputSchema": {
+              "type": "object",
+              "required": [
+                "issue",
+                "repo",
+                "repoPath"
+              ],
+              "properties": {
+                "issue": {
+                  "type": "string",
+                  "title": "Issue 编号"
+                },
+                "repo": {
+                  "type": "object",
+                  "format": "repo",
+                  "title": "仓库与分支"
+                },
+                "repoPath": {
+                  "type": "string",
+                  "format": "directory",
+                  "title": "本地仓库路径"
+                }
+              }
+            },
+            "injectedFields": [
+              "run.id",
+              "run.startedAt"
+            ]
+          }
+        },
+        {
+          "id": "read_issue",
+          "type": "script.shell",
+          "title": "读取 Issue",
+          "position": {
+            "x": 290,
+            "y": 34
+          },
+          "config": {
+            "interpreter": "zsh",
+            "script": "set -euo pipefail\ngh issue view ${input.issue} --repo ${input.repo.name} --json title,body,labels",
+            "env": {},
+            "secretEnv": {},
+            "outputParse": "json",
+            "successExitCodes": [
+              0
+            ],
+            "outputLimitBytes": 1048576,
+            "timeoutMs": 60000
+          }
+        },
+        {
+          "id": "analyze",
+          "type": "ai.analyze",
+          "title": "分析 · 根因与方案",
+          "position": {
+            "x": 540,
+            "y": 34
+          },
+          "config": {
+            "agentProfileId": "builtin:analyst",
+            "instruction": "定位根因，给出 2–3 个可选方案，写清每个方案的风险与验证方式。",
+            "turnLimit": 12,
+            "target": "${read_issue.success.parsed}"
+          }
+        },
+        {
+          "id": "approve_plan",
+          "type": "approval",
+          "title": "审批 · 选择方案",
+          "position": {
+            "x": 790,
+            "y": 34
+          },
+          "config": {
+            "title": "选择修复方案",
+            "bodyMarkdown": "分析给出了多个方案，选一个继续。",
+            "interaction": "single",
+            "decider": "auto",
+            "options": [],
+            "waitStrategy": "forever"
+          }
+        },
+        {
+          "id": "worktree",
+          "type": "git.worktree",
+          "title": "创建 Git worktree",
+          "position": {
+            "x": 790,
+            "y": 184
+          },
+          "config": {
+            "repoRoot": "${input.repoPath}",
+            "baseBranch": "${input.repo.branch}",
+            "branchTemplate": "fix/${input.issue}-${run.id}",
+            "parentDir": "~/worktrees",
+            "fetch": true,
+            "conflictPolicy": "suffix",
+            "cleanupPolicy": "manual"
+          }
+        },
+        {
+          "id": "fix",
+          "type": "ai.execute",
+          "title": "执行 · Fix Agent",
+          "position": {
+            "x": 540,
+            "y": 184
+          },
+          "config": {
+            "agentProfileId": "builtin:builder",
+            "instruction": "按选定方案修改代码，小步提交，每步可验证。",
+            "turnLimit": 12,
+            "workdirSource": "worktree",
+            "verifyCommands": [
+              "pnpm test"
+            ]
+          }
+        },
+        {
+          "id": "review",
+          "type": "ai.review",
+          "title": "审查 · Diff 与风险",
+          "position": {
+            "x": 290,
+            "y": 184
+          },
+          "config": {
+            "agentProfileId": "builtin:reviewer",
+            "instruction": "只读检查 Diff、测试与风险，按严重度排序，最多 5 条。",
+            "turnLimit": 12,
+            "target": "${fix.success}",
+            "checklist": [
+              "并发",
+              "缓存失效",
+              "错误分支",
+              "日志脱敏"
+            ],
+            "severities": [
+              "blocker",
+              "major",
+              "minor"
+            ]
+          }
+        },
+        {
+          "id": "decide",
+          "type": "ai.decide",
+          "title": "决策 · L1–L3 分级",
+          "position": {
+            "x": 40,
+            "y": 184
+          },
+          "config": {
+            "agentProfileId": "builtin:operator",
+            "instruction": "按影响面给出 L1–L3 分级；push 与建 PR 属于 L3。",
+            "turnLimit": 12,
+            "rules": [],
+            "autoDecideUpTo": "L2",
+            "onTimeout": "escalate"
+          }
+        },
+        {
+          "id": "approve_diff",
+          "type": "approval",
+          "title": "审批 · 检查 Diff",
+          "position": {
+            "x": 40,
+            "y": 334
+          },
+          "config": {
+            "title": "检查 Diff 与风险",
+            "bodyMarkdown": "将要发生的外部写操作：commit → push → 创建 PR。不会修改当前分支。",
+            "interaction": "confirm",
+            "decider": "user",
+            "options": [],
+            "waitStrategy": "forever"
+          },
+          "join": {
+            "strategy": "any",
+            "merge": "namespaced",
+            "onPartialFailure": "fail"
+          }
+        },
+        {
+          "id": "push_pr",
+          "type": "script.shell",
+          "title": "Commit / Push / PR",
+          "position": {
+            "x": 290,
+            "y": 334
+          },
+          "config": {
+            "interpreter": "zsh",
+            "script": "set -euo pipefail\nISSUE=${input.issue}\ncd ${worktree.success.path}\ngit add -A\ngit diff --cached --quiet && { echo '没有任何改动，不建 PR'; exit 1; }\ngit commit -qm \"fix: 关闭 #$ISSUE\"\ngit push -qu origin HEAD\ngh pr create --fill",
+            "env": {},
+            "secretEnv": {},
+            "outputParse": "none",
+            "successExitCodes": [
+              0
+            ],
+            "outputLimitBytes": 1048576,
+            "timeoutMs": 300000
+          },
+          "join": {
+            "strategy": "any",
+            "merge": "namespaced",
+            "onPartialFailure": "fail"
+          }
+        },
+        {
+          "id": "notify",
+          "type": "notify",
+          "title": "系统通知",
+          "position": {
+            "x": 540,
+            "y": 334
+          },
+          "config": {
+            "title": "Issue 修复完成",
+            "body": "PR 已创建，点击查看。",
+            "on": [
+              "completed",
+              "failed",
+              "waiting_approval"
+            ],
+            "clickAction": "open_run",
+            "onFailure": "ignore"
+          }
+        },
+        {
+          "id": "done",
+          "type": "end",
+          "title": "结束",
+          "position": {
+            "x": 790,
+            "y": 334
+          },
+          "config": {
+            "outcome": "success",
+            "artifacts": []
+          }
+        },
+        {
+          "id": "stopped",
+          "type": "end",
+          "title": "结束 · 材料不足",
+          "position": {
+            "x": 1040,
+            "y": 34
+          },
+          "config": {
+            "outcome": "failure",
+            "artifacts": []
+          },
+          "join": {
+            "strategy": "any",
+            "merge": "namespaced",
+            "onPartialFailure": "fail"
+          }
+        }
+      ],
+      "edges": [
+        {
+          "id": "e_entry_read",
+          "source": {
+            "nodeId": "entry",
+            "port": "success"
+          },
+          "target": {
+            "nodeId": "read_issue",
+            "port": "input"
+          }
+        },
+        {
+          "id": "e_read_analyze",
+          "source": {
+            "nodeId": "read_issue",
+            "port": "success"
+          },
+          "target": {
+            "nodeId": "analyze",
+            "port": "input"
+          }
+        },
+        {
+          "id": "e_analyze_approve",
+          "source": {
+            "nodeId": "analyze",
+            "port": "success"
+          },
+          "target": {
+            "nodeId": "approve_plan",
+            "port": "input"
+          }
+        },
+        {
+          "id": "e_approve_worktree",
+          "source": {
+            "nodeId": "approve_plan",
+            "port": "approved"
+          },
+          "target": {
+            "nodeId": "worktree",
+            "port": "input"
+          }
+        },
+        {
+          "id": "e_worktree_fix",
+          "source": {
+            "nodeId": "worktree",
+            "port": "success"
+          },
+          "target": {
+            "nodeId": "fix",
+            "port": "input"
+          }
+        },
+        {
+          "id": "e_fix_review",
+          "source": {
+            "nodeId": "fix",
+            "port": "success"
+          },
+          "target": {
+            "nodeId": "review",
+            "port": "input"
+          }
+        },
+        {
+          "id": "e_review_decide",
+          "source": {
+            "nodeId": "review",
+            "port": "passed"
+          },
+          "target": {
+            "nodeId": "decide",
+            "port": "input"
+          }
+        },
+        {
+          "id": "e_decide_approve",
+          "source": {
+            "nodeId": "decide",
+            "port": "escalated"
+          },
+          "target": {
+            "nodeId": "approve_diff",
+            "port": "input"
+          }
+        },
+        {
+          "id": "e_approve_push",
+          "source": {
+            "nodeId": "approve_diff",
+            "port": "approved"
+          },
+          "target": {
+            "nodeId": "push_pr",
+            "port": "input"
+          }
+        },
+        {
+          "id": "e_decide_push",
+          "source": {
+            "nodeId": "decide",
+            "port": "auto_decided"
+          },
+          "target": {
+            "nodeId": "push_pr",
+            "port": "input"
+          }
+        },
+        {
+          "id": "e_analyze_stopped",
+          "source": {
+            "nodeId": "analyze",
+            "port": "insufficient_context"
+          },
+          "target": {
+            "nodeId": "stopped",
+            "port": "input"
+          }
+        },
+        {
+          "id": "e_plan_changes_stopped",
+          "source": {
+            "nodeId": "approve_plan",
+            "port": "changes_requested"
+          },
+          "target": {
+            "nodeId": "stopped",
+            "port": "input"
+          }
+        },
+        {
+          "id": "e_plan_rejected_stopped",
+          "source": {
+            "nodeId": "approve_plan",
+            "port": "rejected"
+          },
+          "target": {
+            "nodeId": "stopped",
+            "port": "input"
+          }
+        },
+        {
+          "id": "e_plan_expired_stopped",
+          "source": {
+            "nodeId": "approve_plan",
+            "port": "expired"
+          },
+          "target": {
+            "nodeId": "stopped",
+            "port": "input"
+          }
+        },
+        {
+          "id": "e_diff_changes_stopped",
+          "source": {
+            "nodeId": "approve_diff",
+            "port": "changes_requested"
+          },
+          "target": {
+            "nodeId": "stopped",
+            "port": "input"
+          }
+        },
+        {
+          "id": "e_diff_rejected_stopped",
+          "source": {
+            "nodeId": "approve_diff",
+            "port": "rejected"
+          },
+          "target": {
+            "nodeId": "stopped",
+            "port": "input"
+          }
+        },
+        {
+          "id": "e_diff_expired_stopped",
+          "source": {
+            "nodeId": "approve_diff",
+            "port": "expired"
+          },
+          "target": {
+            "nodeId": "stopped",
+            "port": "input"
+          }
+        },
+        {
+          "id": "e_fix_needs_decision",
+          "source": {
+            "nodeId": "fix",
+            "port": "needs_decision"
+          },
+          "target": {
+            "nodeId": "approve_diff",
+            "port": "input"
+          }
+        },
+        {
+          "id": "e_push_notify",
+          "source": {
+            "nodeId": "push_pr",
+            "port": "success"
+          },
+          "target": {
+            "nodeId": "notify",
+            "port": "input"
+          }
+        },
+        {
+          "id": "e_notify_done",
+          "source": {
+            "nodeId": "notify",
+            "port": "success"
+          },
+          "target": {
+            "nodeId": "done",
+            "port": "input"
+          }
+        },
+        {
+          "id": "e_review_back",
+          "source": {
+            "nodeId": "review",
+            "port": "changes_requested"
+          },
+          "target": {
+            "nodeId": "approve_diff",
+            "port": "input"
+          }
+        }
+      ],
+      "groups": []
+    }
+  },
+  {
+    "id": "workflow:github-issue-feature",
+    "templateId": "github-issue-feature",
+    "name": "Issue 需求开发",
+    "summary": "读需求 → 拆方案 → 人确认 → worktree → 实现 → 自测 → 审查 → PR → 报告",
+    "graph": {
+      "nodes": [
+        {
+          "id": "entry",
+          "type": "entry",
+          "title": "入口 · 需求 Issue",
+          "position": {
+            "x": 40,
+            "y": 34
+          },
+          "config": {
+            "trigger": "manual",
+            "workdirSource": "prompt",
+            "inputSchema": {
+              "type": "object",
+              "required": [
+                "issue",
+                "repo",
+                "repoPath"
+              ],
+              "properties": {
+                "issue": {
+                  "type": "string",
+                  "title": "Issue 编号"
+                },
+                "repo": {
+                  "type": "object",
+                  "format": "repo",
+                  "title": "仓库与分支"
+                },
+                "repoPath": {
+                  "type": "string",
+                  "title": "本地仓库路径"
+                }
+              }
+            },
+            "injectedFields": []
+          }
+        },
+        {
+          "id": "read_issue",
+          "type": "script.shell",
+          "title": "读需求",
+          "position": {
+            "x": 290,
+            "y": 34
+          },
+          "config": {
+            "interpreter": "zsh",
+            "script": "set -euo pipefail\ngh issue view ${input.issue} --repo ${input.repo.name} --json number,title,body,labels,comments",
+            "env": {},
+            "secretEnv": {},
+            "outputParse": "json",
+            "successExitCodes": [
+              0
+            ],
+            "outputLimitBytes": 1048576,
+            "timeoutMs": 60000
+          }
+        },
+        {
+          "id": "shape",
+          "type": "ai.analyze",
+          "title": "拆解 · 要做成什么样",
+          "position": {
+            "x": 540,
+            "y": 34
+          },
+          "config": {
+            "agentProfileId": "builtin:analyst",
+            "instruction": "这是一条需求 Issue（含讨论）。先把需求拆清楚，再谈怎么做。\n\n要有四样：\n① **我理解的需求**：一句话，用户能一眼看出我有没有理解错\n② **验收标准**：怎样算做完了，写成能验证的条目\n③ **不做什么**：这一轮明确不覆盖的范围\n④ 2–3 个实现方案，每个写清改动面、风险、怎么验证\n\n讨论里如果已经排除过某个方案，**说出来并说明为什么**，\n不要重新提一遍。信息不够就走 insufficient_context，\n别猜一个需求出来 —— 需求做错了比 bug 修错了贵得多。",
+            "turnLimit": 12,
+            "target": "${read_issue.success.parsed}"
+          }
+        },
+        {
+          "id": "confirm_scope",
+          "type": "approval",
+          "title": "审批 · 确认需求与方案",
+          "position": {
+            "x": 790,
+            "y": 34
+          },
+          "config": {
+            "title": "确认需求理解与实现方案",
+            "bodyMarkdown": "上一步给出了「我理解的需求」「验收标准」「不做什么」与几个方案。\n**理解错了就在这里拦住** —— 往后每一步都建立在这个理解上。",
+            "interaction": "single",
+            "decider": "user",
+            "options": [],
+            "waitStrategy": "forever"
+          }
+        },
+        {
+          "id": "worktree",
+          "type": "git.worktree",
+          "title": "创建 Git worktree",
+          "position": {
+            "x": 1040,
+            "y": 34
+          },
+          "config": {
+            "repoRoot": "${input.repoPath}",
+            "baseBranch": "${input.repo.branch}",
+            "branchTemplate": "feat/${input.issue}-${run.id}",
+            "parentDir": "~/worktrees",
+            "fetch": true,
+            "conflictPolicy": "suffix",
+            "cleanupPolicy": "manual"
+          }
+        },
+        {
+          "id": "build",
+          "type": "ai.execute",
+          "title": "实现 · 按确认的方案",
+          "position": {
+            "x": 1040,
+            "y": 184
+          },
+          "config": {
+            "agentProfileId": "builtin:builder",
+            "instruction": "按上一步确认的方案实现，小步提交，每步可单独验证。\n**先写测试**：验收标准里的每一条都该有一条测试对应它。\n偏离方案的话停下来走 needs_decision，不要自己改需求。",
+            "turnLimit": 12,
+            "workdirSource": "worktree",
+            "verifyCommands": [
+              "pnpm test"
+            ]
+          }
+        },
+        {
+          "id": "review",
+          "type": "ai.review",
+          "title": "审查 · 对着验收标准",
+          "position": {
+            "x": 790,
+            "y": 184
+          },
+          "config": {
+            "agentProfileId": "builtin:reviewer",
+            "instruction": "只读检查。**第一件事是对着验收标准逐条核**：\n哪几条有测试覆盖、哪几条只是「看起来做了」。\n然后才是常规风险（错误分支、并发、日志脱敏）。",
+            "turnLimit": 12,
+            "target": "${build.success}",
+            "checklist": [
+              "验收标准逐条对应",
+              "测试真的会红",
+              "错误分支",
+              "日志脱敏"
+            ],
+            "severities": [
+              "blocker",
+              "major",
+              "minor"
+            ]
+          }
+        },
+        {
+          "id": "approve_pr",
+          "type": "approval",
+          "title": "审批 · 开 PR",
+          "position": {
+            "x": 540,
+            "y": 184
+          },
+          "config": {
+            "title": "检查改动并开 PR",
+            "bodyMarkdown": "将要发生的外部写操作：commit → push → 创建 PR。不会动当前分支。",
+            "interaction": "confirm",
+            "decider": "user",
+            "options": [],
+            "waitStrategy": "forever"
+          }
+        },
+        {
+          "id": "push_pr",
+          "type": "script.shell",
+          "title": "Commit / Push / PR",
+          "position": {
+            "x": 290,
+            "y": 184
+          },
+          "config": {
+            "interpreter": "zsh",
+            "script": "set -euo pipefail\nISSUE=${input.issue}\ncd ${worktree.success.path}\ngit add -A\ngit diff --cached --quiet && { echo '没有任何改动，不建 PR'; exit 1; }\ngit commit -qm \"feat: 实现 #$ISSUE\"\ngit push -qu origin HEAD\ngh pr create --fill",
+            "env": {},
+            "secretEnv": {},
+            "outputParse": "none",
+            "successExitCodes": [
+              0
+            ],
+            "outputLimitBytes": 1048576,
+            "timeoutMs": 300000
+          }
+        },
+        {
+          "id": "write_report",
+          "type": "ai.execute",
+          "title": "写出 report.json",
+          "position": {
+            "x": 40,
+            "y": 184
+          },
+          "config": {
+            "agentProfileId": "builtin:builder",
+            "instruction": "审查的结论：\n${review.passed}\n\n把上一步的结论写成一份结构化报告，存为工作目录根下的 `report.json`。\n\n格式：`{\"schemaVer\":1,\"title\":\"…\",\"summary\":\"…\",\"outcome\":\"success|warning|failed\",\"blocks\":[…]}`\nblocks 每项的 kind 只能是这六种之一：\n  metrics  {\"kind\":\"metrics\",\"items\":[{\"label\":\"合并的 PR\",\"value\":\"12\",\"tone\":\"good|warn|bad\"}]}\n  prose    {\"kind\":\"prose\",\"heading\":\"可选标题\",\"text\":\"段落正文\"}\n  table    {\"kind\":\"table\",\"columns\":[\"列1\",\"列2\"],\"rows\":[[\"a\",\"b\"]]}\n  timeline {\"kind\":\"timeline\",\"items\":[{\"at\":\"2026-08-02T09:00:00Z\",\"text\":\"发生了什么\"}]}\n  code     {\"kind\":\"code\",\"language\":\"bash\",\"text\":\"命令或日志片段\"}\n  links    {\"kind\":\"links\",\"items\":[{\"label\":\"PR #12\",\"href\":\"https://…\"}]}\n\n三条硬要求：\n① href 只能是 http/https，别的会被整块丢掉\n② table 每一行的长度必须等于 columns 的长度\n③ **没有数据支撑的不要写**。这份报告会被当成事实读，\n   拿不准就写进 prose 说明「这一项没查到」，不要编一个数字\n\n详细说明也可以从系统 MCP 读：资源 `aiwf://guide/write-report`。\n写完确认文件真的存在且是合法 JSON —— 格式不对时界面只能显示原文。\n\n这份报告的读者是**提需求的人**。三件事必须有：\n① 我理解的需求（照第二步那份原样抄，别重新措辞）\n② 验收标准逐条的状态：做了 / 没做 / 做了但没测\n③ 明确没做的部分，以及为什么",
+            "turnLimit": 12,
+            "workdirSource": "inherit",
+            "verifyCommands": []
+          },
+          "join": {
+            "strategy": "any",
+            "merge": "namespaced",
+            "onPartialFailure": "fail"
+          }
+        },
+        {
+          "id": "done",
+          "type": "end",
+          "title": "结束",
+          "position": {
+            "x": 40,
+            "y": 334
+          },
+          "config": {
+            "outcome": "success",
+            "artifacts": [
+              "report.json"
+            ]
+          },
+          "join": {
+            "strategy": "any",
+            "merge": "namespaced",
+            "onPartialFailure": "fail"
+          }
+        },
+        {
+          "id": "stopped",
+          "type": "end",
+          "title": "结束 · 需求不清或需要人定",
+          "position": {
+            "x": 790,
+            "y": 334
+          },
+          "config": {
+            "outcome": "failure",
+            "artifacts": []
+          },
+          "join": {
+            "strategy": "any",
+            "merge": "namespaced",
+            "onPartialFailure": "fail"
+          }
+        }
+      ],
+      "edges": [
+        {
+          "id": "e_entry_read",
+          "source": {
+            "nodeId": "entry",
+            "port": "success"
+          },
+          "target": {
+            "nodeId": "read_issue",
+            "port": "input"
+          }
+        },
+        {
+          "id": "e_read_shape",
+          "source": {
+            "nodeId": "read_issue",
+            "port": "success"
+          },
+          "target": {
+            "nodeId": "shape",
+            "port": "input"
+          }
+        },
+        {
+          "id": "e_shape_confirm",
+          "source": {
+            "nodeId": "shape",
+            "port": "success"
+          },
+          "target": {
+            "nodeId": "confirm_scope",
+            "port": "input"
+          }
+        },
+        {
+          "id": "e_shape_stopped",
+          "source": {
+            "nodeId": "shape",
+            "port": "insufficient_context"
+          },
+          "target": {
+            "nodeId": "stopped",
+            "port": "input"
+          }
+        },
+        {
+          "id": "e_confirm_changes",
+          "source": {
+            "nodeId": "confirm_scope",
+            "port": "changes_requested"
+          },
+          "target": {
+            "nodeId": "stopped",
+            "port": "input"
+          }
+        },
+        {
+          "id": "e_confirm_expired",
+          "source": {
+            "nodeId": "confirm_scope",
+            "port": "expired"
+          },
+          "target": {
+            "nodeId": "stopped",
+            "port": "input"
+          }
+        },
+        {
+          "id": "e_confirm_worktree",
+          "source": {
+            "nodeId": "confirm_scope",
+            "port": "approved"
+          },
+          "target": {
+            "nodeId": "worktree",
+            "port": "input"
+          }
+        },
+        {
+          "id": "e_confirm_stopped",
+          "source": {
+            "nodeId": "confirm_scope",
+            "port": "rejected"
+          },
+          "target": {
+            "nodeId": "stopped",
+            "port": "input"
+          }
+        },
+        {
+          "id": "e_worktree_build",
+          "source": {
+            "nodeId": "worktree",
+            "port": "success"
+          },
+          "target": {
+            "nodeId": "build",
+            "port": "input"
+          }
+        },
+        {
+          "id": "e_build_review",
+          "source": {
+            "nodeId": "build",
+            "port": "success"
+          },
+          "target": {
+            "nodeId": "review",
+            "port": "input"
+          }
+        },
+        {
+          "id": "e_build_stopped",
+          "source": {
+            "nodeId": "build",
+            "port": "needs_decision"
+          },
+          "target": {
+            "nodeId": "stopped",
+            "port": "input"
+          }
+        },
+        {
+          "id": "e_review_approve",
+          "source": {
+            "nodeId": "review",
+            "port": "passed"
+          },
+          "target": {
+            "nodeId": "approve_pr",
+            "port": "input"
+          }
+        },
+        {
+          "id": "e_review_report",
+          "source": {
+            "nodeId": "review",
+            "port": "changes_requested"
+          },
+          "target": {
+            "nodeId": "write_report",
+            "port": "input"
+          }
+        },
+        {
+          "id": "e_approve_push",
+          "source": {
+            "nodeId": "approve_pr",
+            "port": "approved"
+          },
+          "target": {
+            "nodeId": "push_pr",
+            "port": "input"
+          }
+        },
+        {
+          "id": "e_approve_report",
+          "source": {
+            "nodeId": "approve_pr",
+            "port": "rejected"
+          },
+          "target": {
+            "nodeId": "write_report",
+            "port": "input"
+          }
+        },
+        {
+          "id": "e_approve_changes",
+          "source": {
+            "nodeId": "approve_pr",
+            "port": "changes_requested"
+          },
+          "target": {
+            "nodeId": "write_report",
+            "port": "input"
+          }
+        },
+        {
+          "id": "e_approve_expired",
+          "source": {
+            "nodeId": "approve_pr",
+            "port": "expired"
+          },
+          "target": {
+            "nodeId": "write_report",
+            "port": "input"
+          }
+        },
+        {
+          "id": "e_push_report",
+          "source": {
+            "nodeId": "push_pr",
+            "port": "success"
+          },
+          "target": {
+            "nodeId": "write_report",
+            "port": "input"
+          }
+        },
+        {
+          "id": "e_report_done",
+          "source": {
+            "nodeId": "write_report",
+            "port": "success"
+          },
+          "target": {
+            "nodeId": "done",
+            "port": "input"
+          }
+        },
+        {
+          "id": "e_report_done_2",
+          "source": {
+            "nodeId": "write_report",
+            "port": "needs_decision"
+          },
+          "target": {
+            "nodeId": "done",
+            "port": "input"
+          }
+        }
+      ],
+      "groups": []
+    }
+  },
+  {
+    "id": "workflow:repo-digest",
+    "templateId": "repo-digest",
+    "name": "仓库动态报告（日报 / 周报 / 月报）",
+    "summary": "定时拉 issue / PR / commit → AI 归纳 → 结构化报告",
+    "graph": {
+      "nodes": [
+        {
+          "id": "entry",
+          "type": "entry",
+          "title": "入口 · 每天 09:00",
+          "position": {
+            "x": 40,
+            "y": 34
+          },
+          "config": {
+            "trigger": "schedule",
+            "scheduleTime": "09:00",
+            "workdirSource": "prompt",
+            "inputSchema": {
+              "type": "object",
+              "required": [
+                "repo",
+                "sinceDays"
+              ],
+              "properties": {
+                "repo": {
+                  "type": "object",
+                  "format": "repo",
+                  "title": "仓库与分支",
+                  "default": {
+                    "name": "cli/cli",
+                    "branch": "trunk"
+                  }
+                },
+                "sinceDays": {
+                  "type": "string",
+                  "title": "回看几天",
+                  "description": "日报填 1，周报填 7，月报填 30",
+                  "default": "1"
+                }
+              }
+            },
+            "injectedFields": []
+          }
+        },
+        {
+          "id": "collect",
+          "type": "script.shell",
+          "title": "拉取仓库动态",
+          "position": {
+            "x": 290,
+            "y": 34
+          },
+          "config": {
+            "interpreter": "zsh",
+            "script": "set -euo pipefail\nREPO=${input.repo.name}\nDAYS=${input.sinceDays}\nFROM=$(DAYS=\"$DAYS\" python3 -c 'import datetime,os; print((datetime.datetime.now(datetime.timezone.utc)-datetime.timedelta(days=int(os.environ[\"DAYS\"]))).strftime(\"%Y-%m-%dT%H:%M:%SZ\"))')\necho \"统计区间自 $FROM\" >&2\nISSUES=$(gh issue list --repo \"$REPO\" --state all --search \"updated:>$FROM\" --limit 50 --json number,title,state,createdAt,updatedAt,closedAt)\nPRS=$(gh pr list --repo \"$REPO\" --state all --search \"updated:>$FROM\" --limit 50 --json number,title,state,createdAt,updatedAt,mergedAt,author)\nCOMMITS=$(gh api \"repos/$REPO/commits?since=$FROM&per_page=50\" --jq '[.[] | {sha: .sha[0:7], message: (.commit.message | split(\"\\n\")[0]), author: .commit.author.name, date: .commit.author.date}]')\nprintf '{\"from\":\"%s\",\"issues\":%s,\"pullRequests\":%s,\"commits\":%s}' \"$FROM\" \"$ISSUES\" \"$PRS\" \"$COMMITS\"",
+            "env": {},
+            "secretEnv": {},
+            "outputParse": "json",
+            "successExitCodes": [
+              0
+            ],
+            "outputLimitBytes": 1048576,
+            "timeoutMs": 120000
+          }
+        },
+        {
+          "id": "digest",
+          "type": "ai.analyze",
+          "title": "归纳 · 这段时间发生了什么",
+          "position": {
+            "x": 540,
+            "y": 34
+          },
+          "config": {
+            "agentProfileId": "builtin:analyst",
+            "instruction": "把这段时间的仓库动态归纳成一份报告，给一个没跟进这个仓库的人看。\n要有：整体节奏（合了多少 PR、开了多少 issue）、值得注意的变化、\n卡住的事（长时间没动的 issue / PR）。\n**没有数据支撑的话不要写** —— 这份报告会被当成事实读。",
+            "turnLimit": 12,
+            "target": "${collect.success.parsed}"
+          }
+        },
+        {
+          "id": "write_report",
+          "type": "ai.execute",
+          "title": "写出 report.json",
+          "position": {
+            "x": 790,
+            "y": 34
+          },
+          "config": {
+            "agentProfileId": "builtin:builder",
+            "instruction": "上一步的结论：\n${digest.success}\n\n把上一步的结论写成一份结构化报告，存为工作目录根下的 `report.json`。\n\n格式：`{\"schemaVer\":1,\"title\":\"…\",\"summary\":\"…\",\"outcome\":\"success|warning|failed\",\"blocks\":[…]}`\nblocks 每项的 kind 只能是这六种之一：\n  metrics  {\"kind\":\"metrics\",\"items\":[{\"label\":\"合并的 PR\",\"value\":\"12\",\"tone\":\"good|warn|bad\"}]}\n  prose    {\"kind\":\"prose\",\"heading\":\"可选标题\",\"text\":\"段落正文\"}\n  table    {\"kind\":\"table\",\"columns\":[\"列1\",\"列2\"],\"rows\":[[\"a\",\"b\"]]}\n  timeline {\"kind\":\"timeline\",\"items\":[{\"at\":\"2026-08-02T09:00:00Z\",\"text\":\"发生了什么\"}]}\n  code     {\"kind\":\"code\",\"language\":\"bash\",\"text\":\"命令或日志片段\"}\n  links    {\"kind\":\"links\",\"items\":[{\"label\":\"PR #12\",\"href\":\"https://…\"}]}\n\n三条硬要求：\n① href 只能是 http/https，别的会被整块丢掉\n② table 每一行的长度必须等于 columns 的长度\n③ **没有数据支撑的不要写**。这份报告会被当成事实读，\n   拿不准就写进 prose 说明「这一项没查到」，不要编一个数字\n\n详细说明也可以从系统 MCP 读：资源 `aiwf://guide/write-report`。\n写完确认文件真的存在且是合法 JSON —— 格式不对时界面只能显示原文。",
+            "turnLimit": 12,
+            "workdirSource": "inherit",
+            "verifyCommands": []
+          }
+        },
+        {
+          "id": "notify",
+          "type": "notify",
+          "title": "系统通知",
+          "position": {
+            "x": 1040,
+            "y": 34
+          },
+          "config": {
+            "title": "仓库动态报告已生成",
+            "body": "点开看这段时间发生了什么。",
+            "on": [
+              "completed",
+              "failed",
+              "waiting_approval"
+            ],
+            "clickAction": "open_run",
+            "onFailure": "ignore"
+          }
+        },
+        {
+          "id": "done",
+          "type": "end",
+          "title": "结束",
+          "position": {
+            "x": 1290,
+            "y": 34
+          },
+          "config": {
+            "outcome": "success",
+            "artifacts": [
+              "report.json"
+            ]
+          },
+          "join": {
+            "strategy": "any",
+            "merge": "namespaced",
+            "onPartialFailure": "fail"
+          }
+        },
+        {
+          "id": "stopped",
+          "type": "end",
+          "title": "结束 · 材料不足",
+          "position": {
+            "x": 540,
+            "y": 184
+          },
+          "config": {
+            "outcome": "failure",
+            "artifacts": []
+          },
+          "join": {
+            "strategy": "any",
+            "merge": "namespaced",
+            "onPartialFailure": "fail"
+          }
+        }
+      ],
+      "edges": [
+        {
+          "id": "e_entry_collect",
+          "source": {
+            "nodeId": "entry",
+            "port": "success"
+          },
+          "target": {
+            "nodeId": "collect",
+            "port": "input"
+          }
+        },
+        {
+          "id": "e_collect_digest",
+          "source": {
+            "nodeId": "collect",
+            "port": "success"
+          },
+          "target": {
+            "nodeId": "digest",
+            "port": "input"
+          }
+        },
+        {
+          "id": "e_digest_report",
+          "source": {
+            "nodeId": "digest",
+            "port": "success"
+          },
+          "target": {
+            "nodeId": "write_report",
+            "port": "input"
+          }
+        },
+        {
+          "id": "e_digest_stopped",
+          "source": {
+            "nodeId": "digest",
+            "port": "insufficient_context"
+          },
+          "target": {
+            "nodeId": "stopped",
+            "port": "input"
+          }
+        },
+        {
+          "id": "e_report_notify",
+          "source": {
+            "nodeId": "write_report",
+            "port": "success"
+          },
+          "target": {
+            "nodeId": "notify",
+            "port": "input"
+          }
+        },
+        {
+          "id": "e_report_stopped",
+          "source": {
+            "nodeId": "write_report",
+            "port": "needs_decision"
+          },
+          "target": {
+            "nodeId": "stopped",
+            "port": "input"
+          }
+        },
+        {
+          "id": "e_notify_done",
+          "source": {
+            "nodeId": "notify",
+            "port": "success"
+          },
+          "target": {
+            "nodeId": "done",
+            "port": "input"
+          }
+        },
+        {
+          "id": "e_notify_failed_done",
+          "source": {
+            "nodeId": "notify",
+            "port": "failed"
+          },
+          "target": {
+            "nodeId": "done",
+            "port": "input"
+          }
+        }
+      ],
+      "groups": []
+    }
+  },
+  {
+    "id": "workflow:server-log-triage",
+    "templateId": "server-log-triage",
+    "name": "服务器日志巡检",
+    "summary": "定时 SSH 抓错误与慢查询 → AI 归因 → 报告（只读，不改线上）",
+    "graph": {
+      "nodes": [
+        {
+          "id": "entry",
+          "type": "entry",
+          "title": "入口 · 每天 08:30",
+          "position": {
+            "x": 40,
+            "y": 34
+          },
+          "config": {
+            "trigger": "schedule",
+            "scheduleTime": "08:30",
+            "workdirSource": "prompt",
+            "inputSchema": {
+              "type": "object",
+              "required": [
+                "sshTarget",
+                "logPath"
+              ],
+              "properties": {
+                "sshTarget": {
+                  "type": "string",
+                  "title": "SSH 目标",
+                  "description": "形如 root@1.2.3.4。端口不是 22 时在下面单独填",
+                  "default": "root@127.0.0.1"
+                },
+                "sshPort": {
+                  "type": "string",
+                  "title": "SSH 端口",
+                  "description": "很多线上机器改过端口（pp-game 的 live 是 2220）",
+                  "default": "22"
+                },
+                "logPath": {
+                  "type": "string",
+                  "title": "应用日志路径",
+                  "description": "服务器上的绝对路径，支持通配。例：/srv/pp-game-live/logs/*.log",
+                  "default": "/var/log/*.log"
+                },
+                "slowLogPath": {
+                  "type": "string",
+                  "title": "慢查询日志路径",
+                  "description": "留空则跳过慢查询那一段。MySQL 常见位置 /var/log/mysql/slow.log；MongoDB 的慢查询在 mongod.log 里，路径填它即可",
+                  "default": ""
+                },
+                "hours": {
+                  "type": "string",
+                  "title": "回看几小时",
+                  "default": "24"
+                }
+              }
+            },
+            "injectedFields": []
+          }
+        },
+        {
+          "id": "collect",
+          "type": "script.shell",
+          "title": "抓错误与慢查询",
+          "position": {
+            "x": 290,
+            "y": 34
+          },
+          "config": {
+            "interpreter": "zsh",
+            "script": "set -euo pipefail\nTARGET=${input.sshTarget}\nPORT=${input.sshPort}\nLOG=${input.logPath}\nSLOW=${input.slowLogPath}\nHOURS=${input.hours}\nMINUTES=$(( HOURS * 60 ))\n\n# 远端那段拼成一行字符串再发过去。用 heredoc 的话，\n# 里面的 $ 会在本地先展开一轮，远端拿到的是空变量\nREMOTE=\"set -u;\nfiles=\\$(find $LOG -type f -mmin -$MINUTES 2>/dev/null | head -20);\n[ -z \\\"\\$files\\\" ] && { echo NO_LOG_FILES; exit 0; };\ngrep -hiE 'error|exception|fatal|panic|traceback' \\$files 2>/dev/null |\n  sed -E 's/[0-9-]{10}[T ][0-9:.,]+//g; s/[0-9a-f]{8,}/<id>/g; s/[0-9]+/<n>/g' |\n  sort | uniq -c | sort -rn | head -20\"\n\nERRORS=$(ssh -p \"$PORT\" -o BatchMode=yes -o ConnectTimeout=15 \"$TARGET\" \"$REMOTE\" || echo SSH_FAILED)\nif [ -n \"$SLOW\" ]; then\n  SLOWQ=$(ssh -p \"$PORT\" -o BatchMode=yes -o ConnectTimeout=15 \"$TARGET\" \"tail -c 200000 $SLOW 2>/dev/null | grep -A3 -i Query_time | head -100\" || echo SSH_FAILED)\nelse\n  SLOWQ=\"\"\nfi\n\n# 用 python 拼 JSON：日志正文里有引号和反斜杠，printf 拼不安全\nERRORS=\"$ERRORS\" SLOWQ=\"$SLOWQ\" HOURS=\"$HOURS\" python3 -c 'import json,os; print(json.dumps({\"hours\": os.environ[\"HOURS\"], \"errors\": os.environ[\"ERRORS\"], \"slowQueries\": os.environ[\"SLOWQ\"]}))'",
+            "env": {},
+            "secretEnv": {},
+            "outputParse": "json",
+            "successExitCodes": [
+              0
+            ],
+            "outputLimitBytes": 1048576,
+            "timeoutMs": 180000
+          }
+        },
+        {
+          "id": "triage",
+          "type": "ai.analyze",
+          "title": "归因 · 哪些要今天处理",
+          "position": {
+            "x": 540,
+            "y": 34
+          },
+          "config": {
+            "agentProfileId": "builtin:analyst",
+            "instruction": "这是一台线上机器最近的错误统计与慢查询片段。\n\n按「今天该不该处理」排序，每条说清：出现了多少次、\n最可能的原因、以及**怎么验证这个猜测**（一条只读命令或一处代码位置）。\n\n两条要求：\n① 计数是归一化之后的（时间戳与 id 被替换成占位符），\n  所以「同一类」不等于「同一次」，别把次数当成受影响用户数\n② 输出里如果出现 SSH_FAILED 或 NO_LOG_FILES，\n  那不是「没有错误」而是**没抓到** —— 直说抓取失败，别报平安",
+            "turnLimit": 12,
+            "target": "${collect.success.parsed}"
+          }
+        },
+        {
+          "id": "write_report",
+          "type": "ai.execute",
+          "title": "写出 report.json",
+          "position": {
+            "x": 790,
+            "y": 34
+          },
+          "config": {
+            "agentProfileId": "builtin:builder",
+            "instruction": "上一步的结论：\n${triage.success}\n\n把上一步的结论写成一份结构化报告，存为工作目录根下的 `report.json`。\n\n格式：`{\"schemaVer\":1,\"title\":\"…\",\"summary\":\"…\",\"outcome\":\"success|warning|failed\",\"blocks\":[…]}`\nblocks 每项的 kind 只能是这六种之一：\n  metrics  {\"kind\":\"metrics\",\"items\":[{\"label\":\"合并的 PR\",\"value\":\"12\",\"tone\":\"good|warn|bad\"}]}\n  prose    {\"kind\":\"prose\",\"heading\":\"可选标题\",\"text\":\"段落正文\"}\n  table    {\"kind\":\"table\",\"columns\":[\"列1\",\"列2\"],\"rows\":[[\"a\",\"b\"]]}\n  timeline {\"kind\":\"timeline\",\"items\":[{\"at\":\"2026-08-02T09:00:00Z\",\"text\":\"发生了什么\"}]}\n  code     {\"kind\":\"code\",\"language\":\"bash\",\"text\":\"命令或日志片段\"}\n  links    {\"kind\":\"links\",\"items\":[{\"label\":\"PR #12\",\"href\":\"https://…\"}]}\n\n三条硬要求：\n① href 只能是 http/https，别的会被整块丢掉\n② table 每一行的长度必须等于 columns 的长度\n③ **没有数据支撑的不要写**。这份报告会被当成事实读，\n   拿不准就写进 prose 说明「这一项没查到」，不要编一个数字\n\n详细说明也可以从系统 MCP 读：资源 `aiwf://guide/write-report`。\n写完确认文件真的存在且是合法 JSON —— 格式不对时界面只能显示原文。",
+            "turnLimit": 12,
+            "workdirSource": "inherit",
+            "verifyCommands": []
+          }
+        },
+        {
+          "id": "notify",
+          "type": "notify",
+          "title": "系统通知",
+          "position": {
+            "x": 1040,
+            "y": 34
+          },
+          "config": {
+            "title": "服务器日志巡检完成",
+            "body": "点开看今天该先处理什么。",
+            "on": [
+              "completed",
+              "failed",
+              "waiting_approval"
+            ],
+            "clickAction": "open_run",
+            "onFailure": "ignore"
+          }
+        },
+        {
+          "id": "done",
+          "type": "end",
+          "title": "结束",
+          "position": {
+            "x": 1290,
+            "y": 34
+          },
+          "config": {
+            "outcome": "success",
+            "artifacts": [
+              "report.json"
+            ]
+          },
+          "join": {
+            "strategy": "any",
+            "merge": "namespaced",
+            "onPartialFailure": "fail"
+          }
+        },
+        {
+          "id": "stopped",
+          "type": "end",
+          "title": "结束 · 没抓到日志",
+          "position": {
+            "x": 540,
+            "y": 184
+          },
+          "config": {
+            "outcome": "failure",
+            "artifacts": []
+          },
+          "join": {
+            "strategy": "any",
+            "merge": "namespaced",
+            "onPartialFailure": "fail"
+          }
+        }
+      ],
+      "edges": [
+        {
+          "id": "e_entry_collect",
+          "source": {
+            "nodeId": "entry",
+            "port": "success"
+          },
+          "target": {
+            "nodeId": "collect",
+            "port": "input"
+          }
+        },
+        {
+          "id": "e_collect_triage",
+          "source": {
+            "nodeId": "collect",
+            "port": "success"
+          },
+          "target": {
+            "nodeId": "triage",
+            "port": "input"
+          }
+        },
+        {
+          "id": "e_triage_report",
+          "source": {
+            "nodeId": "triage",
+            "port": "success"
+          },
+          "target": {
+            "nodeId": "write_report",
+            "port": "input"
+          }
+        },
+        {
+          "id": "e_triage_stopped",
+          "source": {
+            "nodeId": "triage",
+            "port": "insufficient_context"
+          },
+          "target": {
+            "nodeId": "stopped",
+            "port": "input"
+          }
+        },
+        {
+          "id": "e_report_notify",
+          "source": {
+            "nodeId": "write_report",
+            "port": "success"
+          },
+          "target": {
+            "nodeId": "notify",
+            "port": "input"
+          }
+        },
+        {
+          "id": "e_report_stopped",
+          "source": {
+            "nodeId": "write_report",
+            "port": "needs_decision"
+          },
+          "target": {
+            "nodeId": "stopped",
+            "port": "input"
+          }
+        },
+        {
+          "id": "e_notify_done",
+          "source": {
+            "nodeId": "notify",
+            "port": "success"
+          },
+          "target": {
+            "nodeId": "done",
+            "port": "input"
+          }
+        },
+        {
+          "id": "e_notify_failed_done",
+          "source": {
+            "nodeId": "notify",
+            "port": "failed"
+          },
+          "target": {
+            "nodeId": "done",
+            "port": "input"
+          }
+        }
+      ],
+      "groups": []
+    }
+  },
+  {
+    "id": "workflow:dep-upgrade-audit",
+    "templateId": "dep-upgrade-audit",
+    "name": "依赖升级巡检",
+    "summary": "每周扫过期依赖与漏洞 → AI 判优先级 → 报告（只读，不改仓库）",
+    "graph": {
+      "nodes": [
+        {
+          "id": "entry",
+          "type": "entry",
+          "title": "入口 · 每周一 10:00",
+          "position": {
+            "x": 40,
+            "y": 34
+          },
+          "config": {
+            "trigger": "interval",
+            "intervalMinutes": 10080,
+            "workdirSource": "prompt",
+            "inputSchema": {
+              "type": "object",
+              "required": [
+                "repoPath"
+              ],
+              "properties": {
+                "repoPath": {
+                  "type": "string",
+                  "title": "本地仓库路径",
+                  "description": "含 package.json 的目录。只读，不会改动任何文件",
+                  "default": "."
+                }
+              }
+            },
+            "injectedFields": []
+          }
+        },
+        {
+          "id": "scan",
+          "type": "script.shell",
+          "title": "扫过期依赖与漏洞",
+          "position": {
+            "x": 290,
+            "y": 34
+          },
+          "config": {
+            "interpreter": "zsh",
+            "script": "set -uo pipefail\ncd ${input.repoPath} || { echo \"仓库路径不存在\" >&2; exit 1; }\ncommand -v pnpm >/dev/null || { echo \"这台机器上没有 pnpm\" >&2; exit 1; }\n\n# --json 在有过期包时退出码 1，这里是预期结果不是失败\nOUTDATED=$(pnpm outdated --format json 2>/dev/null || true)\n[ -z \"$OUTDATED\" ] && OUTDATED=\"{}\"\nAUDIT=$(pnpm audit --json 2>/dev/null || true)\n[ -z \"$AUDIT\" ] && AUDIT=\"{}\"\n\nOUTDATED=\"$OUTDATED\" AUDIT=\"$AUDIT\" python3 -c 'import json,os; print(json.dumps({\"outdated\": os.environ[\"OUTDATED\"], \"audit\": os.environ[\"AUDIT\"]}))'",
+            "env": {},
+            "secretEnv": {},
+            "outputParse": "json",
+            "successExitCodes": [
+              0
+            ],
+            "outputLimitBytes": 1048576,
+            "timeoutMs": 300000
+          }
+        },
+        {
+          "id": "triage",
+          "type": "ai.analyze",
+          "title": "判优先级 · 哪些该现在升",
+          "position": {
+            "x": 540,
+            "y": 34
+          },
+          "config": {
+            "agentProfileId": "builtin:analyst",
+            "instruction": "这是一个仓库的过期依赖清单与安全审计结果。\n\n分成三档，每档给出具体包名与版本跨度：\n① **现在就升**：有已知漏洞，或补丁版本（patch）且改动面小\n② **排期升**：跨了 minor / major，要读 changelog 与跑回归\n③ **先别动**：升级成本明显大于收益，说清为什么\n\n三条要求：\n· 每一条都要写**验证方式**（跑哪个测试、看哪个页面）\n· major 版本跨越必须单独列出来，不要混进「现在就升」\n· 输入里如果两份 JSON 都是空对象 `{}`，那不是「没有过期依赖」\n  而是**没扫到** —— 直说扫描失败，别报平安",
+            "turnLimit": 12,
+            "target": "${scan.success.parsed}"
+          }
+        },
+        {
+          "id": "write_report",
+          "type": "ai.execute",
+          "title": "写出 report.json",
+          "position": {
+            "x": 790,
+            "y": 34
+          },
+          "config": {
+            "agentProfileId": "builtin:builder",
+            "instruction": "上一步的结论：\n${triage.success}\n\n把上一步的结论写成一份结构化报告，存为工作目录根下的 `report.json`。\n\n格式：`{\"schemaVer\":1,\"title\":\"…\",\"summary\":\"…\",\"outcome\":\"success|warning|failed\",\"blocks\":[…]}`\nblocks 每项的 kind 只能是这六种之一：\n  metrics  {\"kind\":\"metrics\",\"items\":[{\"label\":\"合并的 PR\",\"value\":\"12\",\"tone\":\"good|warn|bad\"}]}\n  prose    {\"kind\":\"prose\",\"heading\":\"可选标题\",\"text\":\"段落正文\"}\n  table    {\"kind\":\"table\",\"columns\":[\"列1\",\"列2\"],\"rows\":[[\"a\",\"b\"]]}\n  timeline {\"kind\":\"timeline\",\"items\":[{\"at\":\"2026-08-02T09:00:00Z\",\"text\":\"发生了什么\"}]}\n  code     {\"kind\":\"code\",\"language\":\"bash\",\"text\":\"命令或日志片段\"}\n  links    {\"kind\":\"links\",\"items\":[{\"label\":\"PR #12\",\"href\":\"https://…\"}]}\n\n三条硬要求：\n① href 只能是 http/https，别的会被整块丢掉\n② table 每一行的长度必须等于 columns 的长度\n③ **没有数据支撑的不要写**。这份报告会被当成事实读，\n   拿不准就写进 prose 说明「这一项没查到」，不要编一个数字\n\n详细说明也可以从系统 MCP 读：资源 `aiwf://guide/write-report`。\n写完确认文件真的存在且是合法 JSON —— 格式不对时界面只能显示原文。",
+            "turnLimit": 12,
+            "workdirSource": "inherit",
+            "verifyCommands": []
+          }
+        },
+        {
+          "id": "done",
+          "type": "end",
+          "title": "结束",
+          "position": {
+            "x": 1040,
+            "y": 34
+          },
+          "config": {
+            "outcome": "success",
+            "artifacts": [
+              "report.json"
+            ]
+          },
+          "join": {
+            "strategy": "any",
+            "merge": "namespaced",
+            "onPartialFailure": "fail"
+          }
+        },
+        {
+          "id": "stopped",
+          "type": "end",
+          "title": "结束 · 没扫到",
+          "position": {
+            "x": 540,
+            "y": 184
+          },
+          "config": {
+            "outcome": "failure",
+            "artifacts": []
+          },
+          "join": {
+            "strategy": "any",
+            "merge": "namespaced",
+            "onPartialFailure": "fail"
+          }
+        }
+      ],
+      "edges": [
+        {
+          "id": "e_entry_scan",
+          "source": {
+            "nodeId": "entry",
+            "port": "success"
+          },
+          "target": {
+            "nodeId": "scan",
+            "port": "input"
+          }
+        },
+        {
+          "id": "e_scan_triage",
+          "source": {
+            "nodeId": "scan",
+            "port": "success"
+          },
+          "target": {
+            "nodeId": "triage",
+            "port": "input"
+          }
+        },
+        {
+          "id": "e_triage_report",
+          "source": {
+            "nodeId": "triage",
+            "port": "success"
+          },
+          "target": {
+            "nodeId": "write_report",
+            "port": "input"
+          }
+        },
+        {
+          "id": "e_triage_stopped",
+          "source": {
+            "nodeId": "triage",
+            "port": "insufficient_context"
+          },
+          "target": {
+            "nodeId": "stopped",
+            "port": "input"
+          }
+        },
+        {
+          "id": "e_report_done",
+          "source": {
+            "nodeId": "write_report",
+            "port": "success"
+          },
+          "target": {
+            "nodeId": "done",
+            "port": "input"
+          }
+        },
+        {
+          "id": "e_report_done_2",
+          "source": {
+            "nodeId": "write_report",
+            "port": "needs_decision"
+          },
+          "target": {
+            "nodeId": "done",
+            "port": "input"
+          }
+        }
+      ],
+      "groups": []
+    }
+  },
+  {
+    "id": "workflow:release-checklist",
+    "templateId": "release-checklist",
+    "name": "发布前检查单",
+    "summary": "跑测试与构建 → 列出上个 tag 以来的改动 → AI 核风险 → 能不能发",
+    "graph": {
+      "nodes": [
+        {
+          "id": "entry",
+          "type": "entry",
+          "title": "入口 · 手动",
+          "position": {
+            "x": 40,
+            "y": 34
+          },
+          "config": {
+            "trigger": "manual",
+            "workdirSource": "prompt",
+            "inputSchema": {
+              "type": "object",
+              "required": [
+                "repoPath"
+              ],
+              "properties": {
+                "repoPath": {
+                  "type": "string",
+                  "title": "本地仓库路径"
+                },
+                "testCommand": {
+                  "type": "string",
+                  "title": "测试命令",
+                  "default": "pnpm verify"
+                },
+                "buildCommand": {
+                  "type": "string",
+                  "title": "构建命令",
+                  "description": "留空则跳过构建这一段",
+                  "default": ""
+                }
+              }
+            },
+            "injectedFields": []
+          }
+        },
+        {
+          "id": "check",
+          "type": "script.shell",
+          "title": "跑测试与构建，列改动",
+          "position": {
+            "x": 290,
+            "y": 34
+          },
+          "config": {
+            "interpreter": "zsh",
+            "script": "set -uo pipefail\ncd ${input.repoPath} || { echo \"仓库路径不存在\" >&2; exit 1; }\nTEST_CMD=${input.testCommand}\nBUILD_CMD=${input.buildCommand}\n\nTEST_OUT=$(eval \"$TEST_CMD\" 2>&1 | tail -80); TEST_CODE=$?\nif [ -n \"$BUILD_CMD\" ]; then\n  BUILD_OUT=$(eval \"$BUILD_CMD\" 2>&1 | tail -40); BUILD_CODE=$?\nelse\n  BUILD_OUT=\"（没配构建命令，跳过）\"; BUILD_CODE=0\nfi\n\n# 上一个 tag 到现在。一个 tag 都没有时退回最近 50 条\nLAST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo \"\")\nif [ -n \"$LAST_TAG\" ]; then\n  RANGE=\"$LAST_TAG..HEAD\"\nelse\n  RANGE=\"HEAD~50..HEAD\"\nfi\nCHANGES=$(git log --no-merges --pretty=format:\"%h %s\" \"$RANGE\" 2>/dev/null | head -100 || echo \"\")\nFILES=$(git diff --stat \"$RANGE\" 2>/dev/null | tail -30 || echo \"\")\n\nTEST_OUT=\"$TEST_OUT\" TEST_CODE=\"$TEST_CODE\" BUILD_OUT=\"$BUILD_OUT\" BUILD_CODE=\"$BUILD_CODE\" \\\nLAST_TAG=\"$LAST_TAG\" CHANGES=\"$CHANGES\" FILES=\"$FILES\" python3 -c 'import json,os; print(json.dumps({k.lower(): os.environ[k] for k in [\"TEST_OUT\",\"TEST_CODE\",\"BUILD_OUT\",\"BUILD_CODE\",\"LAST_TAG\",\"CHANGES\",\"FILES\"]}))'",
+            "env": {},
+            "secretEnv": {},
+            "outputParse": "json",
+            "successExitCodes": [
+              0
+            ],
+            "outputLimitBytes": 1048576,
+            "timeoutMs": 900000
+          }
+        },
+        {
+          "id": "assess",
+          "type": "ai.review",
+          "title": "核一遍 · 能不能发",
+          "position": {
+            "x": 540,
+            "y": 34
+          },
+          "config": {
+            "agentProfileId": "builtin:reviewer",
+            "instruction": "这是一次发布前的检查结果：测试输出与退出码、构建输出与退出码、\n上一个 tag 以来的提交与改动文件。\n\n回答一个问题：**这次能不能发**。\n\n· `test_code` 非零 = 测试没过。**那就是不能发**，别找补\n· 逐条看提交，标出风险高的那几条（改了数据迁移、\n  改了对外接口、改了权限判断、动了发布脚本本身）\n· 如果 `last_tag` 是空的，说明这个仓库还没打过 tag，\n  改动范围是「最近 50 条」而不是「上次发布以来」—— 说出来\n\n结论写成三选一：可以发 / 有条件可发（列出条件）/ 不能发。",
+            "turnLimit": 12,
+            "target": "${check.success.parsed}",
+            "checklist": [
+              "测试退出码",
+              "数据迁移",
+              "对外接口",
+              "权限判断",
+              "发布脚本本身"
+            ],
+            "severities": [
+              "blocker",
+              "major",
+              "minor"
+            ]
+          }
+        },
+        {
+          "id": "write_report",
+          "type": "ai.execute",
+          "title": "写出 report.json",
+          "position": {
+            "x": 790,
+            "y": 34
+          },
+          "config": {
+            "agentProfileId": "builtin:builder",
+            "instruction": "上一步的结论：\n${assess.passed}\n\n把上一步的结论写成一份结构化报告，存为工作目录根下的 `report.json`。\n\n格式：`{\"schemaVer\":1,\"title\":\"…\",\"summary\":\"…\",\"outcome\":\"success|warning|failed\",\"blocks\":[…]}`\nblocks 每项的 kind 只能是这六种之一：\n  metrics  {\"kind\":\"metrics\",\"items\":[{\"label\":\"合并的 PR\",\"value\":\"12\",\"tone\":\"good|warn|bad\"}]}\n  prose    {\"kind\":\"prose\",\"heading\":\"可选标题\",\"text\":\"段落正文\"}\n  table    {\"kind\":\"table\",\"columns\":[\"列1\",\"列2\"],\"rows\":[[\"a\",\"b\"]]}\n  timeline {\"kind\":\"timeline\",\"items\":[{\"at\":\"2026-08-02T09:00:00Z\",\"text\":\"发生了什么\"}]}\n  code     {\"kind\":\"code\",\"language\":\"bash\",\"text\":\"命令或日志片段\"}\n  links    {\"kind\":\"links\",\"items\":[{\"label\":\"PR #12\",\"href\":\"https://…\"}]}\n\n三条硬要求：\n① href 只能是 http/https，别的会被整块丢掉\n② table 每一行的长度必须等于 columns 的长度\n③ **没有数据支撑的不要写**。这份报告会被当成事实读，\n   拿不准就写进 prose 说明「这一项没查到」，不要编一个数字\n\n详细说明也可以从系统 MCP 读：资源 `aiwf://guide/write-report`。\n写完确认文件真的存在且是合法 JSON —— 格式不对时界面只能显示原文。\n\n这份报告要在**第一屏**回答「能不能发」：\noutcome 用 success（可以发）/ warning（有条件）/ failed（不能发），\nsummary 第一句就是结论本身，不要铺垫。",
+            "turnLimit": 12,
+            "workdirSource": "inherit",
+            "verifyCommands": []
+          },
+          "join": {
+            "strategy": "any",
+            "merge": "namespaced",
+            "onPartialFailure": "fail"
+          }
+        },
+        {
+          "id": "done",
+          "type": "end",
+          "title": "结束",
+          "position": {
+            "x": 1040,
+            "y": 34
+          },
+          "config": {
+            "outcome": "success",
+            "artifacts": [
+              "report.json"
+            ]
+          },
+          "join": {
+            "strategy": "any",
+            "merge": "namespaced",
+            "onPartialFailure": "fail"
+          }
+        }
+      ],
+      "edges": [
+        {
+          "id": "e_entry_check",
+          "source": {
+            "nodeId": "entry",
+            "port": "success"
+          },
+          "target": {
+            "nodeId": "check",
+            "port": "input"
+          }
+        },
+        {
+          "id": "e_check_assess",
+          "source": {
+            "nodeId": "check",
+            "port": "success"
+          },
+          "target": {
+            "nodeId": "assess",
+            "port": "input"
+          }
+        },
+        {
+          "id": "e_assess_report",
+          "source": {
+            "nodeId": "assess",
+            "port": "passed"
+          },
+          "target": {
+            "nodeId": "write_report",
+            "port": "input"
+          }
+        },
+        {
+          "id": "e_assess_changes_report",
+          "source": {
+            "nodeId": "assess",
+            "port": "changes_requested"
+          },
+          "target": {
+            "nodeId": "write_report",
+            "port": "input"
+          }
+        },
+        {
+          "id": "e_report_done",
+          "source": {
+            "nodeId": "write_report",
+            "port": "success"
+          },
+          "target": {
+            "nodeId": "done",
+            "port": "input"
+          }
+        },
+        {
+          "id": "e_report_done_2",
+          "source": {
+            "nodeId": "write_report",
+            "port": "needs_decision"
+          },
+          "target": {
+            "nodeId": "done",
+            "port": "input"
+          }
+        }
+      ],
+      "groups": []
+    }
+  },
+  {
+    "id": "workflow:pr-followup",
+    "templateId": "pr-followup",
+    "name": "PR 评论回访",
+    "summary": "每天扫自己的开着的 PR → 哪些等你回、哪些能合 → 报告（只读）",
+    "graph": {
+      "nodes": [
+        {
+          "id": "entry",
+          "type": "entry",
+          "title": "入口 · 每天 18:00",
+          "position": {
+            "x": 40,
+            "y": 34
+          },
+          "config": {
+            "trigger": "schedule",
+            "scheduleTime": "18:00",
+            "workdirSource": "prompt",
+            "inputSchema": {
+              "type": "object",
+              "required": [
+                "repo"
+              ],
+              "properties": {
+                "repo": {
+                  "type": "object",
+                  "format": "repo",
+                  "title": "仓库与分支",
+                  "default": {
+                    "name": "cli/cli",
+                    "branch": "trunk"
+                  }
+                },
+                "author": {
+                  "type": "string",
+                  "title": "PR 作者",
+                  "description": "GitHub 用户名。填 @me 表示当前登录的账号",
+                  "default": "@me"
+                }
+              }
+            },
+            "injectedFields": []
+          }
+        },
+        {
+          "id": "collect",
+          "type": "script.shell",
+          "title": "拉开着的 PR 与评论",
+          "position": {
+            "x": 290,
+            "y": 34
+          },
+          "config": {
+            "interpreter": "zsh",
+            "script": "set -euo pipefail\nREPO=${input.repo.name}\nAUTHOR=${input.author}\n\nNUMBERS=$(gh pr list --repo \"$REPO\" --author \"$AUTHOR\" --state open --limit 20 --json number --jq '.[].number')\nif [ -z \"$NUMBERS\" ]; then\n  echo '{\"pullRequests\":[]}'\n  exit 0\nfi\n\nDETAILS=\"\"\nwhile IFS= read -r N; do\n  ONE=$(gh pr view \"$N\" --repo \"$REPO\" --json number,title,url,isDraft,createdAt,updatedAt,reviewDecision,statusCheckRollup,comments,reviews)\n  DETAILS=\"$DETAILS$ONE\",\ndone <<< \"$NUMBERS\"\n\n# 去掉末尾逗号再拼成数组。用 python 而不是 sed：\n# PR 正文里可能有任何字符，字符串裁剪不安全\nDETAILS=\"$DETAILS\" python3 -c 'import json,os; raw=os.environ[\"DETAILS\"].rstrip(\",\"); print(json.dumps({\"pullRequests\": json.loads(\"[\" + raw + \"]\")}))'",
+            "env": {},
+            "secretEnv": {},
+            "outputParse": "json",
+            "successExitCodes": [
+              0
+            ],
+            "outputLimitBytes": 1048576,
+            "timeoutMs": 180000
+          }
+        },
+        {
+          "id": "triage",
+          "type": "ai.analyze",
+          "title": "分类 · 该谁动",
+          "position": {
+            "x": 540,
+            "y": 34
+          },
+          "config": {
+            "agentProfileId": "builtin:analyst",
+            "instruction": "这是我开着的 PR 清单，含评论、review 结论与 CI 状态。\n\n按「今天收工前该做什么」分四类：\n① **等我回**：最后一条评论/review 不是我发的，且提了问题或要改\n② **可以合**：reviewDecision 是 APPROVED 且 CI 全绿\n③ **CI 红了**：statusCheckRollup 里有 FAILURE，写清是哪个 check\n④ **在等别人**：已经 request review 但对方还没看\n\n每条给出 PR 编号、标题、链接、以及**一句话说清下一步动作**。\n\n两条要求：\n· 草稿 PR（isDraft）单独归一类，不要混进「等我回」\n· `pullRequests` 是空数组时，那是「没有开着的 PR」，\n  这是好消息，直说就行 —— 别为了凑内容编出建议",
+            "turnLimit": 12,
+            "target": "${collect.success.parsed}"
+          }
+        },
+        {
+          "id": "write_report",
+          "type": "ai.execute",
+          "title": "写出 report.json",
+          "position": {
+            "x": 790,
+            "y": 34
+          },
+          "config": {
+            "agentProfileId": "builtin:builder",
+            "instruction": "上一步的结论：\n${triage.success}\n\n把上一步的结论写成一份结构化报告，存为工作目录根下的 `report.json`。\n\n格式：`{\"schemaVer\":1,\"title\":\"…\",\"summary\":\"…\",\"outcome\":\"success|warning|failed\",\"blocks\":[…]}`\nblocks 每项的 kind 只能是这六种之一：\n  metrics  {\"kind\":\"metrics\",\"items\":[{\"label\":\"合并的 PR\",\"value\":\"12\",\"tone\":\"good|warn|bad\"}]}\n  prose    {\"kind\":\"prose\",\"heading\":\"可选标题\",\"text\":\"段落正文\"}\n  table    {\"kind\":\"table\",\"columns\":[\"列1\",\"列2\"],\"rows\":[[\"a\",\"b\"]]}\n  timeline {\"kind\":\"timeline\",\"items\":[{\"at\":\"2026-08-02T09:00:00Z\",\"text\":\"发生了什么\"}]}\n  code     {\"kind\":\"code\",\"language\":\"bash\",\"text\":\"命令或日志片段\"}\n  links    {\"kind\":\"links\",\"items\":[{\"label\":\"PR #12\",\"href\":\"https://…\"}]}\n\n三条硬要求：\n① href 只能是 http/https，别的会被整块丢掉\n② table 每一行的长度必须等于 columns 的长度\n③ **没有数据支撑的不要写**。这份报告会被当成事实读，\n   拿不准就写进 prose 说明「这一项没查到」，不要编一个数字\n\n详细说明也可以从系统 MCP 读：资源 `aiwf://guide/write-report`。\n写完确认文件真的存在且是合法 JSON —— 格式不对时界面只能显示原文。\n\n「等我回」那一类放在最前面，并且用 links 块给出可点的 PR 链接 ——\n这份报告的用处就是让人一点就跳过去。",
+            "turnLimit": 12,
+            "workdirSource": "inherit",
+            "verifyCommands": []
+          }
+        },
+        {
+          "id": "notify",
+          "type": "notify",
+          "title": "系统通知",
+          "position": {
+            "x": 1040,
+            "y": 34
+          },
+          "config": {
+            "title": "PR 回访清单已生成",
+            "body": "看看收工前还有哪几个等你。",
+            "on": [
+              "completed",
+              "failed",
+              "waiting_approval"
+            ],
+            "clickAction": "open_run",
+            "onFailure": "ignore"
+          }
+        },
+        {
+          "id": "done",
+          "type": "end",
+          "title": "结束",
+          "position": {
+            "x": 1290,
+            "y": 34
+          },
+          "config": {
+            "outcome": "success",
+            "artifacts": [
+              "report.json"
+            ]
+          },
+          "join": {
+            "strategy": "any",
+            "merge": "namespaced",
+            "onPartialFailure": "fail"
+          }
+        },
+        {
+          "id": "stopped",
+          "type": "end",
+          "title": "结束 · 拉不到 PR",
+          "position": {
+            "x": 540,
+            "y": 184
+          },
+          "config": {
+            "outcome": "failure",
+            "artifacts": []
+          },
+          "join": {
+            "strategy": "any",
+            "merge": "namespaced",
+            "onPartialFailure": "fail"
+          }
+        }
+      ],
+      "edges": [
+        {
+          "id": "e_entry_collect",
+          "source": {
+            "nodeId": "entry",
+            "port": "success"
+          },
+          "target": {
+            "nodeId": "collect",
+            "port": "input"
+          }
+        },
+        {
+          "id": "e_collect_triage",
+          "source": {
+            "nodeId": "collect",
+            "port": "success"
+          },
+          "target": {
+            "nodeId": "triage",
+            "port": "input"
+          }
+        },
+        {
+          "id": "e_triage_report",
+          "source": {
+            "nodeId": "triage",
+            "port": "success"
+          },
+          "target": {
+            "nodeId": "write_report",
+            "port": "input"
+          }
+        },
+        {
+          "id": "e_triage_stopped",
+          "source": {
+            "nodeId": "triage",
+            "port": "insufficient_context"
+          },
+          "target": {
+            "nodeId": "stopped",
+            "port": "input"
+          }
+        },
+        {
+          "id": "e_report_notify",
+          "source": {
+            "nodeId": "write_report",
+            "port": "success"
+          },
+          "target": {
+            "nodeId": "notify",
+            "port": "input"
+          }
+        },
+        {
+          "id": "e_report_stopped",
+          "source": {
+            "nodeId": "write_report",
+            "port": "needs_decision"
+          },
+          "target": {
+            "nodeId": "stopped",
+            "port": "input"
+          }
+        },
+        {
+          "id": "e_notify_done",
+          "source": {
+            "nodeId": "notify",
+            "port": "success"
+          },
+          "target": {
+            "nodeId": "done",
+            "port": "input"
+          }
+        },
+        {
+          "id": "e_notify_failed_done",
+          "source": {
+            "nodeId": "notify",
+            "port": "failed"
+          },
+          "target": {
+            "nodeId": "done",
+            "port": "input"
+          }
+        }
+      ],
+      "groups": []
+    }
+  },
+  {
+    "id": "workflow:release-pipeline",
+    "templateId": "release-pipeline",
+    "name": "发布编排（嵌套调用）",
+    "summary": "依赖巡检 → 发布前检查 → 合并结论。两步都是独立子运行",
+    "graph": {
+      "nodes": [
+        {
+          "id": "entry",
+          "type": "entry",
+          "title": "入口 · 手动",
+          "position": {
+            "x": 40,
+            "y": 34
+          },
+          "config": {
+            "trigger": "manual",
+            "workdirSource": "prompt",
+            "inputSchema": {
+              "type": "object",
+              "required": [
+                "repoPath"
+              ],
+              "properties": {
+                "repoPath": {
+                  "type": "string",
+                  "title": "本地仓库路径",
+                  "default": "."
+                }
+              }
+            },
+            "injectedFields": []
+          }
+        },
+        {
+          "id": "deps",
+          "type": "subworkflow",
+          "title": "子流程 · 依赖升级巡检",
+          "position": {
+            "x": 290,
+            "y": 34
+          },
+          "config": {
+            "workflowId": "workflow:dep-upgrade-audit",
+            "versionRef": "latest",
+            "mode": "sync",
+            "inputMapping": {
+              "repoPath": "${input.repoPath}"
+            },
+            "outputMapping": {},
+            "concurrencyLimit": 1,
+            "onFailure": "continue",
+            "approvalInheritance": "inherit"
+          }
+        },
+        {
+          "id": "checklist",
+          "type": "subworkflow",
+          "title": "子流程 · 发布前检查单",
+          "position": {
+            "x": 540,
+            "y": 34
+          },
+          "config": {
+            "workflowId": "workflow:release-checklist",
+            "versionRef": "latest",
+            "mode": "sync",
+            "inputMapping": {
+              "repoPath": "${input.repoPath}"
+            },
+            "outputMapping": {},
+            "concurrencyLimit": 1,
+            "onFailure": "fail_parent",
+            "approvalInheritance": "inherit"
+          },
+          "join": {
+            "strategy": "any",
+            "merge": "namespaced",
+            "onPartialFailure": "fail"
+          }
+        },
+        {
+          "id": "merge",
+          "type": "ai.analyze",
+          "title": "合并两份结论",
+          "position": {
+            "x": 790,
+            "y": 34
+          },
+          "config": {
+            "agentProfileId": "builtin:analyst",
+            "instruction": "这是两条子流程的运行结果，每条带着自己的 runId 与状态。\n\n两份详细结论在各自子运行的 `report.json` 产物里 ——\n用系统 MCP 的 `run_artifacts` / `run_artifact_content` 按 runId 读。\n\n合成一句话回答：**这次能不能发**。\n\n· 发布前检查说「不能发」→ 就是不能发，依赖那份再好也不改变结论\n· 依赖巡检失败（status 不是 succeeded）→ 说清「这一项没查成」，\n  **不要当成「依赖没问题」** —— 那是两回事\n· 读不到某份报告就直说读不到，别猜里面写了什么",
+            "turnLimit": 12,
+            "target": "依赖巡检：${deps.failed}\n发布前检查：${checklist.success}"
+          },
+          "join": {
+            "strategy": "any",
+            "merge": "namespaced",
+            "onPartialFailure": "fail"
+          }
+        },
+        {
+          "id": "write_report",
+          "type": "ai.execute",
+          "title": "写出 report.json",
+          "position": {
+            "x": 1040,
+            "y": 34
+          },
+          "config": {
+            "agentProfileId": "builtin:builder",
+            "instruction": "上一步的结论：\n${merge.success}\n\n把上一步的结论写成一份结构化报告，存为工作目录根下的 `report.json`。\n\n格式：`{\"schemaVer\":1,\"title\":\"…\",\"summary\":\"…\",\"outcome\":\"success|warning|failed\",\"blocks\":[…]}`\nblocks 每项的 kind 只能是这六种之一：\n  metrics  {\"kind\":\"metrics\",\"items\":[{\"label\":\"合并的 PR\",\"value\":\"12\",\"tone\":\"good|warn|bad\"}]}\n  prose    {\"kind\":\"prose\",\"heading\":\"可选标题\",\"text\":\"段落正文\"}\n  table    {\"kind\":\"table\",\"columns\":[\"列1\",\"列2\"],\"rows\":[[\"a\",\"b\"]]}\n  timeline {\"kind\":\"timeline\",\"items\":[{\"at\":\"2026-08-02T09:00:00Z\",\"text\":\"发生了什么\"}]}\n  code     {\"kind\":\"code\",\"language\":\"bash\",\"text\":\"命令或日志片段\"}\n  links    {\"kind\":\"links\",\"items\":[{\"label\":\"PR #12\",\"href\":\"https://…\"}]}\n\n三条硬要求：\n① href 只能是 http/https，别的会被整块丢掉\n② table 每一行的长度必须等于 columns 的长度\n③ **没有数据支撑的不要写**。这份报告会被当成事实读，\n   拿不准就写进 prose 说明「这一项没查到」，不要编一个数字\n\n详细说明也可以从系统 MCP 读：资源 `aiwf://guide/write-report`。\n写完确认文件真的存在且是合法 JSON —— 格式不对时界面只能显示原文。\n\n第一屏就回答「能不能发」：outcome 用 success / warning / failed，\nsummary 第一句就是结论。用 links 块给出两条子运行的链接。",
+            "turnLimit": 12,
+            "workdirSource": "inherit",
+            "verifyCommands": []
+          }
+        },
+        {
+          "id": "done",
+          "type": "end",
+          "title": "结束",
+          "position": {
+            "x": 1290,
+            "y": 34
+          },
+          "config": {
+            "outcome": "success",
+            "artifacts": [
+              "report.json"
+            ]
+          },
+          "join": {
+            "strategy": "any",
+            "merge": "namespaced",
+            "onPartialFailure": "fail"
+          }
+        },
+        {
+          "id": "stopped",
+          "type": "end",
+          "title": "结束 · 子流程跑不起来",
+          "position": {
+            "x": 540,
+            "y": 184
+          },
+          "config": {
+            "outcome": "failure",
+            "artifacts": []
+          },
+          "join": {
+            "strategy": "any",
+            "merge": "namespaced",
+            "onPartialFailure": "fail"
+          }
+        }
+      ],
+      "edges": [
+        {
+          "id": "e_entry_deps",
+          "source": {
+            "nodeId": "entry",
+            "port": "success"
+          },
+          "target": {
+            "nodeId": "deps",
+            "port": "input"
+          }
+        },
+        {
+          "id": "e_deps_checklist",
+          "source": {
+            "nodeId": "deps",
+            "port": "success"
+          },
+          "target": {
+            "nodeId": "checklist",
+            "port": "input"
+          }
+        },
+        {
+          "id": "e_deps_failed_checklist",
+          "source": {
+            "nodeId": "deps",
+            "port": "failed"
+          },
+          "target": {
+            "nodeId": "checklist",
+            "port": "input"
+          }
+        },
+        {
+          "id": "e_checklist_merge",
+          "source": {
+            "nodeId": "checklist",
+            "port": "success"
+          },
+          "target": {
+            "nodeId": "merge",
+            "port": "input"
+          }
+        },
+        {
+          "id": "e_checklist_stopped",
+          "source": {
+            "nodeId": "checklist",
+            "port": "failed"
+          },
+          "target": {
+            "nodeId": "stopped",
+            "port": "input"
+          }
+        },
+        {
+          "id": "e_merge_report",
+          "source": {
+            "nodeId": "merge",
+            "port": "success"
+          },
+          "target": {
+            "nodeId": "write_report",
+            "port": "input"
+          }
+        },
+        {
+          "id": "e_merge_stopped",
+          "source": {
+            "nodeId": "merge",
+            "port": "insufficient_context"
+          },
+          "target": {
+            "nodeId": "stopped",
+            "port": "input"
+          }
+        },
+        {
+          "id": "e_report_done",
+          "source": {
+            "nodeId": "write_report",
+            "port": "success"
+          },
+          "target": {
+            "nodeId": "done",
+            "port": "input"
+          }
+        },
+        {
+          "id": "e_report_done_2",
+          "source": {
+            "nodeId": "write_report",
+            "port": "needs_decision"
+          },
+          "target": {
+            "nodeId": "done",
+            "port": "input"
+          }
+        }
+      ],
+      "groups": []
+    }
+  }
+]

@@ -27,7 +27,7 @@ import { IMPLEMENTED_NODE_TYPES, NODE_TYPES, getNodeDefinition } from '../src/no
 import { PATCH_OPS } from '../src/patch.js';
 import { CONTRACTS_VERSION } from '../src/index.js';
 import { RUN_STATUSES, NODE_STATUSES } from '../src/state-machine.js';
-import { templateById } from '../src/templates/index.js';
+import { WORKFLOW_TEMPLATES, templateById } from '../src/templates/index.js';
 import { TRIGGER_DESCRIPTION_CASES } from '../src/trigger.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -168,6 +168,28 @@ const files: Record<string, unknown> = {
    * 走生成物就没这个问题 —— `pnpm contracts:check` 守着它与模板一致，
    * 模板一改这份就得重新生成，否则 CI 打回。
    */
+  /**
+   * 全部内置工作流的**展开后的图**，供「一键初始化 / 重置」种进库。
+   *
+   * 不在 SQL 种子里手抄：`graph_json` 是一大段 JSON，抄进 `.sql`
+   * 等于把生成物复制进源码 —— 模板改了节点而种子还是老样子，
+   * 而没有任何东西会红。走生成物则由 `pnpm contracts:check` 守着。
+   *
+   * 与界面「从模板新建」走同一条路（空图 + rev 0 + applyPatch），
+   * 所以这七条被同一套校验守住。
+   */
+  'builtin-workflows.json': WORKFLOW_TEMPLATES.map((template) => ({
+    // id 写死成 `workflow:<模板 id>`：重装或重置之后「Issue 修复」
+    // 指的还是同一条，文档与截图里的链接不会失效
+    id: `workflow:${template.id}`,
+    templateId: template.id,
+    name: template.name,
+    summary: template.summary,
+    graph: applyPatch({ nodes: [], edges: [], groups: [] }, 0, {
+      baseRevision: 0,
+      operations: [...template.operations],
+    }).graph,
+  })),
   'sample-workflow.json': (() => {
     const template = templateById('github-issue-fix');
     if (!template) throw new Error('内置模板 github-issue-fix 不见了 —— 示例工作流没法生成');
