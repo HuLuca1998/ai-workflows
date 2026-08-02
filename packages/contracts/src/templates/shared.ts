@@ -42,11 +42,16 @@ export const REPORT_INSTRUCTION = [
   '',
   '格式：`{"schemaVer":1,"title":"…","summary":"…","outcome":"success|warning|failed","blocks":[…]}`',
   'blocks 每项的 kind 只能是这六种之一：',
-  '  metrics  {"kind":"metrics","items":[{"label":"合并的 PR","value":"12","tone":"good|warn|bad"}]}',
-  '  prose    {"kind":"prose","heading":"可选标题","text":"段落正文"}',
+  // **字段名逐字照 `report.ts` 的 Schema 写。**
+  // 原来这里的 metrics.tone 是 `good|warn|bad`、prose 是 `heading`/`text`、
+  // code 是 `language`/`text` —— 六种块里四种对不上，于是 agent 照这段话
+  // 写出来的报告全被抽屉拒收，用户点开永远是一坨 JSON 原文。
+  // 守卫 `tests/report-instruction.test.ts` 把这六行当真数据解析一遍
+  '  metrics  {"kind":"metrics","items":[{"label":"合并的 PR","value":"12","note":"口径","tone":"success|warning|danger|neutral"}]}',
+  '  prose    {"kind":"prose","title":"可选标题","body":"段落正文"}',
   '  table    {"kind":"table","columns":["列1","列2"],"rows":[["a","b"]]}',
-  '  timeline {"kind":"timeline","items":[{"at":"2026-08-02T09:00:00Z","text":"发生了什么"}]}',
-  '  code     {"kind":"code","language":"bash","text":"命令或日志片段"}',
+  '  timeline {"kind":"timeline","items":[{"at":"2026-08-02T09:00:00Z","text":"发生了什么","tone":"neutral"}]}',
+  '  code     {"kind":"code","lang":"bash","body":"命令或日志片段"}',
   '  links    {"kind":"links","items":[{"label":"PR #12","href":"https://…"}]}',
   '',
   '三条硬要求：',
