@@ -529,6 +529,35 @@ CLAUDE.md 明写「别把 agent 报的结论直接采信」，而我照抄了）
 
 ### 还没修
 
+### B-14 · 主管 AI 说自己「没有系统 MCP 工具」，而工具其实在
+
+**实测（2026-08-02）**：让主管 AI「建一条每天 08:00 看 CI 的工作流」，
+它回「本会话没有接入 AI Workflows 的系统 MCP，`workflow_patch` 不可用，
+请你自己去界面里点」，工作流数量前后都是 9。
+
+**已确认不是的**：
+
+- MCP 服务没起 —— **是真问题的一半**：devserver 原来根本不起系统 MCP
+  （只有桌面壳起）。补上之后 `toolCalls` 从 0 变成 4。
+  守卫 `crates/core-api/tests/supervisor_tools_reach_test.rs`
+- MCP 没暴露工具 —— 拿 token 直接调 `tools/list`：**51 个工具，
+  含 `workflow_patch`**
+- token/端口不对 —— 配置文件与监听端口一致，`curl` 调得通
+
+**还没定位的**：agent 那一端。它确实调了 4 次工具（`toolCalls: 4`），
+却在回答里说工具不可用。可能是那 4 次调用失败后它据此判断，
+也可能是 `SessionSpec.mcp` 下发的形状 codex 不认。
+
+**追下去的第一步**：拿 `docs/acp/reference/transcript-probe.mjs` 抓一份
+真实往返，看 `session/new` 里 mcpServers 那一段发出去长什么样、
+agent 的 `tools/list` 回了什么。**别只读代码** —— 这一条的每一层
+单看都是对的。
+
+严重程度 **高**：「AI 主管对话建工作流」是任务清单第 1 条，
+而它现在在两种形态下都做不到（桌面壳没验过，devserver 实测不行）。
+
+---
+
 **还剩 2 条**：
 
 - **子运行占着父运行的执行线程**，与 `supervisor.rs` 模块头
