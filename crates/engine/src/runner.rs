@@ -510,7 +510,28 @@ impl Runner {
              * 「有一半没做成」不该报成功。
              */
             let failure_end = self.failed_endpoint_reached(store, &graph, run_id)?;
-            let status = if all_done && failure_end.is_none() {
+
+            /*
+             * 同族的第二条（台账 O-27）：上面守的是「到达了失败终点」，
+             * 这条守的是「**哪个终点都没到达**」。
+             *
+             * 实测（run_e973ccf3795ecd60 的子运行「发布前检查单」）：
+             * `write_report` 走了 `failed` 端口，而那个端口在图里没有下游 ——
+             * 一个 `end` 节点都没执行过，`reachable_all_done` 仍判 true
+             * （够得着的确实都跑完了），于是 succeeded。
+             * 「全部节点已完成」是真话，它只是不等于「跑成了」。
+             *
+             * 无歧义：校验强制要求图里至少有一个 `end` 节点
+             * （`validate.rs` 的那一条），所以「结束时一个终点都没到达」
+             * 只可能是卡在半路，不可能是设计。
+             */
+            let dead_end = if failure_end.is_none() {
+                self.dead_end_reached(store, &graph, run_id)?
+            } else {
+                None
+            };
+
+            let status = if all_done && failure_end.is_none() && dead_end.is_none() {
                 "succeeded"
             } else {
                 "failed"
@@ -525,12 +546,19 @@ impl Runner {
                 },
                 None,
                 "engine",
-                &match (&failure_end, all_done) {
+                &match (&failure_end, &dead_end, all_done) {
                     // 说清是**哪个**终点判的失败 —— 不说的话用户看到
                     // 一条全绿的事件流最后一行写着 failed，无从下手
-                    (Some(title), _) => format!("走到了「{title}」——  这个终点的结局是失败"),
-                    (None, true) => "全部节点已完成".to_string(),
-                    (None, false) => "没有可继续的节点".to_string(),
+                    (Some(title), _, _) => {
+                        format!("走到了「{title}」——  这个终点的结局是失败")
+                    }
+                    // 死胡同同理：要说清停在哪个节点的哪个端口上
+                    (None, Some((title, port)), _) => format!(
+                        "停在「{title}」的 {port} 端口上 —— 那个端口没有下游，\
+                         一个终点都没到达"
+                    ),
+                    (None, None, true) => "全部节点已完成".to_string(),
+                    (None, None, false) => "没有可继续的节点".to_string(),
                 },
             )?;
             let _ = store.advance_run_status(run_id, status, None)?;
@@ -1124,6 +1152,65 @@ impl Runner {
                         == Some("failure")
             })
             .map(|node| node.title.clone()))
+    }
+
+    /// 这次运行结束时，如果**一个 `end` 节点都没执行过**，
+    /// 返回最后那个节点的 `(标题, 出口端口)`。
+    ///
+    /// 校验强制图里至少有一个 `end`，所以「一个都没到达」只可能是
+    /// 卡在半路 —— 某个节点从一个没有下游的端口出去了。
+    ///
+    /// 返回标题与端口而不是 bool：摘要要说清停在哪，
+    /// 否则用户只看到一句 failed 跟着一串全绿的 node.succeeded。
+    fn dead_end_reached(
+        &self,
+        store: &Store,
+        graph: &WorkflowGraph,
+        run_id: &str,
+    ) -> Result<Option<(String, String)>> {
+        let events = store.events(run_id, 0, 500)?;
+        let done: Vec<_> = events
+            .iter()
+            .filter(|event| event.kind == "node.succeeded")
+            .collect();
+
+        /*
+         * **图里根本没有终点时不管。**
+         *
+         * 那种图过不了校验（`validate.rs` 要求至少一个 `end`），
+         * 所以生产里不存在；但测试夹具会直接建图绕过校验，
+         * 它们关心的是别的事（产物事件、检查点）。
+         *
+         * 判据因此是精确的那一句：**图里声明了终点，却一个都没到达**。
+         */
+        if !graph.nodes.iter().any(|node| node.node_type == "end") {
+            return Ok(None);
+        }
+
+        let reached_end = done.iter().any(|event| {
+            event.node_id.as_ref().is_some_and(|id| {
+                graph
+                    .nodes
+                    .iter()
+                    .any(|node| &node.id == id && node.node_type == "end")
+            })
+        });
+        if reached_end {
+            return Ok(None);
+        }
+
+        Ok(done.last().map(|event| {
+            let id = event.node_id.clone().unwrap_or_default();
+            let title = graph
+                .nodes
+                .iter()
+                .find(|node| node.id == id)
+                .map_or_else(|| id.clone(), |node| node.title.clone());
+            (
+                title,
+                event.exit_port.clone().unwrap_or_else(|| "?".to_string()),
+            )
+        }))
     }
 
     fn taken_ports(&self, store: &Store, run_id: &str) -> Result<Vec<crate::plan::TakenPort>> {
