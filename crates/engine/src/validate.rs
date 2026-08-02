@@ -242,8 +242,9 @@ pub fn validate_graph(graph: &Value) -> ValidationResult {
                     issues.push(warning(
                         "PORT_NO_DOWNSTREAM",
                         format!(
-                            "这些端口没有下游：{}。走到它们时运行会静默停下 —— \
-                             以「成功」结束而后面什么都没做",
+                            "这些端口没有下游：{}。\
+                             走到它们时运行就停在那里判失败（事件里会写明停在哪个节点的哪个端口）—— \
+                             想让它有别的结局，把这个端口接到一个终点",
                             missing.join("、")
                         ),
                         Some(node.id.to_string()),

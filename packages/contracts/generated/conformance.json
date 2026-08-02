@@ -148,7 +148,7 @@
           {
             "level": "warning",
             "code": "PORT_NO_DOWNSTREAM",
-            "message": "这些端口没有下游：failed。走到它们时运行会静默停下 —— 以「成功」结束而后面什么都没做",
+            "message": "这些端口没有下游：failed。走到它们时运行就停在那里判失败（事件里会写明停在哪个节点的哪个端口）—— 想让它有别的结局，把这个端口接到一个终点",
             "nodeId": "sh"
           }
         ]
@@ -416,7 +416,7 @@
           {
             "level": "warning",
             "code": "PORT_NO_DOWNSTREAM",
-            "message": "这些端口没有下游：failed。走到它们时运行会静默停下 —— 以「成功」结束而后面什么都没做",
+            "message": "这些端口没有下游：failed。走到它们时运行就停在那里判失败（事件里会写明停在哪个节点的哪个端口）—— 想让它有别的结局，把这个端口接到一个终点",
             "nodeId": "sh"
           },
           {
@@ -760,7 +760,7 @@
           {
             "level": "warning",
             "code": "PORT_NO_DOWNSTREAM",
-            "message": "这些端口没有下游：success。走到它们时运行会静默停下 —— 以「成功」结束而后面什么都没做",
+            "message": "这些端口没有下游：success。走到它们时运行就停在那里判失败（事件里会写明停在哪个节点的哪个端口）—— 想让它有别的结局，把这个端口接到一个终点",
             "nodeId": "entry"
           },
           {
@@ -942,7 +942,7 @@
           {
             "level": "warning",
             "code": "PORT_NO_DOWNSTREAM",
-            "message": "这些端口没有下游：failed。走到它们时运行会静默停下 —— 以「成功」结束而后面什么都没做",
+            "message": "这些端口没有下游：failed。走到它们时运行就停在那里判失败（事件里会写明停在哪个节点的哪个端口）—— 想让它有别的结局，把这个端口接到一个终点",
             "nodeId": "a"
           },
           {
@@ -954,7 +954,7 @@
           {
             "level": "warning",
             "code": "PORT_NO_DOWNSTREAM",
-            "message": "这些端口没有下游：failed。走到它们时运行会静默停下 —— 以「成功」结束而后面什么都没做",
+            "message": "这些端口没有下游：failed。走到它们时运行就停在那里判失败（事件里会写明停在哪个节点的哪个端口）—— 想让它有别的结局，把这个端口接到一个终点",
             "nodeId": "b"
           },
           {
@@ -1236,7 +1236,7 @@
           {
             "level": "warning",
             "code": "PORT_NO_DOWNSTREAM",
-            "message": "这些端口没有下游：low、兜底。走到它们时运行会静默停下 —— 以「成功」结束而后面什么都没做",
+            "message": "这些端口没有下游：low、兜底。走到它们时运行就停在那里判失败（事件里会写明停在哪个节点的哪个端口）—— 想让它有别的结局，把这个端口接到一个终点",
             "nodeId": "br"
           },
           {
@@ -3739,7 +3739,7 @@
             },
             "config": {
               "interpreter": "zsh",
-              "script": "set -euo pipefail\nISSUE=${input.issue}\ncd ${worktree.success.path}\n# 已跟踪文件的改动全部纳入\ngit add -u\n# 新文件按需纳入，但排开构建与依赖产物\ngit ls-files --others --exclude-standard -z |\n  grep -zEv '^(node_modules|dist|build|target|\\.venv|__pycache__)/' |\n  while IFS= read -r -d '' f; do git add -- \"$f\"; done\ngit diff --cached --quiet && { echo '没有任何改动，不建 PR'; exit 1; }\ngit commit -qm \"fix: 关闭 #$ISSUE\"\ngit push -qu origin HEAD\ngh pr create --fill",
+              "script": "set -euo pipefail\nISSUE=${input.issue}\ncd ${worktree.success.path}\n# 已跟踪文件的改动全部纳入\ngit add -u\n# 新文件按需纳入，但排开构建产物、依赖目录与未跟踪的锁文件\ngit ls-files --others --exclude-standard -z |\n  grep -zEv '^(node_modules|dist|build|target|\\.venv|__pycache__)/' |\n  grep -zEv '(^|/)(pnpm-lock\\.yaml|package-lock\\.json|yarn\\.lock|Cargo\\.lock|poetry\\.lock|uv\\.lock)$' |\n  while IFS= read -r -d '' f; do git add -- \"$f\"; done\ngit diff --cached --quiet && { echo '没有任何改动，不建 PR'; exit 1; }\ngit commit -qm \"fix: 关闭 #$ISSUE\"\ngit push -qu origin HEAD\ngh pr create --fill",
               "timeoutMs": 300000
             }
           },
@@ -4040,11 +4040,32 @@
             }
           },
           {
+            "op": "setJoin",
+            "nodeId": "done",
+            "join": {
+              "strategy": "any",
+              "merge": "namespaced",
+              "onPartialFailure": "fail"
+            }
+          },
+          {
             "op": "connect",
             "edgeId": "e_notify_done",
             "source": {
               "nodeId": "notify",
               "port": "success"
+            },
+            "target": {
+              "nodeId": "done",
+              "port": "input"
+            }
+          },
+          {
+            "op": "connect",
+            "edgeId": "e_notify_done_failed",
+            "source": {
+              "nodeId": "notify",
+              "port": "failed"
             },
             "target": {
               "nodeId": "done",
@@ -4276,7 +4297,7 @@
               },
               "config": {
                 "interpreter": "zsh",
-                "script": "set -euo pipefail\nISSUE=${input.issue}\ncd ${worktree.success.path}\n# 已跟踪文件的改动全部纳入\ngit add -u\n# 新文件按需纳入，但排开构建与依赖产物\ngit ls-files --others --exclude-standard -z |\n  grep -zEv '^(node_modules|dist|build|target|\\.venv|__pycache__)/' |\n  while IFS= read -r -d '' f; do git add -- \"$f\"; done\ngit diff --cached --quiet && { echo '没有任何改动，不建 PR'; exit 1; }\ngit commit -qm \"fix: 关闭 #$ISSUE\"\ngit push -qu origin HEAD\ngh pr create --fill",
+                "script": "set -euo pipefail\nISSUE=${input.issue}\ncd ${worktree.success.path}\n# 已跟踪文件的改动全部纳入\ngit add -u\n# 新文件按需纳入，但排开构建产物、依赖目录与未跟踪的锁文件\ngit ls-files --others --exclude-standard -z |\n  grep -zEv '^(node_modules|dist|build|target|\\.venv|__pycache__)/' |\n  grep -zEv '(^|/)(pnpm-lock\\.yaml|package-lock\\.json|yarn\\.lock|Cargo\\.lock|poetry\\.lock|uv\\.lock)$' |\n  while IFS= read -r -d '' f; do git add -- \"$f\"; done\ngit diff --cached --quiet && { echo '没有任何改动，不建 PR'; exit 1; }\ngit commit -qm \"fix: 关闭 #$ISSUE\"\ngit push -qu origin HEAD\ngh pr create --fill",
                 "env": {},
                 "secretEnv": {},
                 "outputParse": "none",
@@ -4323,6 +4344,11 @@
               "config": {
                 "outcome": "success",
                 "artifacts": []
+              },
+              "join": {
+                "strategy": "any",
+                "merge": "namespaced",
+                "onPartialFailure": "fail"
               }
             },
             {
@@ -4566,6 +4592,17 @@
               }
             },
             {
+              "id": "e_notify_done_failed",
+              "source": {
+                "nodeId": "notify",
+                "port": "failed"
+              },
+              "target": {
+                "nodeId": "done",
+                "port": "input"
+              }
+            },
+            {
               "id": "e_review_back",
               "source": {
                 "nodeId": "review",
@@ -4741,7 +4778,7 @@
               "label": "node script.shell「Commit / Push / PR」",
               "after": {
                 "interpreter": "zsh",
-                "script": "set -euo pipefail\nISSUE=${input.issue}\ncd ${worktree.success.path}\n# 已跟踪文件的改动全部纳入\ngit add -u\n# 新文件按需纳入，但排开构建与依赖产物\ngit ls-files --others --exclude-standard -z |\n  grep -zEv '^(node_modules|dist|build|target|\\.venv|__pycache__)/' |\n  while IFS= read -r -d '' f; do git add -- \"$f\"; done\ngit diff --cached --quiet && { echo '没有任何改动，不建 PR'; exit 1; }\ngit commit -qm \"fix: 关闭 #$ISSUE\"\ngit push -qu origin HEAD\ngh pr create --fill",
+                "script": "set -euo pipefail\nISSUE=${input.issue}\ncd ${worktree.success.path}\n# 已跟踪文件的改动全部纳入\ngit add -u\n# 新文件按需纳入，但排开构建产物、依赖目录与未跟踪的锁文件\ngit ls-files --others --exclude-standard -z |\n  grep -zEv '^(node_modules|dist|build|target|\\.venv|__pycache__)/' |\n  grep -zEv '(^|/)(pnpm-lock\\.yaml|package-lock\\.json|yarn\\.lock|Cargo\\.lock|poetry\\.lock|uv\\.lock)$' |\n  while IFS= read -r -d '' f; do git add -- \"$f\"; done\ngit diff --cached --quiet && { echo '没有任何改动，不建 PR'; exit 1; }\ngit commit -qm \"fix: 关闭 #$ISSUE\"\ngit push -qu origin HEAD\ngh pr create --fill",
                 "env": {},
                 "secretEnv": {},
                 "outputParse": "none",
@@ -5108,6 +5145,22 @@
             },
             {
               "kind": "edge",
+              "id": "e_notify_done_failed",
+              "label": "edge notify.failed → done",
+              "after": {
+                "id": "e_notify_done_failed",
+                "source": {
+                  "nodeId": "notify",
+                  "port": "failed"
+                },
+                "target": {
+                  "nodeId": "done",
+                  "port": "input"
+                }
+              }
+            },
+            {
+              "kind": "edge",
               "id": "e_review_back",
               "label": "edge review.changes_requested → approve_diff",
               "after": {
@@ -5154,6 +5207,16 @@
                 "merge": "namespaced",
                 "onPartialFailure": "fail"
               }
+            },
+            {
+              "kind": "node",
+              "id": "done",
+              "label": "node done：汇聚策略 → any",
+              "after": {
+                "strategy": "any",
+                "merge": "namespaced",
+                "onPartialFailure": "fail"
+              }
             }
           ]
         },
@@ -5163,32 +5226,26 @@
             {
               "level": "warning",
               "code": "PORT_NO_DOWNSTREAM",
-              "message": "这些端口没有下游：failed。走到它们时运行会静默停下 —— 以「成功」结束而后面什么都没做",
+              "message": "这些端口没有下游：failed。走到它们时运行就停在那里判失败（事件里会写明停在哪个节点的哪个端口）—— 想让它有别的结局，把这个端口接到一个终点",
               "nodeId": "read_issue"
             },
             {
               "level": "warning",
               "code": "PORT_NO_DOWNSTREAM",
-              "message": "这些端口没有下游：failed。走到它们时运行会静默停下 —— 以「成功」结束而后面什么都没做",
+              "message": "这些端口没有下游：failed。走到它们时运行就停在那里判失败（事件里会写明停在哪个节点的哪个端口）—— 想让它有别的结局，把这个端口接到一个终点",
               "nodeId": "worktree"
             },
             {
               "level": "warning",
               "code": "PORT_NO_DOWNSTREAM",
-              "message": "这些端口没有下游：failed。走到它们时运行会静默停下 —— 以「成功」结束而后面什么都没做",
+              "message": "这些端口没有下游：failed。走到它们时运行就停在那里判失败（事件里会写明停在哪个节点的哪个端口）—— 想让它有别的结局，把这个端口接到一个终点",
               "nodeId": "fix"
             },
             {
               "level": "warning",
               "code": "PORT_NO_DOWNSTREAM",
-              "message": "这些端口没有下游：failed。走到它们时运行会静默停下 —— 以「成功」结束而后面什么都没做",
+              "message": "这些端口没有下游：failed。走到它们时运行就停在那里判失败（事件里会写明停在哪个节点的哪个端口）—— 想让它有别的结局，把这个端口接到一个终点",
               "nodeId": "push_pr"
-            },
-            {
-              "level": "warning",
-              "code": "PORT_NO_DOWNSTREAM",
-              "message": "这些端口没有下游：failed。走到它们时运行会静默停下 —— 以「成功」结束而后面什么都没做",
-              "nodeId": "notify"
             }
           ]
         }

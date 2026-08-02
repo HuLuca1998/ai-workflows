@@ -278,10 +278,14 @@ export function validateGraph(graph: WorkflowGraph): ValidationResult {
       const 全部 = resolveNodeOutputs(node.type, node.config).map((port) => port.id);
       const 漏掉的 = 全部.filter((port) => !用过的.has(port));
       if (漏掉的.length > 0) {
+        // 文案在 O-27 修完之后改过一次：那之前「走到没下游的端口」
+        // 确实是静默地以成功收场，现在是响亮的失败并点名停在哪。
+        // 不改的话这句话会把用户引向一个已经不存在的行为
         warn(
           'PORT_NO_DOWNSTREAM',
-          `这些端口没有下游：${漏掉的.join('、')}。走到它们时运行会静默停下 —— ` +
-            `以「成功」结束而后面什么都没做`,
+          `这些端口没有下游：${漏掉的.join('、')}。` +
+            `走到它们时运行就停在那里判失败（事件里会写明停在哪个节点的哪个端口）—— ` +
+            `想让它有别的结局，把这个端口接到一个终点`,
           { nodeId: node.id },
         );
       }
