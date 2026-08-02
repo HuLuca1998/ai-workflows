@@ -781,9 +781,15 @@ function RunItem({
       onClick={onSelect}
     >
       <span className="runs__item-row">
-        {/* 分组标题已经写了工作流名，行内改显示 run id 尾号 ——
-            三行同名之外还得有个能指认的东西 */}
-        <span className="runs__item-name">{hideName ? run.id.slice(-8) : run.workflowName}</span>
+        {/*
+          分组标题已经写了工作流名，行内那一格空出来了。
+          放**参数**而不是 run id 尾号：用户区分「同时在修的三个 issue」
+          靠的是 issue=42，不是 a3f19c2b —— 尾号是最没用的东西，
+          不该占最显眼的位置。没有参数时才退回尾号（总得有个能指认的）
+        */}
+        <span className="runs__item-name">
+          {hideName ? params || run.id.slice(-8) : run.workflowName}
+        </span>
         {/*
           子工作流调用起来的那条。不标的话，用户看到一条自己
           没启动过的运行，无从判断是谁叫起来的
@@ -795,7 +801,8 @@ function RunItem({
         ) : null}
         <StatusBadge status={runStatus(run.status)} />
       </span>
-      {params ? <span className="runs__item-params">{params}</span> : null}
+      {/* 分组时参数已经搬到名字那一格了，这里不再写第二遍 */}
+      {params && !hideName ? <span className="runs__item-params">{params}</span> : null}
       <span className="runs__item-foot">
         <span className="runs__item-node">{run.currentNode ?? ''}</span>
         {/*

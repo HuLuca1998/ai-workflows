@@ -134,6 +134,51 @@ describe('同一条工作流的多个并行运行', () => {
   });
 });
 
+describe('分组里那一行显示什么', () => {
+  it('优先显示参数 —— 那才是用户用来区分三个并行运行的东西', () => {
+    /*
+     * 分组标题已经写了工作流名，行内那一格空出来了。
+     * 放 run id 尾号的话，最没用的东西占了最显眼的位置 ——
+     * 用户区分「同时在修的三个 issue」靠的是 issue=42，不是 a3f19c2b。
+     */
+    seed([
+      run({ id: 'run_aaaaaaaa1111', inputs: { issue: '42' } }),
+      run({ id: 'run_bbbbbbbb2222', inputs: { issue: '43' } }),
+    ]);
+    view();
+
+    /*
+     * 只断言**名字那一格**，不是整行的 textContent ——
+     * 参数本来就在下面那行渲染，整行必然包含 42，
+     * 那样断言的话实现改成显示 id 尾号它照样绿（第一版就是这么假绿的）。
+     */
+    const 名字格 = () =>
+      [...document.querySelectorAll('.runs__item-name')].map((el) => el.textContent);
+    expect(名字格()).toEqual(['issue=42', 'issue=43']);
+  });
+
+  it('参数不重复显示两遍', () => {
+    // 名字格搬来参数之后，下面那行原样保留的话同一份东西写两遍
+    seed([
+      run({ id: 'run_a', inputs: { issue: '42' } }),
+      run({ id: 'run_b', inputs: { issue: '43' } }),
+    ]);
+    view();
+
+    const 行 = 列表().getAllByRole('button');
+    const 出现次数 = (行[0]!.textContent?.match(/issue=42/gu) ?? []).length;
+    expect(出现次数, '同一份参数在一行里出现了两次').toBe(1);
+  });
+
+  it('没有参数时退回 run id 尾号 —— 总得有个能指认的东西', () => {
+    seed([run({ id: 'run_aaaaaaaa1111' }), run({ id: 'run_bbbbbbbb2222' })]);
+    view();
+
+    const 名字格 = [...document.querySelectorAll('.runs__item-name')].map((el) => el.textContent);
+    expect(名字格).toEqual(['aaaa1111', 'bbbb2222']);
+  });
+});
+
 describe('子运行', () => {
   it('标出「子运行」，不与父运行混在一起', () => {
     /*
