@@ -852,9 +852,27 @@ impl NodeExecutor {
                 .unwrap_or("none")
                 .to_string()
         };
+        /*
+         * **「命令」指的是改变世界的命令，不包括 agent 读文件用的那些工具。**
+         *
+         * 不说清这一句的话，`文件 read · 命令 none` 这组声明对
+         * codex 这类 runtime 是**自相矛盾**的 —— 它读文件本身就是一次
+         * 工具调用，agent 会把那归进「命令」于是拒绝执行。
+         *
+         * 实测（run_18c806aff02191e8，真仓库的 issue 修复）原话：
+         * 「在『文件 read、命令 none』的边界下，当前没有可用的
+         *   非命令文件读取手段，因此无法检查 src/cart.js」——
+         * 于是 `builtin:analyst` 这个角色**永远读不了任何东西**，
+         * 每条模板里的分析节点都停在「材料不足」。
+         *
+         * agent 保守解读是对的，所以要改的是这段话。
+         */
         Some(format!(
             "这个角色声明的边界：文件 {} · 命令 {} · 网络 {}。\
-             请自觉遵守 —— 超出范围的事先停下来说明，不要直接做。",
+             请自觉遵守 —— 超出范围的事先停下来说明，不要直接做。\n\
+             这里的「命令」指**会改变什么的命令**（安装、构建、测试、git 写操作、\
+             调外部服务）。**读文件、列目录、搜索内容不算命令** —— \
+             只要文件那一档不是 none，就放手用你自己的读取工具去看。",
             level("file"),
             level("command"),
             level("network"),
@@ -2081,6 +2099,24 @@ impl NodeExecutor {
                         prompt.push_str(&note);
                         prompt.push('\n');
                     }
+                    /*
+                     * **告诉它在哪。**
+                     *
+                     * `agent_cwd` 早就算出来并传给了 ACP 会话，
+                     * 而提示词里一个字都没提 —— 于是 agent 手上只有
+                     * 指令里那些相对路径，相对于哪它不知道。
+                     *
+                     * 实测（run_699e0fd0a30ed998，真仓库的 issue 修复）：
+                     * `ai.analyze` 原话「当前环境未提供只读文件的读取手段，
+                     * 无法核对 src/cart.js」，直接走 `insufficient_context`，
+                     * 整条流程停在第三步。
+                     *
+                     * 「你可以读文件」与「读哪里」是两件事，都得说。
+                     */
+                    prompt.push_str(&format!(
+                        "你的工作目录是 `{agent_cwd}` —— \
+                         指令里出现的相对路径都相对于它。\n"
+                    ));
                     if !prompt.is_empty() {
                         prompt.push('\n');
                     }

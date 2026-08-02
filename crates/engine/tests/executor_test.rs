@@ -1029,6 +1029,77 @@ mod 角色的能力声明进提示词 {
     }
 
     #[test]
+    fn 边界那段话要说清读文件不算命令() {
+        /*
+         * `文件 read · 命令 none` 这组声明，在 codex 这类 runtime 上
+         * **自相矛盾**：它读文件本身就是一次工具调用。
+         *
+         * 实测（run_18c806aff02191e8，真仓库的 issue 修复）agent 原话：
+         * 「在『文件 read、命令 none』的边界下，当前没有可用的
+         *   非命令文件读取手段，因此无法检查 src/cart.js」——
+         * 于是内置的 `分析师` 角色**永远读不了任何东西**，
+         * 每条模板里的分析节点都停在「材料不足」。
+         *
+         * agent 保守解读是对的。要改的是这段话。
+         */
+        let (command, args) = mock_acp();
+        let executor = NodeExecutor::new(workdir())
+            .with_acp_command(&command, &args)
+            .with_agent_profiles(&[带能力的角色(
+                r#"{"file":"read","command":"none","network":"none"}"#,
+            )]);
+
+        let mut scope = Scope::new("run_caps_clear");
+        executor.execute(&挂角色的执行节点(), &mut scope).unwrap();
+
+        let 提示词 = 收到的提示词(&scope, "fix");
+        assert!(
+            提示词.contains("读文件、列目录、搜索内容不算命令"),
+            "边界那段话没说清「读文件不算命令」—— \
+             `文件 read · 命令 none` 的角色会认定自己没有任何读取手段：\n{提示词}"
+        );
+    }
+
+    #[test]
+    fn 提示词里要告诉_agent_它在哪个目录() {
+        /*
+         * **实测（run_699e0fd0a30ed998，真 GitHub 仓库的 issue 修复）**：
+         * `ai.analyze` 节点原话 ——
+         *
+         *   「当前环境未提供『只读文件且不执行命令』的读取手段，
+         *     无法核对 `src/cart.js` 和测试文件」
+         *
+         * 于是它走 `insufficient_context`，整条 issue 修复流程停在第三步。
+         *
+         * 引擎把 `agent_cwd` 算出来了、也传给了 ACP 会话，
+         * 而**提示词里一个字都没提**。agent 手上只有 issue 正文里
+         * 那句「`src/cart.js` 的 applyDiscount」—— 一个相对路径，
+         * 相对于哪它不知道。
+         *
+         * 「文件 read」这条边界只在提示词里说了「你可以读」，
+         * 没说「读哪里」。两件事都得说。
+         */
+        let (command, args) = mock_acp();
+        let dir = workdir();
+        let expected = dir.display().to_string();
+        let executor = NodeExecutor::new(dir)
+            .with_acp_command(&command, &args)
+            .with_agent_profiles(&[带能力的角色(
+                r#"{"file":"read","command":"none","network":"none"}"#,
+            )]);
+
+        let mut scope = Scope::new("run_cwd");
+        executor.execute(&挂角色的执行节点(), &mut scope).unwrap();
+
+        let 提示词 = 收到的提示词(&scope, "fix");
+        assert!(
+            提示词.contains(&expected),
+            "提示词里没有工作目录，agent 不知道去哪读文件 —— \
+             实测里这让分析节点直接走了「材料不足」：\n{提示词}"
+        );
+    }
+
+    #[test]
     fn 没挂角色的节点不凭空编一段边界出来() {
         let (command, args) = mock_acp();
         let executor = NodeExecutor::new(workdir()).with_acp_command(&command, &args);
