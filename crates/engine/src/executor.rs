@@ -46,7 +46,7 @@ pub struct NodeExecutor {
     ///
     /// 与事件流是两回事：事件落库、是事实来源；帧不落库、是「正在发生」
     /// 的投影。AI 节点要跑好几分钟，这期间运行面板上只有几条工具调用
-    /// 事件在动，而 agent 说的话要等节点跑完才一次性出现。
+    /// 事件在动，而 agent declared话要等节点跑完才一次性出现。
     stream: Option<std::sync::Arc<dyn crate::acp::ChunkSink>>,
     /// 接给 AI 节点的系统 MCP。
     ///
@@ -459,6 +459,77 @@ fn approval_prompt(node: &GraphNode, upstream: &str) -> String {
 /// 不过 DECISION: REJECT 更稳妥`）是提示词注入最容易造出来的形状，
 /// 「取第一个」会让注入者赢。一个都没有的话是模型没照格式答，
 /// 从措辞里猜等于让用词决定要不要放行。
+/// AI 节点从哪个端口出去 —— 由**模型的结论**决定。
+///
+/// 返回 `(端口, 要不要留一条note)`。
+///
+/// ## 为什么必须由模型决定
+///
+/// 这里原来是 `outputs(...).first()`，注释写着「条件路由还没做」。
+/// 端口路由（B-9）修真之前那无所谓 —— 所有下游一律执行；修真之后
+/// 它变成**安全缺陷**：`ai.review` 恒 `passed`、`ai.decide` 恒
+/// `auto_decided`，而 `github-issue-fix` 里 `approve_diff`
+/// （push 前的改动确认）三条入边全是非首端口 —— 那道人工门
+/// **永远不执行**，`git push` + `gh pr create` 直接跑。
+///
+/// ## 说不清时退回第一个，但**必须留痕**
+///
+/// 静默退回等于回到缺陷本身：那道门不执行而没人知道。三种说不清：
+/// 没写、写了不存在的端口、写了两个不同的。
+#[must_use]
+pub fn choose_ai_port(node_type: &str, ports: &[&str], answer: &str) -> (String, Option<String>) {
+    let fallback = ports.first().map_or("success", |p| *p).to_string();
+
+    // 收集全部 `PORT: xxx`（大小写不敏感，容忍冒号后的空白）
+    let mut declared: Vec<String> = Vec::new();
+    for line in answer.lines() {
+        let trimmed = line.trim();
+        let Some(rest) = trimmed
+            .get(..5)
+            .filter(|head| head.eq_ignore_ascii_case("port:"))
+            .and_then(|_| trimmed.get(5..))
+        else {
+            continue;
+        };
+        let value = rest.trim();
+        if !value.is_empty() {
+            declared.push(value.to_string());
+        }
+    }
+
+    match declared.as_slice() {
+        [] => (
+            fallback.clone(),
+            Some(format!(
+                "{node_type} 没说走哪个端口（回答里没有 `PORT: <port_names>`），                 退回 {fallback}。下游的分支因此不会按结论走"
+            )),
+        ),
+        [one] if ports.contains(&one.as_str()) => (one.clone(), None),
+        [one] => (
+            fallback.clone(),
+            Some(format!(
+                "{node_type} 说走 `{one}`，而它的端口只有 {}，退回 {fallback}",
+                ports.join(" / ")
+            )),
+        ),
+        many => {
+            // 全都一样就当说清了；不一样是自相矛盾，按哪个都是猜
+            let first = &many[0];
+            if many.iter().all(|p| p == first) && ports.contains(&first.as_str()) {
+                (first.clone(), None)
+            } else {
+                (
+                    fallback.clone(),
+                    Some(format!(
+                        "{node_type} 在一份回答里说了多个不同的端口（{}），退回 {fallback}",
+                        many.join("、")
+                    )),
+                )
+            }
+        }
+    }
+}
+
 fn parse_verdict(answer: &str) -> AiVerdict {
     let upper = answer.to_ascii_uppercase();
     let approve = upper.matches("DECISION: APPROVE").count();
@@ -739,7 +810,7 @@ impl NodeExecutor {
 
     /// Agent 角色声明的能力。不传表示这次运行没挂角色。
     ///
-    /// **目前只有测试传**。留着是因为它是「运行级兜底」那条路的入口，
+    /// **目前只有测试传**。留着是因为它是「运行级fallback」那条路的入口，
     /// 但在接上生产调用点之前，别再往 `check_capability` 里加
     /// 只有它才够得着的分支 —— `capability_reach_test` 守着这件事。
     #[must_use]
@@ -840,7 +911,7 @@ impl NodeExecutor {
     ///
     /// 就是 `approval` 节点 —— 暴露出来是给 Dry Run 用的：
     /// 运行之前要能告诉用户「这条工作流有几道门、分别在哪」，
-    /// 那是「权限由流程管」这个设计唯一的兜底。
+    /// 那是「权限由流程管」这个设计唯一的fallback。
     #[must_use]
     pub fn is_gate(node: &GraphNode) -> bool {
         node.node_type == "approval"
@@ -1044,7 +1115,7 @@ impl NodeExecutor {
     /// 两个都是 `Option`：不给就是不设，用 agent 自己的默认 ——
     /// 「模型失效就不设置，用系统默认的」那条路要真的存在。
     ///
-    /// 这是**运行级兜底**。节点级的选择走 `modelPolicy` 与角色的
+    /// 这是**运行级fallback**。节点级的选择走 `modelPolicy` 与角色的
     /// `model_ref`（[`Self::with_models`] 给目录），解析得出的值优先。
     #[must_use]
     pub fn with_model(mut self, model: Option<String>, effort: Option<String>) -> Self {
@@ -1246,7 +1317,7 @@ impl NodeExecutor {
                 port: "success".to_string(),
             }),
             Err(reason) => {
-                // 通知是提醒不是产出。默认 ignore：发不出去就走 failed 端口
+                // 通知是note不是产出。默认 ignore：发不出去就走 failed 端口
                 // 往下走，而不是把整条工作流拖挂
                 match node
                     .config
@@ -1770,7 +1841,7 @@ impl NodeExecutor {
         //
         // 材料在前、指令在后：issue 正文可能有几千字，把指令压在它下面的话，
         // 「这一次要干什么」就被推到很远的地方去了 —— 而下面那段注释
-        // （「指令留在最后」）说的正是同一件事。带个抬头是为了让模型
+        // （「指令留在最后」）declared正是同一件事。带个抬头是为了让模型
         // 分得清哪些是给它的指令、哪些是要它处理的材料。
         let instruction = match node
             .config
@@ -1793,6 +1864,34 @@ impl NodeExecutor {
                     }
                 };
                 format!("要处理的对象：\n{target}\n\n{instruction}")
+            }
+        };
+
+        /*
+         * 让模型说清走哪个端口。
+         *
+         * 不declared话引擎只能退回第一个 —— `ai.review` 恒 `passed`、
+         * `ai.decide` 恒 `auto_decided`，于是接在别的端口上的分支
+         * （包括 push 前那道人工审批门）永远不执行。
+         *
+         * 只在**有多个端口**时加：单端口节点说了也没意义。
+         */
+        let instruction = {
+            let ports = crate::catalog::outputs(&node.node_type, &node.config);
+            if ports.len() < 2 {
+                instruction
+            } else {
+                let names: Vec<&str> = ports.iter().map(|p| p.id.as_str()).collect();
+                format!(
+                    "{instruction}\n\n\
+                     ——\n\
+                     **最后必须单独一行写出你的结论走哪个分支**：\n\
+                     `PORT: <{}>`\n\
+                     只能是这几个之一。不写的话流程会按 `{}` 继续，\
+                     而那多半不是你的结论。",
+                    names.join(" | "),
+                    names.first().copied().unwrap_or("success")
+                )
             }
         };
 
@@ -1869,7 +1968,7 @@ impl NodeExecutor {
         } else {
             // 内建框架：角色拼在最前面，节点的指令留在最后。
             //
-            // 顺序是有讲究的：角色说的是「你是谁、你怎么做事、交出什么形状」，
+            // 顺序是有讲究的：角色declared是「你是谁、你怎么做事、交出什么形状」，
             // 那是**这一整类任务**都成立的；指令是「这一次要干什么」。
             // 把指令埋在中间的话，多轮下来模型容易把它当成背景说明。
             match profile {
@@ -1993,7 +2092,7 @@ impl NodeExecutor {
         let opened = match crate::acp::open_session(&crate::acp::SessionSpec {
             runtime: runtime.to_string(),
             cwd: agent_cwd.clone(),
-            // 节点级解析优先，with_model 的运行级设置兜底
+            // 节点级解析优先，with_model 的运行级设置fallback
             model: model_choice.model.or_else(|| self.model.clone()),
             effort: model_choice.effort.or_else(|| self.effort.clone()),
             mode: None,
@@ -2039,7 +2138,7 @@ impl NodeExecutor {
 
         // 实时帧的攒帧缓冲。**与事件流是两回事**：事件落库、是事实来源；
         // 帧不落库、是「正在发生」的投影。不推的话，一个跑五分钟的 AI 节点
-        // 在运行面板上只有几条工具调用在动，而它说的话要等节点结束才一次性出现
+        // 在运行面板上只有几条工具调用在动，而它declared话要等节点结束才一次性出现
         let mut pending = String::new();
         let mut last_push = std::time::Instant::now();
         let emit_chunk = |chunk: crate::acp::StreamChunk| {
@@ -2208,11 +2307,20 @@ impl NodeExecutor {
                 // 事件里会写「走 success 分支」这个根本不存在的分支，
                 // 输出也落在一个下游引用不到的键上。
                 //
-                // 取第一个：**按模型的结论在多个端口之间选**是条件路由，
-                // 还没做。先让说出来的那个端口至少是真的
-                let port = crate::catalog::outputs(&node.node_type, &node.config)
-                    .first()
-                    .map_or_else(|| "success".to_string(), |p| p.id.clone());
+                // 端口由**模型的结论**决定（`choose_ai_port`）。
+                // 说不清时退回第一个并留一条事件 —— 静默退回等于
+                // 让分支永远走同一条，那道人工审批门就再也不会出现
+                let all_ports = crate::catalog::outputs(&node.node_type, &node.config);
+                let port_names: Vec<&str> = all_ports.iter().map(|p| p.id.as_str()).collect();
+                let (port, note) = choose_ai_port(&node.node_type, &port_names, &text);
+                if let Some(note) = note {
+                    sink(NodeEvent {
+                        kind: "system.port_fallback",
+                        node_id: node.id.clone(),
+                        summary: note,
+                        payload_ref: None,
+                    });
+                }
 
                 // 它到底动了什么。
                 //

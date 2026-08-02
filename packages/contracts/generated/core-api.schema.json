@@ -3274,6 +3274,7 @@
                   "system.prompt_resolved",
                   "system.model_resolved",
                   "system.model_downgraded",
+                  "system.port_fallback",
                   "system.permission_granted",
                   "system.permission_denied",
                   "system.notification_sent",

@@ -99,6 +99,13 @@ export const RUN_EVENT_TYPES = [
   'system.prompt_resolved',
   'system.model_resolved',
   'system.model_downgraded',
+  /**
+   * AI 节点没说清该走哪个端口，退回了第一个。
+   *
+   * 必须留痕：静默退回意味着分支永远走同一条 —— `github-issue-fix`
+   * 里 push 前那道人工审批门因此再也不会出现，而没有一处会报。
+   */
+  'system.port_fallback',
   'system.permission_granted',
   'system.permission_denied',
   'system.notification_sent',
