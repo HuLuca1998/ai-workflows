@@ -1372,8 +1372,17 @@ impl Store {
     /// 中间只差一分钟，无从解释。
     pub fn last_auto_run_at(&self, workflow_id: &str) -> Result<Option<String>> {
         let at: Option<String> = self.conn.query_row(
+            /*
+             * `parent_run_id IS NULL` 是关键：子运行跟着父运行的
+             * trigger_kind（定时起的父运行，它的子运行也不是人点的），
+             * 但那**不是调度器起的**。不排除的话，既配了定时又被当
+             * 子工作流调用的流程，自己的定时会被子调用顶掉 ——
+             * 间隔触发最明显（独立复核实测污染，后果由 `due` 的
+             * `last < point` 推出）。
+             */
             "SELECT MAX(started_at) FROM run
-             WHERE workflow_id = ?1 AND trigger_kind <> 'manual'",
+             WHERE workflow_id = ?1 AND trigger_kind <> 'manual'
+               AND parent_run_id IS NULL",
             params![workflow_id],
             |row| row.get(0),
         )?;

@@ -79,6 +79,9 @@ export const REPO_DIGEST: WorkflowTemplate = {
         script: [
           'set -euo pipefail',
           'REPO=${input.repo.name}',
+          '# 分支也要用上。只用 repo.name 的话 `gh api …/commits` 走默认分支 ——',
+          '# 用户在表单里选了别的分支，拿到的却是默认分支的提交（填了不生效）',
+          'BRANCH=${input.repo.branch}',
           'DAYS=${input.sinceDays}',
           // shell 变量一律写成 `$VAR` 不带花括号：`${…}` 会先被引擎的
           // 插值器吃掉，而认不出的引用是**硬错误**（interp.rs）——
@@ -95,7 +98,7 @@ export const REPO_DIGEST: WorkflowTemplate = {
           // 「没有数据支撑的不要写」起作用了，但缺的数据还是得补上
           'ISSUES=$(gh issue list --repo "$REPO" --state all --search "updated:>$FROM" --limit 50 --json number,title,state,createdAt,updatedAt,closedAt)',
           'PRS=$(gh pr list --repo "$REPO" --state all --search "updated:>$FROM" --limit 50 --json number,title,state,createdAt,updatedAt,mergedAt,author)',
-          'COMMITS=$(gh api "repos/$REPO/commits?since=$FROM&per_page=50" --jq \'[.[] | {sha: .sha[0:7], message: (.commit.message | split("\\n")[0]), author: .commit.author.name, date: .commit.author.date}]\')',
+          'COMMITS=$(gh api "repos/$REPO/commits?sha=$BRANCH&since=$FROM&per_page=50" --jq \'[.[] | {sha: .sha[0:7], message: (.commit.message | split("\\n")[0]), author: .commit.author.name, date: .commit.author.date}]\')',
           '# 三处都封顶 50。**把上限说出来**：AI 被要求写「合了多少 PR」，',
           '# 而它无从知道 50 是天花板还是真实值 —— 那个数字会被当成事实读',
           'printf \'{"from":"%s","limitPerList":50,"issues":%s,"pullRequests":%s,"commits":%s}\' "$FROM" "$ISSUES" "$PRS" "$COMMITS"',
