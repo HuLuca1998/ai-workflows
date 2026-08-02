@@ -173,7 +173,15 @@ pub struct McpHttpServer {
 
 pub struct AcpClient {
     child: Child,
-    stdin: ChildStdin,
+    /// **共享的**。取消要在 `prompt` 正阻塞读的时候从另一条线程写进去 ——
+    /// 而 `prompt` 那一轮持有的是槽位锁，不是这把。
+    ///
+    /// 这把锁只在「写一行」那一瞬间持有（微秒级），从不在读的时候持有。
+    /// 不共享的话取消只能等这一轮结束，那就不叫取消了。
+    ///
+    /// 也不能各拿一份 dup 出来的 fd：管道上超过 PIPE_BUF 的写不是原子的，
+    /// 两条线程同时写会把两行 JSON 绞在一起。
+    stdin: std::sync::Arc<std::sync::Mutex<ChildStdin>>,
     incoming: Receiver<Incoming>,
     next_id: i64,
     timeout: Duration,
@@ -219,7 +227,9 @@ impl AcpClient {
             source,
         })?;
 
-        let stdin = child.stdin.take().ok_or(AcpError::Disconnected)?;
+        let stdin = std::sync::Arc::new(std::sync::Mutex::new(
+            child.stdin.take().ok_or(AcpError::Disconnected)?,
+        ));
         let stdout = child.stdout.take().ok_or(AcpError::Disconnected)?;
         // stderr 单独排空：不读的话管道填满后 adapter 会阻塞在写上
         if let Some(stderr) = child.stderr.take() {
@@ -485,9 +495,40 @@ impl AcpClient {
     }
 
     /// 取消当前这一轮。adapter 会把已经开始的工具调用收尾后停下。
+    ///
+    /// **发的是通知（不带 `id`），不是请求。** 差这一个字段的实测后果
+    /// （codex-acp 1.1.7）：
+    ///
+    /// | 形态            | 应答                      | 那一轮                                  |
+    /// | --------------- | ------------------------- | --------------------------------------- |
+    /// | 请求（带 id）   | `-32601 Method not found` | **照跑** —— 6 秒里又出了 323 个流式帧   |
+    /// | 通知（不带 id） | 无（本来就不该有）        | **7ms 停下**，`stopReason: "cancelled"` |
+    ///
+    /// 原来这里写的是 `self.request(…)`，于是取消从来没生效过，
+    /// 而且要干等到超时（supervisor 那边是 180 秒）才返回一个错误。
+    /// 守卫 `crates/engine/tests/acp_cancel_test.rs`。
+    ///
+    /// # Errors
+    /// 只在写不进 adapter 的 stdin 时报错（进程已经没了）——
+    /// 那种情况下这一轮本来也停了。
+    ///
+    /// 实现**转交给 [`CancelHandle`]**，不在这里再拼一遍那行 JSON ——
+    /// 两处各拼一份的话，改一处另一处不会红：突变验证实测抓到过
+    /// （给 `CancelHandle` 那份加回 `id`，四条测试全绿）。
     pub fn cancel(&mut self, session_id: &str) -> Result<()> {
-        self.request("session/cancel", json!({ "sessionId": session_id }))?;
-        Ok(())
+        self.cancel_handle(session_id).cancel()
+    }
+
+    /// 交出一个能**从别的线程**取消这条会话的句柄。
+    ///
+    /// `prompt` 跑起来之后 `&mut self` 就被它占着了，取消线程拿不到 ——
+    /// 句柄只借走那把 stdin 锁，与 `&mut self` 无关。
+    #[must_use]
+    pub fn cancel_handle(&self, session_id: &str) -> CancelHandle {
+        CancelHandle {
+            stdin: std::sync::Arc::clone(&self.stdin),
+            session_id: session_id.to_string(),
+        }
     }
 
     fn request(&mut self, method: &str, params: Value) -> Result<Value> {
@@ -565,9 +606,7 @@ impl AcpClient {
 
         let line = serde_json::to_string(&payload)
             .map_err(|error| AcpError::Malformed(error.to_string()))?;
-        self.stdin.write_all(line.as_bytes())?;
-        self.stdin.write_all(b"\n")?;
-        self.stdin.flush()?;
+        write_line(&self.stdin, &line)?;
         Ok(())
     }
 
@@ -583,10 +622,54 @@ impl AcpClient {
         }))
         .map_err(|error| AcpError::Malformed(error.to_string()))?;
 
-        self.stdin.write_all(line.as_bytes())?;
-        self.stdin.write_all(b"\n")?;
-        self.stdin.flush()?;
+        write_line(&self.stdin, &line)?;
         Ok(id)
+    }
+}
+
+/// 往 adapter 的 stdin 写一行。
+///
+/// 锁只在这里持有，而且只包住这一次写 —— 读那一侧（`spawn_reader`）
+/// 在另一条线程上，与它无关。
+fn write_line(stdin: &std::sync::Mutex<ChildStdin>, line: &str) -> Result<()> {
+    let mut out = stdin.lock().map_err(|_| AcpError::Disconnected)?;
+    out.write_all(line.as_bytes())?;
+    out.write_all(b"\n")?;
+    out.flush()?;
+    Ok(())
+}
+
+/// 从别的线程取消某条会话当前那一轮。
+///
+/// **存在的理由**：`prompt` 一跑起来就持着槽位锁不放，
+/// 而取消按钮按下时那一轮正在跑 —— 走池子的常规路径只会阻塞到
+/// 这一轮自己结束，那就不叫取消了。
+///
+/// 拿的是同一把 stdin 锁，所以不会和 `prompt` 的写绞在一起。
+#[derive(Clone)]
+pub struct CancelHandle {
+    stdin: std::sync::Arc<std::sync::Mutex<ChildStdin>>,
+    session_id: String,
+}
+
+impl CancelHandle {
+    /// 发出取消。**这是拼那行 JSON 的唯一地方** ——
+    /// `AcpClient::cancel` 也转交到这里。
+    ///
+    /// **通知，不带 `id`。** JSON-RPC 靠这个字段区分请求与通知：
+    /// 带上它，对端去找一个同名方法的处理器，找不到就回 `-32601`，
+    /// 而那一轮照跑（实测 6 秒又出了 323 帧）。
+    ///
+    /// # Errors
+    /// adapter 的 stdin 已经关了（进程没了）。那种情况下这一轮本来也停了。
+    pub fn cancel(&self) -> Result<()> {
+        let line = serde_json::to_string(&json!({
+            "jsonrpc": "2.0",
+            "method": "session/cancel",
+            "params": { "sessionId": self.session_id },
+        }))
+        .map_err(|error| AcpError::Malformed(error.to_string()))?;
+        write_line(&self.stdin, &line)
     }
 }
 
@@ -1043,6 +1126,12 @@ pub struct SessionPool {
     /// 「看得见的卡死」换成了「看不见的孤儿 node 进程」，
     /// 而 adapter 是 `process_group(0)` 起的，收不到 App 的退出信号。
     spawned: std::sync::Mutex<Vec<u32>>,
+    /// key → 正在跑的那一轮的取消句柄。**一轮结束就摘掉。**
+    ///
+    /// 单独一张表而不是从 `live` 里取：`live` 的槽位在整轮对话期间
+    /// 被 `prompt` 锁着，取消线程去 lock 只会排到这一轮自己结束 ——
+    /// 那时取消已经没有意义了。这张表只在登记与摘除的一瞬间上锁。
+    running: std::sync::Mutex<HashMap<String, CancelHandle>>,
     idle: Duration,
 }
 
@@ -1068,6 +1157,7 @@ impl SessionPool {
         Self {
             live: std::sync::Mutex::new(HashMap::new()),
             spawned: std::sync::Mutex::new(Vec::new()),
+            running: std::sync::Mutex::new(HashMap::new()),
             idle,
         }
     }
@@ -1123,7 +1213,15 @@ impl SessionPool {
             let session = held.as_mut().ok_or(AcpError::Disconnected)?;
             let id = session.session_id.clone();
             session.last_used = std::time::Instant::now();
-            session.client.prompt(&id, text, &mut on_update)
+            // 登记取消句柄。**跑之前登记，跑完摘掉** ——
+            // 不登记的话 `cancel(key)` 找不到东西，而它唯一能做的
+            // 就是去 lock 这个槽位，那会排到这一轮自己结束
+            self.arm(key, session.client.cancel_handle(&id));
+            let outcome = session.client.prompt(&id, text, &mut on_update);
+            // 摘掉放在这里而不是函数末尾：下面失败重建那一支会再跑一次
+            // prompt，它有自己的登记
+            self.disarm(key);
+            outcome
         };
 
         match result {
@@ -1135,7 +1233,9 @@ impl SessionPool {
                 *held = None;
                 let (mut client, session_id) = build()?;
                 self.remember(client.pid());
+                self.arm(key, client.cancel_handle(&session_id));
                 let outcome = client.prompt(&session_id, text, &mut on_update);
+                self.disarm(key);
                 // 新会话照样放回池里：这一轮可能还是失败（adapter 真的坏了），
                 // 但下一轮不该再为此多起一个进程
                 *held = Some(Live {
@@ -1145,6 +1245,42 @@ impl SessionPool {
                 });
                 outcome
             }
+        }
+    }
+
+    /// 取消某条会话正在跑的那一轮。
+    ///
+    /// 没有正在跑的轮次时返回 `false` —— 那不是错误，是「已经结束了」，
+    /// 用户按取消时那一轮刚好答完是很正常的时序。
+    ///
+    /// **不碰槽位锁**：那把锁被 `prompt` 占着，去 lock 只会排到
+    /// 这一轮自己结束，而那时取消已经没有意义了。
+    ///
+    /// # Errors
+    /// 写不进 adapter 的 stdin（进程已经没了）。那种情况下这一轮本来也停了。
+    pub fn cancel(&self, key: &str) -> Result<bool> {
+        let handle = {
+            let running = self.running.lock().map_err(|_| AcpError::Disconnected)?;
+            running.get(key).cloned()
+        };
+        match handle {
+            Some(handle) => handle.cancel().map(|()| true),
+            None => Ok(false),
+        }
+    }
+
+    /// 登记「这条会话有一轮在跑」。
+    fn arm(&self, key: &str, handle: CancelHandle) {
+        if let Ok(mut running) = self.running.lock() {
+            running.insert(key.to_string(), handle);
+        }
+    }
+
+    /// 摘掉登记。**必须跑到**，否则一条已经结束的会话会一直显示成
+    /// 「可取消」，而那条取消发出去什么都不会发生。
+    fn disarm(&self, key: &str) {
+        if let Ok(mut running) = self.running.lock() {
+            running.remove(key);
         }
     }
 
