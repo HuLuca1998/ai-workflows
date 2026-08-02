@@ -88,7 +88,7 @@ pub fn dispatch(
         "memory_toggle" => to_value(api::memory_toggle(
             &store,
             string(input, "id")?,
-            boolean(input, "enabled"),
+            required_boolean(input, "enabled")?,
         )?),
         "memory_delete" => to_value(api::memory_delete(&store, string(input, "id")?)?),
         "prompt_list" => to_value(api::prompt_list(
@@ -310,7 +310,7 @@ pub fn dispatch(
         "mcp_decide_confirm" => to_value(api::mcp_decide_confirm(
             &store,
             string(input, "id")?,
-            boolean(input, "approved"),
+            required_boolean(input, "approved")?,
         )?),
         // 工具与资源的条数由 MCP crate 那边知道（它依赖 core-api，反过来不行），
         // 所以由调用方传进来。传 0 只会让界面显示 0，不会说谎成别的数
@@ -477,8 +477,40 @@ fn opt_int(input: &Value, key: &str) -> Option<i64> {
     input.get(key).and_then(Value::as_i64)
 }
 
+/// 可选开关。缺省即 `false` —— `enabledOnly` / `includeArtifacts` 那一类，
+/// 「没说」和「不要」本来就是一个意思。
 fn boolean(input: &Value, key: &str) -> bool {
     input.get(key).and_then(Value::as_bool).unwrap_or(false)
+}
+
+/// 字段本身**就是那个决定**时用这条，不要用 [`boolean`]。
+///
+/// 契约标了必填的布尔只有两个（`mcp.decideConfirm.approved`、
+/// `memory.toggle.enabled`），它们没有安全默认值：少传一个
+/// `approved`，调用方拿到 200 和一个成功的返回值，而发生的是**拒批**。
+///
+/// 实测撞到过：批准脚本把参数名写成 `{"id":…,"decision":"approve"}`，
+/// 八次调用全部 200、八条确认单全被拒，而 agent 那边只看到
+/// 「还在等确认」—— 两侧都没有一处会报。
+///
+/// `workspace_reset` 的 `confirm` 早就为同一类问题写过显式守卫。
+/// 守卫在 `tests/required_boolean_test.rs`，它从契约的 `required` 里捞，
+/// 以后再加必填布尔会自动被覆盖。
+///
+/// # Errors
+/// 字段缺失或不是布尔时报 VALIDATION。
+fn required_boolean(input: &Value, key: &str) -> ApiResult<bool> {
+    input
+        .get(key)
+        .and_then(Value::as_bool)
+        .ok_or_else(|| ApiError {
+            code: "VALIDATION".to_string(),
+            message: format!("缺少参数 {key}，它是必填的布尔"),
+            retriable: false,
+            hint: Some(format!(
+                "{key} 本身就是那个决定，没有默认值可取。显式传 true 或 false"
+            )),
+        })
 }
 
 /// 用户授权的工作目录。产物就落在它下面的 `.aiwf-artifacts` 里。
