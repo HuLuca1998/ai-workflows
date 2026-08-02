@@ -455,11 +455,30 @@ function kindOf(spec: PropertySpec, options?: string[]): Field['kind'] {
  * 数字发成字符串的话，脚本里 `${input.count} + 1` 会变成字符串拼接 ——
  * 而那只有在跑到那一行时才会暴露。
  */
+/** 只给测试用的入口 —— 「留空则跳过」这条承诺要有守卫。 */
+export const coerceForTest = (
+  fields: readonly Field[],
+  values: Record<string, string>,
+): Record<string, unknown> => coerce(fields, values);
+
 function coerce(fields: readonly Field[], values: Record<string, string>): Record<string, unknown> {
   const out: Record<string, unknown> = {};
   for (const field of fields) {
     const raw = values[field.key];
-    if (raw === undefined || raw === '') continue;
+    /*
+     * `undefined` 与 `''` 是两回事：
+     * 前者是「表单里没这一项」，后者是「用户看见了并留空」。
+     *
+     * 原来两个一起 continue，于是空串把整个键丢掉了。而两条内置模板
+     * 的文案明确承诺「留空则跳过这一段」，脚本里 `if [ -n "$SLOW" ]`
+     * 那个分支正是为空串准备的 —— **它永远走不到**，节点起手就报
+     * 「未定义的引用 ${input.slowLogPath}」（独立复核实测）。
+     */
+    if (raw === undefined) continue;
+    if (raw === '') {
+      out[field.key] = '';
+      continue;
+    }
     switch (field.kind) {
       // 仓库与分支在表单里是两个 key，发出去是一个对象 ——
       // 脚本里用 ${input.repo.name} / ${input.repo.branch}
