@@ -1061,6 +1061,82 @@ mod 角色的能力声明进提示词 {
     }
 
     #[test]
+    fn 之前各步的产出自动进提示词_不靠作者手写引用() {
+        /*
+         * **用户的原话**：「执行 ai 需要拿到探索 ai 的结果以及决策 ai 的
+         * 决策和理由去做执行，而不是没有任何上下文去执行 ——
+         * 如果没有给你上下文，你会知道需要去做什么么」
+         *
+         * 答案是不会。实测（真仓库 issue 修复，run_ff4b95648b3eb581）：
+         * `fix` 节点的指令全文是「按选定方案修改代码」，
+         * 而那个「选定方案」它一个字都看不到 —— 最后开出的 PR 里
+         * 只有一个多余的锁文件。
+         *
+         * 靠作者在每个节点手写 `${上游.端口}` 是不够的：
+         * 实测三个内置模板、五个 AI 节点漏了这件事，几个月没人发现。
+         * 所以**引擎默认就把这条运行到此为止各步的产出接进去**，
+         * 作者的显式引用仍然有效（那是精确控制，不是唯一来源）。
+         *
+         * 只放**这条运行真的走过**的那些步 —— 作用域里就只有它们。
+         */
+        let (command, args) = mock_acp();
+        let executor = NodeExecutor::new(workdir())
+            .with_acp_command(&command, &args)
+            .with_agent_profiles(&[带能力的角色(
+                r#"{"file":"read","command":"none","network":"none"}"#,
+            )]);
+
+        let mut scope = Scope::new("run_ctx");
+        // 假装前面跑过两步：一次探索、一次决策
+        scope.set_node_output(
+            "analyze",
+            "success",
+            serde_json::json!("根因是折扣率没有边界校验，建议方案二：入口处抛 RangeError"),
+        );
+        scope.set_node_output(
+            "decide",
+            "auto_decided",
+            serde_json::json!("定级 L2，可自动继续"),
+        );
+
+        executor.execute(&挂角色的执行节点(), &mut scope).unwrap();
+        let 提示词 = 收到的提示词(&scope, "fix");
+
+        assert!(
+            提示词.contains("折扣率没有边界校验"),
+            "上一步分析的结论没进提示词 —— agent 不知道要改什么：\n{提示词}"
+        );
+        assert!(
+            提示词.contains("定级 L2"),
+            "决策节点的结论没进提示词 —— agent 不知道为什么可以继续：\n{提示词}"
+        );
+        // 要说清是**哪一步**的产出，否则两段文字混在一起读不出来源
+        assert!(
+            提示词.contains("analyze") && 提示词.contains("decide"),
+            "没标出每段产出来自哪个节点：\n{提示词}"
+        );
+    }
+
+    #[test]
+    fn 没有前序产出时不留一个空段() {
+        // 一句「之前各步的产出：」后面什么都没有，模型会以为上下文被截断了
+        // （与记忆那段同一个理由）
+        let (command, args) = mock_acp();
+        let executor = NodeExecutor::new(workdir())
+            .with_acp_command(&command, &args)
+            .with_agent_profiles(&[带能力的角色(r#"{"file":"read"}"#)]);
+
+        let mut scope = Scope::new("run_ctx_empty");
+        executor.execute(&挂角色的执行节点(), &mut scope).unwrap();
+        let 提示词 = 收到的提示词(&scope, "fix");
+
+        assert!(
+            !提示词.contains("之前各步的产出"),
+            "没有前序产出却留了个空段：\n{提示词}"
+        );
+    }
+
+    #[test]
     fn 提示词里要告诉_agent_它在哪个目录() {
         /*
          * **实测（run_699e0fd0a30ed998，真 GitHub 仓库的 issue 修复）**：

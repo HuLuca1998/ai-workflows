@@ -44,6 +44,21 @@ impl Scope {
         self.outputs.insert(format!("{node_id}.{port}"), value);
     }
 
+    /// 这条运行到此为止各步的产出，按 `节点id.端口` 排好序。
+    ///
+    /// 给 AI 节点拼「之前发生了什么」用。**只有真的走过的步在里面** ——
+    /// 没走到的分支从来不会进作用域。
+    #[must_use]
+    pub fn outputs_in_order(&self) -> Vec<(String, &Value)> {
+        let mut items: Vec<(String, &Value)> = self
+            .outputs
+            .iter()
+            .map(|(key, value)| (key.clone(), value))
+            .collect();
+        items.sort_by(|a, b| a.0.cmp(&b.0));
+        items
+    }
+
     pub fn run_id(&self) -> &str {
         &self.run_id
     }
@@ -152,7 +167,7 @@ pub fn interpolate_with(
 /// 不去掉的话，`echo ${a.success.stdout} > out.txt` 会被那个换行拆成两行，
 /// 第二行只剩一个重定向，结果是一个空文件 —— 而且不报任何错。
 /// 中间的换行保留：多行输出本身可能就是要的东西。
-fn stringify(value: &Value) -> String {
+pub(crate) fn stringify(value: &Value) -> String {
     match value {
         Value::String(s) => s.trim_end_matches(['\n', '\r']).to_string(),
         other => other.to_string(),

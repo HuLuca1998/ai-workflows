@@ -1908,6 +1908,45 @@ impl NodeExecutor {
             }
         };
 
+        /*
+         * **这条运行到此为止各步的产出，自动接进来。**
+         *
+         * 每个 AI 节点各开一条 ACP 会话，没有跨节点上下文。
+         * 靠模板作者在每个节点手写 `${上游.端口}` 是不够的 ——
+         * 实测三个内置模板、五个 AI 节点漏了这件事，几个月没人发现，
+         * 而后果是 agent 完全不知道自己要干什么
+         * （run_ff4b95648b3eb581：`fix` 节点的指令是「按选定方案修改代码」，
+         * 那个方案它一个字都看不到，最后开出的 PR 里只有一个多余的锁文件）。
+         *
+         * 显式的 `${...}` 引用**仍然有效**：那是精确控制
+         * （放在指令的哪个位置、只取哪一部分），不是唯一来源。
+         *
+         * 只有**真的走过**的步在作用域里，所以没走到的分支不会混进来。
+         * 每段截断到 `STEP_EXCERPT_MAX`，全文在产物里 ——
+         * 一份几十 KB 的 stdout 灌进提示词只会把真正的指令挤出上下文窗口。
+         */
+        let instruction = {
+            let steps = scope.outputs_in_order();
+            if steps.is_empty() {
+                instruction
+            } else {
+                let mut prefixed = String::from("这条运行到这里为止，各步的产出：\n");
+                for (key, value) in steps {
+                    let text = crate::interp::stringify(value);
+                    let excerpt: String = if text.chars().count() > STEP_EXCERPT_MAX {
+                        let head: String = text.chars().take(STEP_EXCERPT_MAX).collect();
+                        format!("{head}…（截断，全文在这一步的产物里）")
+                    } else {
+                        text
+                    };
+                    prefixed.push_str(&format!("\n【{key}】\n{excerpt}\n"));
+                }
+                prefixed.push_str("\n——\n\n");
+                prefixed.push_str(&instruction);
+                prefixed
+            }
+        };
+
         // 记忆拼在指令前面。没有记忆时不留空段 ——
         // 一句「已知的长期上下文：」后面什么都没有，
         // 模型会以为上下文被截断了
@@ -2553,6 +2592,12 @@ impl WorkspaceChanges {
 /// 不是 git 仓库时返回 `None` 而不是「0 个文件」：`workdirSource` 为
 /// inherit / declared 的节点可能跑在任意目录里，那时根本没有「改了什么」
 /// 可谈，编一个 0 出来是拿假证据冒充真证据。
+/// 每一步的产出摘录进提示词时的上限（字符）。
+///
+/// 一份几十 KB 的 stdout 灌进去会把真正的指令挤出上下文窗口，
+/// 而模型对提示词开头那几百字最敏感。截断处指向产物，要全文自己去读。
+const STEP_EXCERPT_MAX: usize = 1500;
+
 /// 产物目录在工作目录下的名字。`workspace_changes` 按这个前缀把它排除掉 ——
 /// 那里面的东西是引擎写的，不是 agent 改的。
 const ARTIFACTS_DIR_PREFIX: &str = ".aiwf-artifacts/";
