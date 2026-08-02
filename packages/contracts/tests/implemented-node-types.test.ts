@@ -45,6 +45,10 @@ describe('未实现的节点类型要在契约里说出来', () => {
         'git.worktree',
         'notify',
         'script.shell',
+        // sync 调用是真的（runner.rs 的 run_subworkflow，
+        // crates/engine/tests/subworkflow_test.rs 8 条守着）。
+        // parallel 与 onFailure:retry 明确报「尚未实现」
+        'subworkflow',
       ].sort(),
     );
   });
@@ -54,6 +58,6 @@ describe('未实现的节点类型要在契约里说出来', () => {
     expect(unimplemented.length).toBeGreaterThan(0);
     // 这几种在 DEBT O-1 里记着
     expect(unimplemented).toContain('branch');
-    expect(unimplemented).toContain('subworkflow');
+    expect(unimplemented).toContain('transform');
   });
 });

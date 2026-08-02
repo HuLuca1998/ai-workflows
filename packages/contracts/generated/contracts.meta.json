@@ -91,6 +91,7 @@
     "ai.decide",
     "ai.execute",
     "entry",
+    "subworkflow",
     "end",
     "approval",
     "notify",

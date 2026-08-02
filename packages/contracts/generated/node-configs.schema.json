@@ -571,7 +571,7 @@
       },
       "approvalInheritance": {
         "default": "inherit",
-        "description": "审批继承\ninherit 时子运行的审批冒泡到父运行",
+        "description": "审批继承\n引擎目前不读它：子运行是一条独立的 Run，它的审批本来就出现在\n审批列表里，父运行同步等着 —— 两档的实际行为一样",
         "type": "string",
         "enum": [
           "inherit",

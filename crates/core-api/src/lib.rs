@@ -313,6 +313,10 @@ pub struct RunSummary {
     /// 谁发起的。定时跑出来的运行要在列表上一眼可辨 ——
     /// 否则用户早上看到一条自己没点过的运行，无从判断是什么起的
     trigger: String,
+    /// 子工作流调用的父运行。子运行在运行列表里与别人平级，
+    /// 没有它就看不出「这条是被谁叫起来的」
+    #[serde(skip_serializing_if = "Option::is_none")]
+    parent_run_id: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -646,6 +650,7 @@ impl From<aiwf_store::RunRow> for RunSummary {
             started_at: row.started_at,
             ended_at: row.ended_at,
             trigger: row.trigger_kind,
+            parent_run_id: row.parent_run_id,
         }
     }
 }
@@ -2744,6 +2749,9 @@ pub fn run_rewind_to_approval(store: &Store, run_id: String) -> ApiResult<Rewind
         // 回溯重跑跟着原来那条的来源：定时跑出来的运行回溯之后
         // 仍然算定时那一支，否则运行列表上会凭空多出一条「手动」
         &run.trigger_kind,
+        // 回溯出来的是**同一棵树上的兄弟**，父运行照旧 ——
+        // 丢掉父引用的话，子运行回溯之后会变成一条孤立的顶层运行
+        run.parent_run_id.as_deref(),
     )?;
 
     Ok(RewindResult {

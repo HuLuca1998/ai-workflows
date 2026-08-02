@@ -158,6 +158,7 @@ fn 诊断包列出产物但不含内容() {
             "{}",
             Some(dir.path().to_str().unwrap()),
             "manual",
+            None,
         )
         .unwrap();
 

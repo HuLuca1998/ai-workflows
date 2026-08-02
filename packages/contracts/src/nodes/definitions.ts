@@ -345,7 +345,11 @@ const DEFINITIONS: Record<NodeType, NodeDefinition> = {
       approvalInheritance: z
         .enum(['inherit', 'isolate'])
         .default('inherit')
-        .describe('审批继承\ninherit 时子运行的审批冒泡到父运行'),
+        .describe(
+          '审批继承\n' +
+            '引擎目前不读它：子运行是一条独立的 Run，它的审批本来就出现在\n' +
+            '审批列表里，父运行同步等着 —— 两档的实际行为一样',
+        ),
     }),
     ports: {
       inputs: [IN],
@@ -356,7 +360,15 @@ const DEFINITIONS: Record<NodeType, NodeDefinition> = {
     },
     defaultCapabilities: NO_CAPABILITIES,
     externalWrite: false,
-    implemented: false,
+    /*
+     * `mode: sync` 是真的（`crates/engine/src/runner.rs` 的
+     * `run_subworkflow`）：建独立子 Run、带 parent_run_id、入参映射、
+     * 出参回填、环检测、深度上限。
+     *
+     * `parallel` 与 `onFailure: retry` **明确报「尚未实现」**，
+     * 不是悄悄降级 —— 后者会让 concurrencyLimit 看起来生效而实际串行。
+     */
+    implemented: true,
   },
 
   branch: {

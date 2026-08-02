@@ -27,6 +27,7 @@ fn 造一份产物(store: &Store, dir: &std::path::Path, 内容: &str) -> String
             "{}",
             Some(&dir.display().to_string()),
             "manual",
+            None,
         )
         .unwrap();
 

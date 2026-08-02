@@ -114,13 +114,11 @@ const 引擎不消费: Record<string, string> = {
   // ── 未实现：整个节点类型都还没有 ────────────────────────────────────────
   // executor 的兜底分支会明确报「节点类型 X 尚未实现。这个节点不会被执行，
   // 运行到此为止」，Dry Run 也会先拦一次 —— 这一档不算「假装成功」
-  'subworkflow.workflowId': '未实现：subworkflow 节点',
-  'subworkflow.versionRef': '未实现：subworkflow 节点',
-  'subworkflow.inputMapping': '未实现：subworkflow 节点',
-  'subworkflow.outputMapping': '未实现：subworkflow 节点',
-  'subworkflow.concurrencyLimit': '未实现：subworkflow 节点',
-  'subworkflow.onFailure': '未实现：subworkflow 节点',
-  'subworkflow.approvalInheritance': '未实现：subworkflow 节点',
+  'subworkflow.concurrencyLimit':
+    '欠账：只做得到 sync，parallel 明确报「尚未实现」，并发上限自然还没用上',
+  'subworkflow.approvalInheritance':
+    '界面：子运行是独立 Run，审批本来就在审批列表里、父运行同步等着 —— ' +
+    'inherit 与 isolate 的实际行为一样。字段描述里已直说引擎不读它',
   'branch.cases': '未实现：branch 节点',
   'branch.defaultPort': '未实现：branch 节点',
   'transform.mappings': '未实现：transform 节点',
