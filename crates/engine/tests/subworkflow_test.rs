@@ -395,3 +395,87 @@ fn 子流程入口的默认值会被补上_不只发映射里那几个() {
         "默认值没被补进子运行的 inputs"
     );
 }
+
+#[test]
+fn 父运行已结束时_等审批的子运行跟着停下() {
+    /*
+     * **实测抓到的线程泄漏。** 父运行的线程在 `run_all` 里每 500ms
+     * 轮询一次子运行；那个循环原来只看子运行状态，既不看父的取消标志
+     * 也不看父运行本身还在不在。
+     *
+     * 后果：用户取消父运行 ⇒ 父状态变 cancelled，而这条线程还在轮询、
+     * 子运行还在跑、取消不传递。用户如果永远不去决定那个审批，
+     * 这条线程就永久泄漏（独立复核实测：取消后 5 秒 `is_active(父)`
+     * 仍是 true，随后批准子审批，子运行照样跑完并产生了副作用）。
+     *
+     * 这条用「父运行已经是终态」这一支验 —— 与取消标志走的是同一段判断，
+     * 而它不需要起真线程去 race。
+     */
+    let 场地 = 场地();
+    let 产出 = 场地.workdir.join("子流程写的.txt");
+    let 带审批的子图 = serde_json::json!({
+        "nodes": [
+            {"id":"entry","type":"entry","title":"入口","position":{"x":0,"y":0},
+             "config":{"inputSchema":{"type":"object"}}},
+            {"id":"gate","type":"approval","title":"门","position":{"x":1,"y":0},
+             "config":{"title":"确认","interaction":"confirm","decider":"user","waitStrategy":"forever"}},
+            {"id":"sh","type":"script.shell","title":"有副作用","position":{"x":2,"y":0},
+             "config":{"interpreter":"zsh","script":format!("echo x > {}", 产出.display())}},
+            {"id":"done","type":"end","title":"结束","position":{"x":3,"y":0},
+             "config":{"outcome":"success","artifacts":[]}}
+        ],
+        "edges": [
+            {"id":"a","source":{"nodeId":"entry","port":"success"},"target":{"nodeId":"gate","port":"input"}},
+            {"id":"b","source":{"nodeId":"gate","port":"approved"},"target":{"nodeId":"sh","port":"input"}},
+            {"id":"c","source":{"nodeId":"sh","port":"success"},"target":{"nodeId":"done","port":"input"}}
+        ],
+        "groups": []
+    })
+    .to_string();
+    let child = 场地
+        .store
+        .create_workflow_with_graph("子流程", None, &带审批的子图)
+        .unwrap();
+    let parent = 场地
+        .store
+        .create_workflow_with_graph("父流程", None, &父图(&child, serde_json::json!({})))
+        .unwrap();
+
+    let runner = Runner::new();
+    let run_id = runner
+        .start(
+            &场地.store,
+            RunRequest {
+                workflow_id: parent,
+                version_id: None,
+                draft_rev: Some(0),
+                inputs_json: r#"{"说什么":"随便"}"#.to_string(),
+                workdir: 场地.workdir.display().to_string(),
+                trigger: Trigger::Manual,
+            },
+        )
+        .unwrap();
+
+    // 另起一条线程去取消父运行 —— 主线程此刻正卡在子运行的审批轮询里
+    let 取消 = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    {
+        let 取消 = std::sync::Arc::clone(&取消);
+        std::thread::spawn(move || {
+            std::thread::sleep(std::time::Duration::from_millis(300));
+            取消.store(true, std::sync::atomic::Ordering::SeqCst);
+        });
+    }
+    let status = runner.run_until_pause(&场地.store, &run_id, &取消).unwrap();
+
+    assert_ne!(status, "waiting_approval", "父运行没有从轮询里退出来");
+    let 子运行 = 场地.store.child_runs(&run_id).unwrap();
+    assert_eq!(子运行.len(), 1);
+    assert_eq!(
+        子运行[0].status, "cancelled",
+        "父运行停了，子运行还在等审批 —— 取消没有传递下去"
+    );
+    assert!(
+        !产出.exists(),
+        "子运行被取消了，而它审批之后那一步的副作用还是发生了"
+    );
+}

@@ -357,6 +357,9 @@ impl Runner {
             &mut scope,
             |node, _| execute(node),
             |_, _| Vec::new(),
+            // 这条路径是测试与外部调度用的，调用方自己控制节奏 ——
+            // 没有取消标志可传，给一个永不置位的
+            &std::sync::atomic::AtomicBool::new(false),
         )
     }
 
@@ -367,6 +370,9 @@ impl Runner {
         run_id: &str,
         executor: &NodeExecutor,
         scope: &mut Scope,
+        // cancel：取消标志。子工作流那一支要看它 —— 父运行被取消
+        // 而它还在等子运行的审批的话，那条线程会永久泄漏
+        cancel: &std::sync::atomic::AtomicBool,
     ) -> Result<StepResult> {
         self.advance(
             store,
@@ -441,6 +447,7 @@ impl Runner {
                     })
                     .collect()
             },
+            cancel,
         )
     }
 
@@ -451,6 +458,9 @@ impl Runner {
         scope: &mut Scope,
         execute: F,
         resolutions: R,
+        // cancel：子工作流那一支等子运行审批时要看它，
+        // 否则父运行被取消后那条线程永久泄漏
+        cancel: &std::sync::atomic::AtomicBool,
     ) -> Result<StepResult>
     where
         F: Fn(&crate::graph::GraphNode, &mut Scope) -> NodeOutcome,
@@ -551,7 +561,7 @@ impl Runner {
         } else if node.node_type == "subworkflow" {
             // 子工作流也归引擎管，不归执行器：它要建 Run、要落
             // parent_run_id、要递归调 Runner —— 执行器刻意不碰数据库
-            self.run_subworkflow(store, run_id, node, scope)?
+            self.run_subworkflow(store, run_id, node, scope, cancel)?
         } else {
             execute(node, scope)
         };
@@ -849,7 +859,7 @@ impl Runner {
             if cancel.load(std::sync::atomic::Ordering::SeqCst) {
                 return self.status(store, run_id);
             }
-            match self.step_with(store, run_id, &executor, &mut scope)? {
+            match self.step_with(store, run_id, &executor, &mut scope, cancel)? {
                 StepResult::Advanced { .. } => continue,
                 StepResult::WaitingApproval { .. } => return self.status(store, run_id),
                 StepResult::Finished { status } => {
@@ -1437,6 +1447,7 @@ impl Runner {
         run_id: &str,
         node: &GraphNode,
         scope: &mut Scope,
+        cancel: &std::sync::atomic::AtomicBool,
     ) -> Result<NodeOutcome> {
         let config = &node.config;
         let text = |key: &str| config.get(key).and_then(serde_json::Value::as_str);
@@ -1595,11 +1606,22 @@ impl Runner {
         //
         // 走完整的 `start`（preflight + 生命周期事件），不是直接 run_all：
         // 子运行在界面上是一条一等的运行记录，它该有和别人一样的事件流
-        let child = Runner::new();
-        let child = match (&self.notifier, &self.stream) {
-            (Some(notifier), _) => child.with_notifier(notifier.clone()),
-            _ => child,
-        };
+        // 通知器与实时帧都要传下去。原来的 match 把 stream 匹配进来
+        // 却从没用过 —— 子工作流里的 AI 节点因此没有流式输出，
+        // 一个跑五分钟的节点在面板上只有几条工具调用在动
+        let mut child = Runner::new();
+        if let Some(notifier) = &self.notifier {
+            child = child.with_notifier(notifier.clone());
+        }
+        if let Some(stream) = &self.stream {
+            child = child.with_stream(stream.clone());
+        }
+        // 测试注入的 adapter 也要传：不传的话子工作流里的 AI 节点
+        // 在测试里会去连真的 adapter
+        if let Some((command, args)) = &self.acp_override {
+            child = child.with_acp_command(command, args);
+        }
+        let child = child;
         if let Err(error) = child.begin_existing(store, &child_id) {
             return Ok(NodeOutcome::Failed {
                 message: format!("子运行起不来：{error}"),
@@ -1611,8 +1633,21 @@ impl Runner {
             if status != "waiting_approval" {
                 break status;
             }
-            // 子运行停在审批点。它是一条真的 Run，审批就在审批列表里 ——
-            // 父运行在这里等着，用户决定之后下一轮继续
+            /*
+             * 子运行停在审批点。它是一条真的 Run，审批就在审批列表里 ——
+             * 父运行在这里等着，用户决定之后下一轮继续。
+             *
+             * **每一轮都要看父运行还在不在。** 不看的话：用户取消了父运行，
+             * 而这条线程还在轮询、子运行还在跑，取消不传递；
+             * 用户如果永远不去决定那个审批，这条线程就永久泄漏
+             * （独立复核实测：取消后 5 秒 `is_active(父)` 仍是 true）。
+             */
+            if cancel.load(std::sync::atomic::Ordering::SeqCst) {
+                break self.cancel_child(store, &child_id, "父运行被取消")?;
+            }
+            if is_terminal(&self.status(store, run_id)?) {
+                break self.cancel_child(store, &child_id, "父运行已经结束")?;
+            }
             std::thread::sleep(std::time::Duration::from_millis(500));
         };
 
@@ -1677,6 +1712,23 @@ impl Runner {
                 message: format!("子运行 {child_id} 以 {status} 结束"),
             })
         }
+    }
+
+    /// 父运行没了 —— 把子运行也取消掉，并说清为什么。
+    ///
+    /// 不取消的话子运行会继续产生副作用（模板里那一步是 `git push`），
+    /// 而发起它的那条运行已经被用户叫停了。
+    fn cancel_child(&self, store: &Store, child_id: &str, why: &str) -> Result<String> {
+        self.emit(
+            store,
+            child_id,
+            "run.cancelled",
+            None,
+            "engine",
+            &format!("{why}，这条子运行跟着停下"),
+        )?;
+        let _ = store.advance_run_status(child_id, "cancelled", None)?;
+        Ok("cancelled".to_string())
     }
 
     /// 子流程入口 `inputSchema` 里每个字段的 `default`。
