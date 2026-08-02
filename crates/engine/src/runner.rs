@@ -492,21 +492,45 @@ impl Runner {
              * 够不着的（分支没走那一支）不算欠账。
              */
             let all_done = plan.reachable_all_done(&taken);
-            let status = if all_done { "succeeded" } else { "failed" };
+
+            /*
+             * **跑完了 ≠ 跑成了。**
+             *
+             * `end` 节点的 `outcome`（契约里必填，`success | failure`）
+             * 说的就是「这条路算不算成功」。原来引擎从不读它 ——
+             * `crates/engine` 里 grep `"outcome"` 零命中 ——
+             * 于是故意走进失败终点的运行报 succeeded。
+             *
+             * 实测（run_e97c3005197b58d8，嵌套发布编排）：父与子共两条
+             * 走到「结束 · 子流程跑不起来」「结束 · 没扫到」，
+             * 列表上都是绿的「成功」。八个内置模板精心接的失败分支
+             * 全部是装饰。
+             *
+             * 任意一个走到过的终点是 failure 就算失败：并行分支里
+             * 「有一半没做成」不该报成功。
+             */
+            let failure_end = self.failed_endpoint_reached(store, &graph, run_id)?;
+            let status = if all_done && failure_end.is_none() {
+                "succeeded"
+            } else {
+                "failed"
+            };
             self.emit(
                 store,
                 run_id,
-                if all_done {
+                if status == "succeeded" {
                     "run.succeeded"
                 } else {
                     "run.failed"
                 },
                 None,
                 "engine",
-                if all_done {
-                    "全部节点已完成"
-                } else {
-                    "没有可继续的节点"
+                &match (&failure_end, all_done) {
+                    // 说清是**哪个**终点判的失败 —— 不说的话用户看到
+                    // 一条全绿的事件流最后一行写着 failed，无从下手
+                    (Some(title), _) => format!("走到了「{title}」——  这个终点的结局是失败"),
+                    (None, true) => "全部节点已完成".to_string(),
+                    (None, false) => "没有可继续的节点".to_string(),
                 },
             )?;
             let _ = store.advance_run_status(run_id, status, None)?;
@@ -1066,6 +1090,42 @@ impl Runner {
     /// 摘要是给人看的，改一次措辞就会把调度器弄坏，
     /// 而那种坏法不会有任何报错。老数据没有这一列，
     /// 按 `success` 兜底（那是绝大多数节点的出口）。
+    /// 这次运行**走到过**的终点里，第一个 `outcome` 为 `failure` 的那个的标题。
+    ///
+    /// 判据是 `node.succeeded` 事件里的 node_id —— 那是「这个节点真的跑完了」
+    /// 的唯一记录。从图里读它的 `outcome`：图是这次运行绑定的那一份
+    /// （版本或草稿快照），所以不会被别人改草稿影响。
+    ///
+    /// 返回标题而不是 bool：事件摘要要说清是**哪个**终点判的失败，
+    /// 否则用户看到一条全绿的事件流最后一行写着 failed，无从下手。
+    fn failed_endpoint_reached(
+        &self,
+        store: &Store,
+        graph: &WorkflowGraph,
+        run_id: &str,
+    ) -> Result<Option<String>> {
+        let done: std::collections::HashSet<String> = store
+            .events(run_id, 0, 500)?
+            .into_iter()
+            .filter(|event| event.kind == "node.succeeded")
+            .filter_map(|event| event.node_id)
+            .collect();
+
+        Ok(graph
+            .nodes
+            .iter()
+            .find(|node| {
+                node.node_type == "end"
+                    && done.contains(&node.id)
+                    && node
+                        .config
+                        .get("outcome")
+                        .and_then(serde_json::Value::as_str)
+                        == Some("failure")
+            })
+            .map(|node| node.title.clone()))
+    }
+
     fn taken_ports(&self, store: &Store, run_id: &str) -> Result<Vec<crate::plan::TakenPort>> {
         let mut taken: Vec<crate::plan::TakenPort> = Vec::new();
         let mut from = 0;

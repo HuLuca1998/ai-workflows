@@ -196,7 +196,25 @@ fn 子运行失败时父节点走_failed_端口() {
 }
 
 #[test]
-fn 失败策略_continue_时父运行继续往下走() {
+fn 失败策略_continue_时父运行不中断_但终点仍然说了算() {
+    /*
+     * **「继续往下走」与「最终判成功」是两件事，这条原来把它们混成一件。**
+     *
+     * 原断言是 `status == "succeeded"`。那时 `end.outcome` 还没人读，
+     * 所以走到哪个终点都一样绿 —— 断言成立，而它成立的原因是个缺陷。
+     *
+     * 现在终点的 `outcome` 生效了，两件事分开断言：
+     *
+     * · `continue` 的本职是**不中断**：`bad` 真的跑了（`fail_parent`
+     *   那一档会在这里直接收尾，下游一个都不走）
+     * · 最终结局由**图作者**决定：他把 `sub.failed` 接到了一个
+     *   标着 `outcome: "failure"` 的终点，那就是 failed
+     *
+     * 想要「子流程挂了但这次仍算成功」，把那条边接到 `outcome: "success"`
+     * 的终点即可 —— 那是 `end.outcome` 存在的意义。
+     * 让 `continue` 恒判成功的话，这个字段在这条路上又变回装饰，
+     * 而且没法表达「后续还要跑，但这次结果不算成功」。
+     */
     let 场地 = 场地();
     let (parent_run, status) = 跑父流程(
         &场地,
@@ -204,11 +222,15 @@ fn 失败策略_continue_时父运行继续往下走() {
         r#"{"说什么":"失败"}"#,
     );
 
-    assert_eq!(status, "succeeded", "配了 continue 就不该把父运行拖挂");
     let 跑过 = 跑过的节点(&场地.store, &parent_run);
     assert!(
         跑过.contains(&"bad".to_string()),
-        "continue 仍然走 failed 端口 —— 「不拖挂父运行」不等于「假装成功」：{跑过:?}"
+        "continue 没有继续往下走 —— 这一档就退化成 fail_parent 了：{跑过:?}"
+    );
+    assert_eq!(
+        status, "failed",
+        "父运行走到了一个 outcome 为 failure 的终点，却报成功 —— \
+         `end.outcome` 又没被读"
     );
 }
 
