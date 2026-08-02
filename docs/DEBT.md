@@ -639,9 +639,81 @@ CLAUDE.md 明写「别把 agent 报的结论直接采信」，而我照抄了）
    devserver 的一个工作线程永远占住**，16 个线程占满就是整个后端不响应。
    记在下面
 
+### 实跑嵌套工作流挖出的三条（2026-08-02）
+
+跑内置的「发布编排（嵌套调用）」，父 + 两条子运行共 148 条事件，逐条读。
+**三条运行全部 succeeded，而三条全部走进了失败路径。**
+
+#### B-15 · `end.outcome` 从来没被读过（已修）
+
+契约里它是**必填**字段，枚举 `success | failure`，描述写着「运行结果」
+（`generated/node-configs.schema.json`）。界面画得出、Patch 存得进、
+`workflow_validate` 校验得过 —— 而 `crates/engine` 里 grep `"outcome"`
+**零命中**。运行状态只看「够得着的节点是不是都完成了」。
+
+| 运行 | 最后到达的终点            | 那个终点的 outcome | 运行状态      |
+| ---- | ------------------------- | ------------------ | ------------- |
+| 父   | 「结束 · 子流程跑不起来」 | `failure`          | **succeeded** |
+| 子1  | 「结束 · 没扫到」         | `failure`          | **succeeded** |
+
+**八个内置模板精心接的失败分支，全部是装饰。**
+
+修法：收尾时查这次走到过的终点里有没有 `outcome: "failure"` 的，
+有就判 failed，并在事件摘要里说清是**哪个**终点判的
+（不说的话用户看到一条全绿的事件流最后一行写着 failed，无从下手）。
+
+顺带把 `subworkflow` 的 `onFailure: continue` 语义说清了 ——
+原测试断言「continue 就该 succeeded」，那是在旧缺陷上写的。
+现在分成两条断言：`continue` 的本职是**不中断**（下游真的跑了），
+最终结局由**图作者**决定（他把那条边接到了 failure 终点）。
+想要「子流程挂了但这次仍算成功」，把边接到 `outcome: "success"` 的终点即可。
+
+守卫 `crates/engine/tests/end_outcome_test.rs`（3 条，突变验证过）。
+
+#### B-16 · `node.output_emitted` 把引擎自己的产物算成 agent 的改动（已修）
+
+```text
+#48 node.output_emitted  merge  改了 1072 个文件：.aiwf-artifacts/run_a6d9f50a916b405f/sca…
+```
+
+`merge` 是个**只读**节点（只调 MCP 读子运行的报告），一个文件都没改。
+1072 全是引擎写的 prompt.md / stdout.log / agent.md —— 而且因为
+父子共用工作目录，**父运行把子运行的产物也认领了**（那个路径里是子运行的 id）。
+
+`workspace_changes` 跑 `git status` 在工作目录里，而 `.aiwf-artifacts/`
+就在下面。按目录前缀排除掉（不是 `contains` —— `docs/aiwf-artifacts-说明.md`
+是正常文件，测试里钉着这条）。
+
+守卫：`crates/engine/tests/workspace_changes_test.rs` 新增 3 条。
+
 ### 还没修
 
-### O-25 · `prompt` 的超时是每条消息的，说个不停的 agent 能永久占住线程
+### O-26 · 内置模型 `gpt-5-codex` 已被 codex 淘汰，每个 AI 节点都降级一次
+
+`seed_builtins.sql:42` 写死 `model_id = 'gpt-5-codex'`，四个内置角色
+（`builtin:analyst` / `reviewer` / `builder` / …）全都 `model_ref = 'model:codex'`。
+而 codex 1.1.7 当前的清单是 `gpt-5.6-sol[low|medium|high|xhigh|max|ultra]`
+与 `gpt-5.6-terra[...]`（`docs/acp/transcripts/codex-handshake.jsonl`）。
+
+实测那一跑里 **8 个 AI 节点，8 条 `system.model_downgraded`**：
+「模型「gpt-5-codex」这个 runtime 不认，改用它自己的默认值」。
+
+降级本身是**诚实的**（有事件、有原因），所以不是「假装成功」。
+危害是两条：
+
+- 真实的降级被这条常态噪声淹掉 —— 每次都有，等于没有
+- 「模型」页列着一个不存在的模型，用户选它、以为选中了
+
+**待查的前提**：种子里那两条 `enabled = 0`（SQL 注释说「真实清单由
+「模型」页的 sync 拉取」）。所以默认状态下会不会走到这条路，
+还是只在用户手动启用了那条陈旧条目之后才会 —— **实测时我自己
+`model_sync` 之后把 acp.codex 的模型全启用了，包含那条陈旧的**，
+所以现有证据分不出这两种情况。查清之前不动它。
+
+修的方向不是把 id 换成 `gpt-5.6-sol[high]`（半年后再烂一次），
+而是让种子条目表达「用 runtime 自己的默认」。
+
+`prompt` 的超时是每条消息的，说个不停的 agent 能永久占住线程
 
 `AcpClient::prompt` 的循环里是 `self.incoming.recv_timeout(self.timeout)` ——
 **每收到一条 `session/update` 就重置**。所以那个 180 秒超时回答的是
