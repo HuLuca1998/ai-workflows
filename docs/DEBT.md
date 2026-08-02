@@ -839,6 +839,40 @@ agent 保守解读是对的，所以要改的是那段话。现在它明说：
 **门禁有了不等于被读了。** 现在 `builtin-upstream.test.ts` 那条
 让内置模板去过自己的检查，是同一个道理的另一半。
 
+### B-22 · 工作流里的 AI 节点从来没拿到过系统 MCP（已修）
+
+**主管 AI 有工具，不等于节点有 —— 那是两条不同的链路。**
+
+`NodeExecutor` 有 `mcp` 字段、有 `with_mcp` setter、`SessionSpec` 也把它
+传给 `session/new` —— 而 **`with_mcp` 一个调用点都没有**。
+`self.mcp` 永远是空的，节点建会话时发的一直是空数组。
+
+**那为什么实测里有时能用**：沾了 codex 读 `~/.codex/config.toml` 的光
+（B-14 那条路）。这条依赖有三个问题：对 `acp.claude` 完全不成立
+（它不读那份配置）、用户没点过「一键接入」就没有那一条、
+那是本机全局配置而不是这次运行的配置。
+
+实测（run_a3f5bdf1cde3c992 的 `write_report`）原话：
+
+> 当前环境没有暴露 `run_events`，MCP 资源列表也是空的，
+> 因此无法从运行 …… 重新读取 assess 事件或 `aiwf://guide/write-report`
+
+而 `release-checklist` 这条模板的指令里**明写着**让它用 `run_events`
+去读上一步的结论 —— 界面上有的能力，节点里够不着。
+
+修法：`Supervisor::with_mcp` → `Runner::with_mcp` → `NodeExecutor::with_mcp`
+这条链补齐，两个执行宿主在起完 MCP 之后接上。
+devserver 那侧顺带调了顺序：`with_mcp` 要 `self`，包进 `Arc` 就改不动了。
+
+守卫：`crates/engine/tests/node_mcp_reach_test.rs`、
+`crates/core-api/tests/supervisor_tools_reach_test.rs` 新增一条。
+
+**这两条守卫第一版是假的，突变验证当场抓到。**
+判据写的是 `source.contains("with_mcp")` —— 而那会被 `pub fn with_mcp`
+这个**定义本身**、以及注释里的 `Supervisor::with_mcp` 命中。
+把调用点删掉，两条守卫照样绿。改成 `.with_mcp(`（带点）之后才真的红。
+**在同一个文件里既定义又调用的东西，按名字查等于没查。**
+
 ### 还没修
 
 ### O-27 · 一个终点都没到达的运行，仍然报 succeeded
