@@ -12,6 +12,13 @@ use crate::plan::ExecutionPlan;
 /// 父运行的线程里），八层已经远超任何真实用法。
 const MAX_NESTING: usize = 8;
 
+/// 「这个节点完成了，但不知道从哪个端口出去的」。
+///
+/// 只会出现在**迁移 016 之前**写下的事件上（`exit_port` 那一列是后加的）。
+/// 调度按通配处理：那条节点的每条出边都算走过 —— 与老引擎当时的行为
+/// （所有下游一律执行）一致。
+pub const PORT_UNKNOWN: &str = "\u{0}unknown";
+
 /// Run 的生命周期与推进。
 ///
 /// 「RunEvent 是唯一事实来源」：每一次状态变化都先写事件，再改 Run 状态。
@@ -1038,7 +1045,24 @@ impl Runner {
             for event in &page {
                 if event.kind == "node.succeeded" {
                     if let Some(node) = &event.node_id {
-                        let port = event.exit_port.clone().unwrap_or_else(|| "success".into());
+                        /*
+                         * `exit_port` 是迁移 016 加的列，**升级前的事件全是 NULL**。
+                         *
+                         * 兜底成 "success" 是错的：真实端口不叫 success 的
+                         * （approval→approved、ai.review→passed、notify 失败→failed）
+                         * 一条都匹配不上入边 —— 恢复一条升级前的运行时
+                         * 无节点可跑，直接判 **succeeded 而一个节点都没跑**
+                         * （独立复核实测）。而 `mark_orphan_runs` 把升级前
+                         * running 的运行标成 interrupted，界面「恢复」直通这条路。
+                         *
+                         * 正确做法：NULL 表示「端口未知」，用通配 —— 那条节点的
+                         * **每条出边**都算走过。老数据本来就是按「所有下游都跑」
+                         * 的语义跑到一半的，这与它当时的行为一致。
+                         */
+                        let port = event
+                            .exit_port
+                            .clone()
+                            .unwrap_or_else(|| PORT_UNKNOWN.to_string());
                         if !taken.iter().any(|(n, p)| n == node && p == &port) {
                             taken.push((node.clone(), port));
                         }

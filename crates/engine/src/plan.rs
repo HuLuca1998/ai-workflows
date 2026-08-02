@@ -104,7 +104,7 @@ impl ExecutionPlan {
                 let ins = self.inbound.get(*id).map(Vec::as_slice).unwrap_or(&[]);
                 let satisfied = ins
                     .iter()
-                    .filter(|(node, port)| walked.contains(&(node.as_str(), port.as_str())))
+                    .filter(|(node, port)| edge_walked(&walked, node, port))
                     .count();
                 let need = self.required.get(*id).copied().unwrap_or(0);
                 satisfied >= need
@@ -140,7 +140,7 @@ impl ExecutionPlan {
             }
             // 一条入边都没被走过 = 这个节点在没走的那一支上，不算欠账
             !ins.iter()
-                .any(|(node, port)| walked.contains(&(node.as_str(), port.as_str())))
+                .any(|(node, port)| edge_walked(&walked, node, port))
         })
     }
 
@@ -149,6 +149,16 @@ impl ExecutionPlan {
     pub fn node_count(&self) -> usize {
         self.order.len()
     }
+}
+
+/// 这条入边被走过了吗。
+///
+/// 端口是 [`crate::runner::PORT_UNKNOWN`] 时按**通配**处理：那是迁移 016
+/// 之前的老事件，没记出口端口。按 `success` 兜底的话，真实端口不叫
+/// success 的（approval→approved 等）一条都匹配不上，恢复旧运行时
+/// 会「无节点可跑 ⇒ 判成功」而其实一个节点都没跑。
+fn edge_walked(walked: &HashSet<(&str, &str)>, node: &str, port: &str) -> bool {
+    walked.contains(&(node, port)) || walked.contains(&(node, crate::runner::PORT_UNKNOWN))
 }
 
 /// Kahn 算法。同层按图中顺序入队，保证执行记录里的节点顺序稳定。
