@@ -4,6 +4,7 @@ import { ISSUE_FEATURE } from './issue-feature.js';
 import { REPO_DIGEST } from './repo-digest.js';
 import { PR_FOLLOWUP } from './pr-followup.js';
 import { RELEASE_CHECKLIST } from './release-checklist.js';
+import { RELEASE_PIPELINE } from './release-pipeline.js';
 import { SERVER_LOG_TRIAGE } from './server-log-triage.js';
 import type { WorkflowTemplate } from './shared.js';
 
@@ -26,6 +27,8 @@ export const WORKFLOW_TEMPLATES: readonly WorkflowTemplate[] = [
   DEP_UPGRADE_AUDIT,
   RELEASE_CHECKLIST,
   PR_FOLLOWUP,
+  // 唯一一条嵌套调用的：它引用上面两条的出厂 id，所以必须排在它们后面
+  RELEASE_PIPELINE,
 ];
 
 export function templateById(id: string): WorkflowTemplate | undefined {

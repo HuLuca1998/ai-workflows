@@ -18,16 +18,12 @@ import type { WorkflowGraph } from '../src/graph.js';
  */
 
 const 白名单: Record<string, string> = {
-  // 子工作流节点要填一个**用户工作区里的** workflowId，
-  // 而内置模板发出去时那个 id 还不存在（模板之间不能互相引用：
-  // 模板是「怎么搭一张图」的操作序列，不是已经落库的工作流）。
-  // 填占位值的话 PLACEHOLDER_CONFIG 会警告，等于出厂就带一条黄灯。
+  // 空 = 引擎实现的每一种节点都有内置模板在用。
   //
-  // 它的端到端覆盖在 `crates/engine/tests/subworkflow_test.rs`：
-  // 那里现建两条工作流再互相调用，是模板做不到的事。
-  subworkflow:
-    '内置模板引用不了「用户工作区里的另一条工作流」—— ' +
-    '端到端覆盖在 crates/engine/tests/subworkflow_test.rs',
+  // `subworkflow` 曾经在这里，理由是「内置模板引用不了用户工作区里的
+  // 另一条工作流」—— 出厂工作流的 id 写死之后（`builtin_workflows.rs`）
+  // 那条理由不成立了，`release-pipeline` 直接引用
+  // `workflow:dep-upgrade-audit` 与 `workflow:release-checklist`。
 };
 
 function 模板里用到的类型(): Set<string> {
