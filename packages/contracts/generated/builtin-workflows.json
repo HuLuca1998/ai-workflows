@@ -1053,7 +1053,7 @@
           },
           "config": {
             "interpreter": "zsh",
-            "script": "set -euo pipefail\nREPO=${input.repo.name}\nDAYS=${input.sinceDays}\nFROM=$(DAYS=\"$DAYS\" python3 -c 'import datetime,os; print((datetime.datetime.now(datetime.timezone.utc)-datetime.timedelta(days=int(os.environ[\"DAYS\"]))).strftime(\"%Y-%m-%dT%H:%M:%SZ\"))')\necho \"统计区间自 $FROM\" >&2\nISSUES=$(gh issue list --repo \"$REPO\" --state all --search \"updated:>$FROM\" --limit 50 --json number,title,state,createdAt,updatedAt,closedAt)\nPRS=$(gh pr list --repo \"$REPO\" --state all --search \"updated:>$FROM\" --limit 50 --json number,title,state,createdAt,updatedAt,mergedAt,author)\nCOMMITS=$(gh api \"repos/$REPO/commits?since=$FROM&per_page=50\" --jq '[.[] | {sha: .sha[0:7], message: (.commit.message | split(\"\\n\")[0]), author: .commit.author.name, date: .commit.author.date}]')\nprintf '{\"from\":\"%s\",\"issues\":%s,\"pullRequests\":%s,\"commits\":%s}' \"$FROM\" \"$ISSUES\" \"$PRS\" \"$COMMITS\"",
+            "script": "set -euo pipefail\nREPO=${input.repo.name}\nDAYS=${input.sinceDays}\nFROM=$(DAYS=\"$DAYS\" python3 -c 'import datetime,os; print((datetime.datetime.now(datetime.timezone.utc)-datetime.timedelta(days=int(os.environ[\"DAYS\"]))).strftime(\"%Y-%m-%dT%H:%M:%SZ\"))')\necho \"统计区间自 $FROM\" >&2\nISSUES=$(gh issue list --repo \"$REPO\" --state all --search \"updated:>$FROM\" --limit 50 --json number,title,state,createdAt,updatedAt,closedAt)\nPRS=$(gh pr list --repo \"$REPO\" --state all --search \"updated:>$FROM\" --limit 50 --json number,title,state,createdAt,updatedAt,mergedAt,author)\nCOMMITS=$(gh api \"repos/$REPO/commits?since=$FROM&per_page=50\" --jq '[.[] | {sha: .sha[0:7], message: (.commit.message | split(\"\\n\")[0]), author: .commit.author.name, date: .commit.author.date}]')\n# 三处都封顶 50。**把上限说出来**：AI 被要求写「合了多少 PR」，\n# 而它无从知道 50 是天花板还是真实值 —— 那个数字会被当成事实读\nprintf '{\"from\":\"%s\",\"limitPerList\":50,\"issues\":%s,\"pullRequests\":%s,\"commits\":%s}' \"$FROM\" \"$ISSUES\" \"$PRS\" \"$COMMITS\"",
             "env": {},
             "secretEnv": {},
             "outputParse": "json",
@@ -1074,7 +1074,7 @@
           },
           "config": {
             "agentProfileId": "builtin:analyst",
-            "instruction": "把这段时间的仓库动态归纳成一份报告，给一个没跟进这个仓库的人看。\n要有：整体节奏（合了多少 PR、开了多少 issue）、值得注意的变化、\n卡住的事（长时间没动的 issue / PR）。\n**没有数据支撑的话不要写** —— 这份报告会被当成事实读。",
+            "instruction": "把这段时间的仓库动态归纳成一份报告，给一个没跟进这个仓库的人看。\n要有：整体节奏（合了多少 PR、开了多少 issue）、值得注意的变化、\n卡住的事（长时间没动的 issue / PR）。\n**没有数据支撑的话不要写** —— 这份报告会被当成事实读。\n\n`limitPerList` 是每份清单的取数上限。某一类**正好等于**它时，\n真实数量可能更多 —— 那时写「至少 N 条」，不要写成确切数字。",
             "turnLimit": 12,
             "target": "${collect.success.parsed}"
           }
@@ -1557,7 +1557,7 @@
           },
           "config": {
             "interpreter": "zsh",
-            "script": "set -uo pipefail\ncd ${input.repoPath} || { echo \"仓库路径不存在\" >&2; exit 1; }\ncommand -v pnpm >/dev/null || { echo \"这台机器上没有 pnpm\" >&2; exit 1; }\n\n# --json 在有过期包时退出码 1，这里是预期结果不是失败\nOUTDATED=$(pnpm outdated --format json 2>/dev/null || true)\n[ -z \"$OUTDATED\" ] && OUTDATED=\"{}\"\nAUDIT=$(pnpm audit --json 2>/dev/null || true)\n[ -z \"$AUDIT\" ] && AUDIT=\"{}\"\n\nOUTDATED=\"$OUTDATED\" AUDIT=\"$AUDIT\" python3 -c 'import json,os; print(json.dumps({\"outdated\": os.environ[\"OUTDATED\"], \"audit\": os.environ[\"AUDIT\"]}))'",
+            "script": "set -uo pipefail\ncd ${input.repoPath} || { echo \"仓库路径不存在\" >&2; exit 1; }\ncommand -v pnpm >/dev/null || { echo \"这台机器上没有 pnpm\" >&2; exit 1; }\n\n# --json 在有过期包时退出码 1，这里是预期结果不是失败。\n# -r 扫全部 workspace 包：不带它只看根 package.json，\n# 本仓库实测 9 个 vs 15 个 —— 漏掉的那 40% 里有 vite / jsdom\nOUTDATED=$(pnpm -r outdated --format json 2>/dev/null || true)\n[ -z \"$OUTDATED\" ] && OUTDATED=\"{}\"\nAUDIT=$(pnpm audit --json 2>/dev/null || true)\n[ -z \"$AUDIT\" ] && AUDIT=\"{}\"\n\nOUTDATED=\"$OUTDATED\" AUDIT=\"$AUDIT\" python3 -c 'import json,os; print(json.dumps({\"outdated\": os.environ[\"OUTDATED\"], \"audit\": os.environ[\"AUDIT\"]}))'",
             "env": {},
             "secretEnv": {},
             "outputParse": "json",
@@ -1763,7 +1763,7 @@
           },
           "config": {
             "interpreter": "zsh",
-            "script": "set -uo pipefail\ncd ${input.repoPath} || { echo \"仓库路径不存在\" >&2; exit 1; }\nTEST_CMD=${input.testCommand}\nBUILD_CMD=${input.buildCommand}\n\nTEST_OUT=$(eval \"$TEST_CMD\" 2>&1 | tail -80); TEST_CODE=$?\nif [ -n \"$BUILD_CMD\" ]; then\n  BUILD_OUT=$(eval \"$BUILD_CMD\" 2>&1 | tail -40); BUILD_CODE=$?\nelse\n  BUILD_OUT=\"（没配构建命令，跳过）\"; BUILD_CODE=0\nfi\n\n# 上一个 tag 到现在。一个 tag 都没有时退回最近 50 条\nLAST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo \"\")\nif [ -n \"$LAST_TAG\" ]; then\n  RANGE=\"$LAST_TAG..HEAD\"\nelse\n  RANGE=\"HEAD~50..HEAD\"\nfi\nCHANGES=$(git log --no-merges --pretty=format:\"%h %s\" \"$RANGE\" 2>/dev/null | head -100 || echo \"\")\nFILES=$(git diff --stat \"$RANGE\" 2>/dev/null | tail -30 || echo \"\")\n\nTEST_OUT=\"$TEST_OUT\" TEST_CODE=\"$TEST_CODE\" BUILD_OUT=\"$BUILD_OUT\" BUILD_CODE=\"$BUILD_CODE\" \\\nLAST_TAG=\"$LAST_TAG\" CHANGES=\"$CHANGES\" FILES=\"$FILES\" python3 -c 'import json,os; print(json.dumps({k.lower(): os.environ[k] for k in [\"TEST_OUT\",\"TEST_CODE\",\"BUILD_OUT\",\"BUILD_CODE\",\"LAST_TAG\",\"CHANGES\",\"FILES\"]}))'",
+            "script": "set -uo pipefail\ncd ${input.repoPath} || { echo \"仓库路径不存在\" >&2; exit 1; }\n# 不是 git 仓库时**立刻失败**。不查的话 git 全部静默失败，\n# 产出一份空改动清单，而 AI 会把它读成「这次没什么改动」\ngit rev-parse --git-dir >/dev/null 2>&1 || { echo \"这个目录不是 git 仓库\" >&2; exit 1; }\nTEST_CMD=${input.testCommand}\nBUILD_CMD=${input.buildCommand}\n\nTEST_OUT=$(eval \"$TEST_CMD\" 2>&1 | tail -80); TEST_CODE=$?\nif [ -n \"$BUILD_CMD\" ]; then\n  BUILD_OUT=$(eval \"$BUILD_CMD\" 2>&1 | tail -40); BUILD_CODE=$?\nelse\n  BUILD_OUT=\"（没配构建命令，跳过）\"; BUILD_CODE=0\nfi\n\n# 上一个 tag 到现在。一个 tag 都没有时退回最近 50 条\nLAST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo \"\")\nif [ -n \"$LAST_TAG\" ]; then\n  RANGE=\"$LAST_TAG..HEAD\"\nelse\n  RANGE=\"HEAD~50..HEAD\"\nfi\n# 取不到就**说出来**，不要留一个空字符串让 AI 当成「没有改动」\nCHANGES=$(git log --no-merges --pretty=format:\"%h %s\" \"$RANGE\" 2>/dev/null | head -100 || echo \"\")\n[ -z \"$CHANGES\" ] && CHANGES=\"RANGE_EMPTY: $RANGE 取不到任何提交（仓库提交数可能少于 50，或范围不对）\"\nFILES=$(git diff --stat \"$RANGE\" 2>/dev/null | tail -30 || echo \"\")\n[ -z \"$FILES\" ] && FILES=\"RANGE_EMPTY\"\n\nTEST_OUT=\"$TEST_OUT\" TEST_CODE=\"$TEST_CODE\" BUILD_OUT=\"$BUILD_OUT\" BUILD_CODE=\"$BUILD_CODE\" \\\nLAST_TAG=\"$LAST_TAG\" CHANGES=\"$CHANGES\" FILES=\"$FILES\" python3 -c 'import json,os; print(json.dumps({k.lower(): os.environ[k] for k in [\"TEST_OUT\",\"TEST_CODE\",\"BUILD_OUT\",\"BUILD_CODE\",\"LAST_TAG\",\"CHANGES\",\"FILES\"]}))'",
             "env": {},
             "secretEnv": {},
             "outputParse": "json",
@@ -1784,7 +1784,7 @@
           },
           "config": {
             "agentProfileId": "builtin:reviewer",
-            "instruction": "这是一次发布前的检查结果：测试输出与退出码、构建输出与退出码、\n上一个 tag 以来的提交与改动文件。\n\n回答一个问题：**这次能不能发**。\n\n· `test_code` 非零 = 测试没过。**那就是不能发**，别找补\n· 逐条看提交，标出风险高的那几条（改了数据迁移、\n  改了对外接口、改了权限判断、动了发布脚本本身）\n· 如果 `last_tag` 是空的，说明这个仓库还没打过 tag，\n  改动范围是「最近 50 条」而不是「上次发布以来」—— 说出来\n\n结论写成三选一：可以发 / 有条件可发（列出条件）/ 不能发。",
+            "instruction": "这是一次发布前的检查结果：测试输出与退出码、构建输出与退出码、\n上一个 tag 以来的提交与改动文件。\n\n回答一个问题：**这次能不能发**。\n\n· `test_code` 非零 = 测试没过。**那就是不能发**，别找补\n· 逐条看提交，标出风险高的那几条（改了数据迁移、\n  改了对外接口、改了权限判断、动了发布脚本本身）\n· `last_tag` 是空的 = 这个仓库还没打过 tag，范围是「最近 50 条」\n  而不是「上次发布以来」—— 说出来\n· `changes` 或 `files` 里出现 `RANGE_EMPTY` = **取不到改动**，\n  那不是「这次没什么改动」。首次发布最容易撞上这条 —— 直说取不到\n\n结论写成三选一：可以发 / 有条件可发（列出条件）/ 不能发。",
             "turnLimit": 12,
             "target": "${check.success.parsed}",
             "checklist": [
@@ -1969,7 +1969,7 @@
           },
           "config": {
             "interpreter": "zsh",
-            "script": "set -euo pipefail\nREPO=${input.repo.name}\nAUTHOR=${input.author}\n\nNUMBERS=$(gh pr list --repo \"$REPO\" --author \"$AUTHOR\" --state open --limit 20 --json number --jq '.[].number')\nif [ -z \"$NUMBERS\" ]; then\n  echo '{\"pullRequests\":[]}'\n  exit 0\nfi\n\nDETAILS=\"\"\nwhile IFS= read -r N; do\n  ONE=$(gh pr view \"$N\" --repo \"$REPO\" --json number,title,url,isDraft,createdAt,updatedAt,reviewDecision,statusCheckRollup,comments,reviews)\n  DETAILS=\"$DETAILS$ONE\",\ndone <<< \"$NUMBERS\"\n\n# 去掉末尾逗号再拼成数组。用 python 而不是 sed：\n# PR 正文里可能有任何字符，字符串裁剪不安全\nDETAILS=\"$DETAILS\" python3 -c 'import json,os; raw=os.environ[\"DETAILS\"].rstrip(\",\"); print(json.dumps({\"pullRequests\": json.loads(\"[\" + raw + \"]\")}))'",
+            "script": "set -euo pipefail\nREPO=${input.repo.name}\nAUTHOR=${input.author}\n\nNUMBERS=$(gh pr list --repo \"$REPO\" --author \"$AUTHOR\" --state open --limit 20 --json number --jq '.[].number')\nif [ -z \"$NUMBERS\" ]; then\n  echo '{\"pullRequests\":[]}'\n  exit 0\nfi\n\nDETAILS=\"\"\nwhile IFS= read -r N; do\n  ONE=$(gh pr view \"$N\" --repo \"$REPO\" --json number,title,url,isDraft,createdAt,updatedAt,reviewDecision,statusCheckRollup,comments,reviews)\n  DETAILS=\"$DETAILS$ONE\",\ndone <<< \"$NUMBERS\"\n\n# 去掉末尾逗号再拼成数组。用 python 而不是 sed：\n# PR 正文里可能有任何字符，字符串裁剪不安全\nDETAILS=\"$DETAILS\" python3 -c 'import json,os; raw=os.environ[\"DETAILS\"].rstrip(\",\"); print(json.dumps({\"limit\": 20, \"pullRequests\": json.loads(\"[\" + raw + \"]\")}))'",
             "env": {},
             "secretEnv": {},
             "outputParse": "json",
@@ -1990,7 +1990,7 @@
           },
           "config": {
             "agentProfileId": "builtin:analyst",
-            "instruction": "这是我开着的 PR 清单，含评论、review 结论与 CI 状态。\n\n按「今天收工前该做什么」分四类：\n① **等我回**：最后一条评论/review 不是我发的，且提了问题或要改\n② **可以合**：reviewDecision 是 APPROVED 且 CI 全绿\n③ **CI 红了**：statusCheckRollup 里有 FAILURE，写清是哪个 check\n④ **在等别人**：已经 request review 但对方还没看\n\n每条给出 PR 编号、标题、链接、以及**一句话说清下一步动作**。\n\n两条要求：\n· 草稿 PR（isDraft）单独归一类，不要混进「等我回」\n· `pullRequests` 是空数组时，那是「没有开着的 PR」，\n  这是好消息，直说就行 —— 别为了凑内容编出建议",
+            "instruction": "这是我开着的 PR 清单，含评论、review 结论与 CI 状态。\n\n按「今天收工前该做什么」分四类：\n① **等我回**：最后一条评论/review 不是我发的，且提了问题或要改\n② **可以合**：reviewDecision 是 APPROVED 且 CI 全绿\n③ **CI 红了**：statusCheckRollup 里有 FAILURE，写清是哪个 check\n④ **在等别人**：已经 request review 但对方还没看\n\n每条给出 PR 编号、标题、链接、以及**一句话说清下一步动作**。\n\n两条要求：\n· 草稿 PR（isDraft）单独归一类，不要混进「等我回」\n· `limit` 是取数上限。PR 数正好等于它时真实数量可能更多，\n  写「至少 N 个」而不是确切数字\n· `pullRequests` 是空数组时，那是「没有开着的 PR」，\n  这是好消息，直说就行 —— 别为了凑内容编出建议",
             "turnLimit": 12,
             "target": "${collect.success.parsed}"
           }
