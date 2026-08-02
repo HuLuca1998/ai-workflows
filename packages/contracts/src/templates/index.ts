@@ -2,6 +2,7 @@ import { DEP_UPGRADE_AUDIT } from './dep-upgrade-audit.js';
 import { ISSUE_FIX } from './github-issue-fix.js';
 import { ISSUE_FEATURE } from './issue-feature.js';
 import { REPO_DIGEST } from './repo-digest.js';
+import { PR_FOLLOWUP } from './pr-followup.js';
 import { RELEASE_CHECKLIST } from './release-checklist.js';
 import { SERVER_LOG_TRIAGE } from './server-log-triage.js';
 import type { WorkflowTemplate } from './shared.js';
@@ -24,6 +25,7 @@ export const WORKFLOW_TEMPLATES: readonly WorkflowTemplate[] = [
   SERVER_LOG_TRIAGE,
   DEP_UPGRADE_AUDIT,
   RELEASE_CHECKLIST,
+  PR_FOLLOWUP,
 ];
 
 export function templateById(id: string): WorkflowTemplate | undefined {
