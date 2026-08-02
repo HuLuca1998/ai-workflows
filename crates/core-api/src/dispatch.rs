@@ -71,7 +71,11 @@ pub fn dispatch(
         )?),
         "memory_create" => to_value(api::memory_create(
             &store,
-            string(input, "scope")?,
+            enumerated(
+                input,
+                "scope",
+                &["global", "workspace", "workflow", "agent", "session"],
+            )?,
             opt_string(input, "scopeId"),
             string(input, "key")?,
             string(input, "value")?,
@@ -136,7 +140,7 @@ pub fn dispatch(
             string(input, "role")?,
             opt_string(input, "goal").unwrap_or_default(),
             opt_string(input, "persona").unwrap_or_default(),
-            string(input, "runtime")?,
+            enumerated(input, "runtime", &["acp.codex", "acp.claude"])?,
             string(input, "modelRef")?,
             opt_string(input, "fallbackModelRef"),
             strings(input, "tools"),
@@ -185,7 +189,7 @@ pub fn dispatch(
         "model_create" => to_value(api::model_create(
             &store,
             string(input, "name")?,
-            string(input, "runtime")?,
+            enumerated(input, "runtime", &["acp.codex", "acp.claude"])?,
             string(input, "modelId")?,
             string(input, "effort")?,
             int(input, "contextWindow")?,
@@ -265,7 +269,15 @@ pub fn dispatch(
             supervisor,
             string(input, "runId")?,
             string(input, "nodeId")?,
-            string(input, "decision")?,
+            // **不用 `string`**：枚举外的值会被引擎当成「不是 approved」
+            // 静默走拒批分支，而摘要还回显调用方发来的那个词
+            // （实测「审批未通过：approve」——  用户发的明明是批准的意思）。
+            // 认不出的决定必须响亮地报错
+            enumerated(
+                input,
+                "decision",
+                &["approved", "changes_requested", "rejected"],
+            )?,
         )?),
         "workflow_list" => to_value(api::workflow_list(
             &store,
@@ -324,7 +336,7 @@ pub fn dispatch(
         )?),
         "mcp_connect" => to_value(api::mcp_connect(
             data_dir,
-            string(input, "client")?,
+            enumerated(input, "client", &["claude", "codex"])?,
             boolean(input, "disconnect"),
         )?),
         "workspace_settings" => to_value(api::workspace_settings(&store)?),
@@ -484,6 +496,38 @@ fn opt_int(input: &Value, key: &str) -> Option<i64> {
 /// 「没说」和「不要」本来就是一个意思。
 fn boolean(input: &Value, key: &str) -> bool {
     input.get(key).and_then(Value::as_bool).unwrap_or(false)
+}
+
+/// 取值受限的必填字符串。**枚举外的值必须报错，不能往下走。**
+///
+/// `approval_decide` 的 `decision` 撞过：引擎里判的是 `== "approved"`，
+/// 别的一律当拒批。于是调用方发 `approve`（少个 d）时，
+/// 事件摘要是「审批未通过：approve，走 rejected 分支」——
+/// 回显了调用方的原词，读起来像「他批了但还是没过」。
+///
+/// 与 [`required_boolean`] 同一类：没有安全默认值的字段，
+/// 认不出就报错，不要替调用方选一个。
+///
+/// # Errors
+/// 字段缺失、不是字符串、或不在候选里。
+fn enumerated(input: &Value, key: &str, allowed: &[&str]) -> ApiResult<String> {
+    let value = string(input, key)?;
+    if allowed.contains(&value.as_str()) {
+        return Ok(value);
+    }
+    Err(ApiError {
+        code: "VALIDATION".to_string(),
+        message: format!(
+            "{key} 只能是 {} 之一，收到的是 {value}",
+            allowed.join(" / ")
+        ),
+        retriable: false,
+        hint: Some(format!(
+            "把 {key} 改成 {} 里的一个。认不出的值不会被当成默认档 —— \
+             那样会静默走成相反的结果",
+            allowed.join(" / ")
+        )),
+    })
 }
 
 /// 字段本身**就是那个决定**时用这条，不要用 [`boolean`]。
