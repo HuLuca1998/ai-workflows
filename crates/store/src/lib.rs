@@ -16,6 +16,7 @@ use rusqlite::{Connection, OptionalExtension, params};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 
+mod builtin_workflows;
 mod migrations;
 mod sample;
 mod seed;
@@ -653,6 +654,19 @@ impl Store {
         Self::bootstrap(conn, false)
     }
 
+    /// 再跑一遍种子。**只给测试用** —— 验「重启之后会不会覆盖用户的改动」。
+    pub fn reseed_for_test(&self) -> Result<()> {
+        seed::seed(&self.conn)
+    }
+
+    /// 内存库 + 种子。测试「出厂内容」时用它 ——
+    /// `open_in_memory` 只建表不种数据。
+    pub fn open_in_memory_workspace() -> Result<Self> {
+        let store = Self::open_in_memory()?;
+        seed::seed(&store.conn)?;
+        Ok(store)
+    }
+
     fn bootstrap(conn: Connection, wal: bool) -> Result<Self> {
         if wal {
             // WAL 让读不阻塞写；busy_timeout 兜住偶发的写冲突
@@ -1282,6 +1296,15 @@ impl Store {
             ],
         )?;
         Ok(id)
+    }
+
+    /// 设运行目录。**只给测试用**。
+    pub fn set_run_workdir_for_test(&self, run_id: &str, workdir: &str) -> Result<()> {
+        self.conn.execute(
+            "UPDATE run SET workdir = ?2 WHERE id = ?1",
+            params![run_id, workdir],
+        )?;
+        Ok(())
     }
 
     /// 把一条运行标成某条运行的子运行。**只给测试用**。

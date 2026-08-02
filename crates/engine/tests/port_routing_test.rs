@@ -120,8 +120,23 @@ fn 出口端口写进事件的_exit_port_列_而不是只进摘要文案() {
 }
 
 #[test]
-fn 失败分支上的节点在失败路径上会跑() {
-    // 「不该跑的不跑」写过头就变成「都不跑」—— 这条守着反方向
+fn 脚本失败时_failed_端口的下游走不到_这是真话不是设计() {
+    /*
+     * **这条原来叫「失败分支上的节点在失败路径上会跑」，是条假测试。**
+     *
+     * 它的注释写着「守着反方向」，而断言只查了 `ok` 没跑，
+     * 从没断言 `bad` 跑了 —— 于是它掩护了一个真实存在的缺口：
+     * 脚本非零退出走的是 `NodeOutcome::Failed`（executor.rs:1389），
+     * runner 直接写 `run.failed` 收尾，**`failed` 端口的下游一次都走不到**。
+     *
+     * 独立复核实测：`exit 3` 的脚本 ⇒ `failed, 跑过=["entry","sh"]`，
+     * 接在 `sh.failed` 上的终点没跑。
+     *
+     * 现在这条测试断言的是**真实行为**，并且名字就说出了那句真话。
+     * 要让失败分支真的能走，得让脚本节点在失败时走
+     * `Succeeded{port:"failed"}` 而不是 `Failed` —— 那是另一件事，
+     * 记在 DEBT 里（与 O-24 的人工拒批同一类）。
+     */
     let dir = tempfile::tempdir().unwrap();
     let graph = serde_json::json!({
         "nodes": [
@@ -141,12 +156,18 @@ fn 失败分支上的节点在失败路径上会跑() {
         "groups": []
     })
     .to_string();
-    let (store, run_id, _) = 跑一条(&graph, dir.path());
+    let (store, run_id, status) = 跑一条(&graph, dir.path());
 
     let 跑过 = 跑过的节点(&store, &run_id);
+    assert_eq!(status, "failed");
     assert!(
         !跑过.contains(&"ok".to_string()),
         "脚本失败了，成功终点不该跑：{跑过:?}"
+    );
+    assert!(
+        !跑过.contains(&"bad".to_string()),
+        "如果这一条红了，说明脚本失败时已经改走 failed 端口了 —— \
+         那是好事，把这条测试的名字和注释一起改掉"
     );
 }
 
