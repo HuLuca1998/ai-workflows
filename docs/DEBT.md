@@ -686,6 +686,49 @@ CLAUDE.md 明写「别把 agent 报的结论直接采信」，而我照抄了）
 
 守卫：`crates/engine/tests/workspace_changes_test.rs` 新增 3 条。
 
+### B-17 · 给 AI 的报告格式说明与解析它的 Schema 对不上（已修）
+
+**这条把「工作流跑完出一份报告」整条链堵死了，而每一处都「正常工作」。**
+
+`REPORT_INSTRUCTION`（塞进 `ai.execute` 提示词的那段话）与
+`RunReportSchema`（抽屉解析用的）各写各的。六种块里**四种字段名对不上**：
+
+| 块        | 指令写的                  | Schema 要的                         |
+| --------- | ------------------------- | ----------------------------------- |
+| `metrics` | `tone: "good\|warn\|bad"` | `neutral\|success\|warning\|danger` |
+| `prose`   | `heading` / `text`        | `title` / `body`                    |
+| `code`    | `language` / `text`       | `lang` / `body`                     |
+
+agent 照我们自己的指令写出来的报告，**被我们自己的解析器拒收** ——
+用户点开抽屉，看到的永远是「这份 report.json 不合报告格式，下面是原文」
+加一坨 JSON。
+
+**为什么一直没人红**：
+
+- 契约测试测 Schema，用的是**它自己造的**合法数据
+- 模板测试测图的结构，不看提示词正文
+- 抽屉解析失败**不抛**（一份坏报告不该让抽屉打不开），
+  于是它老老实实显示原文 —— 那个降级做得越好，缺陷越隐蔽
+
+**讽刺的一点**：同一份说明还有第二个副本 —— MCP 的知识资源
+`aiwf://guide/write-report`（`crates/mcp/src/knowledge.rs:452`）**是对的**。
+错的恰恰是真正被塞进提示词的那份。两份文档，写得更正式的那份对，
+真正生效的那份错。
+
+守卫 `packages/contracts/tests/report-instruction.test.ts`：
+把指令里那六行示例**当成 agent 真的照抄的东西**解析一遍。
+判据选这个而不是「比字段名清单」—— 后者在下一次改的是枚举值时就又漏了。
+
+顺带补了抽屉那条链的测试（`apps/web/tests/report-drawer.test.tsx`，5 条，
+突变验证过）：`ReportView`（怎么画）本来有测试，而它前面那段
+「找到 report.json → 取内容 → 解析」一条都没有 —— 又一次「单侧全绿」。
+
+**写这条测试时自己踩的坑，值得记**：`beforeEach(() => call.mockReset())`
+的箭头函数**返回了 mock 本身**，而 vitest 把 beforeEach 返回的函数
+登记成清理钩子 —— 每条用例结束时无参调用一次 `call`，
+报「未登记的 Core API 方法：undefined」，错误位置还指向 mock 实现那一行。
+表达式体改块体就好。
+
 ### 还没修
 
 ### O-27 · 一个终点都没到达的运行，仍然报 succeeded
