@@ -406,7 +406,7 @@ sync 拿不到「每模型的 effort」，只能编一个。
 
 | #    | 欠账                                                                                                                                                                                                                                                                                                      | 状态                                                                        |
 | ---- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------- |
-| O-1  | **6 种节点类型未实现**：`branch` / `transform` / `subworkflow` / `script.python` / `env` / `mcp.tool`                                                                                                                                                                                                     | Dry Run 会诚实报错                                                          |
+| O-1  | **5 种节点类型未实现**：`branch` / `transform` / `script.python` / `env` / `mcp.tool`（`subworkflow` 的 sync 调用已实现，parallel 与 onFailure:retry 明确报「尚未实现」）                                                                                                                                 | Dry Run 会诚实报错                                                          |
 | O-2  | **Web 形态实际为零**：只有 `MemoryTransport` 与 `crates/devserver`（179 行、无鉴权）                                                                                                                                                                                                                      | 开工前先回答「给谁用」                                                      |
 | O-3  | **WKWebView 零测试**：`tests/e2e/` 全是 Playwright；「拖动卡」的定论依赖它                                                                                                                                                                                                                                | 唯一一条真实用户反馈悬着                                                    |
 | O-4  | 模型策略映射                                                                                                                                                                                                                                                                                              | 要等 `provider.api` 运行时                                                  |
@@ -540,11 +540,28 @@ MCP / `workflow_patch` 路径可以写对象形态，所以这不是「填了不
 
 CLAUDE.md 第五条「能实跑就别推断」这一轮兑现了三次。
 
+### B-12 · `subworkflow` 契约有 7 个字段、建表就有 `parent_run_id`，引擎零引用
+
+不算「假装成功」（它老实标着 `implemented: false`，Dry Run 会拦），
+但契约、存储、界面三处都为它铺好了路，而中间那段一直是空的。
+
+现在 `mode: sync` 是真的：独立子 Run + `parent_run_id`、入参映射、
+出参回填、环检测（A → B → A）、8 层深度上限。实跑验证过嵌套两层，
+子运行在运行列表里与父运行平级且指得回去。
+
+`parallel` 与 `onFailure: retry` **明确报「尚未实现」** ——
+悄悄按 sync 跑的话 `concurrencyLimit: 5` 看起来生效而实际串行，
+用户等五倍时间且找不到原因。
+
+守卫 `crates/engine/tests/subworkflow_test.rs`（8 条，做过突变验证：
+把节点改成直接标绿红 6 条；去掉环检测红 1 条）。
+
 ### 仍未还的（这一轮记上账）
 
 | #    | 欠账                                                                                                                        | 证据                                                                                              |
 | ---- | --------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------- |
 | O-23 | **内置模型 `model:codex` 的 modelId 是 `gpt-5-codex`，当前 codex adapter 不认**：每个 AI 节点都发 `system.model_downgraded` | `run_4b439b16806ef3f3` 事件 #25 / #37：「模型 gpt-5-codex 这个 runtime 不认，改用它自己的默认值」 |
+| O-25 | **子工作流的 `parallel` 与 `onFailure: retry` 未实现**：明确报「尚未实现」，不是静默降级。`concurrencyLimit` 因此还用不上   | `crates/engine/tests/subworkflow_test.rs` 的 parallel 用例                                        |
 | O-24 | **拒批走 `node.failed` 而不是 `rejected` 端口**：图上接在 `approval.rejected` 上的分支，人工拒批时不会走到（AI 拒批会走）   | `runner.rs` 的 `decide_approval` else 分支直接 `run.failed`                                       |
 
 ---
