@@ -33,18 +33,25 @@ export const SERVER_LOG_TRIAGE: WorkflowTemplate = {
             sshTarget: {
               type: 'string',
               title: 'SSH 目标',
-              description: '形如 root@1.2.3.4，端口不是 22 时在下面单独填',
+              description: '形如 root@1.2.3.4。端口不是 22 时在下面单独填',
             },
-            sshPort: { type: 'string', title: 'SSH 端口', default: '22' },
+            sshPort: {
+              type: 'string',
+              title: 'SSH 端口',
+              description: '很多线上机器改过端口（pp-game 的 live 是 2220）',
+              default: '22',
+            },
             logPath: {
               type: 'string',
               title: '应用日志路径',
-              description: '服务器上的绝对路径，支持通配（/var/log/app/*.log）',
+              description: '服务器上的绝对路径，支持通配。例：/srv/pp-game-live/logs/*.log',
             },
             slowLogPath: {
               type: 'string',
               title: '慢查询日志路径',
-              description: '留空则跳过慢查询那一段',
+              description:
+                '留空则跳过慢查询那一段。MySQL 常见位置 /var/log/mysql/slow.log；' +
+                'MongoDB 的慢查询在 mongod.log 里，路径填它即可',
               default: '',
             },
             hours: { type: 'string', title: '回看几小时', default: '24' },
