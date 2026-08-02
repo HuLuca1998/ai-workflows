@@ -235,7 +235,24 @@ export const ISSUE_FIX: WorkflowTemplate = {
           'set -euo pipefail',
           'ISSUE=${input.issue}',
           'cd ${worktree.success.path}',
-          'git add -A',
+          /*
+           * **`git add -A` 会把跑验证命令时产生的副产物一起提交。**
+           *
+           * 实测（HuLuca1998/aiwf-issuefix-08021814 的 PR #2）：
+           * agent 跑了 `npm test`，`node_modules/.package-map.json` 与
+           * `.pnpm-workspace-state-v1.json` 跟着进了 PR —— 而仓库里
+           * 没有 .gitignore 挡它们。审查者要在噪声里找那一行真改动。
+           *
+           * 与 CLAUDE.md 那条「绝不 git add -A」同一个道理：
+           * 只提交**被跟踪的文件的改动** + 明确新增的源文件。
+           * 常见的构建/依赖目录显式排除掉。
+           */
+          '# 已跟踪文件的改动全部纳入',
+          'git add -u',
+          '# 新文件按需纳入，但排开构建与依赖产物',
+          'git ls-files --others --exclude-standard -z |',
+          "  grep -zEv '^(node_modules|dist|build|target|\\.venv|__pycache__)/' |",
+          '  while IFS= read -r -d \'\' f; do git add -- "$f"; done',
           "git diff --cached --quiet && { echo '没有任何改动，不建 PR'; exit 1; }",
           'git commit -qm "fix: 关闭 #$ISSUE"',
           'git push -qu origin HEAD',
