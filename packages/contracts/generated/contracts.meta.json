@@ -175,6 +175,7 @@
     "approval.decide",
     "supervisor.sessions",
     "supervisor.session",
+    "supervisor.cancel",
     "supervisor.ask",
     "memory.list",
     "memory.create",

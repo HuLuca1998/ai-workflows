@@ -50,6 +50,7 @@ const 映射: {
   { dto: 'RunEventDto', method: 'run.events', 字段路径: 'events' },
   { dto: 'SupervisorSessionDto', method: 'supervisor.sessions', 字段路径: 'items' },
   { dto: 'SupervisorMessageDto', method: 'supervisor.session', 字段路径: 'messages' },
+  { dto: 'SupervisorCancelled', method: 'supervisor.cancel' },
   { dto: 'DryRunDto', method: 'run.dryRun' },
   { dto: 'WorkspaceStatsDto', method: 'workspace.stats' },
   { dto: 'WorkspaceSettingsDto', method: 'workspace.settings' },

@@ -97,6 +97,16 @@ fn supervisor_session(
     api::supervisor_session(&store, session_id)
 }
 
+/// 中止主管 AI 正在跑的那一轮。
+///
+/// **不取 store 锁**：那把锁很可能正被这一轮自己的 `supervisor_ask`
+/// 持着（它整轮都在里面），取锁等于排到这一轮结束 ——
+/// 那就不叫取消了。取消只需要往 adapter 的 stdin 写一行。
+#[tauri::command]
+fn supervisor_cancel(session_id: String) -> IpcResult<api::SupervisorCancelled> {
+    api::supervisor_cancel(session_id)
+}
+
 #[tauri::command]
 fn memory_list(
     state: State<'_, AppState>,
@@ -1077,6 +1087,7 @@ pub fn run() {
             supervisor_ask,
             supervisor_sessions,
             supervisor_session,
+            supervisor_cancel,
             memory_list,
             memory_create,
             memory_update,

@@ -792,6 +792,31 @@ const SPECS = {
     scope: 'workflow:read',
     summary: '读一个会话的完整消息',
   },
+  'supervisor.cancel': {
+    /*
+     * 中止正在跑的那一轮。
+     *
+     * **原来的「取消」是纯前端的**：换一个序号把回来的答案丢掉、
+     * 界面显示「已取消」，而 agent 那边照说不误 —— 配额照烧、
+     * 会话槽位照占，用户接着发的下一句还得排在它后面。
+     * 那是「界面文案承诺了一件事，实现里没有对应代码」。
+     *
+     * 现在它发 ACP 的 `session/cancel`（**通知，不带 id**：
+     * 带 id 会被 adapter 按未知方法拒掉，实测那一轮照跑）。
+     *
+     * `mutates: false`：它不改任何持久化状态，只让一个进程停下来。
+     * scope 跟着 `supervisor.ask` —— 能问就能叫停自己问的那一句。
+     */
+    input: z.object({ sessionId: z.string().min(1) }),
+    output: z.object({
+      /** 真的有一轮被停掉了。false = 那一轮刚好已经结束，不是错误。 */
+      cancelled: z.boolean(),
+    }),
+    mutates: false,
+    audited: false,
+    scope: 'workflow:read',
+    summary: '中止主管 AI 正在跑的那一轮',
+  },
   'supervisor.ask': {
     // 主管 AI 与工作流里的 AI 节点是两回事：节点在**运行中**做一件具体的事，
     // 主管在**编辑时**帮你操作这个应用本身。

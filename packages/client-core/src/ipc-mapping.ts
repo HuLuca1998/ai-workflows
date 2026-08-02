@@ -39,6 +39,7 @@ const COMMANDS: Partial<Record<CoreApiMethod, string>> = {
   'run.diagnostics': 'run_diagnostics',
   'supervisor.sessions': 'supervisor_sessions',
   'supervisor.session': 'supervisor_session',
+  'supervisor.cancel': 'supervisor_cancel',
   'run.artifactContent': 'run_artifact_content',
   'workflow.get': 'workflow_get',
   'workflow.create': 'workflow_create',
@@ -467,6 +468,7 @@ export function fromIpcResult(method: CoreApiMethod, raw: unknown): unknown {
       return { ok: true };
 
     case 'supervisor.session':
+    case 'supervisor.cancel':
     case 'supervisor.ask':
     case 'workspace.stats':
     // 这两个的形状引擎那边已经是契约要的样子（DTO 带 camelCase），

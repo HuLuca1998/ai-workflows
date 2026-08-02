@@ -3883,6 +3883,37 @@
       ]
     }
   },
+  "supervisor.cancel": {
+    "summary": "中止主管 AI 正在跑的那一轮",
+    "scope": "workflow:read",
+    "mutates": false,
+    "audited": false,
+    "input": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "sessionId": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "sessionId"
+      ]
+    },
+    "output": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "cancelled": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "cancelled"
+      ]
+    }
+  },
   "supervisor.ask": {
     "summary": "问主管 AI；对话进历史，而它对工作流的改动一律先出 Diff 再落草稿",
     "scope": "workflow:write-draft",

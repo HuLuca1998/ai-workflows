@@ -221,6 +221,7 @@ pub const COMMANDS: &[&str] = &[
     "supervisor_ask",
     "supervisor_sessions",
     "supervisor_session",
+    "supervisor_cancel",
     "memory_list",
     "memory_create",
     "memory_update",
@@ -1852,6 +1853,37 @@ pub fn supervisor_sessions(
         .into_iter()
         .map(to_session_dto)
         .collect())
+}
+
+/// 中止主管 AI 正在跑的那一轮。
+///
+/// **原来的「取消」是纯前端的**：界面换一个序号把回来的答案丢掉、
+/// 显示「已取消」，而 agent 那边照说不误 —— 配额照烧、会话槽位照占，
+/// 用户接着发的下一句还得排在它后面。
+///
+/// 返回 `false` 不是失败：用户按下取消时那一轮刚好答完是很正常的时序，
+/// 那时报错只会在界面上弹一个没有意义的红条。
+///
+/// 会话 id 就是池的 key —— `supervisor_ask` 续接会话时用的是同一个值。
+///
+/// # Errors
+/// 写不进 adapter 的 stdin（进程已经没了）。那种情况下这一轮本来也停了。
+pub fn supervisor_cancel(session_id: String) -> ApiResult<SupervisorCancelled> {
+    let cancelled = aiwf_engine::acp::SessionPool::shared()
+        .cancel(&session_id)
+        .map_err(|error| ApiError {
+            code: "EXTERNAL".to_string(),
+            message: format!("取消失败：{error}"),
+            retriable: true,
+            hint: None,
+        })?;
+    Ok(SupervisorCancelled { cancelled })
+}
+
+#[derive(Debug, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SupervisorCancelled {
+    pub cancelled: bool,
 }
 
 pub fn supervisor_session(store: &Store, session_id: String) -> ApiResult<SupervisorSessionDetail> {

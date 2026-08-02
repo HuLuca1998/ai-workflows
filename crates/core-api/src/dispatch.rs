@@ -59,6 +59,9 @@ pub fn dispatch(
             &store,
             string(input, "sessionId")?,
         )?),
+        // 不碰 store —— 它只让一个进程停下来。写成 `&store` 的样子
+        // 会让人以为它在改什么
+        "supervisor_cancel" => to_value(api::supervisor_cancel(string(input, "sessionId")?)?),
         "memory_list" => to_value(api::memory_list(
             &store,
             opt_string(input, "scope"),
