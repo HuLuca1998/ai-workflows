@@ -109,9 +109,29 @@ impl Supervisor {
         decision: &str,
     ) -> Result<()> {
         Runner::new().decide_approval(store, run_id, node_id, decision)?;
-        if Runner::new().status(store, run_id)? == "running" {
-            self.spawn(run_id)?;
+        if Runner::new().status(store, run_id)? != "running" {
+            return Ok(());
         }
+        /*
+         * **子运行由父运行的线程推进，这里不能再 spawn 一条。**
+         *
+         * `run_subworkflow` 起的子运行绕过 `Supervisor::start`，
+         * 所以它不在 `cancels` 里，`spawn` 那道「已经在跑就别重复起」
+         * 的保护看不到它 —— 两条线程同时推进同一条运行，
+         * 审批下游的每个节点会执行**两遍**。
+         *
+         * 实测（独立复核 probe5）：`node.started` 计数
+         * `{c_entry:1, c_gate:1, c_do:2, c_end:1}`，副作用文件两行。
+         * 模板里那一步是 `git push` + `gh pr create`。
+         */
+        if store
+            .get_run(run_id)?
+            .and_then(|row| row.parent_run_id)
+            .is_some()
+        {
+            return Ok(());
+        }
+        self.spawn(run_id)?;
         Ok(())
     }
 

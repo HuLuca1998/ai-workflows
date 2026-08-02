@@ -1284,6 +1284,18 @@ impl Store {
         Ok(id)
     }
 
+    /// 把一条运行标成某条运行的子运行。**只给测试用**。
+    ///
+    /// 「子运行的审批批准后跑几遍」这件事在单层上就能验，
+    /// 而单层比真起嵌套线程稳定得多 —— 后者的时序在 CI 上不可靠。
+    pub fn set_parent_run_for_test(&self, run_id: &str, parent_run_id: &str) -> Result<()> {
+        self.conn.execute(
+            "UPDATE run SET parent_run_id = ?2 WHERE id = ?1",
+            params![run_id, parent_run_id],
+        )?;
+        Ok(())
+    }
+
     /// 某条运行的直接子运行。子工作流节点起的那些。
     ///
     /// 只查一层：整棵树由调用方按需递归。运行详情页要展示
