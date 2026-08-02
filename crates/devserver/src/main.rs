@@ -51,7 +51,8 @@ fn main() {
     let data_dir = path
         .parent()
         .map_or_else(std::env::temp_dir, std::path::Path::to_path_buf);
-    let supervisor = Supervisor::new(path);
+    // MCP 接入点要等下面起完 MCP 才知道，所以先建、接好、最后才包 Arc
+    let mut supervisor = Supervisor::new(path);
 
     let address = format!("127.0.0.1:{port}");
     let server = match tiny_http::Server::http(&address) {
@@ -77,8 +78,6 @@ fn main() {
     // 用固定线程池而不是「每请求一线程」：后者在一个失控的客户端面前
     // 会开出成千上万个线程，每个都要一份栈。
     let server = Arc::new(server);
-    let supervisor = Arc::new(supervisor);
-    let data_dir = Arc::new(data_dir);
 
     /*
      * 系统 MCP 跟着 devserver 一起起来。
@@ -99,6 +98,20 @@ fn main() {
     {
         Ok(handle) => {
             println!("  系统 MCP：{}", handle.plain_url());
+            /*
+             * **把 MCP 接给工作流里的 AI 节点。**
+             *
+             * 与主管 AI 是两条不同的链路：主管走 `supervisor_ask`
+             * 自己去取，节点走 `Supervisor::with_mcp` → Runner → 会话。
+             * 不接的话节点建会话时发的是空 `mcpServers`，
+             * 能不能用工具全看本机 codex 配置碰巧指对了没有 ——
+             * 而 acp.claude 根本不读那份配置。
+             *
+             * 内置模板里 `release-checklist` / `release-pipeline` 的指令
+             * 明写着让节点用 `run_events` 读上一步的结论。
+             */
+            supervisor = supervisor.with_mcp(&aiwf_core_api::system_mcp_server(&data_dir));
+
             // 已经「一键接入」过的客户端刷新到当前地址。
             // 端口换了或换了工作区的话，那条快照就指错了 ——
             // 而症状是主管 AI 突然一个工具都没有
@@ -113,6 +126,10 @@ fn main() {
         }
         Err(error) => eprintln!("系统 MCP 没起来（主管 AI 将没有工具）：{error}"),
     }
+
+    // MCP 接好之后才包 Arc —— `with_mcp` 要 `self`，包进 Arc 就改不动了
+    let supervisor = Arc::new(supervisor);
+    let data_dir = Arc::new(data_dir);
 
     // 定时触发。只有执行宿主起它 —— 共库的 aiwf-mcp 也起一个的话，
     // 同一个定时任务会跑两遍。绑到一个活到进程结束的变量上：

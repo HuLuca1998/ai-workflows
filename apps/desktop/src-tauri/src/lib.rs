@@ -1006,7 +1006,20 @@ pub fn run() {
                     // AI 节点的实时帧。不接的话，一个跑五分钟的节点在
                     // 运行面板上只有几条工具调用在动，agent 说的话要等
                     // 节点结束才一次性出现
-                    .with_stream(std::sync::Arc::new(WindowChunkSink(app.handle().clone()))),
+                    .with_stream(std::sync::Arc::new(WindowChunkSink(app.handle().clone())))
+                    /*
+                     * **把系统 MCP 接给工作流里的 AI 节点。**
+                     *
+                     * 与主管 AI 是两条不同的链路：主管走 `supervisor_ask`
+                     * 自己去取，节点走 `Supervisor::with_mcp` → Runner → 会话。
+                     * 不接的话节点建会话时发的是空 `mcpServers` ——
+                     * 能不能用工具全看本机 codex 配置碰巧指对了没有，
+                     * 而 acp.claude 根本不读那份配置。
+                     *
+                     * 内置模板里 `release-checklist` / `release-pipeline`
+                     * 的指令明写着让节点用 `run_events` 读上一步的结论。
+                     */
+                    .with_mcp(&aiwf_core_api::system_mcp_server(&data_dir)),
             );
 
             // 定时触发。桌面壳是执行宿主，调度器归它起 ——

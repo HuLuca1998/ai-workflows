@@ -97,6 +97,44 @@ fn 起了_mcp_就要把地址刷新给已接入的客户端() {
 }
 
 #[test]
+fn 起了_mcp_就要把它接给工作流里的_ai_节点() {
+    /*
+     * **主管 AI 有工具，不等于工作流里的 AI 节点有。**
+     *
+     * 那是两条不同的链路：主管走 `supervisor_ask` → `system_mcp_server`，
+     * 节点走 `Supervisor::with_mcp` → `Runner` → `NodeExecutor` → `SessionSpec`。
+     * 后面那条上 `with_mcp` 曾经**一个调用点都没有**，
+     * 于是节点建会话时发的是空的 `mcpServers`。
+     *
+     * 它有时还能用，是沾了 codex 读 `~/.codex/config.toml` 的光 ——
+     * 而 `acp.claude` 不读那份，用户没点过「一键接入」也没有那一条。
+     *
+     * 实测（run_a3f5bdf1cde3c992 的 `write_report`）原话：
+     * 「当前环境没有暴露 `run_events`，MCP 资源列表也是空的」——
+     * 而 `release-checklist` 的指令里明写着让它用 `run_events`
+     * 去读上一步的结论。
+     */
+    let mut 漏了 = Vec::new();
+    for (rel, 名字) in 执行宿主 {
+        let source = 读(rel);
+        if !source.contains("aiwf_mcp::start") {
+            continue;
+        }
+        // **判据带点**：不带的话  的定义与注释里的
+        //  都会命中，守卫在突变下不会红
+        if !source.contains(".with_mcp(") {
+            漏了.push(format!("{名字}（{rel}）"));
+        }
+    }
+    assert!(
+        漏了.is_empty(),
+        "这些宿主起了 MCP 却没接给工作流里的 AI 节点：{漏了:?}。\n\
+         节点建会话时发的是空 mcpServers —— 能不能用工具全看本机 codex 配置\
+         碰巧指对了没有，而 acp.claude 根本不读那份配置"
+    );
+}
+
+#[test]
 fn 这两条守卫自己都会红() {
     // 元测试：假装一个宿主只有 Supervisor 没有 MCP
     let 缺_mcp = "let supervisor = Supervisor::new(path);";
