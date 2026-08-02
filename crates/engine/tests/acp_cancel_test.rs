@@ -81,7 +81,10 @@ fn 取消发出去的那一行不带_id_否则_adapter_按未知方法拒掉() {
         &script.display().to_string(),
         &[],
         &[],
-        std::time::Duration::from_secs(5),
+        // 30 秒是给**握手**的：全量套件并发跑时这个 shell 假 adapter
+        // 起得慢，5 秒会偶发超时。取消本身不等应答，所以放宽它
+        // 不会让这条测试变慢（下一条测的就是这件事）
+        std::time::Duration::from_secs(30),
     )
     .expect("假 adapter 连不上");
 
@@ -216,13 +219,22 @@ fn 一轮正在跑时_另一条线程能把它取消掉() {
     let pool = aiwf_engine::acp::SessionPool::new(std::time::Duration::from_secs(60));
     let pool = std::sync::Arc::new(pool);
 
+    // 取消**发出的那一刻**。判据从这里算起 ——
+    // 从头算的话，测的是「握手 + 启动 + 取消」，而前两项在全量套件
+    // 并发跑时能占好几秒，于是这条测试会偶发红，红的原因还与它要守的事无关
+    let 取消时刻 = std::sync::Arc::new(std::sync::Mutex::new(None::<std::time::Instant>));
     let 取消线程 = {
         let pool = std::sync::Arc::clone(&pool);
+        let 取消时刻 = std::sync::Arc::clone(&取消时刻);
         std::thread::spawn(move || {
-            // 等这一轮真的跑起来（登记完取消句柄）
-            for _ in 0..100 {
-                std::thread::sleep(std::time::Duration::from_millis(20));
+            // 等这一轮真的跑起来（登记完取消句柄）。
+            // 30 秒而不是 2 秒：并发满载时握手本身就要好几秒
+            for _ in 0..600 {
+                std::thread::sleep(std::time::Duration::from_millis(50));
                 if matches!(pool.cancel("k"), Ok(true)) {
+                    if let Ok(mut slot) = 取消时刻.lock() {
+                        *slot = Some(std::time::Instant::now());
+                    }
                     return true;
                 }
             }
@@ -230,7 +242,6 @@ fn 一轮正在跑时_另一条线程能把它取消掉() {
         })
     };
 
-    let 起 = std::time::Instant::now();
     let 结果 = pool.prompt(
         "k",
         || {
@@ -245,18 +256,24 @@ fn 一轮正在跑时_另一条线程能把它取消掉() {
         "说点什么",
         |_| {},
     );
-    let 耗时 = 起.elapsed();
+    let 收尾时刻 = std::time::Instant::now();
 
     assert!(
         取消线程.join().unwrap(),
         "取消线程一次都没找到正在跑的轮次 —— `arm` 没登记"
     );
+    let 取消到收尾 = 收尾时刻
+        - 取消时刻
+            .lock()
+            .unwrap()
+            .expect("上一条断言已经保证取消发出去了");
     // 不取消的话这一轮要说满 60 帧（约 3 秒）才自己收尾。
-    // 取消线程最快在 20ms 就够得着，所以 1.5 秒这条线两边都不贴边
+    // 取消线程每 50ms 探一次，所以它最晚在第 60 帧之前很久就发出去了 ——
+    // 1.5 秒这条线两边都不贴边
     assert!(
-        耗时 < std::time::Duration::from_secs_f64(1.5),
-        "这一轮跑了 {耗时:?} —— 取消没让它提前停，它是自己说完 60 帧收尾的。\
-         症状就是界面显示「已取消」而 agent 照说不误"
+        取消到收尾 < std::time::Duration::from_secs_f64(1.5),
+        "取消发出之后又跑了 {取消到收尾:?} —— 取消没让它提前停，\
+         它是自己说完 60 帧收尾的。症状就是界面显示「已取消」而 agent 照说不误"
     );
     assert!(
         matches!(结果, Ok(outcome) if format!("{outcome:?}").contains("Cancel")),
